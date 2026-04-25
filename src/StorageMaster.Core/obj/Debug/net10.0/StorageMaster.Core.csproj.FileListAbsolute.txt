@@ -1,0 +1,13 @@
+C:\Users\juliu\source\repos\StorageMaster\src\StorageMaster.Core\bin\Debug\net10.0\StorageMaster.Core.deps.json
+C:\Users\juliu\source\repos\StorageMaster\src\StorageMaster.Core\bin\Debug\net10.0\StorageMaster.Core.dll
+C:\Users\juliu\source\repos\StorageMaster\src\StorageMaster.Core\bin\Debug\net10.0\StorageMaster.Core.pdb
+C:\Users\juliu\source\repos\StorageMaster\src\StorageMaster.Core\obj\Debug\net10.0\StorageMaster.Core.csproj.AssemblyReference.cache
+C:\Users\juliu\source\repos\StorageMaster\src\StorageMaster.Core\obj\Debug\net10.0\StorageMaster.Core.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\juliu\source\repos\StorageMaster\src\StorageMaster.Core\obj\Debug\net10.0\StorageMaster.Core.AssemblyInfoInputs.cache
+C:\Users\juliu\source\repos\StorageMaster\src\StorageMaster.Core\obj\Debug\net10.0\StorageMaster.Core.AssemblyInfo.cs
+C:\Users\juliu\source\repos\StorageMaster\src\StorageMaster.Core\obj\Debug\net10.0\StorageMaster.Core.csproj.CoreCompileInputs.cache
+C:\Users\juliu\source\repos\StorageMaster\src\StorageMaster.Core\obj\Debug\net10.0\StorageMaster.Core.sourcelink.json
+C:\Users\juliu\source\repos\StorageMaster\src\StorageMaster.Core\obj\Debug\net10.0\StorageMaster.Core.dll
+C:\Users\juliu\source\repos\StorageMaster\src\StorageMaster.Core\obj\Debug\net10.0\refint\StorageMaster.Core.dll
+C:\Users\juliu\source\repos\StorageMaster\src\StorageMaster.Core\obj\Debug\net10.0\StorageMaster.Core.pdb
+C:\Users\juliu\source\repos\StorageMaster\src\StorageMaster.Core\obj\Debug\net10.0\ref\StorageMaster.Core.dll

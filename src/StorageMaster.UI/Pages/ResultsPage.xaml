@@ -1,0 +1,157 @@
+<Page
+    x:Class="StorageMaster.UI.Pages.ResultsPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:converters="using:StorageMaster.UI.Converters"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d">
+
+    <Page.Resources>
+        <converters:ByteSizeConverter x:Key="ByteSize" />
+        <converters:BoolToVisibilityConverter x:Key="BoolVis" />
+    </Page.Resources>
+
+    <Grid>
+        <!-- Loading overlay -->
+        <ProgressRing IsActive="{x:Bind ViewModel.IsLoading, Mode=OneWay}"
+                      Visibility="{x:Bind ViewModel.IsLoading, Mode=OneWay, Converter={StaticResource BoolVis}}"
+                      HorizontalAlignment="Center" VerticalAlignment="Center" Width="64" Height="64"/>
+
+        <ScrollViewer Padding="32,24">
+            <StackPanel Spacing="24" MaxWidth="1100">
+
+                <TextBlock Text="Results" Style="{StaticResource TitleLargeTextBlockStyle}" />
+
+                <!-- Summary -->
+                <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                        CornerRadius="8" Padding="20">
+                    <Grid ColumnDefinitions="*,*,*,*">
+                        <StackPanel Grid.Column="0">
+                            <TextBlock Text="Scan root" Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.6"/>
+                            <TextBlock Text="{x:Bind ViewModel.ScanRoot, Mode=OneWay}" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"/>
+                        </StackPanel>
+                        <StackPanel Grid.Column="1">
+                            <TextBlock Text="Date" Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.6"/>
+                            <TextBlock Text="{x:Bind ViewModel.ScanDate, Mode=OneWay}"/>
+                        </StackPanel>
+                        <StackPanel Grid.Column="2">
+                            <TextBlock Text="Total size" Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.6"/>
+                            <TextBlock Text="{x:Bind ViewModel.TotalSize, Mode=OneWay}" FontWeight="SemiBold"/>
+                        </StackPanel>
+                        <StackPanel Grid.Column="3">
+                            <TextBlock Text="Files" Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.6"/>
+                            <TextBlock Text="{x:Bind ViewModel.TotalFiles, Mode=OneWay}" FontWeight="SemiBold"/>
+                        </StackPanel>
+                    </Grid>
+                </Border>
+
+                <!-- Filter -->
+                <TextBox PlaceholderText="Filter by path…"
+                         Text="{x:Bind ViewModel.FilterText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                         MaxWidth="400" HorizontalAlignment="Left"/>
+
+                <!-- Pivot for tabs -->
+                <Pivot>
+
+                    <!-- Largest Files -->
+                    <PivotItem Header="Largest Files">
+                        <ListView ItemsSource="{x:Bind ViewModel.LargestFiles}"
+                                  SelectionMode="None" Margin="0,8,0,0">
+                            <ListView.Header>
+                                <Grid ColumnDefinitions="*,120,120,120" Padding="12,4" Opacity="0.6">
+                                    <TextBlock Grid.Column="0" Text="File" />
+                                    <TextBlock Grid.Column="1" Text="Size" HorizontalAlignment="Right"/>
+                                    <TextBlock Grid.Column="2" Text="Modified" HorizontalAlignment="Right"/>
+                                    <TextBlock Grid.Column="3" Text="Type" HorizontalAlignment="Right"/>
+                                </Grid>
+                            </ListView.Header>
+                            <ListView.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid ColumnDefinitions="*,120,120,120" Padding="0,4">
+                                        <StackPanel Grid.Column="0">
+                                            <TextBlock Text="{Binding FileName}" FontWeight="SemiBold"
+                                                       TextTrimming="CharacterEllipsis"/>
+                                            <TextBlock Text="{Binding ParentPath}"
+                                                       Style="{StaticResource CaptionTextBlockStyle}"
+                                                       Opacity="0.6" TextTrimming="CharacterEllipsis"/>
+                                        </StackPanel>
+                                        <TextBlock Grid.Column="1"
+                                                   Text="{Binding SizeBytes, Converter={StaticResource ByteSize}}"
+                                                   HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                                        <TextBlock Grid.Column="2"
+                                                   Text="{Binding ModifiedUtc}"
+                                                   HorizontalAlignment="Right" VerticalAlignment="Center"
+                                                   Style="{StaticResource CaptionTextBlockStyle}"/>
+                                        <TextBlock Grid.Column="3"
+                                                   Text="{Binding Category}"
+                                                   HorizontalAlignment="Right" VerticalAlignment="Center"
+                                                   Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.7"/>
+                                    </Grid>
+                                </DataTemplate>
+                            </ListView.ItemTemplate>
+                        </ListView>
+                    </PivotItem>
+
+                    <!-- Largest Folders -->
+                    <PivotItem Header="Largest Folders">
+                        <ListView ItemsSource="{x:Bind ViewModel.LargestFolders}"
+                                  SelectionMode="None" Margin="0,8,0,0">
+                            <ListView.Header>
+                                <Grid ColumnDefinitions="*,120,100" Padding="12,4" Opacity="0.6">
+                                    <TextBlock Grid.Column="0" Text="Folder" />
+                                    <TextBlock Grid.Column="1" Text="Total Size" HorizontalAlignment="Right"/>
+                                    <TextBlock Grid.Column="2" Text="Files" HorizontalAlignment="Right"/>
+                                </Grid>
+                            </ListView.Header>
+                            <ListView.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid ColumnDefinitions="*,120,100" Padding="0,4">
+                                        <TextBlock Grid.Column="0"
+                                                   Text="{Binding FullPath}"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Grid.Column="1"
+                                                   Text="{Binding TotalSizeBytes, Converter={StaticResource ByteSize}}"
+                                                   HorizontalAlignment="Right" VerticalAlignment="Center"
+                                                   FontWeight="SemiBold"/>
+                                        <TextBlock Grid.Column="2"
+                                                   Text="{Binding FileCount}"
+                                                   HorizontalAlignment="Right" VerticalAlignment="Center"
+                                                   Style="{StaticResource CaptionTextBlockStyle}"/>
+                                    </Grid>
+                                </DataTemplate>
+                            </ListView.ItemTemplate>
+                        </ListView>
+                    </PivotItem>
+
+                    <!-- File Types -->
+                    <PivotItem Header="File Types">
+                        <ListView ItemsSource="{x:Bind ViewModel.CategoryBreakdown}"
+                                  SelectionMode="None" Margin="0,8,0,0">
+                            <ListView.Header>
+                                <Grid ColumnDefinitions="*,120,80" Padding="12,4" Opacity="0.6">
+                                    <TextBlock Grid.Column="0" Text="Category" />
+                                    <TextBlock Grid.Column="1" Text="Total Size" HorizontalAlignment="Right"/>
+                                    <TextBlock Grid.Column="2" Text="Files" HorizontalAlignment="Right"/>
+                                </Grid>
+                            </ListView.Header>
+                            <ListView.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid ColumnDefinitions="*,120,80" Padding="0,4">
+                                        <TextBlock Grid.Column="0" Text="{Binding Category}" FontWeight="SemiBold"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding TotalSize}"
+                                                   HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                                        <TextBlock Grid.Column="2" Text="{Binding FileCount}"
+                                                   HorizontalAlignment="Right" VerticalAlignment="Center"
+                                                   Style="{StaticResource CaptionTextBlockStyle}"/>
+                                    </Grid>
+                                </DataTemplate>
+                            </ListView.ItemTemplate>
+                        </ListView>
+                    </PivotItem>
+
+                </Pivot>
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
+</Page>

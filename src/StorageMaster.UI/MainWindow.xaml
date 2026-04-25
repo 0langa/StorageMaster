@@ -1,0 +1,26 @@
+<Window
+    x:Class="StorageMaster.UI.MainWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d"
+    Title="StorageMaster">
+
+    <NavigationView
+        x:Name="NavView"
+        PaneDisplayMode="Left"
+        IsBackButtonVisible="Collapsed"
+        IsSettingsVisible="True"
+        SelectionChanged="NavView_SelectionChanged">
+
+        <NavigationView.MenuItems>
+            <NavigationViewItem Tag="Dashboard" Icon="Home"     Content="Dashboard" />
+            <NavigationViewItem Tag="Scan"      Icon="Find"     Content="Scan" />
+            <NavigationViewItem Tag="Results"   Icon="List"     Content="Results" />
+            <NavigationViewItem Tag="Cleanup"   Icon="Delete"   Content="Cleanup" />
+        </NavigationView.MenuItems>
+
+        <Frame x:Name="ContentFrame" />
+    </NavigationView>
+</Window>

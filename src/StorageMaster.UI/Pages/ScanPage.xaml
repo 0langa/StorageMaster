@@ -1,0 +1,114 @@
+<Page
+    x:Class="StorageMaster.UI.Pages.ScanPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:converters="using:StorageMaster.UI.Converters"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d">
+
+    <Page.Resources>
+        <converters:BoolToVisibilityConverter x:Key="BoolVis" />
+        <converters:BoolToVisibilityConverter x:Key="InvBoolVis" Invert="True" />
+    </Page.Resources>
+
+    <ScrollViewer Padding="32,24">
+        <StackPanel Spacing="20" MaxWidth="700">
+
+            <TextBlock Text="Scan" Style="{StaticResource TitleLargeTextBlockStyle}" />
+
+            <!-- Path picker -->
+            <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    CornerRadius="8" Padding="20">
+                <StackPanel Spacing="12">
+                    <TextBlock Text="Select path to scan"
+                               Style="{StaticResource BodyStrongTextBlockStyle}" />
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                        <TextBox Grid.Column="0"
+                                 PlaceholderText="e.g. C:\ or C:\Users"
+                                 Text="{x:Bind ViewModel.SelectedPath, Mode=TwoWay}"
+                                 IsEnabled="{x:Bind ViewModel.IsScanning, Mode=OneWay, Converter={StaticResource InvBoolVis}}" />
+                        <Button Grid.Column="1" Content="Browse…"
+                                IsEnabled="{x:Bind ViewModel.IsScanning, Mode=OneWay, Converter={StaticResource InvBoolVis}}"
+                                Click="BrowseButton_Click" />
+                    </Grid>
+
+                    <!-- Quick drive buttons -->
+                    <ItemsControl ItemsSource="{x:Bind ViewModel.AvailableDrives, Mode=OneWay}">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <StackPanel Orientation="Horizontal" Spacing="8"/>
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Button Content="{Binding Name}"
+                                        Click="DriveButton_Click"
+                                        Tag="{Binding Name}" />
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
+            </Border>
+
+            <!-- Controls -->
+            <StackPanel Orientation="Horizontal" Spacing="12">
+                <Button Content="Start Scan"
+                        Style="{StaticResource AccentButtonStyle}"
+                        Command="{x:Bind ViewModel.StartScanCommand}"
+                        IsEnabled="{x:Bind ViewModel.IsScanning, Mode=OneWay, Converter={StaticResource InvBoolVis}}" />
+                <Button Content="Cancel"
+                        Command="{x:Bind ViewModel.CancelScanCommand}"
+                        Visibility="{x:Bind ViewModel.IsScanning, Mode=OneWay, Converter={StaticResource BoolVis}}" />
+                <Button Content="View Results"
+                        Command="{x:Bind ViewModel.ViewResultsCommand}"
+                        Visibility="{x:Bind ViewModel.ScanComplete, Mode=OneWay, Converter={StaticResource BoolVis}}" />
+            </StackPanel>
+
+            <!-- Progress -->
+            <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    CornerRadius="8" Padding="20"
+                    Visibility="{x:Bind ViewModel.IsScanning, Mode=OneWay, Converter={StaticResource BoolVis}}">
+                <StackPanel Spacing="10">
+                    <TextBlock Text="{x:Bind ViewModel.ProgressText, Mode=OneWay}"
+                               Style="{StaticResource BodyStrongTextBlockStyle}" />
+                    <ProgressBar Value="{x:Bind ViewModel.ProgressValue, Mode=OneWay}"
+                                 Maximum="100" Height="8" />
+                    <TextBlock Text="{x:Bind ViewModel.CurrentFile, Mode=OneWay}"
+                               Style="{StaticResource CaptionTextBlockStyle}"
+                               Opacity="0.7" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"/>
+                    <Grid ColumnDefinitions="*,*,*" Margin="0,8,0,0">
+                        <StackPanel Grid.Column="0">
+                            <TextBlock Text="Files" Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.6"/>
+                            <TextBlock Text="{x:Bind ViewModel.FilesScanned, Mode=OneWay}"
+                                       Style="{StaticResource BodyStrongTextBlockStyle}" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="1">
+                            <TextBlock Text="Folders" Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.6"/>
+                            <TextBlock Text="{x:Bind ViewModel.FoldersScanned, Mode=OneWay}"
+                                       Style="{StaticResource BodyStrongTextBlockStyle}" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="2">
+                            <TextBlock Text="Size" Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.6"/>
+                            <TextBlock Text="{x:Bind ViewModel.BytesScanned, Mode=OneWay}"
+                                       Style="{StaticResource BodyStrongTextBlockStyle}" />
+                        </StackPanel>
+                    </Grid>
+                </StackPanel>
+            </Border>
+
+            <!-- Completion status -->
+            <InfoBar IsOpen="True" Severity="Success"
+                     Title="Scan complete"
+                     Message="{x:Bind ViewModel.ProgressText, Mode=OneWay}"
+                     Visibility="{x:Bind ViewModel.ScanComplete, Mode=OneWay, Converter={StaticResource BoolVis}}" />
+
+            <!-- Error -->
+            <InfoBar IsOpen="True" Severity="Error"
+                     Title="Scan failed"
+                     Message="{x:Bind ViewModel.ErrorMessage, Mode=OneWay}"
+                     Visibility="{x:Bind ViewModel.HasError, Mode=OneWay, Converter={StaticResource BoolVis}}" />
+
+        </StackPanel>
+    </ScrollViewer>
+</Page>

@@ -1,0 +1,13 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/StorageMaster.Core/StorageMaster.Core.csproj" />
+    <Project Path="src/StorageMaster.Platform.Windows/StorageMaster.Platform.Windows.csproj" />
+    <Project Path="src/StorageMaster.Storage/StorageMaster.Storage.csproj" />
+    <Project Path="src/StorageMaster.UI/StorageMaster.UI.csproj">
+      <Platform Project="x86" />
+    </Project>
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/StorageMaster.Tests/StorageMaster.Tests.csproj" />
+  </Folder>
+</Solution>

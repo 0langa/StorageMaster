@@ -1,0 +1,100 @@
+<Page
+    x:Class="StorageMaster.UI.Pages.SettingsPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:converters="using:StorageMaster.UI.Converters"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d">
+
+    <Page.Resources>
+        <converters:BoolToVisibilityConverter x:Key="BoolVis" />
+    </Page.Resources>
+
+    <ScrollViewer Padding="32,24">
+        <StackPanel Spacing="24" MaxWidth="600">
+
+            <TextBlock Text="Settings" Style="{StaticResource TitleLargeTextBlockStyle}" />
+
+            <!-- Deletion behaviour -->
+            <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    CornerRadius="8" Padding="20">
+                <StackPanel Spacing="14">
+                    <TextBlock Text="Deletion Behaviour" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                    <ToggleSwitch Header="Send to Recycle Bin (recommended)"
+                                  IsOn="{x:Bind ViewModel.PreferRecycleBin, Mode=TwoWay}" />
+                    <ToggleSwitch Header="Dry-run mode by default (preview without deleting)"
+                                  IsOn="{x:Bind ViewModel.DryRunByDefault, Mode=TwoWay}" />
+                </StackPanel>
+            </Border>
+
+            <!-- Large / old files thresholds -->
+            <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    CornerRadius="8" Padding="20">
+                <StackPanel Spacing="14">
+                    <TextBlock Text="Large &amp; Old File Thresholds" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                    <StackPanel>
+                        <TextBlock Text="{x:Bind ViewModel.LargeFileSizeMb, Mode=OneWay, ConverterParameter='Large file threshold: {0} MB'}"
+                                   Style="{StaticResource CaptionTextBlockStyle}" Margin="0,0,0,4"/>
+                        <Slider Minimum="50" Maximum="5000" StepFrequency="50"
+                                Value="{x:Bind ViewModel.LargeFileSizeMb, Mode=TwoWay}" />
+                    </StackPanel>
+                    <StackPanel>
+                        <TextBlock Text="{x:Bind ViewModel.OldFileAgeDays, Mode=OneWay, ConverterParameter='Old file threshold: {0} days'}"
+                                   Style="{StaticResource CaptionTextBlockStyle}" Margin="0,0,0,4"/>
+                        <Slider Minimum="30" Maximum="3650" StepFrequency="30"
+                                Value="{x:Bind ViewModel.OldFileAgeDays, Mode=TwoWay}" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <!-- Scan options -->
+            <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    CornerRadius="8" Padding="20">
+                <StackPanel Spacing="14">
+                    <TextBlock Text="Scan Options" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                    <StackPanel>
+                        <TextBlock Text="Default scan path" Style="{StaticResource CaptionTextBlockStyle}" Margin="0,0,0,4"/>
+                        <TextBox Text="{x:Bind ViewModel.DefaultScanPath, Mode=TwoWay}" />
+                    </StackPanel>
+                    <StackPanel>
+                        <TextBlock Text="{x:Bind ViewModel.ScanParallelism, Mode=OneWay, ConverterParameter='Parallelism: {0} threads'}"
+                                   Style="{StaticResource CaptionTextBlockStyle}" Margin="0,0,0,4"/>
+                        <Slider Minimum="1" Maximum="16" StepFrequency="1"
+                                Value="{x:Bind ViewModel.ScanParallelism, Mode=TwoWay}" />
+                    </StackPanel>
+                    <ToggleSwitch Header="Show hidden files in results"
+                                  IsOn="{x:Bind ViewModel.ShowHiddenFiles, Mode=TwoWay}" />
+                    <ToggleSwitch Header="Skip system folders"
+                                  IsOn="{x:Bind ViewModel.SkipSystemFolders, Mode=TwoWay}" />
+                </StackPanel>
+            </Border>
+
+            <!-- Action buttons -->
+            <StackPanel Orientation="Horizontal" Spacing="12">
+                <Button Content="Save Settings"
+                        Style="{StaticResource AccentButtonStyle}"
+                        Command="{x:Bind ViewModel.SaveCommand}" />
+                <Button Content="Reset to Defaults"
+                        Command="{x:Bind ViewModel.ResetToDefaultsCommand}" />
+            </StackPanel>
+
+            <!-- Feedback -->
+            <TextBlock Text="{x:Bind ViewModel.SavedMessage, Mode=OneWay}"
+                       Foreground="{ThemeResource SystemFillColorSuccessBrush}"
+                       Visibility="{x:Bind ViewModel.SavedMessage.Length, Mode=OneWay, Converter={StaticResource BoolVis}}" />
+
+            <!-- About -->
+            <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    CornerRadius="8" Padding="20">
+                <StackPanel Spacing="4">
+                    <TextBlock Text="StorageMaster" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                    <TextBlock Text="Version 1.0.0" Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.7"/>
+                    <TextBlock Text="A professional Windows disk analyser and cleaner."
+                               Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.7"/>
+                </StackPanel>
+            </Border>
+
+        </StackPanel>
+    </ScrollViewer>
+</Page>

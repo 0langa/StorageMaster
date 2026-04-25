@@ -1,0 +1,137 @@
+<Page
+    x:Class="StorageMaster.UI.Pages.CleanupPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:converters="using:StorageMaster.UI.Converters"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d">
+
+    <Page.Resources>
+        <converters:BoolToVisibilityConverter x:Key="BoolVis" />
+        <converters:BoolToVisibilityConverter x:Key="InvBoolVis" Invert="True" />
+    </Page.Resources>
+
+    <ScrollViewer Padding="32,24">
+        <StackPanel Spacing="20" MaxWidth="900">
+
+            <TextBlock Text="Cleanup" Style="{StaticResource TitleLargeTextBlockStyle}" />
+
+            <!-- Session selector and analyse -->
+            <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    CornerRadius="8" Padding="20">
+                <StackPanel Spacing="12">
+                    <TextBlock Text="Select scan session" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                    <ComboBox ItemsSource="{x:Bind ViewModel.RecentSessions}"
+                              SelectedItem="{x:Bind ViewModel.SelectedSessionId, Mode=TwoWay}"
+                              HorizontalAlignment="Stretch">
+                        <ComboBox.ItemTemplate>
+                            <DataTemplate>
+                                <TextBlock>
+                                    <Run Text="{Binding RootPath}"/>
+                                    <Run Text=" — "/>
+                                    <Run Text="{Binding StartedUtc}"/>
+                                </TextBlock>
+                            </DataTemplate>
+                        </ComboBox.ItemTemplate>
+                    </ComboBox>
+                    <Button Content="Analyse for Cleanup Opportunities"
+                            Style="{StaticResource AccentButtonStyle}"
+                            Command="{x:Bind ViewModel.AnalyseCommand}"
+                            IsEnabled="{x:Bind ViewModel.IsLoading, Mode=OneWay, Converter={StaticResource InvBoolVis}}" />
+                </StackPanel>
+            </Border>
+
+            <!-- Status -->
+            <TextBlock Text="{x:Bind ViewModel.StatusMessage, Mode=OneWay}"
+                       Style="{StaticResource BodyTextBlockStyle}" Opacity="0.8"/>
+
+            <!-- Loading -->
+            <ProgressRing IsActive="{x:Bind ViewModel.IsLoading, Mode=OneWay}"
+                          Visibility="{x:Bind ViewModel.IsLoading, Mode=OneWay, Converter={StaticResource BoolVis}}"
+                          Width="36" Height="36" HorizontalAlignment="Left" />
+
+            <!-- Suggestions list -->
+            <StackPanel Visibility="{x:Bind ViewModel.HasResults, Mode=OneWay, Converter={StaticResource BoolVis}}"
+                        Spacing="12">
+
+                <TextBlock Text="Suggestions" Style="{StaticResource SubtitleTextBlockStyle}" />
+
+                <ListView ItemsSource="{x:Bind ViewModel.Suggestions}" SelectionMode="None">
+                    <ListView.ItemTemplate>
+                        <DataTemplate>
+                            <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                    CornerRadius="8" Padding="16,12" Margin="0,2">
+                                <Grid ColumnDefinitions="Auto,*,120,80,80">
+                                    <CheckBox Grid.Column="0"
+                                              IsChecked="{Binding IsSelected, Mode=TwoWay}"
+                                              VerticalAlignment="Center" Margin="0,0,12,0"/>
+                                    <StackPanel Grid.Column="1">
+                                        <TextBlock Text="{Binding Suggestion.Title}" FontWeight="SemiBold"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Text="{Binding Suggestion.Description}"
+                                                   Style="{StaticResource CaptionTextBlockStyle}"
+                                                   Opacity="0.7" TextWrapping="Wrap" MaxLines="2"/>
+                                    </StackPanel>
+                                    <TextBlock Grid.Column="2" Text="{Binding SizeDisplay}"
+                                               HorizontalAlignment="Right" VerticalAlignment="Center"
+                                               FontWeight="SemiBold"/>
+                                    <TextBlock Grid.Column="3" Text="{Binding CategoryDisplay}"
+                                               HorizontalAlignment="Center" VerticalAlignment="Center"
+                                               Style="{StaticResource CaptionTextBlockStyle}"/>
+                                    <Border Grid.Column="4" CornerRadius="4" Padding="6,2"
+                                            VerticalAlignment="Center">
+                                        <TextBlock Text="{Binding RiskDisplay}"
+                                                   Style="{StaticResource CaptionTextBlockStyle}"
+                                                   HorizontalAlignment="Center"/>
+                                    </Border>
+                                </Grid>
+                            </Border>
+                        </DataTemplate>
+                    </ListView.ItemTemplate>
+                </ListView>
+
+                <!-- Execute bar -->
+                <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                        CornerRadius="8" Padding="16,12">
+                    <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="12">
+                        <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="16">
+                            <TextBlock VerticalAlignment="Center">
+                                <Run Text="Selected: "/>
+                                <Run Text="{x:Bind ViewModel.TotalSelectedSize, Mode=OneWay}" FontWeight="SemiBold"/>
+                            </TextBlock>
+                            <CheckBox Content="Dry run (preview only)"
+                                      IsChecked="{x:Bind ViewModel.IsDryRun, Mode=TwoWay}" />
+                        </StackPanel>
+                        <Button Grid.Column="2"
+                                Content="Clean Up Selected…"
+                                Style="{StaticResource AccentButtonStyle}"
+                                IsEnabled="{x:Bind ViewModel.IsExecuting, Mode=OneWay, Converter={StaticResource InvBoolVis}}"
+                                Click="ExecuteButton_Click"/>
+                    </Grid>
+                </Border>
+
+                <!-- Execution results -->
+                <StackPanel Visibility="{x:Bind ViewModel.ExecutionResults.Count, Mode=OneWay}"
+                            Spacing="8">
+                    <TextBlock Text="Execution Results" Style="{StaticResource SubtitleTextBlockStyle}" />
+                    <ListView ItemsSource="{x:Bind ViewModel.ExecutionResults}" SelectionMode="None">
+                        <ListView.ItemTemplate>
+                            <DataTemplate>
+                                <Grid ColumnDefinitions="*,100,100" Padding="4">
+                                    <TextBlock Grid.Column="0" Text="{Binding Title}" TextTrimming="CharacterEllipsis"/>
+                                    <TextBlock Grid.Column="1" Text="{Binding Status}"
+                                               HorizontalAlignment="Center" Style="{StaticResource CaptionTextBlockStyle}"/>
+                                    <TextBlock Grid.Column="2" Text="{Binding BytesFreed}"
+                                               HorizontalAlignment="Right" FontWeight="SemiBold"/>
+                                </Grid>
+                            </DataTemplate>
+                        </ListView.ItemTemplate>
+                    </ListView>
+                </StackPanel>
+
+            </StackPanel>
+
+        </StackPanel>
+    </ScrollViewer>
+</Page>

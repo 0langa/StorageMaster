@@ -1,0 +1,16 @@
+C:\Users\juliu\source\repos\StorageMaster\src\StorageMaster.Platform.Windows\bin\Debug\net10.0-windows10.0.19041.0\StorageMaster.Platform.Windows.deps.json
+C:\Users\juliu\source\repos\StorageMaster\src\StorageMaster.Platform.Windows\bin\Debug\net10.0-windows10.0.19041.0\StorageMaster.Platform.Windows.dll
+C:\Users\juliu\source\repos\StorageMaster\src\StorageMaster.Platform.Windows\bin\Debug\net10.0-windows10.0.19041.0\StorageMaster.Platform.Windows.pdb
+C:\Users\juliu\source\repos\StorageMaster\src\StorageMaster.Platform.Windows\bin\Debug\net10.0-windows10.0.19041.0\StorageMaster.Core.dll
+C:\Users\juliu\source\repos\StorageMaster\src\StorageMaster.Platform.Windows\bin\Debug\net10.0-windows10.0.19041.0\StorageMaster.Core.pdb
+C:\Users\juliu\source\repos\StorageMaster\src\StorageMaster.Platform.Windows\obj\Debug\net10.0-windows10.0.19041.0\StorageMaster.Platform.Windows.csproj.AssemblyReference.cache
+C:\Users\juliu\source\repos\StorageMaster\src\StorageMaster.Platform.Windows\obj\Debug\net10.0-windows10.0.19041.0\StorageMaster.Platform.Windows.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\juliu\source\repos\StorageMaster\src\StorageMaster.Platform.Windows\obj\Debug\net10.0-windows10.0.19041.0\StorageMaster.Platform.Windows.AssemblyInfoInputs.cache
+C:\Users\juliu\source\repos\StorageMaster\src\StorageMaster.Platform.Windows\obj\Debug\net10.0-windows10.0.19041.0\StorageMaster.Platform.Windows.AssemblyInfo.cs
+C:\Users\juliu\source\repos\StorageMaster\src\StorageMaster.Platform.Windows\obj\Debug\net10.0-windows10.0.19041.0\StorageMaster.Platform.Windows.csproj.CoreCompileInputs.cache
+C:\Users\juliu\source\repos\StorageMaster\src\StorageMaster.Platform.Windows\obj\Debug\net10.0-windows10.0.19041.0\StorageMaster.Platform.Windows.sourcelink.json
+C:\Users\juliu\source\repos\StorageMaster\src\StorageMaster.Platform.Windows\obj\Debug\net10.0-windows10.0.19041.0\StorageM.ED0B6F9E.Up2Date
+C:\Users\juliu\source\repos\StorageMaster\src\StorageMaster.Platform.Windows\obj\Debug\net10.0-windows10.0.19041.0\StorageMaster.Platform.Windows.dll
+C:\Users\juliu\source\repos\StorageMaster\src\StorageMaster.Platform.Windows\obj\Debug\net10.0-windows10.0.19041.0\refint\StorageMaster.Platform.Windows.dll
+C:\Users\juliu\source\repos\StorageMaster\src\StorageMaster.Platform.Windows\obj\Debug\net10.0-windows10.0.19041.0\StorageMaster.Platform.Windows.pdb
+C:\Users\juliu\source\repos\StorageMaster\src\StorageMaster.Platform.Windows\obj\Debug\net10.0-windows10.0.19041.0\ref\StorageMaster.Platform.Windows.dll

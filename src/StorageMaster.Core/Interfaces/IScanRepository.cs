@@ -24,4 +24,10 @@ public interface IScanRepository
         long sessionId, CancellationToken ct = default);
 
     Task DeleteSessionAsync(long sessionId, CancellationToken ct = default);
+
+    /// <summary>Returns all folder paths and direct sizes for a session (used by aggregator).</summary>
+    Task<IReadOnlyList<FolderEntry>> GetAllFolderPathsForSessionAsync(long sessionId, CancellationToken ct = default);
+
+    /// <summary>Batch-updates TotalSizeBytes for every folder path in the dictionary.</summary>
+    Task UpdateFolderTotalsAsync(long sessionId, IReadOnlyDictionary<string, long> pathToTotal, CancellationToken ct = default);
 }

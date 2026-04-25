@@ -12,6 +12,7 @@ public sealed partial class ScanViewModel : ObservableObject
     private readonly IFileScanner       _scanner;
     private readonly IDriveInfoProvider _drives;
     private readonly INavigationService _nav;
+    private readonly IAdminService      _admin;
 
     private CancellationTokenSource? _cts;
 
@@ -28,26 +29,45 @@ public sealed partial class ScanViewModel : ObservableObject
     [ObservableProperty] private string  _errorMessage         = string.Empty;
     [ObservableProperty] private bool    _hasError;
     [ObservableProperty] private IReadOnlyList<DriveDetail> _availableDrives = [];
+    [ObservableProperty] private bool    _deepScan;
+
+    /// <summary>True when the process already holds administrator privileges.</summary>
+    public bool IsRunningAsAdmin => _admin.IsRunningAsAdmin;
+
+    /// <summary>
+    /// True when deep scan is on but we are NOT running as admin —
+    /// the user should be prompted to elevate.
+    /// </summary>
+    public bool NeedsElevation => DeepScan && !IsRunningAsAdmin;
+
+    partial void OnDeepScanChanged(bool value) => OnPropertyChanged(nameof(NeedsElevation));
 
     private long _lastSessionId;
 
     public ScanViewModel(
         IFileScanner       scanner,
         IDriveInfoProvider drives,
-        INavigationService nav)
+        INavigationService nav,
+        IAdminService      admin)
     {
         _scanner = scanner;
         _drives  = drives;
         _nav     = nav;
+        _admin   = admin;
     }
 
-    public void Initialize()
+    public void Initialize(bool autoEnableDeepScan = false)
     {
         AvailableDrives = _drives.GetAvailableDrives();
         ScanComplete    = false;
         HasError        = false;
         ErrorMessage    = string.Empty;
+        if (autoEnableDeepScan)
+            DeepScan = true;
     }
+
+    [RelayCommand]
+    private void RequestElevation() => _admin.RestartAsAdmin(enableDeepScan: true);
 
     [RelayCommand]
     private async Task StartScanAsync()
@@ -72,6 +92,9 @@ public sealed partial class ScanViewModel : ObservableObject
             MaxParallelism = 4,
             DbBatchSize    = 500,
             FollowSymlinks = false,
+            DeepScan       = DeepScan,
+            // In deep scan mode, bypass the default exclusion list.
+            ExcludedPaths  = DeepScan ? [] : ScanOptions.DefaultExcludedPaths,
         };
 
         var progress = new Progress<ScanProgress>(OnProgress);

@@ -1,3 +1,4 @@
+using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using StorageMaster.Core.Interfaces;
@@ -19,6 +20,8 @@ public sealed partial class SettingsViewModel : ObservableObject
     [ObservableProperty] private bool   _skipSystemFolders = true;
     [ObservableProperty] private string _savedMessage      = string.Empty;
 
+    public ObservableCollection<string> ExcludedPaths { get; } = [];
+
     public SettingsViewModel(ISettingsRepository repo) => _repo = repo;
 
     public async Task LoadAsync()
@@ -32,7 +35,20 @@ public sealed partial class SettingsViewModel : ObservableObject
         ScanParallelism   = s.ScanParallelism;
         ShowHiddenFiles   = s.ShowHiddenFiles;
         SkipSystemFolders = s.SkipSystemFolders;
+
+        ExcludedPaths.Clear();
+        foreach (var p in s.ExcludedPaths)
+            ExcludedPaths.Add(p);
     }
+
+    public void AddExcludedPath(string path)
+    {
+        if (!string.IsNullOrWhiteSpace(path) && !ExcludedPaths.Contains(path, StringComparer.OrdinalIgnoreCase))
+            ExcludedPaths.Add(path);
+    }
+
+    [RelayCommand]
+    private void RemoveExcludedPath(string path) => ExcludedPaths.Remove(path);
 
     [RelayCommand]
     private async Task SaveAsync()
@@ -47,6 +63,7 @@ public sealed partial class SettingsViewModel : ObservableObject
             ScanParallelism   = ScanParallelism,
             ShowHiddenFiles   = ShowHiddenFiles,
             SkipSystemFolders = SkipSystemFolders,
+            ExcludedPaths     = ExcludedPaths.ToList(),
         };
         await _repo.SaveAsync(settings);
         SavedMessage = "Settings saved.";

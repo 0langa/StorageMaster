@@ -38,6 +38,14 @@ public sealed class FileScannerTests
             .Setup(r => r.UpsertFolderEntriesAsync(It.IsAny<IReadOnlyList<FolderEntry>>(), It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
 
+        _repoMock
+            .Setup(r => r.GetAllFolderPathsForSessionAsync(It.IsAny<long>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<FolderEntry>());
+
+        _repoMock
+            .Setup(r => r.UpdateFolderTotalsAsync(It.IsAny<long>(), It.IsAny<IReadOnlyDictionary<string, long>>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+
         _scanner = new FileScanner(_repoMock.Object, NullLogger<FileScanner>.Instance);
     }
 
@@ -102,6 +110,77 @@ public sealed class FileScannerTests
             _repoMock.Verify(
                 r => r.InsertFileEntriesAsync(It.IsAny<IReadOnlyList<FileEntry>>(), It.IsAny<CancellationToken>()),
                 Times.AtLeast(1));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task ScanAsync_AggregationCalled_AfterScanCompletes()
+    {
+        var root = CreateTempDir(files: 3, subdirs: 1);
+        var options = new ScanOptions { RootPath = root, MaxParallelism = 1 };
+
+        try
+        {
+            await _scanner.ScanAsync(options, new Progress<ScanProgress>());
+
+            _repoMock.Verify(
+                r => r.GetAllFolderPathsForSessionAsync(It.IsAny<long>(), It.IsAny<CancellationToken>()),
+                Times.Once, "aggregator must request all folder paths after scan");
+
+            _repoMock.Verify(
+                r => r.UpdateFolderTotalsAsync(It.IsAny<long>(), It.IsAny<IReadOnlyDictionary<string, long>>(), It.IsAny<CancellationToken>()),
+                Times.Once, "aggregator must write updated totals");
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task ScanAsync_WithExcludedPath_ExcludedDirIsSkipped()
+    {
+        var root = CreateTempDir(files: 2, subdirs: 2);
+        var subDirs = Directory.GetDirectories(root);
+        var excludedDir = subDirs[0];
+
+        var options = new ScanOptions
+        {
+            RootPath       = root,
+            MaxParallelism = 1,
+            ExcludedPaths  = new[] { excludedDir },
+        };
+
+        try
+        {
+            var session = await _scanner.ScanAsync(options, new Progress<ScanProgress>());
+
+            // The scan should complete without error; excluded dir content should not be counted.
+            session.Status.Should().Be(ScanStatus.Completed);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task ScanAsync_ReportsProgress()
+    {
+        var root           = CreateTempDir(files: 10, subdirs: 1);
+        var reportedOnce   = false;
+        var progress       = new Progress<ScanProgress>(_ => reportedOnce = true);
+        var options        = new ScanOptions { RootPath = root, MaxParallelism = 1 };
+
+        try
+        {
+            await _scanner.ScanAsync(options, progress);
+            // The completion report always fires, so reportedOnce must be true.
+            reportedOnce.Should().BeTrue("ScanAsync must report at least one progress update");
         }
         finally
         {

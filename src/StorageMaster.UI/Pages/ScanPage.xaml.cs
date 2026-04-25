@@ -19,7 +19,7 @@ public sealed partial class ScanPage : Page
     protected override void OnNavigatedTo(NavigationEventArgs e)
     {
         base.OnNavigatedTo(e);
-        ViewModel.Initialize();
+        ViewModel.Initialize(autoEnableDeepScan: App.StartWithDeepScan);
     }
 
     private async void BrowseButton_Click(object sender, Microsoft.UI.Xaml.RoutedEventArgs e)

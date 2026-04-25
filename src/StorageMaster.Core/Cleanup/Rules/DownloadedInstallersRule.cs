@@ -11,6 +11,7 @@ namespace StorageMaster.Core.Cleanup.Rules;
 public sealed class DownloadedInstallersRule : ICleanupRule
 {
     private readonly IScanRepository _repo;
+    private readonly Func<string> _getDownloadsPath;
 
     public string RuleId      => "core.downloaded-installers";
     public string DisplayName => "Downloaded Installers";
@@ -23,14 +24,18 @@ public sealed class DownloadedInstallersRule : ICleanupRule
             ".pkg", ".dmg", ".iso", ".img",
         };
 
-    public DownloadedInstallersRule(IScanRepository repo) => _repo = repo;
+    public DownloadedInstallersRule(IScanRepository repo, Func<string> getDownloadsPath)
+    {
+        _repo = repo;
+        _getDownloadsPath = getDownloadsPath;
+    }
 
     public async IAsyncEnumerable<CleanupSuggestion> AnalyzeAsync(
         long              sessionId,
         AppSettings       settings,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
-        var downloadsPath = GetDownloadsPath();
+        var downloadsPath = _getDownloadsPath();
         var files = await _repo.GetLargestFilesAsync(sessionId, topN: 50_000, cancellationToken);
 
         var installers = files
@@ -57,14 +62,6 @@ public sealed class DownloadedInstallersRule : ICleanupRule
             TargetPaths    = installers.Select(f => f.FullPath).ToList(),
             IsSystemPath   = false,
         };
-    }
-
-    private static string GetDownloadsPath()
-    {
-        // SHGetKnownFolderPath for FOLDERID_Downloads is the correct approach;
-        // using the user profile fallback for now (works on all Windows versions).
-        var profile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        return Path.Combine(profile, "Downloads");
     }
 
     private static string FormatBytes(long bytes) =>

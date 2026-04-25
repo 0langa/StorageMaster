@@ -7,7 +7,7 @@ namespace StorageMaster.Storage.Schema;
 /// </summary>
 internal static class DatabaseSchema
 {
-    internal const int CurrentVersion = 1;
+    internal const int CurrentVersion = 2;
 
     /// <summary>SQL executed once at version 1 creation.</summary>
     internal static readonly string[] V1Statements =
@@ -93,5 +93,22 @@ internal static class DatabaseSchema
             Value TEXT NOT NULL
         );
         """,
+    ];
+
+    /// <summary>SQL executed once at version 2: scan error logging.</summary>
+    internal static readonly string[] V2Statements =
+    [
+        """
+        CREATE TABLE IF NOT EXISTS ScanErrors (
+            Id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            SessionId   INTEGER NOT NULL REFERENCES ScanSessions(Id) ON DELETE CASCADE,
+            Path        TEXT    NOT NULL,
+            ErrorType   TEXT    NOT NULL,
+            Message     TEXT    NOT NULL,
+            OccurredAt  TEXT    NOT NULL
+        );
+        """,
+
+        "CREATE INDEX IF NOT EXISTS IX_ScanErrors_SessionId ON ScanErrors (SessionId);",
     ];
 }

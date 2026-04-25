@@ -51,6 +51,44 @@
                 </StackPanel>
             </Border>
 
+            <!-- Deep scan -->
+            <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    CornerRadius="8" Padding="20">
+                <StackPanel Spacing="12">
+                    <ToggleSwitch Header="Deep Scan"
+                                  IsOn="{x:Bind ViewModel.DeepScan, Mode=TwoWay}"
+                                  IsEnabled="{x:Bind ViewModel.IsScanning, Mode=OneWay, Converter={StaticResource InvBoolVis}}" />
+                    <TextBlock Text="Includes hidden files, system files, and protected directories that are skipped in a normal scan. For complete coverage, run as Administrator."
+                               Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.7"
+                               TextWrapping="Wrap" />
+
+                    <!-- Admin status banner (only shown when deep scan is on) -->
+                    <InfoBar IsOpen="True" Severity="Success"
+                             Title="Running as Administrator"
+                             Message="All files and system folders are accessible."
+                             Visibility="{x:Bind ViewModel.IsRunningAsAdmin, Mode=OneWay, Converter={StaticResource BoolVis}}" />
+
+                    <!-- Elevation prompt (deep scan on, not yet admin) -->
+                    <Border Background="{ThemeResource SystemFillColorCautionBackgroundBrush}"
+                            CornerRadius="6" Padding="14,10"
+                            Visibility="{x:Bind ViewModel.NeedsElevation, Mode=OneWay, Converter={StaticResource BoolVis}}">
+                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                            <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                                <TextBlock Text="Administrator privileges recommended"
+                                           Style="{StaticResource BodyStrongTextBlockStyle}" />
+                                <TextBlock Text="Without admin rights, access-denied errors will be recorded for protected system folders. Click the button to relaunch with full privileges."
+                                           Style="{StaticResource CaptionTextBlockStyle}"
+                                           TextWrapping="Wrap" Opacity="0.85" />
+                            </StackPanel>
+                            <Button Grid.Column="1"
+                                    Content="Run as Administrator"
+                                    Command="{x:Bind ViewModel.RequestElevationCommand}"
+                                    VerticalAlignment="Center" />
+                        </Grid>
+                    </Border>
+                </StackPanel>
+            </Border>
+
             <!-- Controls -->
             <StackPanel Orientation="Horizontal" Spacing="12">
                 <Button Content="Start Scan"

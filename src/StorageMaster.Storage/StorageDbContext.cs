@@ -87,6 +87,9 @@ public sealed class StorageDbContext : IAsyncDisposable
             if (current < 1)
                 await ApplyStatementsAsync(conn, DatabaseSchema.V1Statements, ct);
 
+            if (current < 2)
+                await ApplyStatementsAsync(conn, DatabaseSchema.V2Statements, ct);
+
             await SetSchemaVersionAsync(conn, DatabaseSchema.CurrentVersion, ct);
         }
     }

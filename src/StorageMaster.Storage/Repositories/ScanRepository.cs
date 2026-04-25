@@ -266,6 +266,62 @@ public sealed class ScanRepository : IScanRepository
         await cmd.ExecuteNonQueryAsync(ct);
     }
 
+    public async Task<IReadOnlyList<FolderEntry>> GetAllFolderPathsForSessionAsync(
+        long sessionId, CancellationToken ct = default)
+    {
+        var conn = await _db.GetConnectionAsync(ct);
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            SELECT Id, SessionId, FullPath, FolderName, DirectSizeBytes, TotalSizeBytes,
+                   FileCount, SubFolderCount, IsReparsePoint, WasAccessDenied
+            FROM FolderEntries
+            WHERE SessionId = $sid;
+            """;
+        cmd.Parameters.AddWithValue("$sid", sessionId);
+        using var reader = await cmd.ExecuteReaderAsync(ct);
+        var list = new List<FolderEntry>();
+        while (await reader.ReadAsync(ct))
+            list.Add(ReadFolderEntry(reader));
+        return list;
+    }
+
+    public async Task UpdateFolderTotalsAsync(
+        long sessionId,
+        IReadOnlyDictionary<string, long> pathToTotal,
+        CancellationToken ct = default)
+    {
+        if (pathToTotal.Count == 0) return;
+
+        var conn = await _db.GetConnectionAsync(ct);
+        const int batchSize = 500;
+        var pairs = pathToTotal.ToList();
+
+        for (int offset = 0; offset < pairs.Count; offset += batchSize)
+        {
+            var batch = pairs.Skip(offset).Take(batchSize).ToList();
+            using var tx  = await conn.BeginTransactionAsync(ct);
+            using var cmd = conn.CreateCommand();
+            cmd.Transaction = (SqliteTransaction)tx;
+            cmd.CommandText = """
+                UPDATE FolderEntries
+                SET TotalSizeBytes = $total
+                WHERE SessionId = $sid AND FullPath = $path;
+                """;
+            var pTotal = cmd.Parameters.Add("$total", SqliteType.Integer);
+            var pSid   = cmd.Parameters.Add("$sid",   SqliteType.Integer);
+            var pPath  = cmd.Parameters.Add("$path",  SqliteType.Text);
+            pSid.Value = sessionId;
+
+            foreach (var (path, total) in batch)
+            {
+                pPath.Value  = path;
+                pTotal.Value = total;
+                await cmd.ExecuteNonQueryAsync(ct);
+            }
+            await tx.CommitAsync(ct);
+        }
+    }
+
     // ── Mapping helpers ────────────────────────────────────────────────────
 
     private static ScanSession ReadSession(SqliteDataReader r) => new()

@@ -97,11 +97,139 @@ public sealed class ScanRepositoryTests : IAsyncDisposable
         breakdown[FileTypeCategory.Video].Bytes.Should().Be(3_000_000);
     }
 
+    [Fact]
+    public async Task UpsertFolderEntries_CreateAndAccumulate()
+    {
+        var session = await _repo.CreateSessionAsync(@"C:\");
+        var folder = new FolderEntry
+        {
+            Id              = 0,
+            SessionId       = session.Id,
+            FullPath        = @"C:\TestFolder",
+            FolderName      = "TestFolder",
+            DirectSizeBytes = 1000,
+            TotalSizeBytes  = 1000,
+            FileCount       = 5,
+            SubFolderCount  = 0,
+            IsReparsePoint  = false,
+            WasAccessDenied = false,
+        };
+
+        await _repo.UpsertFolderEntriesAsync([folder]);
+        await _repo.UpsertFolderEntriesAsync([folder with { DirectSizeBytes = 500, TotalSizeBytes = 500, FileCount = 2 }]);
+
+        var results = await _repo.GetLargestFoldersAsync(session.Id, topN: 10);
+        results.Should().ContainSingle();
+        results[0].DirectSizeBytes.Should().Be(1500, "upsert should accumulate direct bytes");
+        results[0].FileCount.Should().Be(7);
+    }
+
+    [Fact]
+    public async Task GetAllFolderPathsForSession_ReturnsAllUpsertedFolders()
+    {
+        var session = await _repo.CreateSessionAsync(@"C:\");
+        await _repo.UpsertFolderEntriesAsync([
+            MakeFolderEntry(session.Id, @"C:\FolderA", 1000),
+            MakeFolderEntry(session.Id, @"C:\FolderB", 2000),
+        ]);
+
+        var results = await _repo.GetAllFolderPathsForSessionAsync(session.Id);
+
+        results.Should().HaveCount(2);
+        results.Select(f => f.FullPath).Should().Contain([@"C:\FolderA", @"C:\FolderB"]);
+    }
+
+    [Fact]
+    public async Task UpdateFolderTotals_SetsTotalSizeBytes()
+    {
+        var session = await _repo.CreateSessionAsync(@"C:\");
+        await _repo.UpsertFolderEntriesAsync([
+            MakeFolderEntry(session.Id, @"C:\Root",       500),
+            MakeFolderEntry(session.Id, @"C:\Root\Child", 300),
+        ]);
+
+        var totals = new Dictionary<string, long>
+        {
+            [@"C:\Root"]       = 800,
+            [@"C:\Root\Child"] = 300,
+        };
+        await _repo.UpdateFolderTotalsAsync(session.Id, totals);
+
+        var results = await _repo.GetAllFolderPathsForSessionAsync(session.Id);
+        results.First(f => f.FullPath == @"C:\Root").TotalSizeBytes.Should().Be(800);
+        results.First(f => f.FullPath == @"C:\Root\Child").TotalSizeBytes.Should().Be(300);
+    }
+
+    [Fact]
+    public async Task DeleteSession_RemovesSessionAndCascades()
+    {
+        var session = await _repo.CreateSessionAsync(@"C:\");
+        await _repo.InsertFileEntriesAsync([MakeEntry(session.Id, ".txt", FileTypeCategory.Document, 1024)]);
+
+        await _repo.DeleteSessionAsync(session.Id);
+
+        var loaded = await _repo.GetSessionAsync(session.Id);
+        loaded.Should().BeNull("deleted session should not be found");
+
+        var files = await _repo.GetLargestFilesAsync(session.Id, topN: 10);
+        files.Should().BeEmpty("cascade delete should remove all file entries");
+    }
+
+    [Fact]
+    public async Task GetRecentSessions_ReturnsMostRecentFirst()
+    {
+        await _repo.CreateSessionAsync(@"C:\first");
+        await Task.Delay(10);
+        await _repo.CreateSessionAsync(@"C:\second");
+
+        var sessions = await _repo.GetRecentSessionsAsync(count: 10);
+
+        sessions.Should().HaveCountGreaterThanOrEqualTo(2);
+        sessions[0].RootPath.Should().Be(@"C:\second", "most recent session should come first");
+    }
+
+    [Fact]
+    public async Task GetLargestFolders_ReturnsInDescendingOrder()
+    {
+        var session = await _repo.CreateSessionAsync(@"C:\");
+        await _repo.UpsertFolderEntriesAsync([
+            MakeFolderEntry(session.Id, @"C:\Small",  100),
+            MakeFolderEntry(session.Id, @"C:\Large", 9000),
+            MakeFolderEntry(session.Id, @"C:\Mid",   5000),
+        ]);
+
+        await _repo.UpdateFolderTotalsAsync(session.Id, new Dictionary<string, long>
+        {
+            [@"C:\Small"]  =  100,
+            [@"C:\Large"]  = 9000,
+            [@"C:\Mid"]    = 5000,
+        });
+
+        var results = await _repo.GetLargestFoldersAsync(session.Id, topN: 10);
+
+        results[0].TotalSizeBytes.Should().BeGreaterThanOrEqualTo(results[1].TotalSizeBytes,
+            "folders should be ordered by TotalSizeBytes descending");
+    }
+
     public async ValueTask DisposeAsync()
     {
         await _ctx.DisposeAsync();
         if (File.Exists(_dbPath)) File.Delete(_dbPath);
     }
+
+    private static FolderEntry MakeFolderEntry(long sessionId, string path, long directBytes) => new()
+    {
+        Id              = 0,
+        SessionId       = sessionId,
+        FullPath        = path,
+        FolderName      = Path.GetFileName(path) ?? path,
+        DirectSizeBytes = directBytes,
+        TotalSizeBytes  = directBytes,
+        FileCount       = 1,
+        SubFolderCount  = 0,
+        IsReparsePoint  = false,
+        WasAccessDenied = false,
+    };
 
     private static FileEntry MakeEntry(long sessionId, string ext, FileTypeCategory cat, long size) => new()
     {

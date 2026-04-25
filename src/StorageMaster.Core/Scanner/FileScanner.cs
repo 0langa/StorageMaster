@@ -26,12 +26,14 @@ namespace StorageMaster.Core.Scanner;
 public sealed class FileScanner : IFileScanner
 {
     private readonly IScanRepository _repo;
+    private readonly IScanErrorRepository? _errorRepo;
     private readonly ILogger<FileScanner> _logger;
 
-    public FileScanner(IScanRepository repo, ILogger<FileScanner> logger)
+    public FileScanner(IScanRepository repo, ILogger<FileScanner> logger, IScanErrorRepository? errorRepo = null)
     {
-        _repo   = repo;
-        _logger = logger;
+        _repo      = repo;
+        _logger    = logger;
+        _errorRepo = errorRepo;
     }
 
     public async Task<ScanSession> ScanAsync(
@@ -57,6 +59,19 @@ public sealed class FileScanner : IFileScanner
             // Flush any remaining buffered entries.
             await FlushFileBufferAsync(state, cancellationToken);
             await FlushFolderBufferAsync(state, cancellationToken);
+
+            // Post-scan: propagate folder sizes bottom-up so TotalSizeBytes is accurate.
+            var allFolders = await _repo.GetAllFolderPathsForSessionAsync(session.Id, cancellationToken);
+            var totals = FolderSizeAggregator.Compute(allFolders);
+            await _repo.UpdateFolderTotalsAsync(session.Id, totals, cancellationToken);
+
+            // Flush accumulated scan errors (access denied, I/O failures) if a repo is wired in.
+            if (_errorRepo is not null)
+            {
+                var errors = DrainQueue(state.ErrorBuffer);
+                if (errors.Count > 0)
+                    await _errorRepo.LogErrorsAsync(session.Id, errors, cancellationToken);
+            }
 
             progressTimer.Dispose();
             await progressTask;
@@ -148,10 +163,12 @@ public sealed class FileScanner : IFileScanner
         var queue = new Queue<string>();
         queue.Enqueue(root);
 
-        // Visited inode tracking prevents infinite loops through hard-linked dirs.
-        // We use path normalisation as a lightweight first pass; full inode checks
-        // require platform-specific code and are deferred to v2.
         var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        // In deep scan mode include hidden and system directories that .NET skips by default.
+        var enumOptions = options.DeepScan
+            ? new EnumerationOptions { AttributesToSkip = FileAttributes.None, IgnoreInaccessible = false }
+            : new EnumerationOptions { AttributesToSkip = FileAttributes.None, IgnoreInaccessible = true };
 
         try
         {
@@ -162,17 +179,16 @@ public sealed class FileScanner : IFileScanner
                 if (!visited.Add(dir))
                     continue;
 
-                if (IsExcluded(dir, options))
+                // In deep scan mode, skip the excluded-path list so everything is reachable.
+                if (!options.DeepScan && IsExcluded(dir, options))
                     continue;
 
-                // Write directory to channel for consumption.
                 await writer.WriteAsync(dir, ct);
 
-                // Enumerate subdirectories from this thread (keeps tree-order locality).
                 IEnumerable<string> subDirs;
                 try
                 {
-                    subDirs = Directory.EnumerateDirectories(dir);
+                    subDirs = Directory.EnumerateDirectories(dir, "*", enumOptions);
                 }
                 catch (UnauthorizedAccessException)
                 {
@@ -226,10 +242,15 @@ public sealed class FileScanner : IFileScanner
         int  subDirCount   = 0;
         bool accessDenied  = false;
 
+        // Deep scan: enumerate hidden and system files that .NET skips by default.
+        var fileEnumOptions = options.DeepScan
+            ? new EnumerationOptions { AttributesToSkip = FileAttributes.None, IgnoreInaccessible = false }
+            : new EnumerationOptions { AttributesToSkip = FileAttributes.None, IgnoreInaccessible = true };
+
         try
         {
             // Enumerate files directly inside this directory.
-            foreach (var filePath in Directory.EnumerateFiles(dir))
+            foreach (var filePath in Directory.EnumerateFiles(dir, "*", fileEnumOptions))
             {
                 try
                 {
@@ -266,18 +287,30 @@ public sealed class FileScanner : IFileScanner
                 }
             }
         }
-        catch (UnauthorizedAccessException)
+        catch (UnauthorizedAccessException ex)
         {
             Interlocked.Increment(ref state._accessDeniedCount);
             accessDenied = true;
+            state.ErrorBuffer.Enqueue(new ScanError
+            {
+                Id = 0, SessionId = state.SessionId, Path = dir,
+                ErrorType = "UnauthorizedAccess", Message = ex.Message,
+                OccurredAt = DateTime.UtcNow,
+            });
         }
         catch (Exception ex) when (ex is IOException or SecurityException)
         {
             _logger.LogDebug("Skip dir {Dir}: {Msg}", dir, ex.Message);
+            state.ErrorBuffer.Enqueue(new ScanError
+            {
+                Id = 0, SessionId = state.SessionId, Path = dir,
+                ErrorType = ex.GetType().Name, Message = ex.Message,
+                OccurredAt = DateTime.UtcNow,
+            });
         }
 
-        // Count immediate subdirectories for the folder record.
-        try { subDirCount = Directory.GetDirectories(dir).Length; }
+        // Count immediate subdirectories for the folder record (best-effort).
+        try { subDirCount = Directory.GetDirectories(dir, "*", fileEnumOptions).Length; }
         catch { /* best-effort */ }
 
         var folderEntry = new FolderEntry
@@ -421,6 +454,7 @@ public sealed class FileScanner : IFileScanner
         // tasks), one periodic flusher. No locking needed.
         public ConcurrentQueue<FileEntry>   FileBuffer   { get; } = new();
         public ConcurrentQueue<FolderEntry> FolderBuffer { get; } = new();
+        public ConcurrentQueue<ScanError>   ErrorBuffer  { get; } = new();
 
         public ScanState(long sessionId, ScanOptions _)
         {

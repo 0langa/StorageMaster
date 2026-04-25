@@ -1,5 +1,6 @@
 using FluentAssertions;
 using Moq;
+using StorageMaster.Core.Cleanup;
 using StorageMaster.Core.Cleanup.Rules;
 using StorageMaster.Core.Interfaces;
 using StorageMaster.Core.Models;
@@ -133,4 +134,60 @@ public sealed class TempFilesRuleTests
         Attributes   = FileAttributes.Normal,
         Category     = FileTypeCategory.Temporary,
     };
+}
+
+public sealed class RecycleBinRuleTests
+{
+    private readonly Mock<IRecycleBinInfoProvider> _providerMock = new();
+    private readonly RecycleBinCleanupRule _rule;
+
+    public RecycleBinRuleTests()
+    {
+        _rule = new RecycleBinCleanupRule(_providerMock.Object);
+    }
+
+    [Fact]
+    public async Task AnalyzeAsync_BinHasItems_ReturnsSuggestion()
+    {
+        _providerMock
+            .Setup(p => p.GetRecycleBinInfo())
+            .Returns(new RecycleBinInfo(SizeBytes: 500_000_000L, ItemCount: 42));
+
+        var suggestions = new List<CleanupSuggestion>();
+        await foreach (var s in _rule.AnalyzeAsync(1, new AppSettings()))
+            suggestions.Add(s);
+
+        suggestions.Should().ContainSingle();
+        suggestions[0].Category.Should().Be(CleanupCategory.RecycleBin);
+        suggestions[0].Risk.Should().Be(CleanupRisk.Safe);
+        suggestions[0].EstimatedBytes.Should().Be(500_000_000L);
+    }
+
+    [Fact]
+    public async Task AnalyzeAsync_EmptyBin_NoSuggestion()
+    {
+        _providerMock
+            .Setup(p => p.GetRecycleBinInfo())
+            .Returns(new RecycleBinInfo(SizeBytes: 0, ItemCount: 0));
+
+        var suggestions = new List<CleanupSuggestion>();
+        await foreach (var s in _rule.AnalyzeAsync(1, new AppSettings()))
+            suggestions.Add(s);
+
+        suggestions.Should().BeEmpty("empty recycle bin should not be suggested");
+    }
+
+    [Fact]
+    public async Task AnalyzeAsync_TargetPathIsSentinel()
+    {
+        _providerMock
+            .Setup(p => p.GetRecycleBinInfo())
+            .Returns(new RecycleBinInfo(SizeBytes: 1_000_000L, ItemCount: 5));
+
+        var suggestions = new List<CleanupSuggestion>();
+        await foreach (var s in _rule.AnalyzeAsync(1, new AppSettings()))
+            suggestions.Add(s);
+
+        suggestions[0].TargetPaths.Should().Contain("::RecycleBin::");
+    }
 }

@@ -17,10 +17,17 @@ public partial class App : Application
 {
     public static IServiceProvider Services { get; private set; } = null!;
 
+    /// <summary>Set to true when launched with --deep-scan (elevated restart).</summary>
+    public static bool StartWithDeepScan { get; private set; }
+
     private MainWindow? _window;
 
     public App()
     {
+        // Check for --deep-scan before building services so ViewModels can read it.
+        StartWithDeepScan = Environment.GetCommandLineArgs()
+            .Any(a => a.Equals("--deep-scan", StringComparison.OrdinalIgnoreCase));
+
         Services = BuildServices();
         InitializeComponent();
     }
@@ -46,22 +53,29 @@ public partial class App : Application
             new StorageDbContext(dbPath, sp.GetRequiredService<ILogger<StorageDbContext>>()));
 
         // Repositories
-        services.AddSingleton<IScanRepository,      ScanRepository>();
+        services.AddSingleton<IScanRepository,       ScanRepository>();
+        services.AddSingleton<IScanErrorRepository,  ScanErrorRepository>();
         services.AddSingleton<ICleanupLogRepository, CleanupLogRepository>();
         services.AddSingleton<ISettingsRepository,   SettingsRepository>();
 
         // Platform
-        services.AddSingleton<IDriveInfoProvider,     DriveInfoProvider>();
-        services.AddSingleton<IFileDeleter,           FileDeleter>();
+        services.AddSingleton<IDriveInfoProvider,      DriveInfoProvider>();
+        services.AddSingleton<IFileDeleter,            FileDeleter>();
         services.AddSingleton<IRecycleBinInfoProvider, RecycleBinInfoProvider>();
+        services.AddSingleton<IAdminService,           AdminService>();
 
         // Scanner
-        services.AddSingleton<IFileScanner, FileScanner>();
+        services.AddSingleton<IFileScanner>(sp => new FileScanner(
+            sp.GetRequiredService<IScanRepository>(),
+            sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<FileScanner>>(),
+            sp.GetRequiredService<IScanErrorRepository>()));
 
         // Cleanup rules — registered in order of execution
         services.AddSingleton<ICleanupRule, RecycleBinCleanupRule>();
         services.AddSingleton<ICleanupRule, TempFilesCleanupRule>();
-        services.AddSingleton<ICleanupRule, DownloadedInstallersRule>();
+        services.AddSingleton<ICleanupRule>(sp => new DownloadedInstallersRule(
+            sp.GetRequiredService<IScanRepository>(),
+            KnownFolders.GetDownloadsPath));
         services.AddSingleton<ICleanupRule, CacheFolderCleanupRule>();
         services.AddSingleton<ICleanupRule, LargeOldFilesCleanupRule>();
         services.AddSingleton<ICleanupEngine, CleanupEngine>();

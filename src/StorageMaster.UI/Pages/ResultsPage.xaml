@@ -59,7 +59,7 @@
                         <ListView ItemsSource="{x:Bind ViewModel.LargestFiles}"
                                   SelectionMode="None" Margin="0,8,0,0">
                             <ListView.Header>
-                                <Grid ColumnDefinitions="*,120,120,120" Padding="12,4" Opacity="0.6">
+                                <Grid ColumnDefinitions="*,120,120,120,36" Padding="12,4" Opacity="0.6">
                                     <TextBlock Grid.Column="0" Text="File" />
                                     <TextBlock Grid.Column="1" Text="Size" HorizontalAlignment="Right"/>
                                     <TextBlock Grid.Column="2" Text="Modified" HorizontalAlignment="Right"/>
@@ -68,7 +68,7 @@
                             </ListView.Header>
                             <ListView.ItemTemplate>
                                 <DataTemplate>
-                                    <Grid ColumnDefinitions="*,120,120,120" Padding="0,4">
+                                    <Grid ColumnDefinitions="*,120,120,120,36" Padding="0,4">
                                         <StackPanel Grid.Column="0">
                                             <TextBlock Text="{Binding FileName}" FontWeight="SemiBold"
                                                        TextTrimming="CharacterEllipsis"/>
@@ -87,6 +87,14 @@
                                                    Text="{Binding Category}"
                                                    HorizontalAlignment="Right" VerticalAlignment="Center"
                                                    Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.7"/>
+                                        <Button Grid.Column="4"
+                                                Content="&#xE8DA;"
+                                                FontFamily="Segoe MDL2 Assets"
+                                                Width="32" Height="32" Padding="0"
+                                                ToolTipService.ToolTip="Open containing folder in Explorer"
+                                                Command="{x:Bind ViewModel.OpenInExplorerCommand, Mode=OneTime}"
+                                                CommandParameter="{Binding}"
+                                                VerticalAlignment="Center"/>
                                     </Grid>
                                 </DataTemplate>
                             </ListView.ItemTemplate>
@@ -98,7 +106,7 @@
                         <ListView ItemsSource="{x:Bind ViewModel.LargestFolders}"
                                   SelectionMode="None" Margin="0,8,0,0">
                             <ListView.Header>
-                                <Grid ColumnDefinitions="*,120,100" Padding="12,4" Opacity="0.6">
+                                <Grid ColumnDefinitions="*,120,100,36" Padding="12,4" Opacity="0.6">
                                     <TextBlock Grid.Column="0" Text="Folder" />
                                     <TextBlock Grid.Column="1" Text="Total Size" HorizontalAlignment="Right"/>
                                     <TextBlock Grid.Column="2" Text="Files" HorizontalAlignment="Right"/>
@@ -106,10 +114,11 @@
                             </ListView.Header>
                             <ListView.ItemTemplate>
                                 <DataTemplate>
-                                    <Grid ColumnDefinitions="*,120,100" Padding="0,4">
+                                    <Grid ColumnDefinitions="*,120,100,36" Padding="0,4">
                                         <TextBlock Grid.Column="0"
                                                    Text="{Binding FullPath}"
-                                                   TextTrimming="CharacterEllipsis"/>
+                                                   TextTrimming="CharacterEllipsis"
+                                                   VerticalAlignment="Center"/>
                                         <TextBlock Grid.Column="1"
                                                    Text="{Binding TotalSizeBytes, Converter={StaticResource ByteSize}}"
                                                    HorizontalAlignment="Right" VerticalAlignment="Center"
@@ -118,6 +127,14 @@
                                                    Text="{Binding FileCount}"
                                                    HorizontalAlignment="Right" VerticalAlignment="Center"
                                                    Style="{StaticResource CaptionTextBlockStyle}"/>
+                                        <Button Grid.Column="3"
+                                                Content="&#xE8DA;"
+                                                FontFamily="Segoe MDL2 Assets"
+                                                Width="32" Height="32" Padding="0"
+                                                ToolTipService.ToolTip="Open in Explorer"
+                                                Command="{x:Bind ViewModel.OpenFolderInExplorerCommand, Mode=OneTime}"
+                                                CommandParameter="{Binding}"
+                                                VerticalAlignment="Center"/>
                                     </Grid>
                                 </DataTemplate>
                             </ListView.ItemTemplate>
@@ -144,6 +161,51 @@
                                         <TextBlock Grid.Column="2" Text="{Binding FileCount}"
                                                    HorizontalAlignment="Right" VerticalAlignment="Center"
                                                    Style="{StaticResource CaptionTextBlockStyle}"/>
+                                    </Grid>
+                                </DataTemplate>
+                            </ListView.ItemTemplate>
+                        </ListView>
+                    </PivotItem>
+
+                    <!-- Errors -->
+                    <PivotItem>
+                        <PivotItem.Header>
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <TextBlock Text="Errors"/>
+                                <Border Background="{ThemeResource SystemFillColorCriticalBackgroundBrush}"
+                                        CornerRadius="8" Padding="6,1"
+                                        Visibility="{x:Bind ViewModel.HasErrors, Mode=OneWay, Converter={StaticResource BoolVis}}">
+                                    <TextBlock Text="{x:Bind ViewModel.ErrorCount, Mode=OneWay}"
+                                               Style="{StaticResource CaptionTextBlockStyle}"
+                                               Foreground="{ThemeResource SystemFillColorCriticalBrush}"/>
+                                </Border>
+                            </StackPanel>
+                        </PivotItem.Header>
+                        <ListView ItemsSource="{x:Bind ViewModel.ScanErrors}"
+                                  SelectionMode="None" Margin="0,8,0,0">
+                            <ListView.Header>
+                                <Grid ColumnDefinitions="*,140,200" Padding="12,4" Opacity="0.6">
+                                    <TextBlock Grid.Column="0" Text="Path" />
+                                    <TextBlock Grid.Column="1" Text="Error Type" HorizontalAlignment="Center"/>
+                                    <TextBlock Grid.Column="2" Text="Message" HorizontalAlignment="Left"/>
+                                </Grid>
+                            </ListView.Header>
+                            <ListView.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid ColumnDefinitions="*,140,200" Padding="0,4">
+                                        <TextBlock Grid.Column="0"
+                                                   Text="{Binding Path}"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   Style="{StaticResource CaptionTextBlockStyle}"
+                                                   VerticalAlignment="Center"/>
+                                        <TextBlock Grid.Column="1"
+                                                   Text="{Binding ErrorType}"
+                                                   HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                   Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.8"/>
+                                        <TextBlock Grid.Column="2"
+                                                   Text="{Binding Message}"
+                                                   TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
+                                                   Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.7"/>
                                     </Grid>
                                 </DataTemplate>
                             </ListView.ItemTemplate>

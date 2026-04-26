@@ -27,13 +27,19 @@ public sealed partial class CleanupViewModel : ObservableObject
     private readonly IScanRepository   _repo;
     private readonly ISettingsRepository _settings;
 
-    [ObservableProperty] private bool   _isLoading;
-    [ObservableProperty] private bool   _isExecuting;
-    [ObservableProperty] private bool   _isDryRun      = false;
-    [ObservableProperty] private string _statusMessage = "Select a scan session and analyse to see suggestions.";
-    [ObservableProperty] private long   _selectedSessionId;
-    [ObservableProperty] private string _totalSelectedSize = "0 B";
-    [ObservableProperty] private bool   _hasResults;
+    [ObservableProperty] private bool        _isLoading;
+    [ObservableProperty] private bool        _isExecuting;
+    [ObservableProperty] private bool        _isDryRun           = false;
+    [ObservableProperty] private string      _statusMessage      = "Select a scan session and analyse to see suggestions.";
+    [ObservableProperty] private ScanSession? _selectedSession;
+    [ObservableProperty] private string      _totalSelectedSize  = "0 B";
+    [ObservableProperty] private bool        _hasResults;
+    [ObservableProperty] private bool        _hasExecutionResults;
+
+    partial void OnSelectedSessionChanged(ScanSession? value) =>
+        OnPropertyChanged(nameof(CanAnalyse));
+
+    public bool CanAnalyse => SelectedSession is not null && !IsLoading;
 
     public ObservableCollection<SuggestionItem>       Suggestions     { get; } = [];
     public ObservableCollection<ScanSession>          RecentSessions  { get; } = [];
@@ -57,16 +63,17 @@ public sealed partial class CleanupViewModel : ObservableObject
             RecentSessions.Add(s);
 
         if (RecentSessions.Count > 0)
-            SelectedSessionId = RecentSessions[0].Id;
+            SelectedSession = RecentSessions[0];
     }
 
     [RelayCommand]
     private async Task AnalyseAsync()
     {
-        if (SelectedSessionId <= 0) return;
+        if (SelectedSession is null) return;
 
-        IsLoading   = true;
-        HasResults  = false;
+        IsLoading            = true;
+        HasResults           = false;
+        HasExecutionResults  = false;
         Suggestions.Clear();
         ExecutionResults.Clear();
         StatusMessage = "Analysing…";
@@ -74,7 +81,7 @@ public sealed partial class CleanupViewModel : ObservableObject
         try
         {
             var settings = await _settings.LoadAsync();
-            await foreach (var suggestion in _engine.GetSuggestionsAsync(SelectedSessionId, settings))
+            await foreach (var suggestion in _engine.GetSuggestionsAsync(SelectedSession.Id, settings))
             {
                 Suggestions.Add(new SuggestionItem(suggestion));
             }
@@ -107,7 +114,8 @@ public sealed partial class CleanupViewModel : ObservableObject
 
         if (selected.Count == 0) return;
 
-        IsExecuting = true;
+        IsExecuting         = true;
+        HasExecutionResults = false;
         ExecutionResults.Clear();
         StatusMessage = IsDryRun ? "Running dry-run…" : "Cleaning up…";
 
@@ -125,6 +133,7 @@ public sealed partial class CleanupViewModel : ObservableObject
                     r.WasDryRun,
                     r.ErrorMessage));
             }
+            HasExecutionResults = ExecutionResults.Count > 0;
 
             long totalFreed = results.Sum(r => r.BytesFreed);
             StatusMessage = IsDryRun

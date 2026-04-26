@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using StorageMaster.Core.Interfaces;
@@ -9,7 +10,8 @@ namespace StorageMaster.UI.Pages;
 
 public sealed partial class ResultsViewModel : ObservableObject
 {
-    private readonly IScanRepository _repo;
+    private readonly IScanRepository      _repo;
+    private readonly IScanErrorRepository _errorRepo;
 
     [ObservableProperty] private bool   _isLoading;
     [ObservableProperty] private string _scanRoot    = string.Empty;
@@ -17,16 +19,24 @@ public sealed partial class ResultsViewModel : ObservableObject
     [ObservableProperty] private string _totalSize   = "—";
     [ObservableProperty] private long   _totalFiles;
     [ObservableProperty] private string _filterText  = string.Empty;
+    [ObservableProperty] private int    _errorCount;
 
     private long _sessionId;
     private IReadOnlyList<FileEntry>   _allFiles   = [];
     private IReadOnlyList<FolderEntry> _allFolders = [];
 
-    public ObservableCollection<FileEntry>   LargestFiles   { get; } = [];
-    public ObservableCollection<FolderEntry> LargestFolders { get; } = [];
+    public ObservableCollection<FileEntry>   LargestFiles      { get; } = [];
+    public ObservableCollection<FolderEntry> LargestFolders    { get; } = [];
     public ObservableCollection<CategoryRow> CategoryBreakdown { get; } = [];
+    public ObservableCollection<ScanError>   ScanErrors        { get; } = [];
 
-    public ResultsViewModel(IScanRepository repo) => _repo = repo;
+    public bool HasErrors => ErrorCount > 0;
+
+    public ResultsViewModel(IScanRepository repo, IScanErrorRepository errorRepo)
+    {
+        _repo      = repo;
+        _errorRepo = errorRepo;
+    }
 
     public async Task LoadAsync(long sessionId)
     {
@@ -55,6 +65,12 @@ public sealed partial class ResultsViewModel : ObservableObject
             {
                 CategoryBreakdown.Add(new CategoryRow(cat.ToString(), count, ByteSizeConverter.Format(bytes)));
             }
+
+            var errors = await _errorRepo.GetErrorsForSessionAsync(sessionId);
+            ScanErrors.Clear();
+            foreach (var e in errors) ScanErrors.Add(e);
+            ErrorCount = ScanErrors.Count;
+            OnPropertyChanged(nameof(HasErrors));
         }
         finally
         {
@@ -63,6 +79,24 @@ public sealed partial class ResultsViewModel : ObservableObject
     }
 
     partial void OnFilterTextChanged(string value) => ApplyFilter();
+
+    [RelayCommand]
+    private static void OpenInExplorer(FileEntry file)
+    {
+        Process.Start(new ProcessStartInfo("explorer.exe", $"/select,\"{file.FullPath}\"")
+        {
+            UseShellExecute = true
+        });
+    }
+
+    [RelayCommand]
+    private static void OpenFolderInExplorer(FolderEntry folder)
+    {
+        Process.Start(new ProcessStartInfo("explorer.exe", $"\"{folder.FullPath}\"")
+        {
+            UseShellExecute = true
+        });
+    }
 
     [RelayCommand]
     private void ApplyFilter()

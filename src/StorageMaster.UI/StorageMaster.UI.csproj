@@ -2,7 +2,7 @@
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
     <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
     <RootNamespace>StorageMaster.UI</RootNamespace>
     <AssemblyName>StorageMaster.UI</AssemblyName>
@@ -12,6 +12,13 @@
     <LangVersion>latest</LangVersion>
     <Platforms>x86;x64;arm64</Platforms>
     <RuntimeIdentifiers>win-x86;win-x64;win-arm64</RuntimeIdentifiers>
+    <!-- Version -->
+    <Version>1.2.0</Version>
+    <AssemblyVersion>1.2.0.0</AssemblyVersion>
+    <FileVersion>1.2.0.0</FileVersion>
+    <Company>StorageMaster</Company>
+    <Product>StorageMaster</Product>
+    <Copyright>Copyright © 2025</Copyright>
     <!-- Unpackaged deployment — no MSIX required -->
     <WindowsPackageType>None</WindowsPackageType>
     <!-- Bundle the Windows App SDK runtime so end-users need no separate install -->
@@ -34,5 +41,7 @@
     <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.0" />
     <PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="10.0.0" />
   </ItemGroup>
+
+
 
 </Project>

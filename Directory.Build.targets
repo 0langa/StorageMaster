@@ -1,0 +1,13 @@
+<Project>
+  <!--
+    Force the managed in-process XAML compiler task (net6.0 CompileXaml) instead of
+    XamlCompiler.exe (net472), which crashes silently with exit code 1 on this machine.
+
+    The Windows App SDK interop.targets unconditionally sets UseXamlCompilerExecutable=true
+    when MSBuildRuntimeType=Core (dotnet build). This file is imported by Directory.Build
+    conventions after SDK property defaults, so this setting takes precedence.
+  -->
+  <PropertyGroup>
+    <UseXamlCompilerExecutable>false</UseXamlCompilerExecutable>
+  </PropertyGroup>
+</Project>

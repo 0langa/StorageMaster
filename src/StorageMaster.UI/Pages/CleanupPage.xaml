@@ -23,7 +23,7 @@
                 <StackPanel Spacing="12">
                     <TextBlock Text="Select scan session" Style="{StaticResource BodyStrongTextBlockStyle}" />
                     <ComboBox ItemsSource="{x:Bind ViewModel.RecentSessions}"
-                              SelectedItem="{x:Bind ViewModel.SelectedSessionId, Mode=TwoWay}"
+                              SelectedItem="{x:Bind ViewModel.SelectedSession, Mode=TwoWay}"
                               HorizontalAlignment="Stretch">
                         <ComboBox.ItemTemplate>
                             <DataTemplate>
@@ -112,7 +112,7 @@
                 </Border>
 
                 <!-- Execution results -->
-                <StackPanel Visibility="{x:Bind ViewModel.ExecutionResults.Count, Mode=OneWay}"
+                <StackPanel Visibility="{x:Bind ViewModel.HasExecutionResults, Mode=OneWay, Converter={StaticResource BoolVis}}"
                             Spacing="8">
                     <TextBlock Text="Execution Results" Style="{StaticResource SubtitleTextBlockStyle}" />
                     <ListView ItemsSource="{x:Bind ViewModel.ExecutionResults}" SelectionMode="None">

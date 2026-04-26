@@ -1,0 +1,46 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-installer:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore
+        run: dotnet restore
+
+      - name: Run tests
+        run: dotnet test tests/StorageMaster.Tests/StorageMaster.Tests.csproj --verbosity normal --no-restore
+
+      - name: Publish win-x64
+        run: |
+          dotnet publish src/StorageMaster.UI/StorageMaster.UI.csproj `
+            /p:PublishProfile=win-x64 -c Release
+
+      - name: Install Inno Setup
+        run: choco install innosetup -y
+
+      - name: Build installer
+        run: iscc installer\StorageMaster.iss
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/installer/StorageMaster-*-win-x64-Setup.exe
+          generate_release_notes: true
+          draft: false
+          prerelease: false

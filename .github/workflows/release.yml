@@ -40,33 +40,28 @@ jobs:
       # ── Code signing (optional) ────────────────────────────────────────────
       # Set CODE_SIGNING_PFX (base-64-encoded .pfx) and CODE_SIGNING_PFX_PASSWORD
       # in repo Settings → Secrets to enable Authenticode signing.
-      # Without these secrets the step is silently skipped and SmartScreen will
-      # show a one-time "unknown publisher" warning until the cert builds reputation.
+      # Both steps always run; the script exits early when the secret is absent
+      # (secrets context cannot be used in `if:` conditions by the YAML validator).
       - name: Sign binaries (optional)
-        if: ${{ secrets.CODE_SIGNING_PFX != '' }}
         env:
           PFX_B64:  ${{ secrets.CODE_SIGNING_PFX }}
           PFX_PASS: ${{ secrets.CODE_SIGNING_PFX_PASSWORD }}
         run: |
+          if (-not $env:PFX_B64) { Write-Host "No signing cert configured — skipping."; exit 0 }
+
           $pfxPath = "$env:RUNNER_TEMP\cert.pfx"
           [IO.File]::WriteAllBytes($pfxPath, [Convert]::FromBase64String($env:PFX_B64))
 
-          # Find signtool from the Windows SDK
           $signtool = (Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin" `
                          -Recurse -Filter signtool.exe |
                        Sort-Object FullName -Descending |
                        Select-Object -First 1).FullName
 
-          # Sign every exe and dll in the publish output
           Get-ChildItem artifacts\publish\win-x64 -Recurse -Include *.exe,*.dll |
             ForEach-Object {
-              & $signtool sign `
-                /fd SHA256 `
-                /td SHA256 `
+              & $signtool sign /fd SHA256 /td SHA256 `
                 /tr http://timestamp.digicert.com `
-                /f $pfxPath `
-                /p $env:PFX_PASS `
-                $_.FullName
+                /f $pfxPath /p $env:PFX_PASS $_.FullName
             }
 
           Remove-Item $pfxPath -Force
@@ -79,13 +74,13 @@ jobs:
           $version = "${{ github.ref_name }}" -replace '^v', ''
           iscc installer\StorageMaster.iss /DAppVersion=$version
 
-      # Sign the installer too if the cert is available
       - name: Sign installer (optional)
-        if: ${{ secrets.CODE_SIGNING_PFX != '' }}
         env:
           PFX_B64:  ${{ secrets.CODE_SIGNING_PFX }}
           PFX_PASS: ${{ secrets.CODE_SIGNING_PFX_PASSWORD }}
         run: |
+          if (-not $env:PFX_B64) { Write-Host "No signing cert configured — skipping."; exit 0 }
+
           $pfxPath = "$env:RUNNER_TEMP\cert.pfx"
           [IO.File]::WriteAllBytes($pfxPath, [Convert]::FromBase64String($env:PFX_B64))
 
@@ -96,13 +91,9 @@ jobs:
 
           Get-ChildItem artifacts\installer -Filter *.exe |
             ForEach-Object {
-              & $signtool sign `
-                /fd SHA256 `
-                /td SHA256 `
+              & $signtool sign /fd SHA256 /td SHA256 `
                 /tr http://timestamp.digicert.com `
-                /f $pfxPath `
-                /p $env:PFX_PASS `
-                $_.FullName
+                /f $pfxPath /p $env:PFX_PASS $_.FullName
             }
 
           Remove-Item $pfxPath -Force

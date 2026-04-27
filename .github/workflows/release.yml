@@ -41,7 +41,9 @@ jobs:
         run: choco install innosetup -y
 
       - name: Build installer
-        run: iscc installer\StorageMaster.iss
+        run: |
+          $version = "${{ github.ref_name }}" -replace '^v', ''
+          iscc installer\StorageMaster.iss /DAppVersion=$version
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2

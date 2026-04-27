@@ -1,6 +1,6 @@
+using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using Microsoft.Extensions.Logging;
-using Microsoft.VisualBasic.FileIO;
 using StorageMaster.Core.Interfaces;
 using StorageMaster.Platform.Windows.Interop;
 
@@ -8,10 +8,9 @@ namespace StorageMaster.Platform.Windows;
 
 /// <summary>
 /// Windows implementation of IFileDeleter.
-/// Prefers sending files to the Recycle Bin using Microsoft.VisualBasic.FileIO
-/// (which wraps SHFileOperation under the hood and supports undo).
-/// Falls back to permanent delete when the Recycle Bin is unavailable (e.g. network drives).
-///
+/// Sends files to the Recycle Bin via SHFileOperation (FOF_ALLOWUNDO) with
+/// FOF_NOERRORUI so no shell dialogs appear — errors become Win32Exception.
+/// Falls back to permanent delete when the Recycle Bin is unavailable.
 /// The sentinel path "::RecycleBin::" triggers SHEmptyRecycleBin instead.
 /// </summary>
 public sealed class FileDeleter : IFileDeleter
@@ -82,8 +81,17 @@ public sealed class FileDeleter : IFileDeleter
                     semaphore.Release();
                 }
             });
-            await Task.WhenAll(tasks);
-            channel.Writer.Complete();
+            try
+            {
+                await Task.WhenAll(tasks);
+            }
+            finally
+            {
+                // Always complete the channel so ReadAllAsync doesn't hang if any
+                // task faults unexpectedly (DeleteAsync catches per-file errors, but
+                // defensive completion is still important for cancellation paths).
+                channel.Writer.Complete();
+            }
         }, cancellationToken);
 
         await foreach (var outcome in channel.Reader.ReadAllAsync(cancellationToken))
@@ -94,12 +102,31 @@ public sealed class FileDeleter : IFileDeleter
 
     // ── Deletion helpers ──────────────────────────────────────────────────
 
+    /// <summary>
+    /// Sends a file or folder to the Recycle Bin via SHFileOperation with
+    /// FOF_NOERRORUI | FOF_NOCONFIRMATION | FOF_SILENT — no shell dialogs of any
+    /// kind are shown. Errors are returned as Win32 exit codes and converted to
+    /// exceptions so the caller's try/catch produces a failed DeletionOutcome.
+    /// </summary>
     private static void DeleteToRecycleBin(string path)
     {
-        if (Directory.Exists(path))
-            FileSystem.DeleteDirectory(path, UIOption.OnlyErrorDialogs, RecycleOption.SendToRecycleBin);
-        else
-            FileSystem.DeleteFile(path, UIOption.OnlyErrorDialogs, RecycleOption.SendToRecycleBin);
+        // SHFileOperation requires a double-null-terminated source string.
+        var op = new Shell32Interop.SHFILEOPSTRUCT
+        {
+            hwnd   = IntPtr.Zero,
+            wFunc  = Shell32Interop.FO_DELETE,
+            pFrom  = path + '\0',          // extra null appended; struct field string adds one more
+            pTo    = null,
+            fFlags = (ushort)(Shell32Interop.FOF_ALLOWUNDO |
+                               Shell32Interop.FOF_NOCONFIRMATION |
+                               Shell32Interop.FOF_NOERRORUI |
+                               Shell32Interop.FOF_SILENT),
+        };
+
+        int result = Shell32Interop.SHFileOperation(ref op);
+        if (result != 0)
+            throw new Win32Exception(result,
+                $"SHFileOperation failed with code 0x{result:X8} for path: {path}");
     }
 
     private static void DeletePermanently(string path)

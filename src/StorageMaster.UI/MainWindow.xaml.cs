@@ -1,6 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Windowing;
 using StorageMaster.UI.Infrastructure;
 using StorageMaster.UI.Pages;
 
@@ -19,6 +20,12 @@ public sealed partial class MainWindow : Window
         // Increase window size for a comfortable default work area.
         AppWindow.Resize(new Windows.Graphics.SizeInt32(1280, 800));
         Title = "StorageMaster";
+
+        // Set window icon — covers title bar, taskbar button, and Alt+Tab thumbnail.
+        // Path is relative to the exe; the .ico is copied to output by the csproj.
+        var iconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "storagemaster.ico");
+        if (File.Exists(iconPath))
+            AppWindow.SetIcon(iconPath);
 
         // Navigate to dashboard on launch.
         _nav.NavigateTo(typeof(DashboardPage));

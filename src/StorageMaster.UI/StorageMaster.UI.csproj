@@ -8,6 +8,7 @@
     <RootNamespace>StorageMaster.UI</RootNamespace>
     <AssemblyName>StorageMaster.UI</AssemblyName>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets\storagemaster.ico</ApplicationIcon>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
@@ -29,6 +30,13 @@
     <WindowsAppSDKSelfContained>false</WindowsAppSDKSelfContained>
     <SelfContained>false</SelfContained>
   </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Embed the icon so it ships alongside the exe -->
+    <Content Include="Assets\storagemaster.ico">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\StorageMaster.Core\StorageMaster.Core.csproj" />

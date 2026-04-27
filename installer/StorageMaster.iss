@@ -1,5 +1,8 @@
 #define AppName "StorageMaster"
-#define AppVersion "1.2.0"
+; AppVersion can be overridden at build time: iscc /DAppVersion=1.2.3 StorageMaster.iss
+#ifndef AppVersion
+  #define AppVersion "1.2.3"
+#endif
 #define AppPublisher "StorageMaster"
 #define AppExeName "StorageMaster.UI.exe"
 #define PublishDir "..\artifacts\publish\win-x64"
@@ -14,6 +17,7 @@ DefaultGroupName={#AppName}
 DisableProgramGroupPage=yes
 OutputDir=..\artifacts\installer
 OutputBaseFilename=StorageMaster-{#AppVersion}-win-x64-Setup
+SetupIconFile={#PublishDir}\Assets\storagemaster.ico
 Compression=lzma2/ultra64
 SolidCompression=yes
 WizardStyle=modern
@@ -30,9 +34,9 @@ Name: "desktopicon"; Description: "Create a &desktop icon"; GroupDescription: "A
 Source: "{#PublishDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{group}\{#AppName}"; Filename: "{app}\{#AppExeName}"
+Name: "{group}\{#AppName}";          Filename: "{app}\{#AppExeName}"; IconFilename: "{app}\Assets\storagemaster.ico"
 Name: "{group}\Uninstall {#AppName}"; Filename: "{uninstallexe}"
-Name: "{commondesktop}\{#AppName}"; Filename: "{app}\{#AppExeName}"; Tasks: desktopicon
+Name: "{commondesktop}\{#AppName}";  Filename: "{app}\{#AppExeName}"; IconFilename: "{app}\Assets\storagemaster.ico"; Tasks: desktopicon
 
 [Run]
 Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\prereqs\Install-WindowsAppRuntime.ps1"" -MsixPath ""{app}\prereqs\Microsoft.WindowsAppRuntime.1.6.msix"""; StatusMsg: "Installing Windows App SDK runtime..."; Flags: runhidden waituntilterminated

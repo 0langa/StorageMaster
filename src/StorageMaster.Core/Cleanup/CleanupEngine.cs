@@ -47,13 +47,17 @@ public sealed class CleanupEngine : ICleanupEngine
         IReadOnlyList<CleanupSuggestion> suggestions,
         bool                           dryRun,
         DeletionMethod                 deletionMethod,
-        CancellationToken cancellationToken = default)
+        IProgress<CleanupProgress>?    progress          = null,
+        CancellationToken              cancellationToken = default)
     {
         var results = new List<CleanupResult>(suggestions.Count);
 
-        foreach (var suggestion in suggestions)
+        for (int i = 0; i < suggestions.Count; i++)
         {
+            var suggestion = suggestions[i];
             cancellationToken.ThrowIfCancellationRequested();
+
+            progress?.Report(new CleanupProgress(i, suggestions.Count, suggestion.Title));
             _logger.LogInformation("Executing cleanup: {Title} dryRun={DryRun}", suggestion.Title, dryRun);
 
             var result = await ExecuteSuggestionAsync(suggestion, dryRun, deletionMethod, cancellationToken);
@@ -61,6 +65,9 @@ public sealed class CleanupEngine : ICleanupEngine
 
             await _log.LogResultAsync(result, suggestion, cancellationToken);
         }
+
+        // Report 100% completion.
+        progress?.Report(new CleanupProgress(suggestions.Count, suggestions.Count, string.Empty));
 
         return results;
     }

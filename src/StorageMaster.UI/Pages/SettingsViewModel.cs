@@ -89,5 +89,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         await _repo.SaveAsync(new AppSettings());
         await LoadAsync();
         SavedMessage = "Settings reset to defaults.";
+        await Task.Delay(3000);
+        SavedMessage = string.Empty;
     }
 }

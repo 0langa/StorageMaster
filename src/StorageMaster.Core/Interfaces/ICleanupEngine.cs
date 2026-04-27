@@ -20,5 +20,6 @@ public interface ICleanupEngine
         IReadOnlyList<CleanupSuggestion> suggestions,
         bool                           dryRun,
         DeletionMethod                 deletionMethod,
-        CancellationToken cancellationToken = default);
+        IProgress<CleanupProgress>?    progress          = null,
+        CancellationToken              cancellationToken = default);
 }

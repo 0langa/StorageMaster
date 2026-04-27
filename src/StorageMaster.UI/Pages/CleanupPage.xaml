@@ -39,20 +39,33 @@
                     <Button Content="Analyse for Cleanup Opportunities"
                             Style="{StaticResource AccentButtonStyle}"
                             Command="{x:Bind ViewModel.AnalyseCommand}"
-                            IsEnabled="{x:Bind ViewModel.IsLoading, Mode=OneWay, Converter={StaticResource NotBool}}" />
+                            IsEnabled="{x:Bind ViewModel.CanAnalyse, Mode=OneWay}" />
                 </StackPanel>
             </Border>
 
-            <!-- Status -->
+            <!-- Status message -->
             <TextBlock Text="{x:Bind ViewModel.StatusMessage, Mode=OneWay}"
-                       Style="{StaticResource BodyTextBlockStyle}" Opacity="0.8"/>
+                       Style="{StaticResource BodyTextBlockStyle}" Opacity="0.8"
+                       Visibility="{x:Bind ViewModel.IsExecuting, Mode=OneWay, Converter={StaticResource InvBoolVis}}"/>
 
-            <!-- Loading -->
+            <!-- Analysis loading spinner -->
             <ProgressRing IsActive="{x:Bind ViewModel.IsLoading, Mode=OneWay}"
                           Visibility="{x:Bind ViewModel.IsLoading, Mode=OneWay, Converter={StaticResource BoolVis}}"
                           Width="36" Height="36" HorizontalAlignment="Left" />
 
-            <!-- Suggestions list -->
+            <!-- Execution progress (shown while cleanup is running) -->
+            <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    CornerRadius="8" Padding="20"
+                    Visibility="{x:Bind ViewModel.IsExecuting, Mode=OneWay, Converter={StaticResource BoolVis}}">
+                <StackPanel Spacing="10">
+                    <TextBlock Text="{x:Bind ViewModel.CleanupProgressText, Mode=OneWay}"
+                               Style="{StaticResource BodyStrongTextBlockStyle}" />
+                    <ProgressBar Value="{x:Bind ViewModel.CleanupProgressValue, Mode=OneWay}"
+                                 Maximum="100" Height="8" />
+                </StackPanel>
+            </Border>
+
+            <!-- Suggestions list (hidden while executing) -->
             <StackPanel Visibility="{x:Bind ViewModel.HasResults, Mode=OneWay, Converter={StaticResource BoolVis}}"
                         Spacing="12">
 
@@ -95,7 +108,7 @@
                 <!-- Execute bar -->
                 <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                         CornerRadius="8" Padding="16,12">
-                    <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="12">
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
                         <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="16">
                             <TextBlock VerticalAlignment="Center">
                                 <Run Text="Selected: "/>
@@ -104,32 +117,13 @@
                             <CheckBox Content="Dry run (preview only)"
                                       IsChecked="{x:Bind ViewModel.IsDryRun, Mode=TwoWay}" />
                         </StackPanel>
-                        <Button Grid.Column="2"
+                        <Button Grid.Column="1"
                                 Content="Clean Up Selected…"
                                 Style="{StaticResource AccentButtonStyle}"
                                 IsEnabled="{x:Bind ViewModel.IsExecuting, Mode=OneWay, Converter={StaticResource NotBool}}"
                                 Click="ExecuteButton_Click"/>
                     </Grid>
                 </Border>
-
-                <!-- Execution results -->
-                <StackPanel Visibility="{x:Bind ViewModel.HasExecutionResults, Mode=OneWay, Converter={StaticResource BoolVis}}"
-                            Spacing="8">
-                    <TextBlock Text="Execution Results" Style="{StaticResource SubtitleTextBlockStyle}" />
-                    <ListView ItemsSource="{x:Bind ViewModel.ExecutionResults}" SelectionMode="None">
-                        <ListView.ItemTemplate>
-                            <DataTemplate>
-                                <Grid ColumnDefinitions="*,100,100" Padding="4">
-                                    <TextBlock Grid.Column="0" Text="{Binding Title}" TextTrimming="CharacterEllipsis"/>
-                                    <TextBlock Grid.Column="1" Text="{Binding Status}"
-                                               HorizontalAlignment="Center" Style="{StaticResource CaptionTextBlockStyle}"/>
-                                    <TextBlock Grid.Column="2" Text="{Binding BytesFreed}"
-                                               HorizontalAlignment="Right" FontWeight="SemiBold"/>
-                                </Grid>
-                            </DataTemplate>
-                        </ListView.ItemTemplate>
-                    </ListView>
-                </StackPanel>
 
             </StackPanel>
 

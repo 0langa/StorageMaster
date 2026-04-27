@@ -20,8 +20,12 @@ jobs:
         with:
           dotnet-version: '8.0.x'
 
-      - name: Restore
-        run: dotnet restore
+      - name: Restore (non-UI projects)
+        run: |
+          dotnet restore src/StorageMaster.Core/StorageMaster.Core.csproj
+          dotnet restore src/StorageMaster.Storage/StorageMaster.Storage.csproj
+          dotnet restore src/StorageMaster.Platform.Windows/StorageMaster.Platform.Windows.csproj
+          dotnet restore tests/StorageMaster.Tests/StorageMaster.Tests.csproj
 
       - name: Run tests
         run: dotnet test tests/StorageMaster.Tests/StorageMaster.Tests.csproj --verbosity normal --no-restore

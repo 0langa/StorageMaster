@@ -20,12 +20,30 @@ jobs:
         with:
           dotnet-version: '8.0.x'
 
-      - name: Restore (non-UI projects)
+      - name: Restore all projects
         run: |
           dotnet restore src/StorageMaster.Core/StorageMaster.Core.csproj
           dotnet restore src/StorageMaster.Storage/StorageMaster.Storage.csproj
           dotnet restore src/StorageMaster.Platform.Windows/StorageMaster.Platform.Windows.csproj
           dotnet restore tests/StorageMaster.Tests/StorageMaster.Tests.csproj
+          dotnet restore src/StorageMaster.UI/StorageMaster.UI.csproj
+
+      - name: Patch XAML compiler (add missing System.Security.Permissions)
+        shell: pwsh
+        run: |
+          # The managed CompileXaml task in Windows App SDK 1.6 requires
+          # System.Security.Permissions 6.0.0 but does not ship it.
+          # Download it from NuGet and place it next to the compiler DLL.
+          $sdkVersion = "1.6.250205002"
+          $toolsDir   = "$env:USERPROFILE\.nuget\packages\microsoft.windowsappsdk\$sdkVersion\tools\net6.0"
+          $tmpZip     = "$env:TEMP\ssp.zip"
+          $tmpExpand  = "$env:TEMP\ssp_expanded"
+          Invoke-WebRequest `
+            -Uri "https://api.nuget.org/v3-flatcontainer/system.security.permissions/6.0.0/system.security.permissions.6.0.0.nupkg" `
+            -OutFile $tmpZip
+          Expand-Archive -Path $tmpZip -DestinationPath $tmpExpand -Force
+          Copy-Item "$tmpExpand\lib\net6.0\System.Security.Permissions.dll" -Destination $toolsDir -Force
+          Write-Host "Patched XAML compiler at: $toolsDir"
 
       - name: Run tests
         run: dotnet test tests/StorageMaster.Tests/StorageMaster.Tests.csproj --verbosity normal --no-restore
@@ -33,7 +51,7 @@ jobs:
       - name: Publish win-x64
         run: |
           dotnet publish src/StorageMaster.UI/StorageMaster.UI.csproj `
-            /p:PublishProfile=win-x64 -c Release
+            /p:PublishProfile=win-x64 -c Release --no-restore
 
       - name: Install Inno Setup
         run: choco install innosetup -y

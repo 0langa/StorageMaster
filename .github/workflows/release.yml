@@ -37,6 +37,40 @@ jobs:
             /p:PublishProfile=win-x64 -c Release --no-restore `
             /p:UseXamlCompilerExecutable=true
 
+      # ── Code signing (optional) ────────────────────────────────────────────
+      # Set CODE_SIGNING_PFX (base-64-encoded .pfx) and CODE_SIGNING_PFX_PASSWORD
+      # in repo Settings → Secrets to enable Authenticode signing.
+      # Without these secrets the step is silently skipped and SmartScreen will
+      # show a one-time "unknown publisher" warning until the cert builds reputation.
+      - name: Sign binaries (optional)
+        if: ${{ secrets.CODE_SIGNING_PFX != '' }}
+        env:
+          PFX_B64:  ${{ secrets.CODE_SIGNING_PFX }}
+          PFX_PASS: ${{ secrets.CODE_SIGNING_PFX_PASSWORD }}
+        run: |
+          $pfxPath = "$env:RUNNER_TEMP\cert.pfx"
+          [IO.File]::WriteAllBytes($pfxPath, [Convert]::FromBase64String($env:PFX_B64))
+
+          # Find signtool from the Windows SDK
+          $signtool = (Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin" `
+                         -Recurse -Filter signtool.exe |
+                       Sort-Object FullName -Descending |
+                       Select-Object -First 1).FullName
+
+          # Sign every exe and dll in the publish output
+          Get-ChildItem artifacts\publish\win-x64 -Recurse -Include *.exe,*.dll |
+            ForEach-Object {
+              & $signtool sign `
+                /fd SHA256 `
+                /td SHA256 `
+                /tr http://timestamp.digicert.com `
+                /f $pfxPath `
+                /p $env:PFX_PASS `
+                $_.FullName
+            }
+
+          Remove-Item $pfxPath -Force
+
       - name: Install Inno Setup
         run: choco install innosetup -y
 
@@ -44,6 +78,34 @@ jobs:
         run: |
           $version = "${{ github.ref_name }}" -replace '^v', ''
           iscc installer\StorageMaster.iss /DAppVersion=$version
+
+      # Sign the installer too if the cert is available
+      - name: Sign installer (optional)
+        if: ${{ secrets.CODE_SIGNING_PFX != '' }}
+        env:
+          PFX_B64:  ${{ secrets.CODE_SIGNING_PFX }}
+          PFX_PASS: ${{ secrets.CODE_SIGNING_PFX_PASSWORD }}
+        run: |
+          $pfxPath = "$env:RUNNER_TEMP\cert.pfx"
+          [IO.File]::WriteAllBytes($pfxPath, [Convert]::FromBase64String($env:PFX_B64))
+
+          $signtool = (Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin" `
+                         -Recurse -Filter signtool.exe |
+                       Sort-Object FullName -Descending |
+                       Select-Object -First 1).FullName
+
+          Get-ChildItem artifacts\installer -Filter *.exe |
+            ForEach-Object {
+              & $signtool sign `
+                /fd SHA256 `
+                /td SHA256 `
+                /tr http://timestamp.digicert.com `
+                /f $pfxPath `
+                /p $env:PFX_PASS `
+                $_.FullName
+            }
+
+          Remove-Item $pfxPath -Force
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2

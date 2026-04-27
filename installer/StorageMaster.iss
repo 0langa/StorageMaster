@@ -21,7 +21,7 @@ SetupIconFile={#PublishDir}\Assets\storagemaster.ico
 Compression=lzma2/ultra64
 SolidCompression=yes
 WizardStyle=modern
-PrivilegesRequired=lowest
+PrivilegesRequired=admin
 MinVersion=10.0.17763
 
 [Languages]

@@ -43,6 +43,50 @@
                 </StackPanel>
             </Border>
 
+            <!-- ── Cleanup Options ──────────────────────────────────────────── -->
+            <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    CornerRadius="8" Padding="20">
+                <StackPanel Spacing="14">
+                    <TextBlock Text="Cleanup Options" Style="{StaticResource BodyStrongTextBlockStyle}" />
+
+                    <!-- Deletion mode -->
+                    <ToggleSwitch Header="Send to Recycle Bin (recommended)"
+                                  IsOn="{x:Bind ViewModel.UseRecycleBin, Mode=TwoWay}" />
+
+                    <!-- Category toggles -->
+                    <TextBlock Text="Include categories:" Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.7" />
+                    <Grid ColumnDefinitions="*,*" RowDefinitions="Auto,Auto,Auto" ColumnSpacing="12" RowSpacing="4">
+                        <CheckBox Grid.Row="0" Grid.Column="0" Content="Recycle Bin"
+                                  IsChecked="{x:Bind ViewModel.IncludeRecycleBin, Mode=TwoWay}" />
+                        <CheckBox Grid.Row="0" Grid.Column="1" Content="Temp Files"
+                                  IsChecked="{x:Bind ViewModel.IncludeTempFiles, Mode=TwoWay}" />
+                        <CheckBox Grid.Row="1" Grid.Column="0" Content="Cache Folders"
+                                  IsChecked="{x:Bind ViewModel.IncludeCacheFolders, Mode=TwoWay}" />
+                        <CheckBox Grid.Row="1" Grid.Column="1" Content="Downloaded Installers"
+                                  IsChecked="{x:Bind ViewModel.IncludeDownloads, Mode=TwoWay}" />
+                        <CheckBox Grid.Row="2" Grid.Column="0" Content="Large &amp; Old Files"
+                                  IsChecked="{x:Bind ViewModel.IncludeLargeOldFiles, Mode=TwoWay}" />
+                    </Grid>
+
+                    <!-- Large-file / old-file sliders (shown when that category is enabled) -->
+                    <StackPanel Spacing="10"
+                                Visibility="{x:Bind ViewModel.IncludeLargeOldFiles, Mode=OneWay, Converter={StaticResource BoolVis}}">
+                        <StackPanel>
+                            <TextBlock Text="{x:Bind ViewModel.LargeFileSizeLabel, Mode=OneWay}"
+                                       Style="{StaticResource CaptionTextBlockStyle}" Margin="0,0,0,4"/>
+                            <Slider Minimum="50" Maximum="5000" StepFrequency="50"
+                                    Value="{x:Bind ViewModel.LargeFileSizeMb, Mode=TwoWay}" />
+                        </StackPanel>
+                        <StackPanel>
+                            <TextBlock Text="{x:Bind ViewModel.OldFileAgeLabel, Mode=OneWay}"
+                                       Style="{StaticResource CaptionTextBlockStyle}" Margin="0,0,0,4"/>
+                            <Slider Minimum="30" Maximum="3650" StepFrequency="30"
+                                    Value="{x:Bind ViewModel.OldFileAgeDays, Mode=TwoWay}" />
+                        </StackPanel>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
             <!-- Status message -->
             <TextBlock Text="{x:Bind ViewModel.StatusMessage, Mode=OneWay}"
                        Style="{StaticResource BodyTextBlockStyle}" Opacity="0.8"

@@ -17,9 +17,8 @@ public sealed partial class MainWindow : Window
         InitializeComponent();
         _nav.Initialize(ContentFrame);
 
-        // Increase window size for a comfortable default work area.
-        AppWindow.Resize(new Windows.Graphics.SizeInt32(1280, 800));
         Title = "StorageMaster";
+        ApplyStartupWindowSize();
 
         // Set window icon — covers title bar, taskbar button, and Alt+Tab thumbnail.
         // Path is relative to the exe; the .ico is copied to output by the csproj.
@@ -30,6 +29,34 @@ public sealed partial class MainWindow : Window
         // Navigate to dashboard on launch.
         _nav.NavigateTo(typeof(DashboardPage));
         NavView.SelectedItem = NavView.MenuItems[0];
+    }
+
+    /// <summary>
+    /// Sizes and centres the window based on the actual work area of the display
+    /// that will host it — respects DPI scaling, taskbar reservations, and
+    /// multi-monitor setups.  Falls back gracefully if the API is unavailable.
+    /// </summary>
+    private void ApplyStartupWindowSize()
+    {
+        try
+        {
+            // DisplayArea.WorkArea is in *physical* (raw) pixels, which is what
+            // AppWindow.Resize / Move also use — no manual DPI conversion needed.
+            var area = DisplayArea.GetFromWindowId(AppWindow.Id, DisplayAreaFallback.Primary).WorkArea;
+
+            int w = (int)Math.Clamp(area.Width  * 0.85, 1200, 1800);
+            int h = (int)Math.Clamp(area.Height * 0.85,  750, 1100);
+
+            int x = area.X + (area.Width  - w) / 2;
+            int y = area.Y + (area.Height - h) / 2;
+
+            AppWindow.MoveAndResize(new Windows.Graphics.RectInt32(x, y, w, h));
+        }
+        catch
+        {
+            // Fallback: fixed size if DisplayArea is somehow unavailable.
+            AppWindow.Resize(new Windows.Graphics.SizeInt32(1280, 800));
+        }
     }
 
     private void NavView_SelectionChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)

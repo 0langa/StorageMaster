@@ -38,6 +38,24 @@ public sealed partial class CleanupViewModel : ObservableObject
     [ObservableProperty] private string      _totalSelectedSize = "0 B";
     [ObservableProperty] private bool        _hasResults;
 
+    // ── Per-session cleanup options ──────────────────────────────────────────
+    // These are loaded from AppSettings on init but can be tweaked per-session
+    // without touching persisted settings.
+    [ObservableProperty] private bool _useRecycleBin          = true;
+    [ObservableProperty] private bool _includeRecycleBin      = true;
+    [ObservableProperty] private bool _includeTempFiles        = true;
+    [ObservableProperty] private bool _includeCacheFolders     = true;
+    [ObservableProperty] private bool _includeDownloads        = true;
+    [ObservableProperty] private bool _includeLargeOldFiles    = true;
+    [ObservableProperty] private int  _largeFileSizeMb         = 500;
+    [ObservableProperty] private int  _oldFileAgeDays          = 365;
+
+    partial void OnLargeFileSizeMbChanged(int value)  => OnPropertyChanged(nameof(LargeFileSizeLabel));
+    partial void OnOldFileAgeDaysChanged(int value)   => OnPropertyChanged(nameof(OldFileAgeLabel));
+
+    public string LargeFileSizeLabel => $"Large file threshold: {LargeFileSizeMb:N0} MB";
+    public string OldFileAgeLabel    => $"Old file age: {OldFileAgeDays:N0} days";
+
     // ── Execution state ─────────────────────────────────────────────────────
     [ObservableProperty] private bool        _isExecuting;
     [ObservableProperty] private string      _cleanupProgressText  = string.Empty;
@@ -78,7 +96,10 @@ public sealed partial class CleanupViewModel : ObservableObject
     public async Task InitializeAsync()
     {
         var s = await _settings.LoadAsync();
-        IsDryRun = s.DryRunByDefault;
+        IsDryRun        = s.DryRunByDefault;
+        UseRecycleBin   = s.PreferRecycleBin;
+        LargeFileSizeMb = s.LargeFileSizeMb;
+        OldFileAgeDays  = s.OldFileAgeDays;
 
         var sessions = await _repo.GetRecentSessionsAsync(10);
         RecentSessions.Clear();
@@ -106,9 +127,35 @@ public sealed partial class CleanupViewModel : ObservableObject
 
         try
         {
-            var settings = await _settings.LoadAsync();
-            await foreach (var suggestion in _engine.GetSuggestionsAsync(SelectedSession.Id, settings))
+            // Build effective settings: start from persisted values, then apply
+            // any per-session overrides the user set in the Cleanup Options card.
+            var saved = await _settings.LoadAsync();
+            var effectiveSettings = new AppSettings
             {
+                PreferRecycleBin        = UseRecycleBin,
+                DryRunByDefault         = saved.DryRunByDefault,
+                LargeFileSizeMb         = LargeFileSizeMb,
+                OldFileAgeDays          = OldFileAgeDays,
+                DefaultScanPath         = saved.DefaultScanPath,
+                ScanParallelism         = saved.ScanParallelism,
+                ShowHiddenFiles         = saved.ShowHiddenFiles,
+                SkipSystemFolders       = saved.SkipSystemFolders,
+                ExcludedPaths           = saved.ExcludedPaths,
+            };
+
+            // Enabled category filter — built from the toggle switches in the UI.
+            var enabledCategories = new HashSet<CleanupCategory>();
+            if (IncludeRecycleBin)   enabledCategories.Add(CleanupCategory.RecycleBin);
+            if (IncludeTempFiles)    enabledCategories.Add(CleanupCategory.TempFiles);
+            if (IncludeCacheFolders) enabledCategories.Add(CleanupCategory.CacheFolders);
+            if (IncludeDownloads)    enabledCategories.Add(CleanupCategory.DownloadedInstallers);
+            if (IncludeLargeOldFiles)enabledCategories.Add(CleanupCategory.LargeOldFiles);
+
+            await foreach (var suggestion in _engine.GetSuggestionsAsync(SelectedSession.Id, effectiveSettings))
+            {
+                // Skip categories the user has disabled.
+                if (!enabledCategories.Contains(suggestion.Category)) continue;
+
                 var item = new SuggestionItem(suggestion);
                 item.PropertyChanged += SuggestionItem_PropertyChanged;
                 Suggestions.Add(item);
@@ -147,10 +194,9 @@ public sealed partial class CleanupViewModel : ObservableObject
 
         _lastSelectedSuggestions = selected;
 
-        var settings = await _settings.LoadAsync();
-        var method = settings.PreferRecycleBin
-            ? DeletionMethod.RecycleBin
-            : DeletionMethod.Permanent;
+        // Use the per-session toggle rather than re-reading persisted settings,
+        // so the user's choice in the Cleanup Options card is honoured.
+        var method = UseRecycleBin ? DeletionMethod.RecycleBin : DeletionMethod.Permanent;
 
         await RunCleanupCoreAsync(IsDryRun, method, selected);
     }

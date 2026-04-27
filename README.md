@@ -1,6 +1,4 @@
-# StorageMaster
-
-[![Release](https://github.com/0langa/StorageMaster/actions/workflows/release.yml/badge.svg)](https://github.com/0langa/StorageMaster/actions/workflows/release.yml)
+# StorageMaster -- [![Release](https://github.com/0langa/StorageMaster/actions/workflows/release.yml/badge.svg)](https://github.com/0langa/StorageMaster/actions/workflows/release.yml)
 
 A Windows disk analyzer and storage cleaner built with C# / .NET 8 / WinUI 3.
 

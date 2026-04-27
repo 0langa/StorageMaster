@@ -1,5 +1,6 @@
 <Page
     x:Class="StorageMaster.UI.Pages.ResultsPage"
+    x:Name="PageRoot"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:converters="using:StorageMaster.UI.Converters"
@@ -92,7 +93,7 @@
                                                 FontFamily="Segoe MDL2 Assets"
                                                 Width="32" Height="32" Padding="0"
                                                 ToolTipService.ToolTip="Open containing folder in Explorer"
-                                                Command="{x:Bind ViewModel.OpenInExplorerCommand, Mode=OneTime}"
+                                                Command="{Binding ViewModel.OpenInExplorerCommand, ElementName=PageRoot}"
                                                 CommandParameter="{Binding}"
                                                 VerticalAlignment="Center"/>
                                     </Grid>
@@ -132,7 +133,7 @@
                                                 FontFamily="Segoe MDL2 Assets"
                                                 Width="32" Height="32" Padding="0"
                                                 ToolTipService.ToolTip="Open in Explorer"
-                                                Command="{x:Bind ViewModel.OpenFolderInExplorerCommand, Mode=OneTime}"
+                                                Command="{Binding ViewModel.OpenFolderInExplorerCommand, ElementName=PageRoot}"
                                                 CommandParameter="{Binding}"
                                                 VerticalAlignment="Center"/>
                                     </Grid>

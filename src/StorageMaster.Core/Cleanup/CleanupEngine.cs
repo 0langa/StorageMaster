@@ -45,7 +45,8 @@ public sealed class CleanupEngine : ICleanupEngine
 
     public async Task<IReadOnlyList<CleanupResult>> ExecuteAsync(
         IReadOnlyList<CleanupSuggestion> suggestions,
-        bool              dryRun,
+        bool                           dryRun,
+        DeletionMethod                 deletionMethod,
         CancellationToken cancellationToken = default)
     {
         var results = new List<CleanupResult>(suggestions.Count);
@@ -55,7 +56,7 @@ public sealed class CleanupEngine : ICleanupEngine
             cancellationToken.ThrowIfCancellationRequested();
             _logger.LogInformation("Executing cleanup: {Title} dryRun={DryRun}", suggestion.Title, dryRun);
 
-            var result = await ExecuteSuggestionAsync(suggestion, dryRun, cancellationToken);
+            var result = await ExecuteSuggestionAsync(suggestion, dryRun, deletionMethod, cancellationToken);
             results.Add(result);
 
             await _log.LogResultAsync(result, suggestion, cancellationToken);
@@ -67,6 +68,7 @@ public sealed class CleanupEngine : ICleanupEngine
     private async Task<CleanupResult> ExecuteSuggestionAsync(
         CleanupSuggestion suggestion,
         bool              dryRun,
+        DeletionMethod    deletionMethod,
         CancellationToken ct)
     {
         long totalFreed     = 0;
@@ -75,7 +77,7 @@ public sealed class CleanupEngine : ICleanupEngine
 
         var requests = suggestion.TargetPaths.Select(path => new DeletionRequest(
             Path:   path,
-            Method: DeletionMethod.RecycleBin,
+            Method: deletionMethod,
             DryRun: dryRun)).ToList();
 
         await foreach (var outcome in _deleter.DeleteManyAsync(requests, ct))

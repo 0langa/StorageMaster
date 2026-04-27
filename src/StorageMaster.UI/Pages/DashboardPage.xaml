@@ -67,7 +67,7 @@
                                     <TextBlock>
                                         <Run Text="{Binding Name}" FontWeight="SemiBold"/>
                                         <Run Text=" " />
-                                        <Run Text="{Binding VolumeLabel}" Opacity="0.7"/>
+                                        <Run Text="{Binding VolumeLabel}"/>
                                     </TextBlock>
                                     <ProgressBar Value="{Binding UsedBytes}"
                                                  Maximum="{Binding TotalBytes}"

@@ -2,6 +2,7 @@
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
+    <UseWinUI>true</UseWinUI>
     <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
     <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
     <RootNamespace>StorageMaster.UI</RootNamespace>
@@ -12,6 +13,7 @@
     <LangVersion>latest</LangVersion>
     <Platforms>x86;x64;arm64</Platforms>
     <RuntimeIdentifiers>win-x86;win-x64;win-arm64</RuntimeIdentifiers>
+    <DefineConstants>$(DefineConstants);DISABLE_XAML_GENERATED_MAIN</DefineConstants>
     <!-- Version -->
     <Version>1.2.0</Version>
     <AssemblyVersion>1.2.0.0</AssemblyVersion>
@@ -21,9 +23,11 @@
     <Copyright>Copyright © 2025</Copyright>
     <!-- Unpackaged deployment — no MSIX required -->
     <WindowsPackageType>None</WindowsPackageType>
-    <!-- Bundle the Windows App SDK runtime so end-users need no separate install -->
-    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
-    <SelfContained>true</SelfContained>
+    <!-- Avoid legacy Appx/MRT packaging tasks that are not needed for an unpackaged desktop build. -->
+    <EnableCoreMrtTooling>false</EnableCoreMrtTooling>
+    <!-- Use the supported framework-dependent desktop flow and install the Windows App SDK runtime via setup. -->
+    <WindowsAppSDKSelfContained>false</WindowsAppSDKSelfContained>
+    <SelfContained>false</SelfContained>
   </PropertyGroup>
 
   <ItemGroup>
@@ -42,6 +46,15 @@
     <PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="10.0.0" />
   </ItemGroup>
 
+  <Target Name="CopyCompiledXamlToPublish" AfterTargets="Publish">
+    <ItemGroup>
+      <CompiledXamlFiles Include="$(TargetDir)**\*.xbf" />
+    </ItemGroup>
 
+    <Copy
+      SourceFiles="@(CompiledXamlFiles)"
+      DestinationFiles="@(CompiledXamlFiles->'$(PublishDir)%(RecursiveDir)%(Filename)%(Extension)')"
+      SkipUnchangedFiles="true" />
+  </Target>
 
 </Project>

@@ -35,13 +35,13 @@
                 <StackPanel Spacing="14">
                     <TextBlock Text="Large &amp; Old File Thresholds" Style="{StaticResource BodyStrongTextBlockStyle}" />
                     <StackPanel>
-                        <TextBlock Text="{x:Bind ViewModel.LargeFileSizeMb, Mode=OneWay, ConverterParameter='Large file threshold: {0} MB'}"
+                        <TextBlock Text="{x:Bind ViewModel.LargeFileThresholdLabel, Mode=OneWay}"
                                    Style="{StaticResource CaptionTextBlockStyle}" Margin="0,0,0,4"/>
                         <Slider Minimum="50" Maximum="5000" StepFrequency="50"
                                 Value="{x:Bind ViewModel.LargeFileSizeMb, Mode=TwoWay}" />
                     </StackPanel>
                     <StackPanel>
-                        <TextBlock Text="{x:Bind ViewModel.OldFileAgeDays, Mode=OneWay, ConverterParameter='Old file threshold: {0} days'}"
+                        <TextBlock Text="{x:Bind ViewModel.OldFileAgeThresholdLabel, Mode=OneWay}"
                                    Style="{StaticResource CaptionTextBlockStyle}" Margin="0,0,0,4"/>
                         <Slider Minimum="30" Maximum="3650" StepFrequency="30"
                                 Value="{x:Bind ViewModel.OldFileAgeDays, Mode=TwoWay}" />
@@ -59,7 +59,7 @@
                         <TextBox Text="{x:Bind ViewModel.DefaultScanPath, Mode=TwoWay}" />
                     </StackPanel>
                     <StackPanel>
-                        <TextBlock Text="{x:Bind ViewModel.ScanParallelism, Mode=OneWay, ConverterParameter='Parallelism: {0} threads'}"
+                        <TextBlock Text="{x:Bind ViewModel.ScanParallelismLabel, Mode=OneWay}"
                                    Style="{StaticResource CaptionTextBlockStyle}" Margin="0,0,0,4"/>
                         <Slider Minimum="1" Maximum="16" StepFrequency="1"
                                 Value="{x:Bind ViewModel.ScanParallelism, Mode=TwoWay}" />
@@ -112,7 +112,7 @@
             <!-- Feedback -->
             <TextBlock Text="{x:Bind ViewModel.SavedMessage, Mode=OneWay}"
                        Foreground="{ThemeResource SystemFillColorSuccessBrush}"
-                       Visibility="{x:Bind ViewModel.SavedMessage.Length, Mode=OneWay, Converter={StaticResource BoolVis}}" />
+                       Visibility="{x:Bind ViewModel.HasSavedMessage, Mode=OneWay, Converter={StaticResource BoolVis}}" />
 
             <!-- About -->
             <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"

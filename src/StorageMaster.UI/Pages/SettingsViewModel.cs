@@ -22,7 +22,17 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     public ObservableCollection<string> ExcludedPaths { get; } = [];
 
+    public string LargeFileThresholdLabel => $"Large file threshold: {LargeFileSizeMb} MB";
+    public string OldFileAgeThresholdLabel => $"Old file threshold: {OldFileAgeDays} days";
+    public string ScanParallelismLabel => $"Parallelism: {ScanParallelism} threads";
+    public bool HasSavedMessage => !string.IsNullOrWhiteSpace(SavedMessage);
+
     public SettingsViewModel(ISettingsRepository repo) => _repo = repo;
+
+    partial void OnLargeFileSizeMbChanged(int value) => OnPropertyChanged(nameof(LargeFileThresholdLabel));
+    partial void OnOldFileAgeDaysChanged(int value) => OnPropertyChanged(nameof(OldFileAgeThresholdLabel));
+    partial void OnScanParallelismChanged(int value) => OnPropertyChanged(nameof(ScanParallelismLabel));
+    partial void OnSavedMessageChanged(string value) => OnPropertyChanged(nameof(HasSavedMessage));
 
     public async Task LoadAsync()
     {
@@ -46,6 +56,8 @@ public sealed partial class SettingsViewModel : ObservableObject
         if (!string.IsNullOrWhiteSpace(path) && !ExcludedPaths.Contains(path, StringComparer.OrdinalIgnoreCase))
             ExcludedPaths.Add(path);
     }
+
+    public void RemoveExcludedPathEntry(string path) => ExcludedPaths.Remove(path);
 
     [RelayCommand]
     private void RemoveExcludedPath(string path) => ExcludedPaths.Remove(path);

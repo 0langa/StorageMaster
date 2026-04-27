@@ -16,6 +16,11 @@ namespace StorageMaster.UI;
 public partial class App : Application
 {
     public static IServiceProvider Services { get; private set; } = null!;
+    private static readonly string CrashLogPath = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "StorageMaster",
+        "logs",
+        "startup-errors.log");
 
     /// <summary>Set to true when launched with --deep-scan (elevated restart).</summary>
     public static bool StartWithDeepScan { get; private set; }
@@ -27,6 +32,10 @@ public partial class App : Application
         // Check for --deep-scan before building services so ViewModels can read it.
         StartWithDeepScan = Environment.GetCommandLineArgs()
             .Any(a => a.Equals("--deep-scan", StringComparison.OrdinalIgnoreCase));
+
+        UnhandledException += OnUnhandledException;
+        AppDomain.CurrentDomain.UnhandledException += OnCurrentDomainUnhandledException;
+        TaskScheduler.UnobservedTaskException += OnUnobservedTaskException;
 
         Services = BuildServices();
         InitializeComponent();
@@ -94,5 +103,39 @@ public partial class App : Application
         services.AddSingleton<MainWindow>();
 
         return services.BuildServiceProvider();
+    }
+
+    private static void OnCurrentDomainUnhandledException(object sender, System.UnhandledExceptionEventArgs e)
+    {
+        LogException("AppDomain.CurrentDomain.UnhandledException", e.ExceptionObject as Exception);
+    }
+
+    private static void OnUnobservedTaskException(object? sender, UnobservedTaskExceptionEventArgs e)
+    {
+        LogException("TaskScheduler.UnobservedTaskException", e.Exception);
+    }
+
+    private void OnUnhandledException(object sender, Microsoft.UI.Xaml.UnhandledExceptionEventArgs e)
+    {
+        LogException("Application.UnhandledException", e.Exception);
+    }
+
+    private static void LogException(string source, Exception? exception)
+    {
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(CrashLogPath)!);
+            var lines = new[]
+            {
+                $"[{DateTimeOffset.Now:O}] {source}",
+                exception?.ToString() ?? "No exception details were provided.",
+                string.Empty
+            };
+            File.AppendAllLines(CrashLogPath, lines);
+        }
+        catch
+        {
+            // Last-chance logging must never throw back into startup.
+        }
     }
 }

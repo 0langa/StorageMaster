@@ -18,6 +18,7 @@ public interface ICleanupEngine
     /// </summary>
     Task<IReadOnlyList<CleanupResult>> ExecuteAsync(
         IReadOnlyList<CleanupSuggestion> suggestions,
-        bool              dryRun,
+        bool                           dryRun,
+        DeletionMethod                 deletionMethod,
         CancellationToken cancellationToken = default);
 }

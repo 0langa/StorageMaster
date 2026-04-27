@@ -1,6 +1,6 @@
 # StorageMaster
 
-A production-quality Windows disk analyser and storage cleaner built with C# / .NET 10 / WinUI 3.
+A Windows disk analyzer and storage cleaner built with C# / .NET 8 / WinUI 3.
 
 ---
 
@@ -23,40 +23,61 @@ StorageMaster/
 
 | Component | Version |
 |-----------|---------|
-| .NET SDK | 10.0+ |
-| Windows App SDK runtime | 1.6+ |
+| .NET SDK | 8.0.x |
 | Visual Studio 2022 | 17.9+ with **Windows application development** workload |
-| Target OS | Windows 10 1903 (build 18362) or later |
+| Inno Setup | 6.x for installer builds |
+| Target OS | Windows 10 1809 (build 17763) or later |
 
 ---
 
 ## Building
 
-### Backend / tests (dotnet CLI, no VS required)
+### Core libraries and tests
 
 ```powershell
-# All backend projects compile with plain dotnet
+# Build non-UI projects
 dotnet build src/StorageMaster.Core/StorageMaster.Core.csproj
 dotnet build src/StorageMaster.Storage/StorageMaster.Storage.csproj
 dotnet build src/StorageMaster.Platform.Windows/StorageMaster.Platform.Windows.csproj
 
-# Run all tests
+# Run tests
 dotnet test tests/StorageMaster.Tests/StorageMaster.Tests.csproj
 ```
 
-### Full solution including WinUI 3 UI
+### WinUI desktop application
 
-Open `StorageMaster.sln` in **Visual Studio 2022** and press F5, or:
+The unpackaged WinUI app is built with Visual Studio MSBuild, not plain `dotnet build`.
 
 ```powershell
-# Build for x64 (required for WinUI 3 / Windows App SDK)
-dotnet build src/StorageMaster.UI/StorageMaster.UI.csproj -r win-x64 -c Release
+$msbuild = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" `
+  -latest -products * -requires Microsoft.Component.MSBuild `
+  -find "MSBuild\**\Bin\MSBuild.exe" | Select-Object -First 1
+
+& $msbuild src\StorageMaster.UI\StorageMaster.UI.csproj `
+  /t:Clean,Build `
+  /restore `
+  /p:Configuration=Release `
+  /p:Platform=x64 `
+  /p:RuntimeIdentifier=win-x64 `
+  /m:1 `
+  /nr:false
 ```
 
-> **Note:** The UI project requires the Windows App SDK NuGet packages
-> (`Microsoft.WindowsAppSDK 1.6`). These are restored automatically via NuGet.
-> The app uses `WindowsAppSDKSelfContained=true` so no separate runtime installer
-> is needed on end-user machines.
+### Build a release installer
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\installer\Build-Release.ps1
+```
+
+Outputs:
+
+- Staged app bundle: `artifacts\publish\win-x64\StorageMaster.UI.exe`
+- Installer: `artifacts\installer\StorageMaster-1.2.0-win-x64-Setup.exe`
+
+The release script builds the working framework-dependent WinUI desktop app, stages it into `artifacts\publish\win-x64`, copies the bundled Windows App SDK runtime installer into `artifacts\publish\win-x64\prereqs`, and then builds the Inno Setup installer from that folder. End users can either:
+
+- run `StorageMaster.UI.exe` directly, or
+- double-click the generated installer, let setup install the Windows App SDK runtime if needed, and launch StorageMaster from the desktop or Start menu shortcut
 
 ---
 
@@ -125,9 +146,4 @@ All bulk inserts use explicit transactions for throughput.
 
 ## Test coverage
 
-```
-13 tests | 0 failures | 0 skipped
-- Scanner: cancellation, batching, invalid path, real filesystem scan
-- Cleanup rules: large/old files, protected paths, temp extensions
-- Storage: session CRUD, file entry round-trip, category aggregation
-```
+`tests/StorageMaster.Tests/StorageMaster.Tests.csproj` currently contains 41 passing tests covering scanner behavior, cleanup rules, persistence, aggregation, compilation flow, and UI-adjacent view-model logic.

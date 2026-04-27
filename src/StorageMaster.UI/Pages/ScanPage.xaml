@@ -10,6 +10,7 @@
     <Page.Resources>
         <converters:BoolToVisibilityConverter x:Key="BoolVis" />
         <converters:BoolToVisibilityConverter x:Key="InvBoolVis" Invert="True" />
+        <converters:BoolNegationConverter x:Key="NotBool" />
     </Page.Resources>
 
     <ScrollViewer Padding="32,24">
@@ -27,9 +28,9 @@
                         <TextBox Grid.Column="0"
                                  PlaceholderText="e.g. C:\ or C:\Users"
                                  Text="{x:Bind ViewModel.SelectedPath, Mode=TwoWay}"
-                                 IsEnabled="{x:Bind ViewModel.IsScanning, Mode=OneWay, Converter={StaticResource InvBoolVis}}" />
+                                 IsEnabled="{x:Bind ViewModel.IsScanning, Mode=OneWay, Converter={StaticResource NotBool}}" />
                         <Button Grid.Column="1" Content="Browse…"
-                                IsEnabled="{x:Bind ViewModel.IsScanning, Mode=OneWay, Converter={StaticResource InvBoolVis}}"
+                                IsEnabled="{x:Bind ViewModel.IsScanning, Mode=OneWay, Converter={StaticResource NotBool}}"
                                 Click="BrowseButton_Click" />
                     </Grid>
 
@@ -57,7 +58,7 @@
                 <StackPanel Spacing="12">
                     <ToggleSwitch Header="Deep Scan"
                                   IsOn="{x:Bind ViewModel.DeepScan, Mode=TwoWay}"
-                                  IsEnabled="{x:Bind ViewModel.IsScanning, Mode=OneWay, Converter={StaticResource InvBoolVis}}" />
+                                  IsEnabled="{x:Bind ViewModel.IsScanning, Mode=OneWay, Converter={StaticResource NotBool}}" />
                     <TextBlock Text="Includes hidden files, system files, and protected directories that are skipped in a normal scan. For complete coverage, run as Administrator."
                                Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.7"
                                TextWrapping="Wrap" />
@@ -94,7 +95,7 @@
                 <Button Content="Start Scan"
                         Style="{StaticResource AccentButtonStyle}"
                         Command="{x:Bind ViewModel.StartScanCommand}"
-                        IsEnabled="{x:Bind ViewModel.IsScanning, Mode=OneWay, Converter={StaticResource InvBoolVis}}" />
+                        IsEnabled="{x:Bind ViewModel.IsScanning, Mode=OneWay, Converter={StaticResource NotBool}}" />
                 <Button Content="Cancel"
                         Command="{x:Bind ViewModel.CancelScanCommand}"
                         Visibility="{x:Bind ViewModel.IsScanning, Mode=OneWay, Converter={StaticResource BoolVis}}" />

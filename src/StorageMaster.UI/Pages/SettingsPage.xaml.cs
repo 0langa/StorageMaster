@@ -26,7 +26,7 @@ public sealed partial class SettingsPage : Page
     private void RemovePath_Click(object sender, RoutedEventArgs e)
     {
         if (sender is Button btn && btn.Tag is string path)
-            ViewModel.RemoveExcludedPath(path);
+            ViewModel.RemoveExcludedPathEntry(path);
     }
 
     private async void AddExcludedFolder_Click(object sender, RoutedEventArgs e)

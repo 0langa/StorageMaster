@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using StorageMaster.Core.Interfaces;
@@ -57,6 +58,9 @@ public sealed partial class CleanupViewModel : ObservableObject
 
     public async Task InitializeAsync()
     {
+        var settings = await _settings.LoadAsync();
+        IsDryRun = settings.DryRunByDefault;
+
         var sessions = await _repo.GetRecentSessionsAsync(10);
         RecentSessions.Clear();
         foreach (var s in sessions.Where(s => s.Status == ScanStatus.Completed))
@@ -83,7 +87,9 @@ public sealed partial class CleanupViewModel : ObservableObject
             var settings = await _settings.LoadAsync();
             await foreach (var suggestion in _engine.GetSuggestionsAsync(SelectedSession.Id, settings))
             {
-                Suggestions.Add(new SuggestionItem(suggestion));
+                var item = new SuggestionItem(suggestion);
+                item.PropertyChanged += SuggestionItem_PropertyChanged;
+                Suggestions.Add(item);
             }
             UpdateTotalSelected();
             HasResults    = Suggestions.Count > 0;
@@ -122,7 +128,10 @@ public sealed partial class CleanupViewModel : ObservableObject
         try
         {
             var settings = await _settings.LoadAsync();
-            var results  = await _engine.ExecuteAsync(selected, IsDryRun);
+            var deletionMethod = settings.PreferRecycleBin
+                ? DeletionMethod.RecycleBin
+                : DeletionMethod.Permanent;
+            var results = await _engine.ExecuteAsync(selected, IsDryRun, deletionMethod);
 
             foreach (var r in results)
             {
@@ -156,6 +165,12 @@ public sealed partial class CleanupViewModel : ObservableObject
             .Where(s => s.IsSelected)
             .Sum(s => s.Suggestion.EstimatedBytes);
         TotalSelectedSize = ByteSizeConverter.Format(total);
+    }
+
+    private void SuggestionItem_PropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(SuggestionItem.IsSelected))
+            UpdateTotalSelected();
     }
 }
 

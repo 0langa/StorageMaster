@@ -10,6 +10,7 @@
     <Page.Resources>
         <converters:BoolToVisibilityConverter x:Key="BoolVis" />
         <converters:BoolToVisibilityConverter x:Key="InvBoolVis" Invert="True" />
+        <converters:BoolNegationConverter x:Key="NotBool" />
     </Page.Resources>
 
     <ScrollViewer Padding="32,24">
@@ -38,7 +39,7 @@
                     <Button Content="Analyse for Cleanup Opportunities"
                             Style="{StaticResource AccentButtonStyle}"
                             Command="{x:Bind ViewModel.AnalyseCommand}"
-                            IsEnabled="{x:Bind ViewModel.IsLoading, Mode=OneWay, Converter={StaticResource InvBoolVis}}" />
+                            IsEnabled="{x:Bind ViewModel.IsLoading, Mode=OneWay, Converter={StaticResource NotBool}}" />
                 </StackPanel>
             </Border>
 
@@ -106,7 +107,7 @@
                         <Button Grid.Column="2"
                                 Content="Clean Up Selected…"
                                 Style="{StaticResource AccentButtonStyle}"
-                                IsEnabled="{x:Bind ViewModel.IsExecuting, Mode=OneWay, Converter={StaticResource InvBoolVis}}"
+                                IsEnabled="{x:Bind ViewModel.IsExecuting, Mode=OneWay, Converter={StaticResource NotBool}}"
                                 Click="ExecuteButton_Click"/>
                     </Grid>
                 </Border>

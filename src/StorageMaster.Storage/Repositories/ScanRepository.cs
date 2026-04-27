@@ -95,48 +95,56 @@ public sealed class ScanRepository : IScanRepository
     {
         if (entries.Count == 0) return;
 
-        var conn = await _db.GetConnectionAsync(ct);
-        using var tx  = await conn.BeginTransactionAsync(ct);
-        using var cmd = conn.CreateCommand();
-        cmd.Transaction = (SqliteTransaction)tx;
-        cmd.CommandText = """
-            INSERT INTO FileEntries
-                (SessionId, FullPath, FileName, Extension, SizeBytes,
-                 CreatedUtc, ModifiedUtc, AccessedUtc, Attributes, Category, IsReparsePoint)
-            VALUES
-                ($sid, $path, $name, $ext, $size,
-                 $created, $modified, $accessed, $attrs, $cat, $reparse);
-            """;
-
-        var pSid     = cmd.Parameters.Add("$sid",     SqliteType.Integer);
-        var pPath    = cmd.Parameters.Add("$path",    SqliteType.Text);
-        var pName    = cmd.Parameters.Add("$name",    SqliteType.Text);
-        var pExt     = cmd.Parameters.Add("$ext",     SqliteType.Text);
-        var pSize    = cmd.Parameters.Add("$size",    SqliteType.Integer);
-        var pCreated = cmd.Parameters.Add("$created", SqliteType.Text);
-        var pMod     = cmd.Parameters.Add("$modified",SqliteType.Text);
-        var pAccess  = cmd.Parameters.Add("$accessed",SqliteType.Text);
-        var pAttrs   = cmd.Parameters.Add("$attrs",   SqliteType.Integer);
-        var pCat     = cmd.Parameters.Add("$cat",     SqliteType.Text);
-        var pReparse = cmd.Parameters.Add("$reparse", SqliteType.Integer);
-
-        foreach (var e in entries)
+        await _db.WriteLock.WaitAsync(ct);
+        try
         {
-            pSid.Value     = e.SessionId;
-            pPath.Value    = e.FullPath;
-            pName.Value    = e.FileName;
-            pExt.Value     = e.Extension;
-            pSize.Value    = e.SizeBytes;
-            pCreated.Value = e.CreatedUtc.ToString("O");
-            pMod.Value     = e.ModifiedUtc.ToString("O");
-            pAccess.Value  = e.AccessedUtc.ToString("O");
-            pAttrs.Value   = (int)e.Attributes;
-            pCat.Value     = e.Category.ToString();
-            pReparse.Value = e.IsReparsePoint ? 1 : 0;
-            await cmd.ExecuteNonQueryAsync(ct);
-        }
+            var conn = await _db.GetConnectionAsync(ct);
+            using var tx  = await conn.BeginTransactionAsync(ct);
+            using var cmd = conn.CreateCommand();
+            cmd.Transaction = (SqliteTransaction)tx;
+            cmd.CommandText = """
+                INSERT INTO FileEntries
+                    (SessionId, FullPath, FileName, Extension, SizeBytes,
+                     CreatedUtc, ModifiedUtc, AccessedUtc, Attributes, Category, IsReparsePoint)
+                VALUES
+                    ($sid, $path, $name, $ext, $size,
+                     $created, $modified, $accessed, $attrs, $cat, $reparse);
+                """;
 
-        await tx.CommitAsync(ct);
+            var pSid     = cmd.Parameters.Add("$sid",     SqliteType.Integer);
+            var pPath    = cmd.Parameters.Add("$path",    SqliteType.Text);
+            var pName    = cmd.Parameters.Add("$name",    SqliteType.Text);
+            var pExt     = cmd.Parameters.Add("$ext",     SqliteType.Text);
+            var pSize    = cmd.Parameters.Add("$size",    SqliteType.Integer);
+            var pCreated = cmd.Parameters.Add("$created", SqliteType.Text);
+            var pMod     = cmd.Parameters.Add("$modified",SqliteType.Text);
+            var pAccess  = cmd.Parameters.Add("$accessed",SqliteType.Text);
+            var pAttrs   = cmd.Parameters.Add("$attrs",   SqliteType.Integer);
+            var pCat     = cmd.Parameters.Add("$cat",     SqliteType.Text);
+            var pReparse = cmd.Parameters.Add("$reparse", SqliteType.Integer);
+
+            foreach (var e in entries)
+            {
+                pSid.Value     = e.SessionId;
+                pPath.Value    = e.FullPath;
+                pName.Value    = e.FileName;
+                pExt.Value     = e.Extension;
+                pSize.Value    = e.SizeBytes;
+                pCreated.Value = e.CreatedUtc.ToString("O");
+                pMod.Value     = e.ModifiedUtc.ToString("O");
+                pAccess.Value  = e.AccessedUtc.ToString("O");
+                pAttrs.Value   = (int)e.Attributes;
+                pCat.Value     = e.Category.ToString();
+                pReparse.Value = e.IsReparsePoint ? 1 : 0;
+                await cmd.ExecuteNonQueryAsync(ct);
+            }
+
+            await tx.CommitAsync(ct);
+        }
+        finally
+        {
+            _db.WriteLock.Release();
+        }
     }
 
     // ── Folder entries ─────────────────────────────────────────────────────
@@ -145,51 +153,59 @@ public sealed class ScanRepository : IScanRepository
     {
         if (entries.Count == 0) return;
 
-        var conn = await _db.GetConnectionAsync(ct);
-        using var tx  = await conn.BeginTransactionAsync(ct);
-        using var cmd = conn.CreateCommand();
-        cmd.Transaction = (SqliteTransaction)tx;
-
-        // INSERT OR REPLACE handles the upsert. The UNIQUE constraint on (SessionId, FullPath)
-        // ensures duplicate paths from concurrent workers are merged.
-        cmd.CommandText = """
-            INSERT INTO FolderEntries
-                (SessionId, FullPath, FolderName, DirectSizeBytes, TotalSizeBytes,
-                 FileCount, SubFolderCount, IsReparsePoint, WasAccessDenied)
-            VALUES
-                ($sid, $path, $name, $direct, $total,
-                 $files, $subs, $reparse, $denied)
-            ON CONFLICT(SessionId, FullPath) DO UPDATE SET
-                DirectSizeBytes = DirectSizeBytes + excluded.DirectSizeBytes,
-                TotalSizeBytes  = TotalSizeBytes  + excluded.TotalSizeBytes,
-                FileCount       = FileCount       + excluded.FileCount;
-            """;
-
-        var pSid     = cmd.Parameters.Add("$sid",    SqliteType.Integer);
-        var pPath    = cmd.Parameters.Add("$path",   SqliteType.Text);
-        var pName    = cmd.Parameters.Add("$name",   SqliteType.Text);
-        var pDirect  = cmd.Parameters.Add("$direct", SqliteType.Integer);
-        var pTotal   = cmd.Parameters.Add("$total",  SqliteType.Integer);
-        var pFiles   = cmd.Parameters.Add("$files",  SqliteType.Integer);
-        var pSubs    = cmd.Parameters.Add("$subs",   SqliteType.Integer);
-        var pReparse = cmd.Parameters.Add("$reparse",SqliteType.Integer);
-        var pDenied  = cmd.Parameters.Add("$denied", SqliteType.Integer);
-
-        foreach (var e in entries)
+        await _db.WriteLock.WaitAsync(ct);
+        try
         {
-            pSid.Value     = e.SessionId;
-            pPath.Value    = e.FullPath;
-            pName.Value    = e.FolderName;
-            pDirect.Value  = e.DirectSizeBytes;
-            pTotal.Value   = e.TotalSizeBytes;
-            pFiles.Value   = e.FileCount;
-            pSubs.Value    = e.SubFolderCount;
-            pReparse.Value = e.IsReparsePoint ? 1 : 0;
-            pDenied.Value  = e.WasAccessDenied ? 1 : 0;
-            await cmd.ExecuteNonQueryAsync(ct);
-        }
+            var conn = await _db.GetConnectionAsync(ct);
+            using var tx  = await conn.BeginTransactionAsync(ct);
+            using var cmd = conn.CreateCommand();
+            cmd.Transaction = (SqliteTransaction)tx;
 
-        await tx.CommitAsync(ct);
+            // INSERT OR REPLACE handles the upsert. The UNIQUE constraint on (SessionId, FullPath)
+            // ensures duplicate paths from concurrent workers are merged.
+            cmd.CommandText = """
+                INSERT INTO FolderEntries
+                    (SessionId, FullPath, FolderName, DirectSizeBytes, TotalSizeBytes,
+                     FileCount, SubFolderCount, IsReparsePoint, WasAccessDenied)
+                VALUES
+                    ($sid, $path, $name, $direct, $total,
+                     $files, $subs, $reparse, $denied)
+                ON CONFLICT(SessionId, FullPath) DO UPDATE SET
+                    DirectSizeBytes = DirectSizeBytes + excluded.DirectSizeBytes,
+                    TotalSizeBytes  = TotalSizeBytes  + excluded.TotalSizeBytes,
+                    FileCount       = FileCount       + excluded.FileCount;
+                """;
+
+            var pSid     = cmd.Parameters.Add("$sid",    SqliteType.Integer);
+            var pPath    = cmd.Parameters.Add("$path",   SqliteType.Text);
+            var pName    = cmd.Parameters.Add("$name",   SqliteType.Text);
+            var pDirect  = cmd.Parameters.Add("$direct", SqliteType.Integer);
+            var pTotal   = cmd.Parameters.Add("$total",  SqliteType.Integer);
+            var pFiles   = cmd.Parameters.Add("$files",  SqliteType.Integer);
+            var pSubs    = cmd.Parameters.Add("$subs",   SqliteType.Integer);
+            var pReparse = cmd.Parameters.Add("$reparse",SqliteType.Integer);
+            var pDenied  = cmd.Parameters.Add("$denied", SqliteType.Integer);
+
+            foreach (var e in entries)
+            {
+                pSid.Value     = e.SessionId;
+                pPath.Value    = e.FullPath;
+                pName.Value    = e.FolderName;
+                pDirect.Value  = e.DirectSizeBytes;
+                pTotal.Value   = e.TotalSizeBytes;
+                pFiles.Value   = e.FileCount;
+                pSubs.Value    = e.SubFolderCount;
+                pReparse.Value = e.IsReparsePoint ? 1 : 0;
+                pDenied.Value  = e.WasAccessDenied ? 1 : 0;
+                await cmd.ExecuteNonQueryAsync(ct);
+            }
+
+            await tx.CommitAsync(ct);
+        }
+        finally
+        {
+            _db.WriteLock.Release();
+        }
     }
 
     // ── Queries ────────────────────────────────────────────────────────────
@@ -299,26 +315,35 @@ public sealed class ScanRepository : IScanRepository
         for (int offset = 0; offset < pairs.Count; offset += batchSize)
         {
             var batch = pairs.Skip(offset).Take(batchSize).ToList();
-            using var tx  = await conn.BeginTransactionAsync(ct);
-            using var cmd = conn.CreateCommand();
-            cmd.Transaction = (SqliteTransaction)tx;
-            cmd.CommandText = """
-                UPDATE FolderEntries
-                SET TotalSizeBytes = $total
-                WHERE SessionId = $sid AND FullPath = $path;
-                """;
-            var pTotal = cmd.Parameters.Add("$total", SqliteType.Integer);
-            var pSid   = cmd.Parameters.Add("$sid",   SqliteType.Integer);
-            var pPath  = cmd.Parameters.Add("$path",  SqliteType.Text);
-            pSid.Value = sessionId;
 
-            foreach (var (path, total) in batch)
+            await _db.WriteLock.WaitAsync(ct);
+            try
             {
-                pPath.Value  = path;
-                pTotal.Value = total;
-                await cmd.ExecuteNonQueryAsync(ct);
+                using var tx  = await conn.BeginTransactionAsync(ct);
+                using var cmd = conn.CreateCommand();
+                cmd.Transaction = (SqliteTransaction)tx;
+                cmd.CommandText = """
+                    UPDATE FolderEntries
+                    SET TotalSizeBytes = $total
+                    WHERE SessionId = $sid AND FullPath = $path;
+                    """;
+                var pTotal = cmd.Parameters.Add("$total", SqliteType.Integer);
+                var pSid   = cmd.Parameters.Add("$sid",   SqliteType.Integer);
+                var pPath  = cmd.Parameters.Add("$path",  SqliteType.Text);
+                pSid.Value = sessionId;
+
+                foreach (var (path, total) in batch)
+                {
+                    pPath.Value  = path;
+                    pTotal.Value = total;
+                    await cmd.ExecuteNonQueryAsync(ct);
+                }
+                await tx.CommitAsync(ct);
             }
-            await tx.CommitAsync(ct);
+            finally
+            {
+                _db.WriteLock.Release();
+            }
         }
     }
 

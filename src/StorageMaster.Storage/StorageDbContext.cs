@@ -20,6 +20,13 @@ public sealed class StorageDbContext : IAsyncDisposable
     private readonly SemaphoreSlim _initLock = new(1, 1);
     private bool _initialized;
 
+    /// <summary>
+    /// Serialises all transactional write operations so that concurrent scanner
+    /// workers never call BeginTransactionAsync on the same SqliteConnection
+    /// simultaneously (Microsoft.Data.Sqlite does not support nested transactions).
+    /// </summary>
+    public SemaphoreSlim WriteLock { get; } = new(1, 1);
+
     public StorageDbContext(string dbPath, ILogger<StorageDbContext> logger)
     {
         _dbPath = dbPath;
@@ -147,5 +154,6 @@ public sealed class StorageDbContext : IAsyncDisposable
             await _connection.DisposeAsync();
         }
         _initLock.Dispose();
+        WriteLock.Dispose();
     }
 }

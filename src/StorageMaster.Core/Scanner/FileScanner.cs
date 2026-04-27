@@ -43,38 +43,40 @@ public sealed class FileScanner : IFileScanner
     {
         ArgumentException.ThrowIfNullOrEmpty(options.RootPath);
 
-        var session = await _repo.CreateSessionAsync(options.RootPath, cancellationToken);
+        var session = await _repo.CreateSessionAsync(options.RootPath, cancellationToken).ConfigureAwait(false);
         _logger.LogInformation("Scan {SessionId} started at {Root}", session.Id, options.RootPath);
 
         var state = new ScanState(session.Id, options);
 
+        // Declared outside try so catch blocks can await it for clean shutdown.
+        var progressTimer = new PeriodicTimer(TimeSpan.FromMilliseconds(300));
+        var progressTask  = ReportProgressLoopAsync(progressTimer, state, progress, cancellationToken);
+
         try
         {
-            // Progress reporter runs on a timer so the hot scan loop is never blocked.
-            using var progressTimer = new PeriodicTimer(TimeSpan.FromMilliseconds(300));
-            var progressTask = ReportProgressLoopAsync(progressTimer, state, progress, cancellationToken);
+            progress.Report(BuildProgress(state, complete: false));
 
-            await ScanDirectoryTreeAsync(options.RootPath, options, state, cancellationToken);
+            await ScanDirectoryTreeAsync(options.RootPath, options, state, cancellationToken).ConfigureAwait(false);
 
             // Flush any remaining buffered entries.
-            await FlushFileBufferAsync(state, cancellationToken);
-            await FlushFolderBufferAsync(state, cancellationToken);
+            await FlushFileBufferAsync(state, cancellationToken).ConfigureAwait(false);
+            await FlushFolderBufferAsync(state, cancellationToken).ConfigureAwait(false);
 
             // Post-scan: propagate folder sizes bottom-up so TotalSizeBytes is accurate.
-            var allFolders = await _repo.GetAllFolderPathsForSessionAsync(session.Id, cancellationToken);
+            var allFolders = await _repo.GetAllFolderPathsForSessionAsync(session.Id, cancellationToken).ConfigureAwait(false);
             var totals = FolderSizeAggregator.Compute(allFolders);
-            await _repo.UpdateFolderTotalsAsync(session.Id, totals, cancellationToken);
+            await _repo.UpdateFolderTotalsAsync(session.Id, totals, cancellationToken).ConfigureAwait(false);
 
             // Flush accumulated scan errors (access denied, I/O failures) if a repo is wired in.
             if (_errorRepo is not null)
             {
                 var errors = DrainQueue(state.ErrorBuffer);
                 if (errors.Count > 0)
-                    await _errorRepo.LogErrorsAsync(session.Id, errors, cancellationToken);
+                    await _errorRepo.LogErrorsAsync(session.Id, errors, cancellationToken).ConfigureAwait(false);
             }
 
             progressTimer.Dispose();
-            await progressTask;
+            await progressTask.ConfigureAwait(false);
 
             var completed = session with
             {
@@ -86,7 +88,7 @@ public sealed class FileScanner : IFileScanner
                 AccessDeniedCount = state.AccessDeniedCount,
             };
 
-            await _repo.UpdateSessionAsync(completed, cancellationToken);
+            await _repo.UpdateSessionAsync(completed, cancellationToken).ConfigureAwait(false);
             _logger.LogInformation("Scan {SessionId} completed. Files={Files} Size={Size}",
                 session.Id, state.FileCount, state.TotalBytes);
 
@@ -95,8 +97,11 @@ public sealed class FileScanner : IFileScanner
         }
         catch (OperationCanceledException)
         {
-            await FlushFileBufferAsync(state, CancellationToken.None);
-            await FlushFolderBufferAsync(state, CancellationToken.None);
+            progressTimer.Dispose();
+            await progressTask.ConfigureAwait(false);
+
+            await FlushFileBufferAsync(state, CancellationToken.None).ConfigureAwait(false);
+            await FlushFolderBufferAsync(state, CancellationToken.None).ConfigureAwait(false);
 
             var cancelled = session with
             {
@@ -106,11 +111,14 @@ public sealed class FileScanner : IFileScanner
                 TotalFolders = state.FolderCount,
                 TotalSizeBytes = state.TotalBytes,
             };
-            await _repo.UpdateSessionAsync(cancelled, CancellationToken.None);
+            await _repo.UpdateSessionAsync(cancelled, CancellationToken.None).ConfigureAwait(false);
             return cancelled;
         }
         catch (Exception ex)
         {
+            progressTimer.Dispose();
+            await progressTask.ConfigureAwait(false);
+
             _logger.LogError(ex, "Scan {SessionId} failed", session.Id);
             var failed = session with
             {
@@ -118,7 +126,7 @@ public sealed class FileScanner : IFileScanner
                 CompletedUtc = DateTime.UtcNow,
                 ErrorMessage = ex.Message,
             };
-            await _repo.UpdateSessionAsync(failed, CancellationToken.None);
+            await _repo.UpdateSessionAsync(failed, CancellationToken.None).ConfigureAwait(false);
             throw;
         }
     }
@@ -149,8 +157,8 @@ public sealed class FileScanner : IFileScanner
             .Select(_ => ConsumeDirectoriesAsync(options, state, channel.Reader, ct))
             .ToArray();
 
-        await producerTask;
-        await Task.WhenAll(consumerTasks);
+        await producerTask.ConfigureAwait(false);
+        await Task.WhenAll(consumerTasks).ConfigureAwait(false);
     }
 
     private async Task ProduceDirectoriesAsync(
@@ -183,7 +191,7 @@ public sealed class FileScanner : IFileScanner
                 if (!options.DeepScan && IsExcluded(dir, options))
                     continue;
 
-                await writer.WriteAsync(dir, ct);
+                await writer.WriteAsync(dir, ct).ConfigureAwait(false);
 
                 IEnumerable<string> subDirs;
                 try
@@ -222,16 +230,16 @@ public sealed class FileScanner : IFileScanner
         ChannelReader<string> reader,
         CancellationToken    ct)
     {
-        await foreach (var dir in reader.ReadAllAsync(ct))
+        await foreach (var dir in reader.ReadAllAsync(ct).ConfigureAwait(false))
         {
             ProcessDirectory(dir, options, state);
 
             // Flush when the buffer is large enough to amortise SQLite overhead.
             if (state.FileBuffer.Count >= options.DbBatchSize)
-                await FlushFileBufferAsync(state, ct);
+                await FlushFileBufferAsync(state, ct).ConfigureAwait(false);
 
             if (state.FolderBuffer.Count >= options.DbBatchSize / 5)
-                await FlushFolderBufferAsync(state, ct);
+                await FlushFolderBufferAsync(state, ct).ConfigureAwait(false);
         }
     }
 
@@ -337,14 +345,14 @@ public sealed class FileScanner : IFileScanner
     {
         var batch = DrainQueue(state.FileBuffer);
         if (batch.Count == 0) return;
-        await _repo.InsertFileEntriesAsync(batch, ct);
+        await _repo.InsertFileEntriesAsync(batch, ct).ConfigureAwait(false);
     }
 
     private async Task FlushFolderBufferAsync(ScanState state, CancellationToken ct)
     {
         var batch = DrainQueue(state.FolderBuffer);
         if (batch.Count == 0) return;
-        await _repo.UpsertFolderEntriesAsync(batch, ct);
+        await _repo.UpsertFolderEntriesAsync(batch, ct).ConfigureAwait(false);
     }
 
     private static List<T> DrainQueue<T>(ConcurrentQueue<T> queue)
@@ -393,7 +401,7 @@ public sealed class FileScanner : IFileScanner
     {
         try
         {
-            while (await timer.WaitForNextTickAsync(ct))
+            while (await timer.WaitForNextTickAsync(ct).ConfigureAwait(false))
                 progress.Report(BuildProgress(state, complete: false));
         }
         catch (OperationCanceledException) { /* expected */ }
@@ -462,4 +470,3 @@ public sealed class FileScanner : IFileScanner
         }
     }
 }
-

@@ -18,10 +18,9 @@ public sealed partial class ResultsPage : Page
     {
         base.OnNavigatedTo(e);
 
-        // The session ID is passed as navigation parameter; fall back to most recent.
         if (e.Parameter is long sessionId && sessionId > 0)
-        {
             await ViewModel.LoadAsync(sessionId);
-        }
+        else
+            await ViewModel.LoadMostRecentAsync();
     }
 }

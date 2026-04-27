@@ -4,15 +4,20 @@ namespace StorageMaster.Platform.Windows.Interop;
 
 internal static partial class Shell32Interop
 {
-    [LibraryImport("shell32.dll", StringMarshalling = StringMarshalling.Utf16)]
+    // shell32.dll exports only the W (Unicode) suffixed variants; the unsuffixed
+    // names are preprocessor macros in the SDK headers and do not appear in the
+    // DLL export table. [LibraryImport] does not auto-append W unlike [DllImport].
+    [LibraryImport("shell32.dll", EntryPoint = "SHEmptyRecycleBinW",
+        StringMarshalling = StringMarshalling.Utf16)]
     internal static partial uint SHEmptyRecycleBin(
         IntPtr hwnd,
         string? pszRootPath,
         EmptyRecycleBinFlags dwFlags);
 
-    [LibraryImport("shell32.dll")]
+    [LibraryImport("shell32.dll", EntryPoint = "SHQueryRecycleBinW",
+        StringMarshalling = StringMarshalling.Utf16)]
     internal static partial int SHQueryRecycleBin(
-        [MarshalAs(UnmanagedType.LPWStr)] string? pszRootPath,
+        string? pszRootPath,
         ref SHQUERYRBINFO pSHQueryRBInfo);
 
     [LibraryImport("shell32.dll")]

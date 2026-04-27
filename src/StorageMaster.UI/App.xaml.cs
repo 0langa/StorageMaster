@@ -93,8 +93,9 @@ public partial class App : Application
         services.AddSingleton<INavigationService, NavigationService>();
 
         // ViewModels
+        // ScanViewModel is singleton so scan state survives navigation away and back.
         services.AddTransient<DashboardViewModel>();
-        services.AddTransient<ScanViewModel>();
+        services.AddSingleton<ScanViewModel>();
         services.AddTransient<ResultsViewModel>();
         services.AddTransient<CleanupViewModel>();
         services.AddTransient<SettingsViewModel>();

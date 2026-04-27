@@ -38,6 +38,18 @@ public sealed partial class ResultsViewModel : ObservableObject
         _errorRepo = errorRepo;
     }
 
+    /// <summary>
+    /// Loads the most recent completed session. Called when the Results tab is
+    /// opened without a specific session ID (i.e. not via "View Results" button).
+    /// </summary>
+    public async Task LoadMostRecentAsync()
+    {
+        var sessions = await _repo.GetRecentSessionsAsync(10);
+        var latest   = sessions.FirstOrDefault(s => s.Status == Core.Models.ScanStatus.Completed);
+        if (latest is not null)
+            await LoadAsync(latest.Id);
+    }
+
     public async Task LoadAsync(long sessionId)
     {
         _sessionId = sessionId;

@@ -19,7 +19,11 @@ public sealed partial class ScanPage : Page
     protected override async void OnNavigatedTo(NavigationEventArgs e)
     {
         base.OnNavigatedTo(e);
-        await ViewModel.InitializeAsync(autoEnableDeepScan: App.StartWithDeepScan);
+        // Don't reinitialise while a scan is running — that would reset the live
+        // progress state. Allow reinit once scanning finishes so the drive list
+        // and default path stay fresh on subsequent visits.
+        if (!ViewModel.IsScanning)
+            await ViewModel.InitializeAsync(autoEnableDeepScan: App.StartWithDeepScan);
     }
 
     private async void BrowseButton_Click(object sender, Microsoft.UI.Xaml.RoutedEventArgs e)

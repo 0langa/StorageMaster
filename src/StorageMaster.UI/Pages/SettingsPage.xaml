@@ -119,7 +119,7 @@
                     CornerRadius="8" Padding="20">
                 <StackPanel Spacing="4">
                     <TextBlock Text="StorageMaster" Style="{StaticResource BodyStrongTextBlockStyle}" />
-                    <TextBlock Text="Version 1.2.2" Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.7"/>
+                    <TextBlock Text="Version 1.2.3" Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.7"/>
                     <TextBlock Text="Disk usage analyser and cleanup tool for Windows."
                                Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.6" TextWrapping="Wrap"/>
                 </StackPanel>

@@ -17,32 +17,40 @@ public sealed class ScanErrorRepository : IScanErrorRepository
     {
         if (errors.Count == 0) return;
 
-        var conn = await _db.GetConnectionAsync(ct);
-        using var tx  = await conn.BeginTransactionAsync(ct);
-        using var cmd = conn.CreateCommand();
-        cmd.Transaction = (SqliteTransaction)tx;
-        cmd.CommandText = """
-            INSERT INTO ScanErrors (SessionId, Path, ErrorType, Message, OccurredAt)
-            VALUES ($sid, $path, $type, $msg, $at);
-            """;
-
-        var pSid  = cmd.Parameters.Add("$sid",  SqliteType.Integer);
-        var pPath = cmd.Parameters.Add("$path", SqliteType.Text);
-        var pType = cmd.Parameters.Add("$type", SqliteType.Text);
-        var pMsg  = cmd.Parameters.Add("$msg",  SqliteType.Text);
-        var pAt   = cmd.Parameters.Add("$at",   SqliteType.Text);
-
-        pSid.Value = sessionId;
-        foreach (var e in errors)
+        await _db.WriteLock.WaitAsync(ct);
+        try
         {
-            pPath.Value = e.Path;
-            pType.Value = e.ErrorType;
-            pMsg.Value  = e.Message;
-            pAt.Value   = e.OccurredAt.ToString("O");
-            await cmd.ExecuteNonQueryAsync(ct);
-        }
+            var conn = await _db.GetConnectionAsync(ct);
+            using var tx  = await conn.BeginTransactionAsync(ct);
+            using var cmd = conn.CreateCommand();
+            cmd.Transaction = (SqliteTransaction)tx;
+            cmd.CommandText = """
+                INSERT INTO ScanErrors (SessionId, Path, ErrorType, Message, OccurredAt)
+                VALUES ($sid, $path, $type, $msg, $at);
+                """;
 
-        await tx.CommitAsync(ct);
+            var pSid  = cmd.Parameters.Add("$sid",  SqliteType.Integer);
+            var pPath = cmd.Parameters.Add("$path", SqliteType.Text);
+            var pType = cmd.Parameters.Add("$type", SqliteType.Text);
+            var pMsg  = cmd.Parameters.Add("$msg",  SqliteType.Text);
+            var pAt   = cmd.Parameters.Add("$at",   SqliteType.Text);
+
+            pSid.Value = sessionId;
+            foreach (var e in errors)
+            {
+                pPath.Value = e.Path;
+                pType.Value = e.ErrorType;
+                pMsg.Value  = e.Message;
+                pAt.Value   = e.OccurredAt.ToString("O");
+                await cmd.ExecuteNonQueryAsync(ct);
+            }
+
+            await tx.CommitAsync(ct);
+        }
+        finally
+        {
+            _db.WriteLock.Release();
+        }
     }
 
     public async Task<IReadOnlyList<ScanError>> GetErrorsForSessionAsync(

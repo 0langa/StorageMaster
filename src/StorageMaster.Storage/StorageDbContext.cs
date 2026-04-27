@@ -65,7 +65,7 @@ public sealed class StorageDbContext : IAsyncDisposable
         {
             DataSource = _dbPath,
             Mode       = SqliteOpenMode.ReadWriteCreate,
-            Cache      = SqliteCacheMode.Shared,
+            Cache      = SqliteCacheMode.Private,
         };
 
         var conn = new SqliteConnection(builder.ToString());

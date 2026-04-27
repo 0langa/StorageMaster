@@ -1,11 +1,16 @@
 <Project>
   <!--
-    Force the managed in-process XAML compiler task (net6.0 CompileXaml) instead of
-    XamlCompiler.exe (net472), which crashes silently with exit code 1 on this machine.
+    LOCAL BUILD WORKAROUND — do not remove.
 
-    The Windows App SDK interop.targets unconditionally sets UseXamlCompilerExecutable=true
-    when MSBuildRuntimeType=Core (dotnet build). This file is imported by Directory.Build
-    conventions after SDK property defaults, so this setting takes precedence.
+    XamlCompiler.exe (net472, 32-bit) exits with code 1 silently on this
+    developer machine. Switching to the managed in-process CompileXaml task
+    (net6.0) works around that.
+
+    CI overrides this back to UseXamlCompilerExecutable=true via
+    /p:UseXamlCompilerExecutable=true in the publish command, because the
+    managed task throws WMC9999 (PlatformNotSupportedException during WinRT
+    interop) on headless GitHub Actions runners. The CI runner's clean
+    .NET Framework 4.x environment makes XamlCompiler.exe work correctly.
   -->
   <PropertyGroup>
     <UseXamlCompilerExecutable>false</UseXamlCompilerExecutable>

@@ -76,18 +76,19 @@
                             <DataTemplate x:DataType="local:CleanupCategoryOption">
                                 <Border Background="{ThemeResource ControlFillColorDefaultBrush}"
                                         CornerRadius="6" Padding="12,10">
-                                    <Grid ColumnDefinitions="*,Auto">
-                                        <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
+                                        <!-- Toggle on left, directly beside the label -->
+                                        <ToggleSwitch Grid.Column="0"
+                                                      IsOn="{x:Bind IsEnabled, Mode=TwoWay}"
+                                                      VerticalAlignment="Center"
+                                                      OnContent="" OffContent=""
+                                                      MinWidth="0" />
+                                        <StackPanel Grid.Column="1" VerticalAlignment="Center">
                                             <TextBlock Text="{x:Bind DisplayName}" FontWeight="SemiBold" />
                                             <TextBlock Text="{x:Bind Description}"
                                                        Style="{StaticResource CaptionTextBlockStyle}"
                                                        Opacity="0.65" TextWrapping="Wrap" />
                                         </StackPanel>
-                                        <ToggleSwitch Grid.Column="1"
-                                                      IsOn="{x:Bind IsEnabled, Mode=TwoWay}"
-                                                      VerticalAlignment="Center"
-                                                      Margin="12,0,0,0"
-                                                      OnContent="" OffContent="" />
                                     </Grid>
                                 </Border>
                             </DataTemplate>

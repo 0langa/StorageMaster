@@ -1,6 +1,6 @@
 # StorageMaster — Development Roadmap
 
-> **Baseline:** v1.3.0 (2026-04-28) — parallel scanning, Rust Turbo Scanner, 10 cleanup rules, Smart Cleaner, admin elevation, CI/CD pipeline, Inno Setup installer.
+> **Baseline:** v1.3.1 (2026-04-28) — parallel scanning, Rust Turbo Scanner, 10 cleanup rules, Smart Cleaner, admin elevation, CI/CD pipeline, Inno Setup installer.
 > **Target:** v1.5.0 — a feature-complete, polished, accessible, and robust Windows utility.
 
 ---
@@ -18,7 +18,7 @@
 ## Phase overview
 
 ```
-v1.3.0  Current release                        ← SHIPPED
+v1.3.1  Current release                        ← SHIPPED
   │
 v1.3.x  Bug fixes & quick wins                 ← immediate
   │

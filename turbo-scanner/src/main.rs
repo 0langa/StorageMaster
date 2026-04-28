@@ -12,7 +12,7 @@
 /// and do not abort the scan.
 
 use clap::Parser;
-use jwalk::WalkDir;
+use jwalk::{Parallelism, WalkDir};
 use serde::Serialize;
 use std::io::{self, BufWriter, Write};
 use std::time::UNIX_EPOCH;
@@ -61,8 +61,14 @@ fn main() {
     let stdout = io::stdout();
     let mut writer = BufWriter::with_capacity(256 * 1024, stdout.lock());
 
+    let parallelism = if num_threads <= 1 {
+        Parallelism::Serial
+    } else {
+        Parallelism::RayonNewPool(num_threads)
+    };
+
     for entry in WalkDir::new(&args.path)
-        .num_threads(num_threads)
+        .parallelism(parallelism)
         .skip_hidden(args.skip_hidden)
         .into_iter()
     {

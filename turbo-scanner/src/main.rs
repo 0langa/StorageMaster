@@ -109,7 +109,8 @@ fn main() {
             .map(|d| d.as_secs() as i64)
             .unwrap_or(0);
 
-        let path_str = entry.path().to_string_lossy();
+        let path_buf = entry.path();
+        let path_str = path_buf.to_string_lossy();
         let record   = FileRecord {
             path: path_str.as_ref(),
             size,

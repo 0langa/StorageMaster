@@ -23,6 +23,20 @@ public sealed partial class SuggestionItem : ObservableObject
     public SuggestionItem(CleanupSuggestion suggestion) => Suggestion = suggestion;
 }
 
+/// <summary>
+/// Per-category toggle item shown in the Cleanup Options card.
+/// The user can enable/disable each category independently.
+/// </summary>
+public sealed partial class CleanupCategoryOption : ObservableObject
+{
+    public CleanupCategory Category    { get; init; }
+    public string          DisplayName { get; init; } = string.Empty;
+    public string          Description { get; init; } = string.Empty;
+    public string          IconGlyph   { get; init; } = string.Empty;
+
+    [ObservableProperty] private bool _isEnabled = true;
+}
+
 public sealed partial class CleanupViewModel : ObservableObject
 {
     private readonly ICleanupEngine     _engine;
@@ -38,24 +52,6 @@ public sealed partial class CleanupViewModel : ObservableObject
     [ObservableProperty] private string      _totalSelectedSize = "0 B";
     [ObservableProperty] private bool        _hasResults;
 
-    // ── Per-session cleanup options ──────────────────────────────────────────
-    // These are loaded from AppSettings on init but can be tweaked per-session
-    // without touching persisted settings.
-    [ObservableProperty] private bool _useRecycleBin          = true;
-    [ObservableProperty] private bool _includeRecycleBin      = true;
-    [ObservableProperty] private bool _includeTempFiles        = true;
-    [ObservableProperty] private bool _includeCacheFolders     = true;
-    [ObservableProperty] private bool _includeDownloads        = true;
-    [ObservableProperty] private bool _includeLargeOldFiles    = true;
-    [ObservableProperty] private int  _largeFileSizeMb         = 500;
-    [ObservableProperty] private int  _oldFileAgeDays          = 365;
-
-    partial void OnLargeFileSizeMbChanged(int value)  => OnPropertyChanged(nameof(LargeFileSizeLabel));
-    partial void OnOldFileAgeDaysChanged(int value)   => OnPropertyChanged(nameof(OldFileAgeLabel));
-
-    public string LargeFileSizeLabel => $"Large file threshold: {LargeFileSizeMb:N0} MB";
-    public string OldFileAgeLabel    => $"Old file age: {OldFileAgeDays:N0} days";
-
     // ── Execution state ─────────────────────────────────────────────────────
     [ObservableProperty] private bool        _isExecuting;
     [ObservableProperty] private string      _cleanupProgressText  = string.Empty;
@@ -66,6 +62,17 @@ public sealed partial class CleanupViewModel : ObservableObject
     [ObservableProperty] private bool          _lastRunWasDryRun;
     [ObservableProperty] private DeletionMethod _lastRunDeletionMethod;
     [ObservableProperty] private string        _lastRunSummary   = string.Empty;
+
+    // ── Per-session cleanup options ──────────────────────────────────────────
+    [ObservableProperty] private bool _useRecycleBin       = true;
+    [ObservableProperty] private bool _clearEntireDownloads = false;
+    [ObservableProperty] private int  _largeFileSizeMb     = 500;
+    [ObservableProperty] private int  _oldFileAgeDays      = 365;
+
+    partial void OnLargeFileSizeMbChanged(int value) => OnPropertyChanged(nameof(LargeFileSizeLabel));
+    partial void OnOldFileAgeDaysChanged(int value)  => OnPropertyChanged(nameof(OldFileAgeLabel));
+    public string LargeFileSizeLabel => $"Large file threshold: {LargeFileSizeMb:N0} MB";
+    public string OldFileAgeLabel    => $"Old file age: {OldFileAgeDays:N0} days";
 
     partial void OnSelectedSessionChanged(ScanSession? value) =>
         OnPropertyChanged(nameof(CanAnalyse));
@@ -78,6 +85,12 @@ public sealed partial class CleanupViewModel : ObservableObject
     public ObservableCollection<ScanSession>          RecentSessions  { get; } = [];
     public ObservableCollection<CleanupResultDisplay> ExecutionResults { get; } = [];
 
+    /// <summary>
+    /// Category toggle options shown in the Cleanup Options card.
+    /// All categories are enabled by default.
+    /// </summary>
+    public ObservableCollection<CleanupCategoryOption> CategoryOptions { get; } = [];
+
     // Stored between initial run and any follow-up re-runs.
     private IReadOnlyList<CleanupSuggestion> _lastSelectedSuggestions = [];
 
@@ -89,17 +102,48 @@ public sealed partial class CleanupViewModel : ObservableObject
         _engine          = engine;
         _repo            = repo;
         _settings        = settings;
-        // Must be captured on the UI thread (constructor is called from CleanupPage ctor).
         _dispatcherQueue = DispatcherQueue.GetForCurrentThread();
+
+        BuildCategoryOptions();
+    }
+
+    // ── Initialisation ───────────────────────────────────────────────────────
+
+    private void BuildCategoryOptions()
+    {
+        CategoryOptions.Clear();
+        CategoryOptions.Add(new CleanupCategoryOption { Category = CleanupCategory.RecycleBin,           DisplayName = "Recycle Bin",             Description = "Files sitting in the Windows Recycle Bin.",                               IconGlyph = "", IsEnabled = true  });
+        CategoryOptions.Add(new CleanupCategoryOption { Category = CleanupCategory.TempFiles,            DisplayName = "Temporary Files",         Description = "Windows Temp folders and .tmp/.temp files.",                              IconGlyph = "", IsEnabled = true  });
+        CategoryOptions.Add(new CleanupCategoryOption { Category = CleanupCategory.BrowserCache,         DisplayName = "Browser Cache",           Description = "Chrome, Edge, Firefox, Brave, and Opera cache directories.",             IconGlyph = "", IsEnabled = true  });
+        CategoryOptions.Add(new CleanupCategoryOption { Category = CleanupCategory.WindowsUpdateCache,   DisplayName = "Windows Update Cache",    Description = "Applied update packages in SoftwareDistribution\\Download.",            IconGlyph = "", IsEnabled = true  });
+        CategoryOptions.Add(new CleanupCategoryOption { Category = CleanupCategory.DeliveryOptimization, DisplayName = "Delivery Optimisation",   Description = "Peer-to-peer Windows Update sharing cache.",                           IconGlyph = "", IsEnabled = true  });
+        CategoryOptions.Add(new CleanupCategoryOption { Category = CleanupCategory.WindowsErrorReporting,DisplayName = "Error Reports & Dumps",   Description = "WER crash logs and memory dumps.",                                     IconGlyph = "", IsEnabled = true  });
+        CategoryOptions.Add(new CleanupCategoryOption { Category = CleanupCategory.CacheFolders,         DisplayName = "Application Caches",      Description = "AppData cache folders left by various apps.",                           IconGlyph = "", IsEnabled = true  });
+        CategoryOptions.Add(new CleanupCategoryOption { Category = CleanupCategory.DownloadedInstallers, DisplayName = "Downloaded Installers",   Description = "Installer files (.exe, .msi, .iso …) in your Downloads folder.",       IconGlyph = "", IsEnabled = true  });
+        CategoryOptions.Add(new CleanupCategoryOption { Category = CleanupCategory.ProgramLeftovers,     DisplayName = "Program Leftovers",       Description = "AppData folders from uninstalled programs (90+ days inactive).",        IconGlyph = "", IsEnabled = true  });
+        CategoryOptions.Add(new CleanupCategoryOption { Category = CleanupCategory.LargeOldFiles,        DisplayName = "Large & Old Files",       Description = "Files above the size threshold not modified within the age threshold.", IconGlyph = "", IsEnabled = false });
     }
 
     public async Task InitializeAsync()
     {
         var s = await _settings.LoadAsync();
-        IsDryRun        = s.DryRunByDefault;
-        UseRecycleBin   = s.PreferRecycleBin;
-        LargeFileSizeMb = s.LargeFileSizeMb;
-        OldFileAgeDays  = s.OldFileAgeDays;
+        IsDryRun             = s.DryRunByDefault;
+        UseRecycleBin        = s.PreferRecycleBin;
+        ClearEntireDownloads = s.ClearEntireDownloads;
+        LargeFileSizeMb      = s.LargeFileSizeMb;
+        OldFileAgeDays       = s.OldFileAgeDays;
+
+        // Restore persisted per-category toggles.
+        SetCategory(CleanupCategory.RecycleBin,            s.CleanRecycleBin);
+        SetCategory(CleanupCategory.TempFiles,             s.CleanTempFiles);
+        SetCategory(CleanupCategory.DownloadedInstallers,  s.CleanDownloadedInstallers);
+        SetCategory(CleanupCategory.CacheFolders,          s.CleanCacheFolders);
+        SetCategory(CleanupCategory.BrowserCache,          s.CleanBrowserCache);
+        SetCategory(CleanupCategory.WindowsUpdateCache,    s.CleanWindowsUpdateCache);
+        SetCategory(CleanupCategory.DeliveryOptimization,  s.CleanDeliveryOptimization);
+        SetCategory(CleanupCategory.WindowsErrorReporting, s.CleanWindowsErrorReports);
+        SetCategory(CleanupCategory.ProgramLeftovers,      s.CleanProgramLeftovers);
+        SetCategory(CleanupCategory.LargeOldFiles,         s.CleanLargeOldFiles);
 
         var sessions = await _repo.GetRecentSessionsAsync(10);
         RecentSessions.Clear();
@@ -108,6 +152,12 @@ public sealed partial class CleanupViewModel : ObservableObject
 
         if (RecentSessions.Count > 0 && SelectedSession is null)
             SelectedSession = RecentSessions[0];
+    }
+
+    private void SetCategory(CleanupCategory cat, bool enabled)
+    {
+        var opt = CategoryOptions.FirstOrDefault(o => o.Category == cat);
+        if (opt is not null) opt.IsEnabled = enabled;
     }
 
     // ── Analysis ─────────────────────────────────────────────────────────────
@@ -127,8 +177,6 @@ public sealed partial class CleanupViewModel : ObservableObject
 
         try
         {
-            // Build effective settings: start from persisted values, then apply
-            // any per-session overrides the user set in the Cleanup Options card.
             var saved = await _settings.LoadAsync();
             var effectiveSettings = new AppSettings
             {
@@ -141,19 +189,16 @@ public sealed partial class CleanupViewModel : ObservableObject
                 ShowHiddenFiles         = saved.ShowHiddenFiles,
                 SkipSystemFolders       = saved.SkipSystemFolders,
                 ExcludedPaths           = saved.ExcludedPaths,
+                ClearEntireDownloads    = ClearEntireDownloads,
             };
 
-            // Enabled category filter — built from the toggle switches in the UI.
-            var enabledCategories = new HashSet<CleanupCategory>();
-            if (IncludeRecycleBin)   enabledCategories.Add(CleanupCategory.RecycleBin);
-            if (IncludeTempFiles)    enabledCategories.Add(CleanupCategory.TempFiles);
-            if (IncludeCacheFolders) enabledCategories.Add(CleanupCategory.CacheFolders);
-            if (IncludeDownloads)    enabledCategories.Add(CleanupCategory.DownloadedInstallers);
-            if (IncludeLargeOldFiles)enabledCategories.Add(CleanupCategory.LargeOldFiles);
+            var enabledCategories = CategoryOptions
+                .Where(o => o.IsEnabled)
+                .Select(o => o.Category)
+                .ToHashSet();
 
             await foreach (var suggestion in _engine.GetSuggestionsAsync(SelectedSession.Id, effectiveSettings))
             {
-                // Skip categories the user has disabled.
                 if (!enabledCategories.Contains(suggestion.Category)) continue;
 
                 var item = new SuggestionItem(suggestion);
@@ -178,10 +223,6 @@ public sealed partial class CleanupViewModel : ObservableObject
 
     // ── Execution ─────────────────────────────────────────────────────────────
 
-    /// <summary>
-    /// Initial cleanup run. Reads IsDryRun and PreferRecycleBin from the current
-    /// state / settings. Called only after explicit user confirmation in the UI.
-    /// </summary>
     [RelayCommand]
     private async Task ExecuteCleanupAsync()
     {
@@ -194,16 +235,10 @@ public sealed partial class CleanupViewModel : ObservableObject
 
         _lastSelectedSuggestions = selected;
 
-        // Use the per-session toggle rather than re-reading persisted settings,
-        // so the user's choice in the Cleanup Options card is honoured.
         var method = UseRecycleBin ? DeletionMethod.RecycleBin : DeletionMethod.Permanent;
-
         await RunCleanupCoreAsync(IsDryRun, method, selected);
     }
 
-    /// <summary>
-    /// Re-run the same items with a different mode (called from the report dialog).
-    /// </summary>
     public Task RunCleanupWithMethodAsync(bool dryRun, DeletionMethod method)
     {
         if (_lastSelectedSuggestions.Count == 0) return Task.CompletedTask;
@@ -215,14 +250,14 @@ public sealed partial class CleanupViewModel : ObservableObject
         DeletionMethod                  method,
         IReadOnlyList<CleanupSuggestion> suggestions)
     {
-        IsExecuting          = true;
-        LastRunWasDryRun     = dryRun;
+        IsExecuting           = true;
+        LastRunWasDryRun      = dryRun;
         LastRunDeletionMethod = method;
-        HasExecutionResults  = false;
+        HasExecutionResults   = false;
         ExecutionResults.Clear();
-        CleanupProgressValue = 0;
-        CleanupProgressText  = dryRun ? "Running dry-run preview…" : "Cleaning up…";
-        StatusMessage        = CleanupProgressText;
+        CleanupProgressValue  = 0;
+        CleanupProgressText   = dryRun ? "Running dry-run preview…" : "Cleaning up…";
+        StatusMessage         = CleanupProgressText;
 
         var dq = _dispatcherQueue;
         var progress = new Progress<CleanupProgress>(p =>

@@ -5,6 +5,7 @@ using StorageMaster.Core.Cleanup;
 using StorageMaster.Core.Cleanup.Rules;
 using StorageMaster.Core.Interfaces;
 using StorageMaster.Core.Scanner;
+using StorageMaster.Core.SmartCleaner;
 using StorageMaster.Platform.Windows;
 using StorageMaster.Storage;
 using StorageMaster.Storage.Repositories;
@@ -29,7 +30,6 @@ public partial class App : Application
 
     public App()
     {
-        // Check for --deep-scan before building services so ViewModels can read it.
         StartWithDeepScan = Environment.GetCommandLineArgs()
             .Any(a => a.Equals("--deep-scan", StringComparison.OrdinalIgnoreCase));
 
@@ -68,16 +68,27 @@ public partial class App : Application
         services.AddSingleton<ISettingsRepository,   SettingsRepository>();
 
         // Platform
-        services.AddSingleton<IDriveInfoProvider,      DriveInfoProvider>();
-        services.AddSingleton<IFileDeleter,            FileDeleter>();
-        services.AddSingleton<IRecycleBinInfoProvider, RecycleBinInfoProvider>();
-        services.AddSingleton<IAdminService,           AdminService>();
+        services.AddSingleton<IDriveInfoProvider,         DriveInfoProvider>();
+        services.AddSingleton<IFileDeleter,               FileDeleter>();
+        services.AddSingleton<IRecycleBinInfoProvider,    RecycleBinInfoProvider>();
+        services.AddSingleton<IAdminService,              AdminService>();
+        services.AddSingleton<IInstalledProgramProvider,  InstalledProgramProvider>();
 
-        // Scanner
-        services.AddSingleton<IFileScanner>(sp => new FileScanner(
+        // Managed scanner (primary / fallback)
+        services.AddSingleton<FileScanner>(sp => new FileScanner(
             sp.GetRequiredService<IScanRepository>(),
-            sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<FileScanner>>(),
+            sp.GetRequiredService<ILogger<FileScanner>>(),
             sp.GetRequiredService<IScanErrorRepository>()));
+
+        // Turbo Scanner (Rust-backed; falls back to FileScanner when binary absent)
+        services.AddSingleton<TurboFileScanner>(sp => new TurboFileScanner(
+            sp.GetRequiredService<IScanRepository>(),
+            sp.GetRequiredService<ILogger<TurboFileScanner>>(),
+            sp.GetRequiredService<FileScanner>(),
+            sp.GetRequiredService<IScanErrorRepository>()));
+
+        // IFileScanner resolved as managed scanner by default (ScanViewModel selects turbo at runtime)
+        services.AddSingleton<IFileScanner>(sp => sp.GetRequiredService<FileScanner>());
 
         // Cleanup rules — registered in order of execution
         services.AddSingleton<ICleanupRule, RecycleBinCleanupRule>();
@@ -86,19 +97,35 @@ public partial class App : Application
             sp.GetRequiredService<IScanRepository>(),
             KnownFolders.GetDownloadsPath));
         services.AddSingleton<ICleanupRule, CacheFolderCleanupRule>();
+        services.AddSingleton<ICleanupRule, BrowserCacheCleanupRule>();
+        services.AddSingleton<ICleanupRule, WindowsUpdateCacheRule>();
+        services.AddSingleton<ICleanupRule, DeliveryOptimizationRule>();
+        services.AddSingleton<ICleanupRule, WindowsErrorReportingRule>();
+        services.AddSingleton<ICleanupRule>(sp => new UninstalledProgramLeftoversRule(
+            sp.GetRequiredService<IInstalledProgramProvider>()));
         services.AddSingleton<ICleanupRule, LargeOldFilesCleanupRule>();
+
         services.AddSingleton<ICleanupEngine, CleanupEngine>();
+
+        // Smart Cleaner
+        services.AddSingleton<ISmartCleanerService, SmartCleanerService>();
 
         // Navigation
         services.AddSingleton<INavigationService, NavigationService>();
 
         // ViewModels
-        // ScanViewModel is singleton so scan state survives navigation away and back.
         services.AddTransient<DashboardViewModel>();
-        services.AddSingleton<ScanViewModel>();
+        services.AddSingleton<ScanViewModel>(sp => new ScanViewModel(
+            sp.GetRequiredService<FileScanner>(),
+            sp.GetRequiredService<TurboFileScanner>(),
+            sp.GetRequiredService<IDriveInfoProvider>(),
+            sp.GetRequiredService<INavigationService>(),
+            sp.GetRequiredService<IAdminService>(),
+            sp.GetRequiredService<ISettingsRepository>()));
         services.AddTransient<ResultsViewModel>();
         services.AddTransient<CleanupViewModel>();
         services.AddTransient<SettingsViewModel>();
+        services.AddTransient<SmartCleanerViewModel>();
 
         // Windows
         services.AddSingleton<MainWindow>();

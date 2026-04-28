@@ -15,10 +15,15 @@
         SelectionChanged="NavView_SelectionChanged">
 
         <NavigationView.MenuItems>
-            <NavigationViewItem Tag="Dashboard" Icon="Home"     Content="Dashboard" />
-            <NavigationViewItem Tag="Scan"      Icon="Find"     Content="Scan" />
-            <NavigationViewItem Tag="Results"   Icon="List"     Content="Results" />
-            <NavigationViewItem Tag="Cleanup"   Icon="Delete"   Content="Cleanup" />
+            <NavigationViewItem Tag="Dashboard"    Icon="Home"    Content="Dashboard" />
+            <NavigationViewItem Tag="Scan"         Icon="Find"    Content="Scan" />
+            <NavigationViewItem Tag="Results"      Icon="List"    Content="Results" />
+            <NavigationViewItem Tag="Cleanup"      Icon="Delete"  Content="Cleanup" />
+            <NavigationViewItem Tag="SmartCleaner" Content="Smart Cleaner">
+                <NavigationViewItem.Icon>
+                    <FontIcon Glyph="&#xE9E9;" />
+                </NavigationViewItem.Icon>
+            </NavigationViewItem>
         </NavigationView.MenuItems>
 
         <Frame x:Name="ContentFrame" />

@@ -1,7 +1,7 @@
 #define AppName "StorageMaster"
 ; AppVersion can be overridden at build time: iscc /DAppVersion=1.2.3 StorageMaster.iss
 #ifndef AppVersion
-  #define AppVersion "1.2.5"
+  #define AppVersion "1.3.0"
 #endif
 #define AppPublisher "StorageMaster"
 #define AppExeName "StorageMaster.UI.exe"

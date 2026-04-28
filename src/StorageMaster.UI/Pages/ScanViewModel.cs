@@ -1,4 +1,5 @@
 using CommunityToolkit.Mvvm.ComponentModel;
+using StorageMaster.Platform.Windows;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.UI.Dispatching;
 using StorageMaster.Core.Interfaces;
@@ -11,6 +12,7 @@ namespace StorageMaster.UI.Pages;
 public sealed partial class ScanViewModel : ObservableObject
 {
     private readonly IFileScanner       _scanner;
+    private readonly IFileScanner       _turboScanner;
     private readonly IDriveInfoProvider _drives;
     private readonly INavigationService _nav;
     private readonly IAdminService      _admin;
@@ -32,6 +34,8 @@ public sealed partial class ScanViewModel : ObservableObject
     [ObservableProperty] private bool    _hasError;
     [ObservableProperty] private IReadOnlyList<DriveDetail> _availableDrives = [];
     [ObservableProperty] private bool    _deepScan;
+    [ObservableProperty] private bool    _useTurboScanner;
+    [ObservableProperty] private bool    _turboScannerAvailable;
 
     /// <summary>True when the process already holds administrator privileges.</summary>
     public bool IsRunningAsAdmin => _admin.IsRunningAsAdmin;
@@ -47,27 +51,31 @@ public sealed partial class ScanViewModel : ObservableObject
     private long _lastSessionId;
 
     public ScanViewModel(
-        IFileScanner       scanner,
-        IDriveInfoProvider drives,
-        INavigationService nav,
-        IAdminService      admin,
+        IFileScanner        scanner,
+        IFileScanner        turboScanner,
+        IDriveInfoProvider  drives,
+        INavigationService  nav,
+        IAdminService       admin,
         ISettingsRepository settings)
     {
-        _scanner = scanner;
-        _drives  = drives;
-        _nav     = nav;
-        _admin   = admin;
-        _settings = settings;
+        _scanner      = scanner;
+        _turboScanner = turboScanner;
+        _drives       = drives;
+        _nav          = nav;
+        _admin        = admin;
+        _settings     = settings;
     }
 
     public async Task InitializeAsync(bool autoEnableDeepScan = false)
     {
         var settings = await _settings.LoadAsync();
-        AvailableDrives = _drives.GetAvailableDrives();
-        ScanComplete    = false;
-        HasError        = false;
-        ErrorMessage    = string.Empty;
-        SelectedPath    = string.IsNullOrWhiteSpace(settings.DefaultScanPath) ? @"C:\" : settings.DefaultScanPath;
+        AvailableDrives        = _drives.GetAvailableDrives();
+        ScanComplete           = false;
+        HasError               = false;
+        ErrorMessage           = string.Empty;
+        SelectedPath           = string.IsNullOrWhiteSpace(settings.DefaultScanPath) ? @"C:\" : settings.DefaultScanPath;
+        UseTurboScanner        = settings.UseTurboScanner;
+        TurboScannerAvailable  = StorageMaster.Platform.Windows.TurboFileScanner.IsAvailable;
         if (autoEnableDeepScan)
             DeepScan = true;
     }
@@ -120,10 +128,15 @@ public sealed partial class ScanViewModel : ObservableObject
                 dq.TryEnqueue(() => OnProgress(p));
         });
 
+        // Use Turbo Scanner if the user has opted in and the binary is available.
+        var activeScanner = (UseTurboScanner && TurboScannerAvailable)
+            ? _turboScanner
+            : _scanner;
+
         try
         {
             var session = await Task.Run(
-                () => _scanner.ScanAsync(options, progress, _cts.Token),
+                () => activeScanner.ScanAsync(options, progress, _cts.Token),
                 _cts.Token);
             _lastSessionId = session.Id;
             ScanComplete   = true;

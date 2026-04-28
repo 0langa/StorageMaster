@@ -9,5 +9,10 @@ public enum CleanupCategory
     LargeOldFiles,
     DuplicateFiles,
     LogFiles,
+    BrowserCache,
+    WindowsUpdateCache,
+    ProgramLeftovers,
+    DeliveryOptimization,
+    WindowsErrorReporting,
     Custom,
 }

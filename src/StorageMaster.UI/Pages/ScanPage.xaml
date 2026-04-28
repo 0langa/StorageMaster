@@ -90,6 +90,23 @@
                 </StackPanel>
             </Border>
 
+            <!-- Turbo Scanner -->
+            <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    CornerRadius="8" Padding="20">
+                <StackPanel Spacing="10">
+                    <ToggleSwitch Header="Turbo Scanner (Rust-powered)"
+                                  IsOn="{x:Bind ViewModel.UseTurboScanner, Mode=TwoWay}"
+                                  IsEnabled="{x:Bind ViewModel.IsScanning, Mode=OneWay, Converter={StaticResource NotBool}}" />
+                    <TextBlock Text="Uses a native Rust engine with parallel work-stealing traversal — significantly faster on NVMe/SSD drives with many files. Falls back to the managed scanner automatically if the engine binary is not found."
+                               Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.7"
+                               TextWrapping="Wrap" />
+                    <InfoBar IsOpen="True" Severity="Warning"
+                             Title="Turbo Scanner binary not found"
+                             Message="turbo-scanner.exe was not found next to the application. Build from source or install a release build to enable this feature."
+                             Visibility="{x:Bind ViewModel.TurboScannerAvailable, Mode=OneWay, Converter={StaticResource InvBoolVis}}" />
+                </StackPanel>
+            </Border>
+
             <!-- Controls -->
             <StackPanel Orientation="Horizontal" Spacing="12">
                 <Button Content="Start Scan"

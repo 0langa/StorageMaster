@@ -1,0 +1,152 @@
+<Page
+    x:Class="StorageMaster.UI.Pages.SmartCleanerPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:StorageMaster.UI.Pages"
+    xmlns:converters="using:StorageMaster.UI.Converters"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d">
+
+    <Page.Resources>
+        <converters:BoolToVisibilityConverter x:Key="BoolVis" />
+        <converters:BoolToVisibilityConverter x:Key="InvBoolVis" Invert="True" />
+        <converters:BoolNegationConverter     x:Key="NotBool" />
+    </Page.Resources>
+
+    <ScrollViewer Padding="32,24">
+        <StackPanel Spacing="20" MaxWidth="800">
+
+            <TextBlock Text="Smart Cleaner" Style="{StaticResource TitleLargeTextBlockStyle}" />
+
+            <!-- Hero card -->
+            <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    CornerRadius="8" Padding="24">
+                <StackPanel Spacing="12">
+                    <StackPanel Orientation="Horizontal" Spacing="12">
+                        <FontIcon Glyph="&#xE9E9;" FontSize="28"
+                                  Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+                        <StackPanel VerticalAlignment="Center">
+                            <TextBlock Text="One-click junk removal"
+                                       Style="{StaticResource SubtitleTextBlockStyle}" />
+                            <TextBlock Text="Scans 8 common junk sources and removes safe files automatically — no manual scan session needed."
+                                       Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.7"
+                                       TextWrapping="Wrap" />
+                        </StackPanel>
+                    </StackPanel>
+
+                    <!-- Deletion mode -->
+                    <ToggleSwitch Header="Send deletions to Recycle Bin (recommended)"
+                                  IsOn="{x:Bind ViewModel.UseRecycleBin, Mode=TwoWay}"
+                                  IsEnabled="{x:Bind ViewModel.IsCleaning, Mode=OneWay, Converter={StaticResource NotBool}}" />
+
+                    <!-- Action buttons -->
+                    <StackPanel Orientation="Horizontal" Spacing="10">
+                        <Button Content="Scan &amp; Analyse"
+                                Style="{StaticResource AccentButtonStyle}"
+                                Command="{x:Bind ViewModel.AnalyseCommand}"
+                                IsEnabled="{x:Bind ViewModel.IsScanning, Mode=OneWay, Converter={StaticResource NotBool}}" />
+                        <Button Content="Clean Selected"
+                                Command="{x:Bind ViewModel.CleanCommand}"
+                                IsEnabled="{x:Bind ViewModel.CanClean, Mode=OneWay}"
+                                Visibility="{x:Bind ViewModel.HasResults, Mode=OneWay, Converter={StaticResource BoolVis}}" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <!-- Scanning spinner -->
+            <StackPanel Orientation="Horizontal" Spacing="12"
+                        Visibility="{x:Bind ViewModel.IsScanning, Mode=OneWay, Converter={StaticResource BoolVis}}">
+                <ProgressRing IsActive="True" Width="24" Height="24" />
+                <TextBlock Text="{x:Bind ViewModel.ProgressText, Mode=OneWay}"
+                           VerticalAlignment="Center"
+                           Style="{StaticResource CaptionTextBlockStyle}" />
+            </StackPanel>
+
+            <!-- Cleaning spinner -->
+            <StackPanel Orientation="Horizontal" Spacing="12"
+                        Visibility="{x:Bind ViewModel.IsCleaning, Mode=OneWay, Converter={StaticResource BoolVis}}">
+                <ProgressRing IsActive="True" Width="24" Height="24" />
+                <TextBlock Text="{x:Bind ViewModel.ProgressText, Mode=OneWay}"
+                           VerticalAlignment="Center"
+                           Style="{StaticResource CaptionTextBlockStyle}" />
+            </StackPanel>
+
+            <!-- Status text -->
+            <TextBlock Text="{x:Bind ViewModel.StatusText, Mode=OneWay}"
+                       Style="{StaticResource BodyTextBlockStyle}" Opacity="0.85"
+                       TextWrapping="Wrap"
+                       Visibility="{x:Bind ViewModel.IsScanning, Mode=OneWay, Converter={StaticResource InvBoolVis}}" />
+
+            <!-- Success banner -->
+            <InfoBar IsOpen="True" Severity="Success"
+                     Title="Cleanup complete!"
+                     Message="{x:Bind ViewModel.StatusText, Mode=OneWay}"
+                     Visibility="{x:Bind ViewModel.CleaningDone, Mode=OneWay, Converter={StaticResource BoolVis}}" />
+
+            <!-- Results: group list -->
+            <StackPanel Spacing="16"
+                        Visibility="{x:Bind ViewModel.HasResults, Mode=OneWay, Converter={StaticResource BoolVis}}">
+
+                <!-- Total selected size bar -->
+                <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                        CornerRadius="8" Padding="16,12">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                            <TextBlock Text="Total selected to clean:" Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.7"/>
+                            <TextBlock Text="{x:Bind ViewModel.TotalSizeText, Mode=OneWay}"
+                                       Style="{StaticResource SubtitleTextBlockStyle}"
+                                       Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+                        </StackPanel>
+                        <Button Grid.Column="1"
+                                Content="Clean Selected"
+                                Style="{StaticResource AccentButtonStyle}"
+                                Command="{x:Bind ViewModel.CleanCommand}"
+                                IsEnabled="{x:Bind ViewModel.CanClean, Mode=OneWay}"
+                                VerticalAlignment="Center" />
+                    </Grid>
+                </Border>
+
+                <!-- Group cards -->
+                <ListView ItemsSource="{x:Bind ViewModel.Groups}"
+                          SelectionMode="None"
+                          IsItemClickEnabled="False">
+                    <ListView.ItemContainerStyle>
+                        <Style TargetType="ListViewItem">
+                            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                            <Setter Property="Padding" Value="0,4" />
+                        </Style>
+                    </ListView.ItemContainerStyle>
+                    <ListView.ItemTemplate>
+                        <DataTemplate x:DataType="local:SmartCleanGroupItem">
+                            <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                    CornerRadius="8" Padding="16,12">
+                                <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="14">
+                                    <!-- Toggle -->
+                                    <CheckBox Grid.Column="0"
+                                              IsChecked="{Binding IsSelected, Mode=TwoWay}"
+                                              VerticalAlignment="Center" />
+                                    <!-- Name + description -->
+                                    <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                        <TextBlock Text="{x:Bind Category}" FontWeight="SemiBold" />
+                                        <TextBlock Text="{x:Bind Description}"
+                                                   Style="{StaticResource CaptionTextBlockStyle}"
+                                                   Opacity="0.7" TextWrapping="Wrap" MaxLines="2"/>
+                                    </StackPanel>
+                                    <!-- Size -->
+                                    <TextBlock Grid.Column="2"
+                                               Text="{x:Bind SizeDisplay}"
+                                               FontWeight="SemiBold"
+                                               VerticalAlignment="Center"
+                                               Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+                                </Grid>
+                            </Border>
+                        </DataTemplate>
+                    </ListView.ItemTemplate>
+                </ListView>
+
+            </StackPanel>
+
+        </StackPanel>
+    </ScrollViewer>
+</Page>

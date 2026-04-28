@@ -71,11 +71,12 @@ public sealed partial class MainWindow : Window
         {
             var page = item.Tag?.ToString() switch
             {
-                "Dashboard" => typeof(DashboardPage),
-                "Scan"      => typeof(ScanPage),
-                "Results"   => typeof(ResultsPage),
-                "Cleanup"   => typeof(CleanupPage),
-                _           => typeof(DashboardPage),
+                "Dashboard"    => typeof(DashboardPage),
+                "Scan"         => typeof(ScanPage),
+                "Results"      => typeof(ResultsPage),
+                "Cleanup"      => typeof(CleanupPage),
+                "SmartCleaner" => typeof(SmartCleanerPage),
+                _              => typeof(DashboardPage),
             };
             _nav.NavigateTo(page);
         }

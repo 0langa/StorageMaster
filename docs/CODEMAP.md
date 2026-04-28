@@ -1,6 +1,6 @@
 # StorageMaster — Codemap
 
-> **Version:** 1.0.0 | **Date:** 2026-04-25
+> **Version:** 1.3.0 | **Date:** 2026-04-28
 > Quick-reference for every file, type, method, and database table in the project.
 
 ---
@@ -13,9 +13,11 @@
   - [Interfaces](#interfaces)
   - [Scanner](#scanner)
   - [Cleanup](#cleanup)
+  - [SmartCleaner](#smartcleaner)
 - [StorageMaster.Platform.Windows](#storagemasterplatformwindows)
 - [StorageMaster.Storage](#storagemasterstorage)
 - [StorageMaster.UI](#storagemasterui)
+- [turbo-scanner (Rust)](#turbo-scanner-rust)
 - [StorageMaster.Tests](#storagemastertests)
 - [Database schema](#database-schema)
 - [NuGet packages](#nuget-packages)
@@ -28,20 +30,24 @@
 | File | Purpose |
 |------|---------|
 | `StorageMaster.sln` | Solution descriptor linking all 5 projects |
-| `StorageMaster.slnx` | New-format solution file (generated alongside .sln) |
-| `global.json` | Pins SDK to 10.0.203; rollForward=latestFeature |
+| `StorageMaster.slnx` | New-format solution file |
+| `global.json` | Pins SDK to 8.0.x; rollForward=latestPatch |
 | `README.md` | Quick-start, build instructions, architecture summary |
-| `docs/ARCHITECTURE.md` | Deep architecture reference (this sibling doc) |
+| `docs/ARCHITECTURE.md` | Deep architecture reference |
 | `docs/CODEMAP.md` | This file |
 | `docs/DOCUMENTATION.md` | Full API and configuration reference |
-| `docs/ROADMAP.md` | v1 → enterprise path |
+| `docs/ROADMAP.md` | v1.3 → v1.5 development plan |
+| `.github/workflows/release.yml` | CI/CD: test → Rust build → publish → installer → Release |
+| `installer/StorageMaster.iss` | Inno Setup 6 script (admin-required installer) |
+| `turbo-scanner/Cargo.toml` | Rust crate manifest |
+| `turbo-scanner/src/main.rs` | Turbo Scanner entry point |
 
 ---
 
 ## StorageMaster.Core
 
-**Project file:** [`src/StorageMaster.Core/StorageMaster.Core.csproj`](../src/StorageMaster.Core/StorageMaster.Core.csproj)
-**Target:** `net10.0`
+**Project file:** `src/StorageMaster.Core/StorageMaster.Core.csproj`
+**Target:** `net8.0`
 **Packages:** `CommunityToolkit.Mvvm 8.4.0`, `Microsoft.Extensions.DI.Abstractions 10.0.0`, `Microsoft.Extensions.Logging.Abstractions 10.0.0`
 
 ---
@@ -58,7 +64,7 @@ Immutable `record` representing one file discovered during a scan.
 | `SessionId` | `long` | FK → `ScanSession.Id` |
 | `FullPath` | `string` | Absolute path |
 | `FileName` | `string` | `Path.GetFileName(FullPath)` |
-| `Extension` | `string` | Including dot (e.g. `.mp4`) |
+| `Extension` | `string` | Including dot (`.mp4`) |
 | `SizeBytes` | `long` | File size in bytes |
 | `CreatedUtc` | `DateTime` | UTC creation time |
 | `ModifiedUtc` | `DateTime` | UTC last-write time |
@@ -81,7 +87,7 @@ Aggregated size record for one directory.
 | `FullPath` | `string` | Absolute directory path |
 | `FolderName` | `string` | `Path.GetFileName(FullPath)` |
 | `DirectSizeBytes` | `long` | Sum of files directly in this dir |
-| `TotalSizeBytes` | `long` | v1: same as DirectSizeBytes (ancestor propagation pending) |
+| `TotalSizeBytes` | `long` | DirectSizeBytes + all descendants (after aggregation pass) |
 | `FileCount` | `int` | Count of files directly in this dir |
 | `SubFolderCount` | `int` | Count of immediate subdirectories |
 | `IsReparsePoint` | `bool` | Dir is a junction/symlink |
@@ -137,21 +143,37 @@ Controls scan behaviour. Passed to `IFileScanner.ScanAsync`.
 | `RootPath` | `""` | Required: path to scan |
 | `MaxParallelism` | `4` | Concurrent directory workers |
 | `DbBatchSize` | `500` | Flush to DB every N files |
-| `ExcludedPaths` | See below | Case-insensitive prefix exclusions |
+| `ExcludedPaths` | (see below) | Case-insensitive prefix exclusions |
 | `FollowSymlinks` | `false` | Follow reparse points |
+| `DeepScan` | `false` | When true, excludes nothing and uses all CPU cores |
 
-Default excluded paths: `C:\Windows\WinSxS`, `C:\Windows\Installer`
+`DefaultExcludedPaths`: `C:\Windows\WinSxS`, `C:\Windows\Installer`
+
+---
+
+#### `ScanError` — `Models/ScanError.cs`
+
+One per-path error recorded during a scan.
+
+| Member | Type |
+|--------|------|
+| `Id` | `long` |
+| `SessionId` | `long` |
+| `Path` | `string` |
+| `ErrorType` | `string` (e.g. "UnauthorizedAccess") |
+| `Message` | `string` |
+| `OccurredUtc` | `DateTime` |
 
 ---
 
 #### `CleanupSuggestion` — `Models/CleanupSuggestion.cs`
 
-One actionable cleanup recommendation. Produced by `ICleanupRule`, consumed by `ICleanupEngine`.
+One actionable cleanup recommendation. Produced by `ICleanupRule`.
 
 | Member | Type | Notes |
 |--------|------|-------|
 | `Id` | `Guid` | Unique per suggestion |
-| `RuleId` | `string` | e.g. `"core.temp-files"` |
+| `RuleId` | `string` | Stable identifier, e.g. `"core.temp-files"` |
 | `Title` | `string` | Short display name |
 | `Description` | `string` | Human-readable detail |
 | `Category` | `CleanupCategory` | Grouping enum |
@@ -159,8 +181,6 @@ One actionable cleanup recommendation. Produced by `ICleanupRule`, consumed by `
 | `EstimatedBytes` | `long` | Expected bytes freed |
 | `TargetPaths` | `IReadOnlyList<string>` | Paths to delete on confirmation |
 | `IsSystemPath` | `bool` | UI warning flag |
-
-**Enum `CleanupRisk`:** `Safe`, `Low`, `Medium`, `High`
 
 ---
 
@@ -186,17 +206,35 @@ Outcome of executing one `CleanupSuggestion`.
 
 Persisted user preferences. Serialized as JSON to SQLite.
 
-| Property | Default | UI Section |
-|----------|---------|------------|
-| `PreferRecycleBin` | `true` | Deletion Behaviour |
-| `DryRunByDefault` | `false` | Deletion Behaviour |
-| `LargeFileSizeMb` | `500` | Thresholds |
-| `OldFileAgeDays` | `365` | Thresholds |
-| `DefaultScanPath` | `C:\` | Scan Options |
-| `ScanParallelism` | `4` | Scan Options |
-| `ShowHiddenFiles` | `false` | Scan Options |
-| `SkipSystemFolders` | `true` | Scan Options |
-| `ExcludedPaths` | `[]` | Scan Options |
+| Property | Default | Purpose |
+|----------|---------|---------|
+| `PreferRecycleBin` | `true` | Send files to Recycle Bin |
+| `DryRunByDefault` | `false` | Preview without deleting |
+| `LargeFileSizeMb` | `500` | Threshold for LargeOldFiles rule |
+| `OldFileAgeDays` | `365` | Age threshold for LargeOldFiles rule |
+| `DefaultScanPath` | `C:\` | Pre-filled in Scan page |
+| `ScanParallelism` | `4` | Concurrent workers |
+| `ShowHiddenFiles` | `false` | Include hidden files (reserved) |
+| `SkipSystemFolders` | `true` | Skip Windows dirs unless DeepScan |
+| `ExcludedPaths` | `[]` | Custom path exclusions |
+| `UseTurboScanner` | `false` | Use Rust-backed scanner |
+| `CleanRecycleBin` | `true` | Enable RecycleBin rule |
+| `CleanTempFiles` | `true` | Enable TempFiles rule |
+| `CleanDownloadedInstallers` | `true` | Enable DownloadedInstallers rule |
+| `ClearEntireDownloads` | `false` | Clear entire Downloads folder |
+| `CleanCacheFolders` | `true` | Enable CacheFolders rule |
+| `CleanBrowserCache` | `true` | Enable BrowserCache rule |
+| `CleanWindowsUpdateCache` | `true` | Enable WindowsUpdateCache rule |
+| `CleanDeliveryOptimization` | `true` | Enable DeliveryOptimization rule |
+| `CleanWindowsErrorReports` | `true` | Enable WindowsErrorReporting rule |
+| `CleanProgramLeftovers` | `false` | Enable UninstalledProgramLeftovers rule (medium risk) |
+| `CleanLargeOldFiles` | `false` | Enable LargeOldFiles rule (medium risk) |
+
+---
+
+#### `CleanupCategory` — `Models/CleanupCategory.cs`
+
+Enum (13 values): `RecycleBin`, `TempFiles`, `DownloadedInstallers`, `CacheFolders`, `LargeOldFiles`, `DuplicateFiles`, `LogFiles`, `Custom`, `BrowserCache`, `WindowsUpdateCache`, `ProgramLeftovers`, `DeliveryOptimization`, `WindowsErrorReporting`
 
 ---
 
@@ -206,9 +244,16 @@ Enum (14 values): `Unknown`, `Document`, `Image`, `Video`, `Audio`, `Archive`, `
 
 ---
 
-#### `CleanupCategory` — `Models/CleanupCategory.cs`
+#### `CleanupProgress` — `Models/CleanupProgress.cs`
 
-Enum (8 values): `RecycleBin`, `TempFiles`, `DownloadedInstallers`, `CacheFolders`, `LargeOldFiles`, `DuplicateFiles`, `LogFiles`, `Custom`
+Progress snapshot for cleanup operations.
+
+| Member | Type |
+|--------|------|
+| `CurrentPath` | `string` |
+| `FilesDeleted` | `long` |
+| `BytesFreed` | `long` |
+| `IsComplete` | `bool` |
 
 ---
 
@@ -244,6 +289,19 @@ Task<IReadOnlyList<CleanupResult>> ExecuteAsync(IReadOnlyList<CleanupSuggestion>
 
 ---
 
+#### `ISmartCleanerService` — `Interfaces/ISmartCleanerService.cs`
+
+```csharp
+Task<IReadOnlyList<SmartCleanGroup>> AnalyzeAsync(IProgress<string>? progress, CancellationToken)
+Task<long> CleanAsync(IReadOnlyList<SmartCleanGroup>, DeletionMethod, IProgress<string>?, CancellationToken)
+
+record SmartCleanGroup(
+    string Category, string Description, string IconGlyph,
+    long EstimatedBytes, IReadOnlyList<string> Paths, bool IsSelected = true)
+```
+
+---
+
 #### `IScanRepository` — `Interfaces/IScanRepository.cs`
 
 ```csharp
@@ -257,6 +315,17 @@ Task<IReadOnlyList<FileEntry>> GetLargestFilesAsync(long sessionId, int topN, Ca
 Task<IReadOnlyList<FolderEntry>> GetLargestFoldersAsync(long sessionId, int topN, CancellationToken)
 Task<IReadOnlyDictionary<FileTypeCategory,(long Count, long Bytes)>> GetCategoryBreakdownAsync(long sessionId, CancellationToken)
 Task DeleteSessionAsync(long sessionId, CancellationToken)
+Task<IReadOnlyList<(string FullPath, long DirectSizeBytes)>> GetAllFolderPathsForSessionAsync(long sessionId, CancellationToken)
+Task UpdateFolderTotalsAsync(long sessionId, IReadOnlyDictionary<string,long> totals, CancellationToken)
+```
+
+---
+
+#### `IScanErrorRepository` — `Interfaces/IScanErrorRepository.cs`
+
+```csharp
+Task LogErrorsAsync(long sessionId, IReadOnlyList<ScanError> errors, CancellationToken)
+Task<IReadOnlyList<ScanError>> GetErrorsForSessionAsync(long sessionId, CancellationToken)
 ```
 
 ---
@@ -264,12 +333,10 @@ Task DeleteSessionAsync(long sessionId, CancellationToken)
 #### `IFileDeleter` — `Interfaces/IFileDeleter.cs`
 
 ```csharp
-// Supporting types:
 record DeletionRequest(string Path, DeletionMethod Method, bool DryRun)
 record DeletionOutcome(string Path, bool Success, long BytesFreed, string? Error)
 enum DeletionMethod { RecycleBin, Permanent }
 
-// Interface:
 Task<DeletionOutcome> DeleteAsync(DeletionRequest, CancellationToken)
 IAsyncEnumerable<DeletionOutcome> DeleteManyAsync(IReadOnlyList<DeletionRequest>, CancellationToken)
 ```
@@ -284,6 +351,25 @@ record DriveDetail(string Name, string VolumeLabel, string DriveFormat,
 
 IReadOnlyList<DriveDetail> GetAvailableDrives()
 DriveDetail? GetDrive(string rootPath)
+```
+
+---
+
+#### `IAdminService` — `Interfaces/IAdminService.cs`
+
+```csharp
+bool IsRunningAsAdmin { get; }
+void RestartAsAdmin(bool enableDeepScan)
+```
+
+---
+
+#### `IInstalledProgramProvider` — `Interfaces/IInstalledProgramProvider.cs`
+
+```csharp
+record InstalledProgramInfo(string DisplayName, string? InstallLocation, DateTime? InstallDate)
+
+IReadOnlyList<InstalledProgramInfo> GetInstalledPrograms()
 ```
 
 ---
@@ -308,18 +394,27 @@ Task SaveAsync(AppSettings, CancellationToken)
 
 ---
 
+#### `IRecycleBinInfoProvider` — `Interfaces/IRecycleBinInfoProvider.cs` *(in Platform.Windows)*
+
+```csharp
+record RecycleBinInfo(long SizeBytes, long ItemCount)
+RecycleBinInfo GetRecycleBinInfo()
+```
+
+---
+
 ### Scanner
 
 #### `FileScanner` — `Scanner/FileScanner.cs`
 
-Implements `IFileScanner`. Primary implementation of the recursive parallel scanner.
+Implements `IFileScanner`. Parallel BFS directory walker.
 
 | Private member | Purpose |
 |----------------|---------|
 | `ScanDirectoryTreeAsync` | Sets up Channel + producer + consumers |
-| `ProduceDirectoriesAsync` | BFS walk, feeds Channel |
+| `ProduceDirectoriesAsync` | BFS walk, feeds Channel (bounded 1024) |
 | `ConsumeDirectoriesAsync` | Reads Channel, calls ProcessDirectory, triggers flushes |
-| `ProcessDirectory` | Enumerates files, builds FileEntry/FolderEntry, queues to buffers |
+| `ProcessDirectory` | Enumerates files → FileEntry; builds FolderEntry; queues buffers |
 | `FlushFileBufferAsync` | Drains `ConcurrentQueue<FileEntry>`, calls `InsertFileEntriesAsync` |
 | `FlushFolderBufferAsync` | Drains `ConcurrentQueue<FolderEntry>`, calls `UpsertFolderEntriesAsync` |
 | `ReportProgressLoopAsync` | PeriodicTimer(300ms) → `IProgress<ScanProgress>.Report` |
@@ -329,17 +424,24 @@ Implements `IFileScanner`. Primary implementation of the recursive parallel scan
 
 #### `FileTypeCategorizor` — `Scanner/FileTypeCategorizor.cs`
 
-Static class. Contains 80+ extension mappings.
+Static class with 80+ extension → `FileTypeCategory` mappings.
 
 ```csharp
 static FileTypeCategory Categorize(string extension)
 ```
 
-Notable mappings:
-- `.tmp`, `.temp`, `.bak` → `Temporary`
-- `.msi`, `.msix`, `.appx` → `Installer`
-- `.log`, `.evtx`, `.etl` → `Log`
-- `.db`, `.sqlite`, `.mdf` → `Database`
+---
+
+#### `FolderSizeAggregator` — `Scanner/FolderSizeAggregator.cs`
+
+Static class. Computes bottom-up folder size totals from a flat list of `(FullPath, DirectSizeBytes)` pairs.
+
+```csharp
+static IReadOnlyDictionary<string, long> Compute(
+    IReadOnlyList<(string FullPath, long DirectSizeBytes)> folders)
+```
+
+Algorithm: sort paths descending by length (deepest first), then for each path add its `DirectSizeBytes` to itself and to every ancestor. Result: a dictionary mapping each `FullPath` → `TotalSizeBytes`.
 
 ---
 
@@ -347,106 +449,54 @@ Notable mappings:
 
 #### `CleanupEngine` — `Cleanup/CleanupEngine.cs`
 
-Implements `ICleanupEngine`. Receives `IEnumerable<ICleanupRule>` from DI (all registered rules).
+Implements `ICleanupEngine`. Receives `IEnumerable<ICleanupRule>` from DI.
 
 | Method | Behaviour |
 |--------|-----------|
-| `GetSuggestionsAsync` | Iterates all rules, yields suggestions |
-| `ExecuteAsync` | Builds `DeletionRequest` per target path, calls `IFileDeleter.DeleteManyAsync`, logs all results |
+| `GetSuggestionsAsync` | Iterates all rules, yields suggestions in order |
+| `ExecuteAsync` | Builds `DeletionRequest` per target path, calls `IFileDeleter.DeleteManyAsync`, logs results |
 | `ExecuteSuggestionAsync` | Handles one suggestion; aggregates outcomes; determines status |
 
 ---
 
-#### `TempFilesCleanupRule` — `Cleanup/Rules/TempFilesCleanupRule.cs`
+#### Cleanup Rules
 
-| Property | Value |
-|----------|-------|
-| `RuleId` | `"core.temp-files"` |
-| `Category` | `TempFiles` |
-| `Risk` | `Low` |
-
-Targets: files with extensions `.tmp .temp .chk .$$$  .gid` OR files under:
-- `%TEMP%`
-- `C:\Windows\Temp`
-- `%LOCALAPPDATA%\Temp`
-
-Yields one aggregate suggestion covering all matching files.
-
----
-
-#### `RecycleBinCleanupRule` — `Cleanup/Rules/RecycleBinCleanupRule.cs`
-
-| Property | Value |
-|----------|-------|
-| `RuleId` | `"core.recycle-bin"` |
-| `Category` | `RecycleBin` |
-| `Risk` | `Safe` |
-
-Uses `IRecycleBinInfoProvider.GetRecycleBinInfo()` to estimate size.
-Target path: `"::RecycleBin::"` (sentinel → triggers `SHEmptyRecycleBin` in FileDeleter).
+| Class | RuleId | Category | Risk | Key behaviour |
+|-------|--------|----------|------|---------------|
+| `RecycleBinCleanupRule` | `core.recycle-bin` | RecycleBin | Safe | Queries `IRecycleBinInfoProvider`; sentinel `"::RecycleBin::"` path |
+| `TempFilesCleanupRule` | `core.temp-files` | TempFiles | Low | `%TEMP%`, `C:\Windows\Temp`, `%LOCALAPPDATA%\Temp`; known temp extensions |
+| `DownloadedInstallersRule` | `core.downloaded-installers` | DownloadedInstallers | Low | Installer exts in Downloads; optional `core.clear-downloads-folder` |
+| `CacheFolderCleanupRule` | `core.cache-folders` | CacheFolders | Safe–Low | Edge, Chrome, Firefox, npm, pip, NuGet, Yarn caches |
+| `BrowserCacheCleanupRule` | `core.browser-cache` | BrowserCache | Low | Chrome, Edge, Firefox, Brave, Opera — all cache sub-paths |
+| `WindowsUpdateCacheRule` | `core.windows-update-cache` | WindowsUpdateCache | Low | `SoftwareDistribution\Download`; `IsSystemPath=true` |
+| `DeliveryOptimizationRule` | `core.delivery-optimization` | DeliveryOptimization | Low | `SoftwareDistribution\DeliveryOptimization`; `IsSystemPath=true` |
+| `WindowsErrorReportingRule` | `core.windows-error-reporting` | WindowsErrorReporting | Low | WER folders, `CrashDumps`, `.dmp` files; `IsSystemPath=true` |
+| `UninstalledProgramLeftoversRule` | `core.program-leftovers` | ProgramLeftovers | Medium | Registry cross-reference; 90-day + 10 MB thresholds; safelist |
+| `LargeOldFilesCleanupRule` | `core.large-old-files` | LargeOldFiles | Medium | Per-file suggestions; configurable MB + days; protected prefixes |
 
 ---
 
-#### `CacheFolderCleanupRule` — `Cleanup/Rules/CacheFolderCleanupRule.cs`
+### SmartCleaner
 
-| Property | Value |
-|----------|-------|
-| `RuleId` | `"core.cache-folders"` |
-| `Category` | `CacheFolders` |
-| `Risk` | `Safe` to `Low` per entry |
+#### `SmartCleanerService` — `SmartCleaner/SmartCleanerService.cs`
 
-Known cache paths under `%LOCALAPPDATA%`:
+Implements `ISmartCleanerService`. Scans 8 junk sources directly without a session.
 
-| Subpath | Display Name | Risk |
-|---------|-------------|------|
-| `Microsoft\Windows\INetCache` | IE/Edge Internet Cache | Safe |
-| `Microsoft\Windows\WebCache` | Windows Web Cache | Low |
-| `Google\Chrome\User Data\Default\Cache` | Chrome Cache | Safe |
-| `Microsoft\Edge\User Data\Default\Cache` | Edge Cache | Safe |
-| `Mozilla\Firefox\Profiles` | Firefox Cache | Low |
-| `Temp` | Local AppData Temp | Low |
-| `npm-cache` | npm Cache | Safe |
-| `pip\Cache` | pip Cache | Safe |
-| `NuGet\Cache` | NuGet Package Cache | Safe |
-| `Yarn\Cache` | Yarn Cache | Safe |
-
-Yields one suggestion per found cache folder.
-
----
-
-#### `DownloadedInstallersRule` — `Cleanup/Rules/DownloadedInstallersRule.cs`
-
-| Property | Value |
-|----------|-------|
-| `RuleId` | `"core.downloaded-installers"` |
-| `Category` | `DownloadedInstallers` |
-| `Risk` | `Low` |
-
-Targets files in `%USERPROFILE%\Downloads` with extensions:
-`.exe .msi .msp .msix .appx .appxbundle .pkg .dmg .iso .img`
-
-Yields one aggregate suggestion.
-
----
-
-#### `LargeOldFilesCleanupRule` — `Cleanup/Rules/LargeOldFilesCleanupRule.cs`
-
-| Property | Value |
-|----------|-------|
-| `RuleId` | `"core.large-old-files"` |
-| `Category` | `LargeOldFiles` |
-| `Risk` | `Medium` |
-
-Thresholds from `AppSettings`: `LargeFileSizeMb` (default 500) AND `OldFileAgeDays` (default 365).
-Protected prefixes (never suggested): `Windows`, `System32`, `SysWOW64`.
-Yields one suggestion **per file** (fine-grained user selection).
+| Source | Group name |
+|--------|-----------|
+| `%TEMP%` | Temporary Files |
+| Browser cache dirs (Chrome/Edge/Firefox/Brave/Opera) | Browser Cache |
+| `SoftwareDistribution\Download` | Windows Update Cache |
+| WER directories | Windows Error Reports |
+| `DeliveryOptimization` | Delivery Optimization |
+| `%LOCALAPPDATA%\Temp` (thumbnail, shader caches) | Thumbnail & Shader Cache |
+| Shell RecycleBin | Recycle Bin |
 
 ---
 
 ## StorageMaster.Platform.Windows
 
-**Project file:** [`src/StorageMaster.Platform.Windows/StorageMaster.Platform.Windows.csproj`](../src/StorageMaster.Platform.Windows/StorageMaster.Platform.Windows.csproj)
-**Target:** `net10.0-windows10.0.19041.0`
+**Target:** `net8.0-windows10.0.19041.0`
 **Flags:** `AllowUnsafeBlocks=true`
 
 ---
@@ -457,12 +507,66 @@ Implements `IFileDeleter`.
 
 | Member | Behaviour |
 |--------|-----------|
-| `DeleteAsync` | Single-path delete; dry-run logs estimate only |
-| `DeleteManyAsync` | Parallel with `SemaphoreSlim(4)` |
-| `DeleteToRecycleBin` | `Microsoft.VisualBasic.FileIO.FileSystem.DeleteFile/Directory` |
+| `DeleteManyAsync` | Batches all RecycleBin paths into one `SHFileOperation` call; permanent paths deleted individually |
+| `BuildPathListHGlobal` | Packs paths into double-null-terminated native string buffer for `SHFileOperation` |
+| `EmptyRecycleBin` | `SHEmptyRecycleBin` via `Shell32Interop` |
 | `DeletePermanently` | `File.Delete` / `Directory.Delete(recursive: true)` |
-| `EmptyRecycleBin` | `SHQueryRecycleBin` (size) → `SHEmptyRecycleBin` |
 | `EstimateSize` | `FileInfo.Length` or recursive `EnumerateFiles().Sum()` |
+
+---
+
+#### `TurboFileScanner` — `TurboFileScanner.cs`
+
+Implements `IFileScanner`.
+
+| Member | Behaviour |
+|--------|-----------|
+| `static IsAvailable` | `File.Exists(AppContext.BaseDirectory + "turbo-scanner.exe")` |
+| `ScanAsync` | Spawns hidden process; reads JSONL; batch-inserts; runs `FolderSizeAggregator`; falls back if binary absent |
+| `GetLargestFilesAsync` | Delegates to `_fallback` (managed scanner reads from DB) |
+| `GetLargestFoldersAsync` | Delegates to `_fallback` |
+
+JSONL record shape: `{"path":"...","size":N,"modified_unix":N,"created_unix":N,"is_dir":false}`
+
+---
+
+#### `AdminService` — `AdminService.cs`
+
+Implements `IAdminService`.
+
+| Member | Behaviour |
+|--------|-----------|
+| `IsRunningAsAdmin` | `WindowsPrincipal.IsInRole(WindowsBuiltInRole.Administrator)` |
+| `RestartAsAdmin(enableDeepScan)` | `ProcessStartInfo { Verb = "runas" }` with `--deep-scan` arg if `enableDeepScan` |
+
+---
+
+#### `InstalledProgramProvider` — `InstalledProgramProvider.cs`
+
+Implements `IInstalledProgramProvider`. Reads `SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall` from HKLM + HKCU (32 + 64 bit registry views). Skips entries with `SystemComponent=1`.
+
+---
+
+#### `KnownFolders` — `KnownFolders.cs`
+
+Static helper.
+
+```csharp
+static string GetDownloadsPath()   // SHGetKnownFolderPath(FOLDERID_Downloads)
+```
+
+---
+
+#### `Shell32Interop` — `Interop/Shell32Interop.cs`
+
+Internal. Source-generated P/Invoke via `[LibraryImport]`.
+
+| P/Invoke | Notes |
+|----------|-------|
+| `SHFileOperation` | Used for batch RecycleBin moves |
+| `SHEmptyRecycleBin` | Empties all recycle bins |
+| `SHQueryRecycleBin` | Gets size + item count |
+| `SHGetKnownFolderPath` | Gets Downloads folder |
 
 ---
 
@@ -478,75 +582,45 @@ Implements `IRecycleBinInfoProvider`. Calls `Shell32Interop.SHQueryRecycleBin(nu
 
 ---
 
-#### `Shell32Interop` — `Interop/Shell32Interop.cs`
-
-Internal. Source-generated P/Invoke via `[LibraryImport]`.
-
-| P/Invoke | Signature |
-|----------|-----------|
-| `SHEmptyRecycleBin` | `(IntPtr hwnd, string? pszRootPath, EmptyRecycleBinFlags) → uint` |
-| `SHQueryRecycleBin` | `(string? pszRootPath, ref SHQUERYRBINFO) → int` |
-
-| Struct | Fields |
-|--------|--------|
-| `SHQUERYRBINFO` | `cbSize: int`, `i64Size: long`, `i64NumItems: long` |
-
-| Enum | Values |
-|------|--------|
-| `EmptyRecycleBinFlags` | `NoConfirmation`, `NoProgressUI`, `NoSound` |
-
----
-
 ## StorageMaster.Storage
 
-**Project file:** [`src/StorageMaster.Storage/StorageMaster.Storage.csproj`](../src/StorageMaster.Storage/StorageMaster.Storage.csproj)
-**Target:** `net10.0`
+**Target:** `net8.0`
 **Package:** `Microsoft.Data.Sqlite 9.0.4`
 
 ---
 
 #### `StorageDbContext` — `StorageDbContext.cs`
 
-Singleton. Manages one `SqliteConnection` shared across all repositories.
+Singleton. Manages one `SqliteConnection`.
 
 | Member | Behaviour |
 |--------|-----------|
-| `GetConnectionAsync` | Lazy init; double-checked lock; opens connection, runs migrations |
-| `OpenConnectionAsync` | Creates DB file, applies WAL + performance PRAGMAs |
-| `MigrateAsync` | Reads `SchemaVersion`, applies missing migration batches |
-| `DisposeAsync` | Closes + disposes connection |
-
-**DB path (default):** `%LOCALAPPDATA%\StorageMaster\storagemaster.db`
+| `GetConnectionAsync` | Lazy init; opens connection, applies WAL PRAGMAs, runs migrations |
+| `MigrateAsync` | Reads `SchemaVersion`, applies missing migration batches in transaction |
+| **DB path** | `%LOCALAPPDATA%\StorageMaster\storagemaster.db` |
 
 ---
 
 #### `DatabaseSchema` — `Schema/DatabaseSchema.cs`
 
-Internal static class.
-
-| Member | Value |
-|--------|-------|
-| `CurrentVersion` | `1` |
-| `V1Statements` | 10-element `string[]` array of DDL statements |
+Internal static class. `CurrentVersion = 1`. Contains `V1Statements` (DDL for all tables + indexes).
 
 ---
 
 #### `ScanRepository` — `Repositories/ScanRepository.cs`
 
-Implements `IScanRepository`.
+Implements `IScanRepository`. Includes `GetAllFolderPathsForSessionAsync` and `UpdateFolderTotalsAsync` for the folder aggregation pipeline.
+
+---
+
+#### `ScanErrorRepository` — `Repositories/ScanErrorRepository.cs`
+
+Implements `IScanErrorRepository`.
 
 | Method | SQL |
 |--------|-----|
-| `CreateSessionAsync` | `INSERT INTO ScanSessions ... SELECT last_insert_rowid()` |
-| `GetSessionAsync` | `SELECT * WHERE Id = $id` |
-| `GetRecentSessionsAsync` | `SELECT * ORDER BY StartedUtc DESC LIMIT $n` |
-| `UpdateSessionAsync` | `UPDATE ScanSessions SET ... WHERE Id = $id` |
-| `InsertFileEntriesAsync` | Batched insert in explicit transaction |
-| `UpsertFolderEntriesAsync` | `INSERT ... ON CONFLICT DO UPDATE` in explicit transaction |
-| `GetLargestFilesAsync` | `SELECT * ORDER BY SizeBytes DESC LIMIT $n` |
-| `GetLargestFoldersAsync` | `SELECT * ORDER BY TotalSizeBytes DESC LIMIT $n` |
-| `GetCategoryBreakdownAsync` | `SELECT Category, COUNT(*), SUM(SizeBytes) GROUP BY Category` |
-| `DeleteSessionAsync` | `DELETE FROM ScanSessions WHERE Id = $id` (cascade) |
+| `LogErrorsAsync` | Batched insert in explicit transaction |
+| `GetErrorsForSessionAsync` | `SELECT * WHERE SessionId = $id ORDER BY OccurredUtc` |
 
 ---
 
@@ -554,30 +628,19 @@ Implements `IScanRepository`.
 
 Implements `ICleanupLogRepository`.
 
-| Method | SQL |
-|--------|-----|
-| `LogResultAsync` | `INSERT INTO CleanupLog ...` |
-| `GetRecentAsync` | `SELECT * ORDER BY ExecutedUtc DESC LIMIT $n` |
-
 ---
 
 #### `SettingsRepository` — `Repositories/SettingsRepository.cs`
 
-Implements `ISettingsRepository`. Uses `System.Text.Json`.
-
-| Method | SQL |
-|--------|-----|
-| `LoadAsync` | `SELECT Value FROM Settings WHERE Key = 'AppSettings'` |
-| `SaveAsync` | `INSERT INTO Settings ... ON CONFLICT(Key) DO UPDATE` |
+Implements `ISettingsRepository`. Uses `System.Text.Json`. Key `"AppSettings"` in `Settings` table.
 
 ---
 
 ## StorageMaster.UI
 
-**Project file:** [`src/StorageMaster.UI/StorageMaster.UI.csproj`](../src/StorageMaster.UI/StorageMaster.UI.csproj)
-**Target:** `net10.0-windows10.0.19041.0`
+**Target:** `net8.0-windows10.0.19041.0`
 **WindowsPackageType:** `None` (unpackaged)
-**WindowsAppSDKSelfContained:** `true`
+**WindowsAppSDKSelfContained:** `false`
 
 ---
 
@@ -586,8 +649,10 @@ Implements `ISettingsRepository`. Uses `System.Text.Json`.
 | Member | Behaviour |
 |--------|-----------|
 | `static Services` | `IServiceProvider` built in constructor |
-| `BuildServices()` | Registers all singletons, transients, and rule registrations |
+| `BuildServices()` | Registers all singletons, transients, both scanners, 10 rules |
+| `StartWithDeepScan` | Set from `--deep-scan` command-line argument |
 | `OnLaunched` | Resolves `MainWindow`, calls `Activate()` |
+| `OnUnhandledException` + `OnCurrentDomainUnhandledException` + `OnUnobservedTaskException` | Log to `%LOCALAPPDATA%\StorageMaster\logs\startup-errors.log` |
 
 ---
 
@@ -595,8 +660,11 @@ Implements `ISettingsRepository`. Uses `System.Text.Json`.
 
 | Member | Behaviour |
 |--------|-----------|
-| Constructor | Injects `INavigationService`, initializes Frame, resizes to 1280×800, navigates to Dashboard |
-| `NavView_SelectionChanged` | Maps tag to page type, calls `_nav.NavigateTo(pageType)` |
+| Constructor | Injects `INavigationService`; applies DPI-aware window sizing; navigates to Dashboard |
+| `ApplyStartupWindowSize()` | `DisplayArea.GetFromWindowId` → 85% width, 90% height, clamped 900×700 min |
+| `NavView_SelectionChanged` | Maps tag → page type, calls `_nav.NavigateTo(pageType)` |
+
+Navigation tags: `Dashboard`, `Scan`, `Results`, `Cleanup`, `SmartCleaner`, `Settings`
 
 ---
 
@@ -613,39 +681,26 @@ void GoBack()
 
 ---
 
-#### `ByteSizeConverter` — `Converters/ByteSizeConverter.cs`
+#### Converters
 
-| Input | Output |
-|-------|--------|
-| ≥ 1 TB | `"1.23 TB"` |
-| ≥ 1 GB | `"4.50 GB"` |
-| ≥ 1 MB | `"512.0 MB"` |
-| ≥ 1 KB | `"128 KB"` |
-| else | `"512 B"` |
-
-Also exposes `static Format(long bytes)` for use in ViewModels.
-
----
-
-#### `BoolToVisibilityConverter` — `Converters/BoolToVisibilityConverter.cs`
-
-| Property | Default |
-|----------|---------|
-| `Invert` | `false` |
-
-`true` → `Visible` (or `Collapsed` when Invert=true)
+| Class | Behaviour |
+|-------|-----------|
+| `ByteSizeConverter` | Formats `long` bytes to `"4.50 GB"` etc; `static Format(long)` for ViewModels |
+| `BoolToVisibilityConverter` | `Invert` property; `true` → Visible (or Collapsed when Invert=true) |
+| `BoolNegationConverter` | Returns `!value`; used for `IsEnabled` inversions |
 
 ---
 
 #### Pages & ViewModels
 
-| Page | ViewModel | Navigated via |
-|------|-----------|---------------|
-| `DashboardPage` | `DashboardViewModel` | Launch + Nav "Dashboard" |
-| `ScanPage` | `ScanViewModel` | Nav "Scan" |
-| `ResultsPage` | `ResultsViewModel` | Nav "Results" or `GoToResultsCommand` (parameter: sessionId) |
-| `CleanupPage` | `CleanupViewModel` | Nav "Cleanup" |
-| `SettingsPage` | `SettingsViewModel` | Nav Settings item |
+| Page | ViewModel | Navigation |
+|------|-----------|-----------|
+| `DashboardPage` | `DashboardViewModel` | Launch + "Dashboard" tag |
+| `ScanPage` | `ScanViewModel` | "Scan" tag |
+| `ResultsPage` | `ResultsViewModel` | "Results" tag or `GoToResultsCommand` (parameter: sessionId) |
+| `CleanupPage` | `CleanupViewModel` | "Cleanup" tag |
+| `SmartCleanerPage` | `SmartCleanerViewModel` | "SmartCleaner" tag |
+| `SettingsPage` | `SettingsViewModel` | Settings item |
 
 ---
 
@@ -658,7 +713,7 @@ Also exposes `static Format(long bytes)` for use in ViewModels.
 | `TotalFiles` | `long` | Session.TotalFiles |
 | `StatusMessage` | `string` | Derived |
 | `HasLastSession` | `bool` | `LastSession != null` |
-| `Drives2` | `IReadOnlyList<DriveDetail>` | `IDriveInfoProvider.GetAvailableDrives()` |
+| `Drives` | `IReadOnlyList<DriveDetail>` | `IDriveInfoProvider.GetAvailableDrives()` |
 
 Commands: `GoToScanCommand`, `GoToResultsCommand`
 
@@ -666,9 +721,11 @@ Commands: `GoToScanCommand`, `GoToResultsCommand`
 
 ##### ScanViewModel
 
+Singleton (owns CancellationTokenSource for long-running scan).
+
 | ObservableProperty | Type | Notes |
 |--------------------|------|-------|
-| `SelectedPath` | `string` | Default `C:\` |
+| `SelectedPath` | `string` | Default from settings |
 | `IsScanning` | `bool` | |
 | `ScanComplete` | `bool` | |
 | `ProgressText` | `string` | Summary line |
@@ -681,8 +738,13 @@ Commands: `GoToScanCommand`, `GoToResultsCommand`
 | `ErrorMessage` | `string` | |
 | `HasError` | `bool` | |
 | `AvailableDrives` | `IReadOnlyList<DriveDetail>` | |
+| `DeepScan` | `bool` | Requires admin elevation |
+| `UseTurboScanner` | `bool` | Persisted in settings |
+| `TurboScannerAvailable` | `bool` | `TurboFileScanner.IsAvailable` |
+| `IsRunningAsAdmin` | `bool` (computed) | `IAdminService.IsRunningAsAdmin` |
+| `NeedsElevation` | `bool` (computed) | `DeepScan && !IsRunningAsAdmin` |
 
-Commands: `StartScanCommand`, `CancelScanCommand`, `ViewResultsCommand`
+Commands: `StartScanCommand`, `CancelScanCommand`, `ViewResultsCommand`, `RequestElevationCommand`
 
 ---
 
@@ -690,52 +752,115 @@ Commands: `StartScanCommand`, `CancelScanCommand`, `ViewResultsCommand`
 
 | ObservableCollection | Type | Limit |
 |---------------------|------|-------|
-| `LargestFiles` | `ObservableCollection<FileEntry>` | 200 after filter |
-| `LargestFolders` | `ObservableCollection<FolderEntry>` | 100 after filter |
+| `LargestFiles` | `ObservableCollection<FileEntry>` | 500 |
+| `LargestFolders` | `ObservableCollection<FolderEntry>` | 200 |
 | `CategoryBreakdown` | `ObservableCollection<CategoryRow>` | All categories |
+| `ScanErrors` | `ObservableCollection<ScanError>` | All for session |
 
-ObservableProperties: `IsLoading`, `ScanRoot`, `ScanDate`, `TotalSize`, `TotalFiles`, `FilterText`
+ObservableProperties: `IsLoading`, `ScanRoot`, `ScanDate`, `TotalSize`, `TotalFiles`, `FilterText`, `ErrorCount`, `HasErrors`
 Commands: `ApplyFilterCommand`
-`record CategoryRow(string Category, long FileCount, string TotalSize)`
 
 ---
 
 ##### CleanupViewModel
 
-| ObservableCollection | Contents |
-|---------------------|---------|
-| `Suggestions` | `SuggestionItem` (wraps suggestion + `IsSelected`) |
-| `RecentSessions` | `ScanSession` (completed only) |
-| `ExecutionResults` | `CleanupResultDisplay` records |
+ObservableCollections:
+- `Suggestions` — `SuggestionItem` (wraps suggestion + `IsSelected`)
+- `RecentSessions` — `ScanSession` (completed only)
+- `ExecutionResults` — `CleanupResultDisplay` records
+- `CategoryOptions` — `CleanupCategoryOption` (10 items, one per rule category)
 
-ObservableProperties: `IsLoading`, `IsExecuting`, `IsDryRun`, `StatusMessage`, `SelectedSessionId`, `TotalSelectedSize`, `HasResults`
+ObservableProperties: `IsLoading`, `IsExecuting`, `IsDryRun`, `StatusMessage`, `SelectedSession`, `TotalSelectedSize`, `HasResults`, `HasExecutionResults`, `CleanupProgressText`, `CleanupProgressValue`, `ClearEntireDownloads`
+
 Commands: `AnalyseCommand`, `ExecuteCleanupCommand`
 
-`SuggestionItem` properties: `Suggestion`, `IsSelected`, `SizeDisplay`, `RiskDisplay`, `CategoryDisplay`
+`CleanupCategoryOption` properties: `Category`, `DisplayName`, `Description`, `IconGlyph`, `IsEnabled`
+
+---
+
+##### SmartCleanerViewModel
+
+ObservableCollections:
+- `Groups` — `SmartCleanGroupItem`
+
+ObservableProperties: `IsScanning`, `IsCleaning`, `HasResults`, `CleaningDone`, `StatusText`, `ProgressText`, `TotalSizeText`, `FreedText`, `UseRecycleBin`
+
+Computed: `CanClean`
+
+Commands: `AnalyseCommand`, `CleanCommand`
+
+`SmartCleanGroupItem` properties: `Group`, `IsSelected`, `Category`, `Description`, `IconGlyph`, `SizeDisplay`
 
 ---
 
 ##### SettingsViewModel
 
-ObservableProperties map 1:1 to `AppSettings` members.
+ObservableProperties map 1:1 to `AppSettings` members (all 21 settings).
 Commands: `SaveCommand`, `ResetToDefaultsCommand`
+
+---
+
+## turbo-scanner (Rust)
+
+**Crate:** `turbo-scanner/Cargo.toml`
+**Binary:** `turbo-scanner.exe`
+**Version:** 1.3.0
+
+### Dependencies
+
+| Crate | Version | Purpose |
+|-------|---------|---------|
+| `jwalk` | 0.8 | Parallel work-stealing directory walker |
+| `serde` | 1 | Serialization derive macros |
+| `serde_json` | 1 | JSON serialization |
+| `clap` | 4 | CLI argument parsing |
+
+### CLI interface
+
+```
+turbo-scanner --path <dir> [--threads N] [--min-size N] [--skip-hidden]
+```
+
+| Argument | Default | Purpose |
+|----------|---------|---------|
+| `--path` | required | Root directory to scan |
+| `--threads` | 0 (= all cores) | Rayon thread pool size |
+| `--min-size` | 0 | Minimum file size to report |
+| `--skip-hidden` | false | Skip dotfile directories |
+
+### Output format (JSONL on stdout)
+
+One JSON object per line. Errors on stderr (prefixed `WARN:`).
+
+```json
+{"path":"C:\\Users\\Alice\\photo.jpg","size":2048576,"modified_unix":1700000000,"created_unix":1690000000,"is_dir":false}
+```
+
+### Release profile
+
+```toml
+[profile.release]
+opt-level = 3
+lto       = true
+codegen-units = 1
+strip     = true
+```
 
 ---
 
 ## StorageMaster.Tests
 
-**Project file:** [`tests/StorageMaster.Tests/StorageMaster.Tests.csproj`](../tests/StorageMaster.Tests/StorageMaster.Tests.csproj)
-**Target:** `net10.0-windows10.0.19041.0`
+**Target:** `net8.0-windows10.0.19041.0`
 
-| Test class | File | Tests |
-|------------|------|-------|
-| `FileScannerTests` | `Scanner/FileScannerTests.cs` | 4 |
-| `LargeOldFilesRuleTests` | `Cleanup/CleanupRuleTests.cs` | 3 |
-| `TempFilesRuleTests` | `Cleanup/CleanupRuleTests.cs` | 1 |
-| `ScanRepositoryTests` | `Storage/ScanRepositoryTests.cs` | 4 |
-| `UnitTest1` | `UnitTest1.cs` | 1 (placeholder) |
-
-**Total: 13 tests, 13 passing**
+| Test class | Tests |
+|------------|-------|
+| `FileScannerTests` | Scanner integration (real temp directories) |
+| `LargeOldFilesRuleTests` | Rule analysis logic |
+| `TempFilesRuleTests` | Rule analysis logic |
+| `ScanRepositoryTests` | SQLite persistence round-trips |
+| Additional rule tests | BrowserCache, CacheFolder, RecycleBin, DownloadedInstallers |
+| Additional engine tests | `CleanupEngine` orchestration, partial failure |
+| `SettingsRepositoryTests` | Settings round-trip |
 
 ---
 
@@ -749,7 +874,8 @@ Commands: `SaveCommand`, `ResetToDefaultsCommand`
 | `ScanSessions` | `Id` (AUTOINCREMENT) | — | One row per scan run |
 | `FileEntries` | `Id` (AUTOINCREMENT) | `SessionId → ScanSessions(Id)` CASCADE | One row per file |
 | `FolderEntries` | `Id` (AUTOINCREMENT) | `SessionId → ScanSessions(Id)` CASCADE | One row per directory |
-| `CleanupLog` | `Id` (AUTOINCREMENT) | — | Append-only audit |
+| `ScanErrors` | `Id` (AUTOINCREMENT) | `SessionId → ScanSessions(Id)` CASCADE | Per-path scan errors |
+| `CleanupLog` | `Id` (AUTOINCREMENT) | — | Append-only deletion audit |
 | `Settings` | `Key` (TEXT) | — | JSON key-value store |
 
 ### Indexes
@@ -762,7 +888,7 @@ Commands: `SaveCommand`, `ResetToDefaultsCommand`
 
 ### Unique constraints
 
-- `FolderEntries(SessionId, FullPath)` — enables the ON CONFLICT upsert for parallel folder writes
+- `FolderEntries(SessionId, FullPath)` — enables ON CONFLICT upsert for parallel folder writes
 
 ---
 
@@ -772,7 +898,7 @@ Commands: `SaveCommand`, `ResetToDefaultsCommand`
 |---------|---------|---------|---------|
 | Core | `CommunityToolkit.Mvvm` | 8.4.0 | MVVM source generators |
 | Core | `Microsoft.Extensions.DependencyInjection.Abstractions` | 10.0.0 | DI interfaces |
-| Core | `Microsoft.Extensions.Logging.Abstractions` | 10.0.0 | ILogger<T> |
+| Core | `Microsoft.Extensions.Logging.Abstractions` | 10.0.0 | `ILogger<T>` |
 | Platform.Windows | `Microsoft.Extensions.Logging.Abstractions` | 10.0.0 | Logging |
 | Storage | `Microsoft.Data.Sqlite` | 9.0.4 | SQLite access |
 | Storage | `Microsoft.Extensions.Logging.Abstractions` | 10.0.0 | Logging |
@@ -794,11 +920,12 @@ Commands: `SaveCommand`, `ResetToDefaultsCommand`
 
 | Project | Target Framework | Platform-specific |
 |---------|-----------------|-------------------|
-| Core | `net10.0` | No |
-| Storage | `net10.0` | No |
-| Platform.Windows | `net10.0-windows10.0.19041.0` | Yes |
-| UI | `net10.0-windows10.0.19041.0` | Yes (WinUI 3) |
-| Tests | `net10.0-windows10.0.19041.0` | Yes (references Platform.Windows) |
+| Core | `net8.0` | No |
+| Storage | `net8.0` | No |
+| Platform.Windows | `net8.0-windows10.0.19041.0` | Yes |
+| UI | `net8.0-windows10.0.19041.0` | Yes (WinUI 3) |
+| Tests | `net8.0-windows10.0.19041.0` | Yes |
+| turbo-scanner | Rust stable / `x86_64-pc-windows-msvc` | Yes |
 
-UI build flags: `WindowsPackageType=None`, `WindowsAppSDKSelfContained=true`, `SelfContained=true`
+UI build flags: `WindowsPackageType=None`, `SelfContained=false`
 Platform.Windows build flags: `AllowUnsafeBlocks=true`

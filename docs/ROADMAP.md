@@ -1,899 +1,748 @@
-# StorageMaster — Enterprise Roadmap
+# StorageMaster — Development Roadmap
 
-> **Baseline:** v1.0.0 (2026-04-25) — functional, safe, production-ready foundation
-> **Target:** Enterprise-grade, commercially shippable, premium Windows utility
-
-This document maps the path from the current v1 foundation to a fully enterprise-ready product. Each phase is self-contained and delivers real user value. No phase requires discarding prior work — every milestone builds directly on the contracts and interfaces established in v1.
+> **Baseline:** v1.3.0 (2026-04-28) — parallel scanning, Rust Turbo Scanner, 10 cleanup rules, Smart Cleaner, admin elevation, CI/CD pipeline, Inno Setup installer.
+> **Target:** v1.5.0 — a feature-complete, polished, accessible, and robust Windows utility.
 
 ---
 
 ## How to read this document
 
-- **Phase** = a coherent release milestone (major feature set)
+- **Phase** = a coherent release milestone delivering real user value
 - **Milestone** = a specific deliverable inside a phase
-- **Complexity** = estimated engineering effort [S = 1-3 days | M = 1-2 weeks | L = 2-6 weeks | XL = 2+ months]
-- **Impact** = user-visible value [Low | Medium | High | Critical]
-- **Dependency** = other milestone that must exist first
+- **Complexity** = estimated engineering effort: S (hours–1 day) | M (2–5 days) | L (1–2 weeks) | XL (2–4 weeks)
+- **Impact** = `Low | Medium | High | Critical`
+- **Dependencies** = other milestones that must be complete first
 
 ---
 
 ## Phase overview
 
 ```
-v1.0  Foundation                           ← CURRENT (complete)
+v1.3.0  Current release                        ← SHIPPED
   │
-v1.1  Polish & Hardening                   ← Fix known v1 gaps, no new features
+v1.3.x  Bug fixes & quick wins                 ← immediate
   │
-v2.0  Performance & Intelligence           ← MFT scan, duplicate detection, folder trees
+v1.4.0  Results & Interaction depth            ← next major milestone
   │
-v2.5  Visualization & UX                   ← Treemap, sunburst, improved UI
+v1.4.x  Hardening, compat, accessibility      ← stabilization
   │
-v3.0  Background & Scheduling              ← Windows Service, scheduled scans, tray
-  │
-v3.5  Enterprise Features                  ← Multi-user, reporting, policy
-  │
-v4.0  Ecosystem                            ← Plugin API, telemetry, cloud, installer
-  │
-v5.0  Premium Commercial                   ← Licensing, updates, telemetry portal
+v1.5.0  Visualization, scheduling, CLI        ← feature complete
 ```
 
 ---
 
-## Phase 1 — Polish & Hardening (v1.1)
+## Phase 0 — Quick Wins & Bug Fixes (v1.3.x patches)
 
-**Goal:** Fix all known v1 gaps and make the app feel complete and stable. No new major features. Ship-quality release.
-
----
-
-### M-1.1 — Delete placeholder Class1.cs files
-
-**Complexity:** S | **Impact:** Low
-
-Remove the auto-generated `Class1.cs` from `StorageMaster.Core`, `StorageMaster.Platform.Windows`, and `StorageMaster.Storage`. These are harmless but unprofessional in production code.
+**Goal:** Immediately actionable improvements that take < 1 day each. Ship as rapid patch releases.
 
 ---
 
-### M-1.2 — Implement Downloads path via SHGetKnownFolderPath
-
-**Complexity:** S | **Impact:** Low
-**File:** `DownloadedInstallersRule.cs`
-
-Replace the profile-path fallback with the proper Windows API:
-
-```csharp
-// Add to Shell32Interop.cs:
-[LibraryImport("shell32.dll")]
-internal static partial int SHGetKnownFolderPath(
-    ref Guid rfid, uint dwFlags, IntPtr hToken,
-    out nint ppszPath);
-
-// FOLDERID_Downloads = {374DE290-123F-4565-9164-39C4925E467B}
-private static readonly Guid FOLDERID_Downloads =
-    new("374DE290-123F-4565-9164-39C4925E467B");
-```
-
-This correctly handles redirected Downloads folders (enterprise environments often redirect to network shares).
-
----
-
-### M-1.3 — Implement folder size ancestor propagation
-
-**Complexity:** M | **Impact:** High
-**File:** `ScanRepository.cs` or new `FolderSizeAggregator.cs`
-
-The v1 `FolderEntry.TotalSizeBytes` equals `DirectSizeBytes` only (files directly in the folder). Real folder sizes must include all descendants.
-
-**Algorithm:** After all `FolderEntry` rows are written for a session, run a bottom-up propagation pass in a single SQL transaction:
-
-```sql
--- Iterative SQL or application-side tree walk
--- For each folder, TotalSizeBytes = DirectSizeBytes + SUM(children.TotalSizeBytes)
--- Repeat until no rows updated (convergence in O(depth) iterations)
-```
-
-Or do a single-pass DFS in C# using the already-stored `FullPath` hierarchy.
-
-**Why this matters:** The "Largest Folders" result is incorrect without this. Users expect `C:\Users\Alice` to show the full tree size.
-
----
-
-### M-1.4 — NTFS FileId-based symlink cycle detection
-
-**Complexity:** M | **Impact:** Medium
-**File:** `FileScanner.cs`
-
-Replace the path-based `HashSet<string>` with proper NTFS `FileId` tracking:
-
-```csharp
-[StructLayout(LayoutKind.Sequential)]
-private struct FILE_ID_INFO
-{
-    public ulong VolumeSerialNumber;
-    public FILE_ID_128 FileId;
-}
-
-// Use GetFileInformationByHandleEx(FILE_INFO_BY_HANDLE_CLASS.FileIdInfo)
-// Store (VolumeSerialNumber, FileId) in a HashSet<(ulong, FILE_ID_128)>
-```
-
-This handles the rare-but-real edge case of hard-linked directories that appear under different paths on the same volume.
-
----
-
-### M-1.5 — Scan result pagination in UI (virtualization)
-
-**Complexity:** M | **Impact:** High
-**File:** `ResultsPage.xaml`, `ResultsViewModel.cs`
-
-The current `ListView` loads up to 500 files eagerly. On large scans this causes jank. Replace with:
-- `ItemsRepeater` with virtualization
-- Load-on-scroll (incremental `IAsyncEnumerable<FileEntry>` consumption)
-- Or `AdvancedCollectionView` from CommunityToolkit.WinUI for sort/filter
-
----
-
-### M-1.6 — Improved error reporting and scan log
+### P0-1 — Log Smart Cleaner deletions to CleanupLog
 
 **Complexity:** S | **Impact:** Medium
 
-- Add a `ScanErrorLog` table to the schema for per-path errors
-- Show error count on Dashboard
-- Add "View scan errors" panel in Results
+`SmartCleanerService.CleanAsync()` currently calls `IFileDeleter.DeleteManyAsync()` directly without logging to `CleanupLog`. This means Smart Cleaner operations leave no audit trail.
+
+**Fix:** Inject `ICleanupLogRepository` into `SmartCleanerService`. After cleanup completes, write a synthetic `CleanupLogEntry` per group. Use a synthetic `SuggestionId = Guid.NewGuid()` and `RuleId = "smart-cleaner.<category>"`.
+
+**Files:** `SmartCleanerService.cs`, `ISmartCleanerService.cs` (constructor update), `App.xaml.cs` (DI update)
 
 ---
 
-### M-1.7 — Settings: excluded paths editor
+### P0-2 — Wire the Errors tab in ResultsPage
+
+**Complexity:** S | **Impact:** Medium
+
+The `ResultsViewModel` already loads `ScanErrors` from `IScanErrorRepository` and populates `ScanErrors` + `ErrorCount`. The XAML `ResultsPage` needs the fourth PivotItem for the Errors tab.
+
+**XAML to add after the "File Types" PivotItem:**
+```xml
+<PivotItem>
+    <PivotItem.Header>
+        <StackPanel Orientation="Horizontal" Spacing="6">
+            <TextBlock Text="Errors"/>
+            <Border Background="{ThemeResource SystemFillColorCriticalBackgroundBrush}"
+                    CornerRadius="8" Padding="6,1"
+                    Visibility="{x:Bind ViewModel.HasErrors, Mode=OneWay, Converter={StaticResource BoolVis}}">
+                <TextBlock Text="{x:Bind ViewModel.ErrorCount, Mode=OneWay}"
+                           Style="{StaticResource CaptionTextBlockStyle}"/>
+            </Border>
+        </StackPanel>
+    </PivotItem.Header>
+    <ListView ItemsSource="{x:Bind ViewModel.ScanErrors}" SelectionMode="None" Margin="0,8,0,0">
+        <ListView.ItemTemplate>
+            <DataTemplate x:DataType="models:ScanError">
+                <Grid ColumnDefinitions="*,160,240" Padding="0,4" ColumnSpacing="12">
+                    <TextBlock Grid.Column="0" Text="{x:Bind Path}" TextTrimming="CharacterEllipsis"
+                               Style="{StaticResource CaptionTextBlockStyle}"/>
+                    <TextBlock Grid.Column="1" Text="{x:Bind ErrorType}" HorizontalAlignment="Center"
+                               Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.8"/>
+                    <TextBlock Grid.Column="2" Text="{x:Bind Message}" TextTrimming="CharacterEllipsis"
+                               Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.7"/>
+                </Grid>
+            </DataTemplate>
+        </ListView.ItemTemplate>
+    </ListView>
+</PivotItem>
+```
+
+**Files:** `ResultsPage.xaml`
+
+---
+
+### P0-3 — Excluded paths editor in Settings
 
 **Complexity:** M | **Impact:** Medium
 
-The `AppSettings.ExcludedPaths` list is persisted but has no UI. Add a simple editor:
-- `ListView` of excluded paths
-- Add path button (FolderPicker)
-- Remove selected button
-- Pre-populated with sensible defaults
+`AppSettings.ExcludedPaths` is persisted and passed to the scanner, but the Settings page has no UI to edit it. Add a simple editor:
+- `ListView` showing current excluded paths
+- "Add Path" button → `FolderPicker` (with HWND init)
+- "Remove" button per item
+- Pre-populated with defaults on first open
+
+**Files:** `SettingsPage.xaml`, `SettingsViewModel.cs`
 
 ---
 
-### M-1.8 — Test coverage expansion
+### P0-4 — Session deletion from Dashboard/Results
+
+**Complexity:** S | **Impact:** Medium
+
+Allow users to delete old scan sessions from the Dashboard (or a "Manage Sessions" section in Settings). `IScanRepository.DeleteSessionAsync` already exists; it just needs a UI surface.
+
+- Add a "Delete this session" button in the Results page header
+- Or a "Manage scan history" section in Settings showing all sessions with a delete button
+
+**Files:** `DashboardViewModel.cs`, `DashboardPage.xaml`, or `SettingsPage.xaml`
+
+---
+
+### P0-5 — Fix Turbo Scanner's FolderEntry DirectSizeBytes
 
 **Complexity:** M | **Impact:** Medium
 
-Current coverage: 13 tests. Target for v1.1: 40+.
+When `turbo-scanner.exe` emits a directory entry (`is_dir=true`), `TurboFileScanner.cs` sets `DirectSizeBytes = 0`. The `FolderSizeAggregator` then computes `TotalSizeBytes` correctly from file entries, but `DirectSizeBytes` stays 0 for all folders in Turbo-scanned results.
 
-Add tests for:
-- `CacheFolderCleanupRule`
-- `DownloadedInstallersRule`
-- `RecycleBinCleanupRule`
-- `CleanupEngine.GetSuggestionsAsync` orchestration
-- `CleanupEngine.ExecuteAsync` with partial failure
-- `StorageDbContext` migration (starting from v0)
-- `SettingsRepository` round-trip
-- `FileDeleter` dry-run (with a mock or in-process stub)
+**Fix:** During JSONL parsing, accumulate `Size` from file records into a `Dictionary<string, long>` keyed by parent folder path, then patch `FolderEntry.DirectSizeBytes` before inserting. This mirrors what the managed `FileScanner` does in `ProcessDirectory`.
+
+**Files:** `TurboFileScanner.cs`
 
 ---
 
-## Phase 2 — Performance & Intelligence (v2.0)
+## Phase 1 — Results Depth & Interaction (v1.4.0)
 
-**Goal:** Make StorageMaster significantly faster and smarter than v1. The scanner should feel near-instant on SSDs. Duplicate detection becomes a reality.
-
----
-
-### M-2.1 — NTFS MFT-based fast scanner
-
-**Complexity:** XL | **Impact:** Critical
-**Dependency:** M-1.4
-
-The current BFS scanner reads every directory via Win32 API calls — 10–30 seconds for a full C: drive on an SSD, several minutes on an HDD.
-
-The NTFS Master File Table (MFT) can be read directly, yielding all file records in under 2 seconds even on an HDD. This is how tools like `Everything` and `WizTree` achieve instant results.
-
-**Implementation approach:**
-
-```csharp
-// New interface:
-public interface IMftScanner : IFileScanner
-{
-    bool IsAvailable { get; }  // requires admin + NTFS volume
-}
-
-// Implementation steps:
-// 1. Open volume handle with FSCTL_GET_NTFS_VOLUME_DATA
-// 2. Use FSCTL_ENUM_USN_DATA to iterate USN change journal
-//    OR read MFT directly via FSCTL_GET_RETRIEVAL_POINTERS + direct sector I/O
-// 3. Map MFT records to FileEntry/FolderEntry
-// 4. Fall back to BFS scanner if MFT is unavailable (FAT, network, non-admin)
-```
-
-**Key considerations:**
-- Requires administrator elevation (or Volume Shadow Copy Service for non-admin)
-- Only works on NTFS volumes (not exFAT, FAT32, ReFS, network)
-- MFT parsing requires P/Invoke or a native helper
-- Path reconstruction from parent FRN (File Reference Number) requires a lookup table
-
-**Result:** Full C: drive scan in under 3 seconds on SSD, under 15 seconds on HDD.
+**Goal:** Make the Results and Cleanup pages genuinely useful for power users. Users should be able to act directly on what they find, not just view it.
 
 ---
 
-### M-2.2 — USN Journal incremental scan
-
-**Complexity:** L | **Impact:** High
-**Dependency:** M-2.1
-
-Instead of rescanning the full drive after the first MFT scan, use the NTFS USN (Update Sequence Number) Change Journal to get only what changed since the last scan.
-
-```csharp
-public interface IIncrementalScanner
-{
-    Task<ScanSession> IncrementalScanAsync(
-        long            baseSessionId,
-        ScanOptions     options,
-        IProgress<ScanProgress> progress,
-        CancellationToken ct);
-}
-```
-
-The change journal records every file creation, modification, rename, and deletion with a USN sequence number. By storing the last USN in the session, subsequent scans only need to process the delta.
-
-**Result:** After the first full MFT scan, subsequent scans complete in <1 second for typical daily changes.
-
----
-
-### M-2.3 — SHA-256 duplicate file detection
-
-**Complexity:** L | **Impact:** High
-**Dependency:** M-1.3 (folder sizes), M-2.1 (fast scan preferred)
-
-The v1 cleanup rule interface already has `DuplicateFiles` as a `CleanupCategory`. v2 implements it properly.
-
-**Two-phase algorithm:**
-1. **Size grouping:** Group all `FileEntry` records by `SizeBytes`. Files with unique sizes cannot be duplicates. This is already possible from the DB.
-2. **Hash verification:** For each size-group with ≥ 2 members, compute SHA-256 hashes and group by hash. Only confirmed hash-matches are duplicates.
-
-```csharp
-// New rule:
-public sealed class DuplicateFilesCleanupRule : ICleanupRule
-{
-    // Yield one suggestion per duplicate group
-    // Group title: "3 copies of vacation-photo.jpg (42 MB each)"
-    // All paths shown; user keeps one, deletes the rest
-    // Risk: Medium (user must choose which copy to keep)
-}
-```
-
-**UI consideration:** Duplicate suggestions need a special UI — the user must select which copy to keep and which to delete. This may require a dedicated `DuplicatesPage`.
-
----
-
-### M-2.4 — File content hash index in database
-
-**Complexity:** M | **Impact:** Medium
-**Dependency:** M-2.3
-
-Add `Hash` column to `FileEntries`:
-
-```sql
--- Schema v2 migration:
-ALTER TABLE FileEntries ADD COLUMN Hash TEXT;
-CREATE INDEX IF NOT EXISTS IX_FileEntries_Hash ON FileEntries(Hash) WHERE Hash IS NOT NULL;
-```
-
-Populate lazily: compute hashes only for files in size-groups with potential duplicates, not all files (would be slow and unnecessary).
-
----
-
-### M-2.5 — Folder tree with size bars
-
-**Complexity:** M | **Impact:** High
-**Dependency:** M-1.3 (real folder sizes)
-
-Replace the current flat `LargestFolders` list with an interactive folder tree:
-
-```
-C:\                              [████████████████░░░░] 450 GB / 512 GB
-  └─ Users                       [████████░░░░░░░░░░░░] 120 GB
-       └─ Alice                  [███████░░░░░░░░░░░░░] 115 GB
-            ├─ Documents         [███░░░░░░░░░░░░░░░░░]  40 GB
-            ├─ Downloads         [██░░░░░░░░░░░░░░░░░░]  28 GB
-            └─ Videos            [██░░░░░░░░░░░░░░░░░░]  22 GB
-```
-
-Use `TreeView` (WinUI 3) with lazy-loaded children. The `FolderEntry` hierarchy is already in the database; just query children of a parent path.
-
----
-
-### M-2.6 — Smart cleanup rule: Empty folders
-
-**Complexity:** S | **Impact:** Medium
-
-A new rule that identifies empty directories (FileCount=0, SubFolderCount=0) and suggests removing them. Safe by definition.
-
----
-
-### M-2.7 — Smart cleanup rule: Large video files in unexpected places
-
-**Complexity:** S | **Impact:** Medium
-
-Finds `.mp4`, `.mkv`, `.avi` files > 500 MB outside of `Videos`, `Desktop`, `Downloads` (e.g., buried in AppData, project folders, temp). Risk: Medium.
-
----
-
-## Phase 2.5 — Visualization & UX (v2.5)
-
-**Goal:** Make StorageMaster visually impressive and immediately useful on first launch. Compete with WizTree, SpaceSniffer, and DiskSavvy.
-
----
-
-### M-2.5.1 — Treemap visualization
-
-**Complexity:** XL | **Impact:** Critical
-
-The treemap is the defining visual of a disk space analyzer. Render a hierarchical rectangle packing where each rectangle's area is proportional to the folder/file size.
-
-**Options:**
-1. **WinUI 3 Canvas + Direct2D** — custom rendering; high performance; hardest to implement
-2. **WinUI 3 Canvas + SkiaSharp** — cross-platform rendering; easier; `SkiaSharp.Views.WinUI` NuGet
-3. **WebView2 + D3.js treemap** — easiest to implement; excellent out-of-the-box interactivity
-4. **Win2D** — Microsoft-maintained; hardware-accelerated; WinUI 3 compatible
-
-**Recommended approach for v2.5:** WebView2 + D3.js (fastest to ship, best interactive behavior, zero custom renderer).
-
-The treemap is interactive:
-- Hover → show tooltip (path, size, % of parent)
-- Click → drill down into folder
-- Breadcrumb bar → navigate back up
-- Right-click → "Open in Explorer", "Add to Cleanup"
-
----
-
-### M-2.5.2 — Sunburst chart for file types
-
-**Complexity:** L | **Impact:** High
-
-Replace the flat category breakdown list with a sunburst (ring) chart.
-- Inner ring: categories (Document, Video, Image, etc.)
-- Outer ring: top file extensions within each category
-- Same tech recommendation: WebView2 + D3.js
-
----
-
-### M-2.5.3 — Welcome / first-run experience
-
-**Complexity:** M | **Impact:** High
-
-On first launch (no scan sessions in DB):
-1. Full-screen welcome with app name and tagline
-2. Drive selector (largest drive pre-selected)
-3. Single "Analyse Now" call-to-action
-4. Immediate scan start with animated progress
-
----
-
-### M-2.5.4 — Dashboard redesign
-
-**Complexity:** M | **Impact:** High
-**Dependency:** M-2.5.1, M-2.5.2
-
-Redesign the Dashboard to be a command center:
-- Top: drive space bar (free / used / scanned)
-- Left: treemap preview (top-level folders)
-- Right: file-type donut chart + top-5 largest files
-- Bottom: recent sessions, quick actions
-
----
-
-### M-2.5.5 — Results page: sortable columns
-
-**Complexity:** S | **Impact:** Medium
-
-Add column header click to sort the file/folder list. Use `AdvancedCollectionView` from `CommunityToolkit.WinUI` for client-side sort without re-querying the DB.
-
----
-
-### M-2.5.6 — Right-click context menus
-
-**Complexity:** S | **Impact:** Medium
-
-On `ResultsPage` file list:
-- Open file
-- Open containing folder in Explorer
-- Copy path
-- Add to cleanup
-
-On folder tree:
-- Scan this folder
-- Copy path
-- Open in Explorer
-
----
-
-### M-2.5.7 — Dark mode / light mode support
+### M-1.1 — Open in Explorer from Results
 
 **Complexity:** S | **Impact:** High
 
-WinUI 3 supports dark/light via `Application.RequestedTheme`. Ensure all colors use `ThemeResource` tokens (already started in XAML). Add a theme selector to `SettingsPage`.
+Add an "Open folder" icon button to each row in the Largest Files and Largest Folders ListViews.
+
+**Implementation:**
+```csharp
+// In ResultsViewModel:
+[RelayCommand]
+private static void OpenFileInExplorer(FileEntry file)
+{
+    var dir = Path.GetDirectoryName(file.FullPath) ?? file.FullPath;
+    Process.Start(new ProcessStartInfo("explorer.exe", $"/select,\"{file.FullPath}\"") { UseShellExecute = true });
+}
+
+[RelayCommand]
+private static void OpenFolderInExplorer(FolderEntry folder)
+{
+    Process.Start(new ProcessStartInfo("explorer.exe", $"\"{folder.FullPath}\"") { UseShellExecute = true });
+}
+```
+
+**XAML:** Add a 4th column to the DataTemplate grid with a `TransparentButton` bound to `ViewModel.OpenFileInExplorerCommand` / `CommandParameter="{Binding}"`.
+
+**Files:** `ResultsViewModel.cs`, `ResultsPage.xaml`
 
 ---
 
-### M-2.5.8 — Animations and transitions
+### M-1.2 — Copy path to clipboard from Results
+
+**Complexity:** S | **Impact:** Medium
+
+Right-click context menu on file/folder rows:
+- "Copy full path"
+- "Open in Explorer" (from M-1.1)
+
+**Implementation:** `MenuFlyout` attached to each `ListViewItem` via `RightTapped` event or `ContextFlyout` property. Use `DataPackage` to write to clipboard.
+
+**Files:** `ResultsPage.xaml`
+
+---
+
+### M-1.3 — Sortable columns in Results
+
+**Complexity:** M | **Impact:** High
+
+Allow clicking column headers to sort the Largest Files and Largest Folders lists without re-querying the database.
+
+**Implementation:** `AdvancedCollectionView` from `CommunityToolkit.WinUI.UI` wraps the `ObservableCollection`. Column headers get `Tapped` handlers that call `acv.SortDescriptions.ReplaceWith(...)`.
+
+**NuGet:** `CommunityToolkit.WinUI.UI 8.x`
+
+**Files:** `ResultsViewModel.cs`, `ResultsPage.xaml`
+
+---
+
+### M-1.4 — Results page: path filter improvements
+
+**Complexity:** S | **Impact:** Medium
+
+Current filter: path-contains, case-insensitive. Improvements:
+- Filter debounce (300ms) so it doesn't fire on every keystroke
+- Clear filter button (×) inside the TextBox when filter text is non-empty
+- Show filtered count: "Showing 47 of 500 files"
+- Option to filter by extension (e.g., `.mp4` only)
+
+**Files:** `ResultsViewModel.cs`, `ResultsPage.xaml`
+
+---
+
+### M-1.5 — Interactive folder tree view
+
+**Complexity:** L | **Impact:** High
+**Depends on:** P0-5 (DirectSizeBytes fix), accurate folder totals
+
+Replace the flat "Largest Folders" list with an expandable tree:
+
+```
+C:\                                [████████████████░░░░] 347 GB
+  └─ Users\                         [████████░░░░░░░░░░░░] 120 GB
+       ├─ Alice\                     [███████░░░░░░░░░░░░░]  98 GB
+       │    ├─ Videos\               [████░░░░░░░░░░░░░░░░]  42 GB
+       │    ├─ Downloads\            [██░░░░░░░░░░░░░░░░░░]  28 GB
+       │    └─ Documents\            [█░░░░░░░░░░░░░░░░░░░]  18 GB
+       └─ Public\                    [█░░░░░░░░░░░░░░░░░░░]  11 GB
+```
+
+**Implementation:** `TreeView` (WinUI 3) with `IsVirtualized=true`. Root nodes load their children lazily from `IScanRepository.GetLargestFoldersAsync(sessionId, topN: 50)` filtered by parent path.
+
+**Files:** `ResultsPage.xaml`, `ResultsViewModel.cs`, new `FolderTreeItem.cs` model
+
+---
+
+### M-1.6 — Cleanup page: analyse without session (direct path)
 
 **Complexity:** M | **Impact:** Medium
 
-- Scan progress: animated fill bar
-- Page transitions: `NavigationThemeTransition` (already available in WinUI 3)
-- Suggestion list: `AddDeleteThemeTransition` when items appear/disappear
-- Cleanup execution: per-item completion animation
+Currently the Cleanup page requires selecting a previous scan session. Add an option to run cleanup suggestions against a freshly-scanned path directly (one-shot scan → analyse → clean) without navigating to the Smart Cleaner.
+
+**Files:** `CleanupViewModel.cs`, `CleanupPage.xaml`
 
 ---
 
-## Phase 3 — Background & Scheduling (v3.0)
+### M-1.7 — Delete directly from Results
 
-**Goal:** StorageMaster runs silently in the background, keeps disk health data fresh, and alerts users proactively.
+**Complexity:** M | **Impact:** High
+**Depends on:** M-1.1 (Open in Explorer, same button infrastructure)
+
+Add a delete icon button next to "Open in Explorer" in the file list. Clicking it:
+1. Shows a confirmation `ContentDialog` listing the file
+2. On confirm: `IFileDeleter.DeleteAsync(path, RecycleBin)` 
+3. Removes the row from the `ObservableCollection` (no DB update needed; session data is historical)
+4. Shows a brief "Sent to Recycle Bin" toast
+
+**Do not** re-query the database after deletion — the row is simply removed from the in-memory collection.
+
+**Files:** `ResultsViewModel.cs`, `ResultsPage.xaml`
 
 ---
 
-### M-3.1 — System tray icon
+## Phase 2 — Hardening, Compatibility & Accessibility (v1.4.x)
+
+**Goal:** Make StorageMaster stable on all supported Windows builds and accessible to all users. No new features — only quality and robustness.
+
+---
+
+### M-2.1 — Windows 10 compatibility matrix test
+
+**Complexity:** M | **Impact:** Critical
+
+Test on the minimum supported Windows 10 build (1809, build 17763) and every major feature update through Windows 11 24H2. Document any regressions.
+
+**Focus areas:**
+- `DisplayArea.GetFromWindowId()` — availability varies by Windows App SDK version
+- `SHGetKnownFolderPath` flags — behaviour differences on older builds
+- WinUI 3 XAML feature availability (e.g., `InfoBar`, `ProgressRing` styles)
+- Turbo Scanner: MSVC CRT requirements for `turbo-scanner.exe` on older Windows
+
+**Deliverable:** Compatibility matrix in this file + any necessary runtime version guards.
+
+---
+
+### M-2.2 — ARM64 support
+
+**Complexity:** M | **Impact:** Medium
+
+The C# app already lists `arm64` in `RuntimeIdentifiers`. The Rust binary needs an ARM64 build.
+
+**CI changes (`release.yml`):**
+```yaml
+- name: Setup Rust (stable, ARM64)
+  uses: dtolnay/rust-toolchain@stable
+  with:
+    targets: aarch64-pc-windows-msvc
+
+- name: Build Turbo Scanner (ARM64)
+  run: cargo build --release --manifest-path turbo-scanner/Cargo.toml --target aarch64-pc-windows-msvc
+```
+
+**Installer:** Update `StorageMaster.iss` to include both `x86_64` and `aarch64` binaries, or create separate installer targets.
+
+**Files:** `.github/workflows/release.yml`, `installer/StorageMaster.iss`
+
+---
+
+### M-2.3 — Keyboard navigation & focus management
+
+**Complexity:** M | **Impact:** High (accessibility)
+
+Ensure the entire application is usable without a mouse:
+
+- All buttons, toggles, and list items are reachable via Tab / Shift+Tab
+- All `ListView` rows support arrow key navigation
+- Enter key activates the focused button/row
+- Escape key closes dialogs
+- Focus is managed on page navigation (focus first interactive element)
+- `FocusManager.TryMoveFocus()` or `AutomationProperties.Name` where needed
+
+**Files:** All XAML page files
+
+---
+
+### M-2.4 — Screen reader support (MSAA / UIA)
+
+**Complexity:** M | **Impact:** High (accessibility)
+
+Add `AutomationProperties` to all interactive elements:
+
+```xml
+<Button AutomationProperties.Name="Scan drive C"
+        AutomationProperties.HelpText="Start scanning the selected drive for files" />
+
+<ProgressRing AutomationProperties.Name="Scan in progress"
+              AutomationProperties.LiveSetting="Assertive"
+              IsActive="{x:Bind ViewModel.IsScanning}" />
+```
+
+Key areas:
+- Scan progress should announce completion via `LiveSetting="Assertive"`
+- Drive list items should announce name, size, and usage percentage
+- Cleanup suggestion list items should announce category, risk, and size
+- InfoBar messages should be announced on appearance
+
+**Tools:** Verify with Windows Narrator (`Win+Ctrl+Enter`) and Accessibility Insights for Windows.
+
+---
+
+### M-2.5 — High contrast mode support
+
+**Complexity:** S | **Impact:** Medium (accessibility)
+
+WinUI 3 automatically respects the system high-contrast theme for most controls. Verify and fix:
+- All custom colors use `ThemeResource` tokens, not hardcoded hex values
+- Icon glyphs (Segoe MDL2) remain visible in high contrast
+- Progress bars and InfoBars remain distinguishable
+- Any custom `Canvas` drawing uses system colors
+
+Test with Windows "High Contrast Black" and "High Contrast White" themes.
+
+---
+
+### M-2.6 — Text size scaling (large font accessibility)
+
+**Complexity:** S | **Impact:** Medium (accessibility)
+
+Test the application at 125%, 150%, and 200% text scaling (`Settings → Accessibility → Text size`). Ensure:
+- No text is clipped or overlapped
+- Cards and panels expand appropriately
+- Minimum touch target sizes maintained (44×44 px per WinUI guidelines)
+
+---
+
+### M-2.7 — Expand test coverage to 60+ tests
+
+**Complexity:** M | **Impact:** High (engineering quality)
+
+Current test count: varies. Target: 60 tests with these additions:
+
+| New test class | Tests to add |
+|---------------|-------------|
+| `BrowserCacheRuleTests` | Yields suggestions for known browser dirs |
+| `WindowsUpdateCacheRuleTests` | Correct risk and path handling |
+| `WindowsErrorReportingRuleTests` | System path flag is set |
+| `DeliveryOptimizationRuleTests` | Correct category |
+| `UninstalledProgramLeftoversRuleTests` | Safelist prevents false positives; thresholds respected |
+| `CleanupEngineTests` | Orchestration, partial failure, dry-run |
+| `SettingsRepositoryTests` | Round-trip for all new settings fields |
+| `FolderSizeAggregatorTests` | Correctness for flat, deep, and wide trees |
+| `TurboFileScannerTests` | Fallback when binary absent; JSONL parsing |
+| `SmartCleanerServiceTests` | AnalyzeAsync returns groups; CleanAsync calls deleter |
+
+---
+
+### M-2.8 — Structured logging (Serilog)
+
+**Complexity:** S | **Impact:** Medium (diagnostics)
+
+Replace `Microsoft.Extensions.Logging.Debug` with `Serilog`:
+- Rolling file sink: `%LOCALAPPDATA%\StorageMaster\logs\sm-{Date}.log`
+- Max 5 files, 5 MB each
+- Log level: `Information` in release, `Debug` in debug builds
+- Structured properties: `SessionId`, `RuleId`, `Path`, `ElapsedMs`
+
+**NuGet:** `Serilog.Extensions.Hosting`, `Serilog.Sinks.File`
+
+**Files:** `App.xaml.cs` (logging configuration)
+
+---
+
+### M-2.9 — Scan cancellation robustness
+
+**Complexity:** S | **Impact:** Medium
+
+Currently, if the scan is cancelled after `FolderSizeAggregator` starts, the session is marked as complete with partial folder totals. Fix:
+- Wrap the aggregation in a `try/catch (OperationCanceledException)`
+- On cancellation: mark session `Cancelled`; do not run aggregation
+- On completion: session marked `Completed` only after aggregation succeeds
+
+**Files:** `FileScanner.cs`, `TurboFileScanner.cs`
+
+---
+
+## Phase 3 — Visualization, Scheduling & CLI (v1.5.0)
+
+**Goal:** Match and exceed the feature set of competing tools (WizTree, SpaceSniffer). Add proactive disk health monitoring and power-user CLI support.
+
+---
+
+### M-3.1 — Treemap visualization
+
+**Complexity:** XL | **Impact:** Critical
+
+The treemap is the defining visual of a disk space analyzer. Each rectangle's area is proportional to folder/file size.
+
+**Recommended approach:** WebView2 + D3.js treemap
+- Fastest to ship; excellent interactive behavior out of the box
+- `Microsoft.Web.WebView2` NuGet package
+- D3.js loaded from bundled HTML (no external CDN)
+
+**Interactions:**
+- Hover → tooltip (path, size, % of parent)
+- Click → drill into folder (breadcrumb bar updates)
+- Breadcrumb click → navigate back up
+- Right-click → context menu: "Open in Explorer", "Send to Cleanup"
+
+**Data format:** `ResultsViewModel` provides a hierarchical JSON object from `FolderEntries` that the WebView renders:
+```json
+{
+  "name": "C:\\",
+  "size": 372000000000,
+  "children": [
+    { "name": "Users", "size": 120000000000, "children": [...] }
+  ]
+}
+```
+
+**Files:** New `TreemapPage.xaml` + `TreemapViewModel.cs`; new `Assets/treemap.html` + `Assets/d3.min.js`
+
+---
+
+### M-3.2 — File type sunburst / donut chart
+
+**Complexity:** L | **Impact:** High
+**Depends on:** M-3.1 (WebView2 infrastructure)
+
+Replace the flat "File Types" tab with an interactive donut/sunburst chart:
+- Inner ring: major file categories (Video, Image, Document, etc.)
+- Outer ring: top extensions within each category
+- Click on a segment → filter the file list below
+- Legend below the chart
+
+Reuse the same WebView2 + D3.js infrastructure from M-3.1.
+
+**Files:** Update `ResultsPage.xaml` (File Types tab); update `ResultsViewModel.cs`
+
+---
+
+### M-3.3 — System tray icon
 
 **Complexity:** M | **Impact:** High
 
 A tray icon that:
-- Shows disk space % used (color-coded: green < 70%, orange < 90%, red > 90%)
-- Right-click menu: Open StorageMaster, Quick Scan, Exit
-- Double-click: bring main window to front (or restore)
-- Balloon notification when last scan is stale (> 7 days)
+- Shows disk space usage (color-coded: green < 70%, orange < 90%, red > 90%)
+- Right-click menu: Open StorageMaster, Quick Smart Clean, Exit
+- Double-click: bring main window to foreground (or restore from minimized)
+- Balloon notification when the most-used drive exceeds configurable threshold
 
-**Implementation:** WinUI 3 does not have native tray support. Use `NotifyIcon` from the legacy `System.Windows.Forms` assembly (available in .NET 10 for Windows), or the `H.NotifyIcon.WinUI` NuGet package.
+**Implementation:** `H.NotifyIcon.WinUI` NuGet (WinUI 3 compatible). Monitor disk space with a `PeriodicTimer` on a background thread.
 
----
+**NuGet:** `H.NotifyIcon.WinUI`
 
-### M-3.2 — Background Windows Service
-
-**Complexity:** XL | **Impact:** High
-
-A separate project `StorageMaster.Service` implementing a Windows Service:
-
-```
-StorageMaster.Service/
-    StorageMaster.Service.csproj   (Worker Service template)
-    Worker.cs                       IHostedService implementation
-    ScheduledScanJob.cs            Cron-like scheduling
-    ServiceInstaller.cs            Install/uninstall service
-```
-
-The service:
-- Runs scheduled scans using the same `IFileScanner` interface
-- Writes to the same SQLite database (shared via named pipe or same DB file)
-- Reports disk space alerts to the notification system
-- Uses the USN Journal (M-2.2) for efficient incremental scans
-
-**Communication between UI and service:** Named pipe or REST API (hosted by the service on localhost).
+**Files:** `MainWindow.xaml.cs`, new `TrayIconService.cs`
 
 ---
 
-### M-3.3 — Scheduled scan configuration
-
-**Complexity:** M | **Impact:** High
-**Dependency:** M-3.2
-
-Add a "Schedule" section to SettingsPage:
-- Enable/disable scheduled scans
-- Select drives to scan
-- Frequency: Daily / Weekly / On idle
-- Time picker
-- Last scan status + next scheduled time
-
-Scheduled scan jobs are stored in the SQLite database:
-
-```sql
--- Schema v3 migration:
-CREATE TABLE ScheduledScans (
-    Id          INTEGER PRIMARY KEY,
-    RootPath    TEXT NOT NULL,
-    CronExpr    TEXT NOT NULL,
-    IsEnabled   INTEGER NOT NULL DEFAULT 1,
-    LastRunUtc  TEXT,
-    NextRunUtc  TEXT
-);
-```
-
----
-
-### M-3.4 — Windows Task Scheduler integration
-
-**Complexity:** M | **Impact:** Medium
-**Dependency:** M-3.3
-
-As an alternative to a Windows Service, use Windows Task Scheduler to launch the app in headless mode:
-
-```
-StorageMaster.exe --headless --scan C:\ --schedule daily
-```
-
-This approach requires no service installation (easier for end-users), but is less reliable for wake-from-sleep scenarios.
-
----
-
-### M-3.5 — Low-disk-space notifications
+### M-3.4 — Low-disk-space notifications
 
 **Complexity:** S | **Impact:** High
-**Dependency:** M-3.1 (tray icon)
+**Depends on:** M-3.3 (tray icon or standalone)
 
-Monitor disk free space in a background `PeriodicTimer`. When any monitored drive drops below configurable thresholds (default: 15% and 5%):
-- Show a toast notification (using `Microsoft.Windows.AppNotifications` from Windows App SDK)
-- Tray icon turns orange/red
-- Optional: auto-launch cleanup suggestions for that drive
+Use `Microsoft.Windows.AppNotifications` (Windows App SDK) to show toast notifications when any drive drops below configurable thresholds (default: 15% and 5% free).
 
----
+```csharp
+var notification = new AppNotificationBuilder()
+    .AddText("Low disk space on C:")
+    .AddText("Only 12.3 GB remaining (4.8%)")
+    .AddButton(new AppNotificationButton("Run Smart Cleaner")
+        .AddArgument("action", "smart-clean"))
+    .BuildNotification();
 
-## Phase 3.5 — Enterprise Features (v3.5)
-
-**Goal:** Make StorageMaster deployable in corporate environments. IT admins can configure policies; enterprise licenses cover multiple seats.
-
----
-
-### M-3.5.1 — Group Policy / ADMX template
-
-**Complexity:** L | **Impact:** High (enterprise)
-
-Create an ADMX/ADML administrative template that allows IT to:
-- Pre-configure excluded paths (e.g., exclude mapped network drives)
-- Enforce RecycleBin-only mode (never permanent delete)
-- Disable cleanup of specific categories
-- Set maximum parallelism
-- Force scheduled scan intervals
-
-Settings from Group Policy override AppSettings with lowest priority (user settings win unless forced by GPO).
-
----
-
-### M-3.5.2 — Multi-user scan history
-
-**Complexity:** M | **Impact:** Medium
-
-Add `UserSid` or `UserPrincipalName` to `ScanSessions` to support multi-user environments where the database is shared:
-
-```sql
--- Schema migration:
-ALTER TABLE ScanSessions ADD COLUMN UserSid TEXT;
+AppNotificationManager.Default.Show(notification);
 ```
 
-Add user filter to the session picker in the Cleanup page.
+**Files:** New `DiskMonitorService.cs`; `App.xaml.cs` (AppNotificationManager init + activation)
 
 ---
 
-### M-3.5.3 — Export reports
+### M-3.5 — Windows Task Scheduler integration (scheduled scans)
 
 **Complexity:** M | **Impact:** High
 
-Export scan results and cleanup history in multiple formats:
-- **CSV** — full file list, folder list, or category breakdown
-- **JSON** — machine-readable for integration with monitoring tools
-- **HTML** — self-contained report with charts (use embedded Chart.js)
-- **PDF** — via `SkiaSharp` or `PdfSharp`
+Allow users to schedule automatic scans without a background service:
 
-Report types:
-- Disk usage summary (per-folder size tree)
-- File type breakdown
-- Cleanup history (audit trail)
-- Large file inventory
+**UI (SettingsPage, new "Scheduled Scans" section):**
+- Enable/disable switch
+- Drive selector (default: all fixed drives)
+- Frequency: Daily / Weekly
+- Time picker
 
----
+**Implementation:** Use `Microsoft.Win32.TaskScheduler` NuGet (or raw `COM` via `System.Runtime.InteropServices`) to create a Task Scheduler entry that launches:
+```
+StorageMaster.UI.exe --headless --scan C:\ --no-window
+```
 
-### M-3.5.4 — Network path scanning
+**Headless mode:** When `--headless` arg is present, the app runs a scan without showing the window, writes results to the database, then exits. `ScanViewModel` and the DI container still initialize, but `MainWindow` is not shown.
 
-**Complexity:** M | **Impact:** Medium
+**NuGet:** `TaskScheduler` by dahall
 
-The current scanner works on network paths already (via UNC). Improvements:
-- Detect network paths (`\\server\share`) and set `MaxParallelism = 1` automatically
-- Show latency warning for network scans
-- Exclude network paths from disk-space bar (no reliable free-space API for network shares)
+**Files:** New `ScheduledScanService.cs`; `SettingsPage.xaml`; `SettingsViewModel.cs`; `App.xaml.cs` (headless mode detection)
 
 ---
 
-### M-3.5.5 — Command-line interface
+### M-3.6 — CLI mode (scan + report)
 
 **Complexity:** M | **Impact:** High (power users, scripting)
 
-```
-StorageMaster.exe scan --path C:\ --output report.csv
-StorageMaster.exe cleanup --session 42 --rule core.temp-files --dry-run
-StorageMaster.exe info --drive C
-```
+```powershell
+# Scan a drive and get a summary
+StorageMaster.UI.exe --cli scan --path C:\ --output report.json
 
-The CLI reuses the same `Core`, `Storage`, and `Platform.Windows` layers. Only the presentation layer differs. Use `System.CommandLine` (Microsoft) for argument parsing.
+# List top 20 largest files from last session
+StorageMaster.UI.exe --cli top-files --count 20
 
-**Important:** CLI execution of cleanup requires `--confirm` flag to prevent accidental batch deletions.
+# Run cleanup rules (dry run)
+StorageMaster.UI.exe --cli cleanup --rules temp,browser-cache --dry-run
 
----
-
-### M-3.5.6 — Centralized logging (Serilog)
-
-**Complexity:** S | **Impact:** Medium
-
-Replace `Microsoft.Extensions.Logging.Debug` with Serilog:
-- Rolling file appender (`%LOCALAPPDATA%\StorageMaster\logs\sm-*.log`)
-- Structured log fields (SessionId, RuleId, path)
-- Configurable level (Debug in dev, Info in release)
-- Log viewer in the app (simple text viewer in an About/Diagnostics page)
-
----
-
-## Phase 4 — Ecosystem (v4.0)
-
-**Goal:** StorageMaster becomes a platform. Third parties can extend it. Cloud storage is aware. Telemetry enables data-driven improvements.
-
----
-
-### M-4.1 — Plugin API
-
-**Complexity:** XL | **Impact:** High
-
-Enable third-party cleanup rules via a plugin system:
-
-```csharp
-// Public plugin contract (separate NuGet package: StorageMaster.Plugin.Abstractions):
-public interface IStorageMasterPlugin
-{
-    string Name { get; }
-    string Version { get; }
-    IReadOnlyList<ICleanupRule> GetCleanupRules();
-}
+# Run cleanup (requires --confirm to prevent accidental deletion)
+StorageMaster.UI.exe --cli cleanup --rules temp,browser-cache --confirm
 ```
 
-Plugin loading:
-- Scan `%LOCALAPPDATA%\StorageMaster\Plugins\*.dll` on startup
-- Use `AssemblyLoadContext` for isolation
-- Verify plugin signature (optional, enterprise only)
-- Show plugin manager in Settings
+**Implementation:**
+- Detect `--cli` argument in `App.xaml.cs`; if present, skip `MainWindow` and run a headless `CliRunner`
+- `CliRunner` resolves services from DI, runs the requested operation, writes to stdout, exits
+- Use `System.CommandLine` for argument parsing (Microsoft, stable API)
 
-Example plugins:
-- Steam game asset cleanup (removes download cache, shader cache)
-- Visual Studio cleanup (bin/obj, .vs, nuget packages)
-- Docker cleanup (dangling images, stopped containers)
-- Zoom/Teams meeting recording cleanup
+**Output formats:** Plain text (default), JSON (`--json`), CSV (`--csv`)
+
+**Safety:** `--cleanup` without `--confirm` prints the plan and exits with code 1. `--confirm` executes.
+
+**NuGet:** `System.CommandLine`
+
+**Files:** New `Cli/CliRunner.cs`, `Cli/CliCommands.cs`; `App.xaml.cs`
 
 ---
 
-### M-4.2 — Cloud storage awareness
+### M-3.7 — Duplicate file detection
 
 **Complexity:** L | **Impact:** High
 
-Detect cloud-synced folders and handle them specially:
+Find files with identical content using a two-phase algorithm:
 
-| Cloud Service | Detection Method |
-|--------------|-----------------|
-| OneDrive | `%USERPROFILE%\OneDrive` + registry `SOFTWARE\Microsoft\OneDrive` |
-| Google Drive | `%LOCALAPPDATA%\Google\Drive\user_default` |
-| Dropbox | `%APPDATA%\Dropbox\info.json` |
-| iCloud Drive | `%USERPROFILE%\iCloudDrive` |
-
-For cloud-synced files:
-- Show a cloud icon in the file list
-- Mark them "online only" vs "locally available" (OneDrive NTFS sparse file attributes)
-- Never suggest deleting "always available" cloud files (they would be re-downloaded)
-- Offer to "free up space" by marking files as online-only (OneDrive `StorageProviderSyncRootManager` API)
-
----
-
-### M-4.3 — Opt-in telemetry
-
-**Complexity:** M | **Impact:** Medium (product intelligence)
-
-Collect anonymous usage data with explicit opt-in on first launch:
-
-```csharp
-// Events:
-// ScanCompleted(driveSizeGb, filesCount, durationSec)
-// CleanupExecuted(category, bytesFreed, ruleId, wasDryRun)
-// FeatureUsed(featureName)
-// ErrorOccurred(errorType, component)  -- never include paths or content
+**Phase 1 — Size grouping (fast, in DB):**
+```sql
+SELECT SizeBytes, COUNT(*) as cnt FROM FileEntries
+WHERE SessionId = $id AND SizeBytes > 1048576  -- ignore files < 1 MB
+GROUP BY SizeBytes HAVING cnt > 1
+ORDER BY SizeBytes * cnt DESC;
 ```
 
-Telemetry back-end:
-- Use Application Insights (Azure) or PostHog (self-hosted)
-- Anonymized: no paths, no file names, no user identity
-- Configurable opt-out at any time in Settings
-- GDPR compliant: no PII collected
+**Phase 2 — SHA-256 hash verification (on demand, for matched size groups):**
+```csharp
+using var sha = SHA256.Create();
+var hash = sha.ComputeHash(File.OpenRead(path));
+```
+
+Group confirmed duplicates; yield one `CleanupSuggestion` per group.
+
+**UI:** A new "Duplicates" PivotItem in `ResultsPage` showing groups of duplicates. The user picks which copy to keep; the others are added to cleanup.
+
+**DB schema addition (migration V2):**
+```sql
+ALTER TABLE FileEntries ADD COLUMN Hash TEXT;
+CREATE INDEX IX_FileEntries_Hash ON FileEntries(Hash) WHERE Hash IS NOT NULL;
+```
+
+**Files:** New `DuplicateFilesCleanupRule.cs`; `ResultsPage.xaml`; `ResultsViewModel.cs`; `DatabaseSchema.cs`
 
 ---
 
-### M-4.4 — Auto-update mechanism
-
-**Complexity:** M | **Impact:** Critical (commercial)
-
-In-app update check on startup:
-1. Check `https://updates.storagemaster.app/releases/latest.json` (or GitHub Releases API)
-2. Compare installed version with latest
-3. Show unobtrusive notification: "Update available: v2.1.0"
-4. Download installer/MSIX in background
-5. Prompt to install (with restart)
-
-Use `Squirrel.Windows` or `WinSparkle` for robust auto-update, or the `Microsoft.Windows.AppLifecycle` restart API.
-
----
-
-### M-4.5 — MSIX packaging and Microsoft Store submission
-
-**Complexity:** L | **Impact:** Critical (distribution)
-
-Currently the app is unpackaged (`WindowsPackageType=None`). For Store submission:
-1. Switch to `WindowsPackageType=MSIX`
-2. Create Package.appxmanifest with app capabilities
-3. Code-sign with an EV certificate (required for Store and enterprise deployment)
-4. Submit to Microsoft Store (Windows category: Utilities & Tools)
-5. Maintain an enterprise sideload package for GPO deployment
-
-MSIX benefits:
-- Clean install/uninstall (no registry residue)
-- Automatic updates via Store
-- Sandboxing (requires declaring capabilities for filesystem access)
-- WinGet installability
-
----
-
-### M-4.6 — ReFS support
-
-**Complexity:** M | **Impact:** Low-medium
-
-The Resilient File System (ReFS) is used on Windows Server and Storage Spaces. The MFT scanner (M-2.1) does not apply to ReFS. Add a ReFS-compatible fallback scanner mode.
-
----
-
-## Phase 5 — Premium Commercial (v5.0)
-
-**Goal:** Ship a commercially viable product with professional support, a business model, and the polish of a premium utility.
-
----
-
-### M-5.1 — Licensing system
-
-**Complexity:** L | **Impact:** Critical (revenue)
-
-**Free tier:**
-- Scan and view results (unlimited)
-- Recycle Bin and Temp file cleanup
-- Single drive
-
-**Pro tier** ($19.99/year):
-- All cleanup rules
-- Scheduled scans
-- Reports export
-- Multiple drives simultaneously
-
-**Enterprise tier** (per-seat or site license):
-- Group Policy support
-- CLI interface
-- Plugin API
-- Centralized reporting
-- Priority support
-
-**Implementation options:**
-- Keygen-based (simple; piracy risk)
-- Online activation (requires network on activation)
-- Hardware-locked (most secure; worst UX for reinstalls)
-- Recommendation: Online activation with offline grace period (7 days)
-
-Use `Cryptolens` or `LicenseSpring` for managed license management, or build a simple JWT-based system.
-
----
-
-### M-5.2 — Professional installer
+### M-3.8 — Export to CSV / JSON
 
 **Complexity:** M | **Impact:** High
 
-Create a professional installer using:
-- **WiX Toolset** (MSI) — enterprise deployable, silent install, GPO compatible
-- **OR MSIX** (from M-4.5) — modern, Store compatible
+Export scan results from the Results page:
+- **File list → CSV**: FileName, FullPath, SizeBytes, SizeFriendly, Category, ModifiedUtc
+- **Folder list → CSV**: FolderName, FullPath, TotalSizeBytes, SizeFriendly, FileCount
+- **Cleanup history → CSV**: ExecutedUtc, Title, BytesFreed, Status, WasDryRun
 
-Installer features:
-- Custom install directory
-- Optional "Launch at startup" checkbox
-- Start menu shortcut + Desktop shortcut (optional)
-- Uninstaller that cleans DB and logs
-- Silent install mode for enterprise: `setup.exe /quiet /norestart`
+Add "Export..." button in the Results page header (or per-tab). Use `FileSavePicker` to let the user choose the destination.
+
+**Files:** `ResultsPage.xaml`, `ResultsViewModel.cs`, new `ExportService.cs`
 
 ---
 
-### M-5.3 — Help documentation system
+### M-3.9 — First-run experience
 
-**Complexity:** M | **Impact:** Medium
+**Complexity:** M | **Impact:** High
 
-In-app help:
-- F1 key opens context-sensitive help for the current page
-- Help panel slides in from right (no browser needed for basics)
-- Full documentation as a static HTML site (hosted on GitHub Pages or Vercel)
-- "What's new in this version" splash on first run after update
+On first launch (no completed scan sessions in DB):
+1. Full-width welcome card with StorageMaster logo and tagline
+2. Drive selector: pre-selects the largest fixed drive
+3. Single "Analyse Now" call-to-action button
+4. Immediately starts a scan on click
 
----
+Dismiss condition: first completed scan session exists.
 
-### M-5.4 — Localization (i18n)
-
-**Complexity:** L | **Impact:** High (international)
-
-Move all user-facing strings to `.resw` resource files:
-
-```
-StorageMaster.UI/Strings/en-US/Resources.resw  (English)
-StorageMaster.UI/Strings/de-DE/Resources.resw  (German)
-StorageMaster.UI/Strings/ja-JP/Resources.resw  (Japanese)
-```
-
-WinUI 3 supports `x:Uid` resource binding natively. Priority languages:
-1. English (baseline)
-2. German (high PC utility market)
-3. Japanese (high premium software market)
-4. Simplified Chinese
-5. Spanish, French, Portuguese
+**Files:** `DashboardPage.xaml`, `DashboardViewModel.cs`
 
 ---
 
-### M-5.5 — Crash reporting and diagnostics
+### M-3.10 — Dark / light theme selector
 
-**Complexity:** M | **Impact:** High (quality)
+**Complexity:** S | **Impact:** High
 
-Automated crash reporting:
-- Catch unhandled exceptions in `App.OnUnhandledException`
-- Collect: stack trace, OS version, app version, anonymized last action
-- Upload to crash reporting service (Sentry, Raygun, or Azure App Insights)
-- Prompt user to send report (opt-in)
-- In-app diagnostics page: app version, DB size, log tail, system info
+WinUI 3 supports `Application.RequestedTheme`. All colors already use `ThemeResource` tokens. Add:
+- Theme selector in `SettingsPage` (System / Light / Dark)
+- Persisted in `AppSettings.AppTheme`
+- Applied on settings save via `MainWindow.SetTheme()`
 
----
-
-### M-5.6 — Performance benchmarking suite
-
-**Complexity:** M | **Impact:** Medium (engineering quality)
-
-Add a benchmark project using `BenchmarkDotNet`:
-
-```
-tests/StorageMaster.Benchmarks/
-    ScannerBenchmarks.cs       (scan throughput vs. file count)
-    DbInsertBenchmarks.cs      (batch insert performance)
-    QueryBenchmarks.cs         (top-N query time vs. DB size)
-```
-
-Run benchmarks on each release to detect regressions. Publish results to README.
+**Files:** `AppSettings.cs`, `SettingsViewModel.cs`, `SettingsPage.xaml`, `MainWindow.xaml.cs`
 
 ---
 
-## Engineering principles (all phases)
+### M-3.11 — In-app what's-new panel
 
-These principles must be maintained across all phases to avoid technical debt accumulation:
+**Complexity:** S | **Impact:** Medium
 
-| Principle | How to enforce |
-|-----------|---------------|
-| **Interfaces before implementations** | Never reference a concrete class across project boundaries |
-| **No deletion without confirmation** | CLI needs `--confirm` flag; UI needs ContentDialog; tests verify this |
-| **Additive-only schema migrations** | Migration runner enforces this; PR review gate |
-| **All async, all the way** | No `Task.Result` or `.Wait()` in application code |
-| **Structured logging everywhere** | Every non-trivial operation logs with structured fields |
+On first launch after an update (version in AppSettings < current assembly version):
+- Show a non-modal slide-in panel (or InfoBar) listing new features in this version
+- "What's new in v1.5.0" → bullet list of highlights
+- Dismiss button; panel never shows again for this version
+
+**Files:** New `WhatsNewPanel.xaml`; `MainWindow.xaml.cs`
+
+---
+
+### M-3.12 — Update check
+
+**Complexity:** M | **Impact:** High
+
+On startup (max once per day):
+1. `HttpClient.GetAsync("https://api.github.com/repos/0langa/StorageMaster/releases/latest")`
+2. Parse `tag_name` (e.g. `v1.5.0`) and compare to `Assembly.GetExecutingAssembly().GetName().Version`
+3. If newer: show unobtrusive InfoBar at the bottom of the Dashboard — "Update available: v1.5.0"
+4. Button: "Download" → opens GitHub release page in browser
+
+No auto-download; no background service. Simple, one-click, no tracking.
+
+**Files:** New `UpdateCheckService.cs`; `DashboardPage.xaml`, `DashboardViewModel.cs`
+
+---
+
+## Compatibility matrix
+
+| Windows version | Build | Status (v1.3) | Target (v1.5) |
+|----------------|-------|--------------|--------------|
+| Windows 10 1809 | 17763 | Not tested | Verified |
+| Windows 10 21H2 | 19044 | Not tested | Verified |
+| Windows 10 22H2 | 19045 | Primary dev target | Verified |
+| Windows 11 22H2 | 22621 | Not tested | Verified |
+| Windows 11 23H2 | 22631 | Not tested | Verified |
+| Windows 11 24H2 | 26100 | Not tested | Verified |
+| ARM64 (any) | — | Not tested | Verified (M-2.2) |
+
+---
+
+## Accessibility compliance targets
+
+By v1.5.0, StorageMaster should meet:
+
+| Standard | Target |
+|----------|--------|
+| WCAG 2.1 AA | Color contrast, text alternatives, keyboard access |
+| Windows UI Guidelines | Touch targets ≥ 44×44 px; font scaling; focus indicators |
+| Narrator | Full navigation without mouse |
+| High Contrast | All visual elements remain distinguishable |
+
+---
+
+## Engineering principles
+
+These must be maintained across all phases:
+
+| Principle | Enforcement |
+|-----------|-------------|
+| **Interfaces before implementations** | No concrete class referenced across project boundaries |
+| **No deletion without confirmation** | CLI needs `--confirm`; UI needs ContentDialog |
+| **Additive-only schema migrations** | Migration runner enforces; PR review gate |
+| **All async, no blocking** | No `Task.Result` or `.Wait()` in application code |
+| **Structured logging** | Every non-trivial operation logs with structured fields |
 | **Test before merge** | CI runs `dotnet test` on every pull request |
-| **Audit trail always** | Every file deletion → CleanupLog row, always, even on error |
-| **Measure before optimizing** | Use benchmarks (M-5.6) to justify performance work |
+| **Audit trail always** | Every deletion → CleanupLog row, even on error |
+| **Accessible from day one** | AutomationProperties added with each new control |
+| **Measure before optimizing** | Benchmark first; no speculative performance work |
 
 ---
 
-## Suggested release timeline
+## Release timeline (estimated, 1 developer)
 
-| Version | Phase | Estimated effort | Key deliverable |
+| Release | Phase | Estimated effort | Key deliverable |
 |---------|-------|-----------------|----------------|
-| v1.1 | Polish | 2–3 weeks | Ship-quality v1 with folder sizes fixed |
-| v2.0 | Performance | 2–3 months | MFT scanner, duplicate detection |
-| v2.5 | Visualization | 6–8 weeks | Treemap, folder tree, better UX |
-| v3.0 | Background | 2–3 months | Service, scheduling, tray |
-| v3.5 | Enterprise | 2–3 months | GPO, CLI, reports |
-| v4.0 | Ecosystem | 3–4 months | Plugins, cloud, telemetry, Store |
-| v5.0 | Commercial | 1–2 months | Licensing, installer, i18n |
+| v1.3.1 | P0 patches | 1–2 weeks | Audit log for Smart Cleaner, Errors tab, excluded paths editor |
+| v1.4.0 | Phase 1 | 3–5 weeks | Open in Explorer, sortable columns, folder tree, delete from Results |
+| v1.4.x | Phase 2 | 3–4 weeks | ARM64, accessibility, 60 tests, Serilog |
+| v1.5.0 | Phase 3 | 6–10 weeks | Treemap, tray, scheduled scans, CLI, duplicate detection, exports |
 
-**Total to commercial:** approximately 12–18 months of engineering effort (1 developer).
-With a 2-developer team: 8–12 months.
+**Total to v1.5.0:** approximately 3–5 months of focused engineering.
 
 ---
 
 ## Immediate next steps (this sprint)
 
-1. **Delete `Class1.cs` files** (M-1.1) — 5 minutes
-2. **Fix `TotalSizeBytes` propagation** (M-1.3) — most impactful v1 bug
-3. **Add excluded paths editor to Settings** (M-1.7) — completes settings page
-4. **Expand test coverage to 40+** (M-1.8) — confidence before wider use
-5. **Fix Downloads path via SHGetKnownFolderPath** (M-1.2) — correctness on edge cases
+1. **P0-2: Wire Errors tab** in `ResultsPage.xaml` — 30 minutes
+2. **P0-1: Log Smart Cleaner to CleanupLog** — 1 hour
+3. **M-1.1: Open in Explorer** — 2 hours (highest user impact per effort)
+4. **P0-5: Fix FolderEntry DirectSizeBytes in TurboScanner** — 2 hours
+5. **P0-3: Excluded paths editor** — half day
+6. **M-2.7: Expand tests to 60+** — 1–2 days
+
+These six items transform v1.3.0 from a technically complete release into a polished, fully functional one.

@@ -8,6 +8,7 @@ using Microsoft.UI.Xaml.Controls;
 using StorageMaster.Core.Interfaces;
 using StorageMaster.Core.Models;
 using StorageMaster.UI.Converters;
+using StorageMaster.UI.Infrastructure;
 
 namespace StorageMaster.UI.Pages;
 
@@ -16,6 +17,7 @@ public sealed partial class ResultsViewModel : ObservableObject
     private readonly IScanRepository      _repo;
     private readonly IScanErrorRepository _errorRepo;
     private readonly IFileDeleter         _deleter;
+    private readonly INavigationService   _nav;
     private readonly DispatcherQueue      _dispatcherQueue;
 
     [ObservableProperty] private bool   _isLoading;
@@ -59,11 +61,16 @@ public sealed partial class ResultsViewModel : ObservableObject
 
     public bool HasErrors => ErrorCount > 0;
 
-    public ResultsViewModel(IScanRepository repo, IScanErrorRepository errorRepo, IFileDeleter deleter)
+    public ResultsViewModel(
+        IScanRepository      repo,
+        IScanErrorRepository errorRepo,
+        IFileDeleter         deleter,
+        INavigationService   nav)
     {
         _repo            = repo;
         _errorRepo       = errorRepo;
         _deleter         = deleter;
+        _nav             = nav;
         _dispatcherQueue = DispatcherQueue.GetForCurrentThread();
     }
 
@@ -137,6 +144,48 @@ public sealed partial class ResultsViewModel : ObservableObject
         {
             UseShellExecute = true
         });
+    }
+
+    // ── Copy path ─────────────────────────────────────────────────────────────
+
+    [RelayCommand]
+    private static void CopyFilePath(FileEntry file)
+    {
+        var dp = new Windows.ApplicationModel.DataTransfer.DataPackage();
+        dp.SetText(file.FullPath);
+        Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(dp);
+    }
+
+    [RelayCommand]
+    private static void CopyFolderPath(FolderEntry folder)
+    {
+        var dp = new Windows.ApplicationModel.DataTransfer.DataPackage();
+        dp.SetText(folder.FullPath);
+        Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(dp);
+    }
+
+    // ── Delete session ────────────────────────────────────────────────────────
+
+    [RelayCommand]
+    private async Task DeleteSessionAsync()
+    {
+        if (XamlRoot is null || _sessionId <= 0) return;
+
+        var dialog = new ContentDialog
+        {
+            Title             = "Delete this scan?",
+            Content           = $"Permanently remove the scan of \"{ScanRoot}\" ({ScanDate}) from history?\n\nThis cannot be undone.",
+            PrimaryButtonText  = "Delete",
+            CloseButtonText   = "Cancel",
+            DefaultButton     = ContentDialogButton.Close,
+            XamlRoot          = XamlRoot,
+        };
+
+        var result = await dialog.ShowAsync();
+        if (result != ContentDialogResult.Primary) return;
+
+        await Task.Run(() => _repo.DeleteSessionAsync(_sessionId));
+        _nav.NavigateTo(typeof(DashboardPage));
     }
 
     // ── Sort commands ─────────────────────────────────────────────────────────

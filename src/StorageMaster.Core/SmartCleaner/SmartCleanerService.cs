@@ -17,14 +17,31 @@ namespace StorageMaster.Core.SmartCleaner;
 /// </summary>
 public sealed class SmartCleanerService : ISmartCleanerService
 {
-    private readonly IFileDeleter        _deleter;
+    private readonly IFileDeleter              _deleter;
+    private readonly ICleanupLogRepository     _log;
     private readonly ILogger<SmartCleanerService> _logger;
 
-    public SmartCleanerService(IFileDeleter deleter, ILogger<SmartCleanerService> logger)
+    public SmartCleanerService(
+        IFileDeleter              deleter,
+        ICleanupLogRepository     log,
+        ILogger<SmartCleanerService> logger)
     {
         _deleter = deleter;
+        _log     = log;
         _logger  = logger;
     }
+
+    // Maps Smart Cleaner category strings to the shared CleanupCategory enum so that
+    // CleanupLog entries are consistent with those produced by the rule-based engine.
+    private static CleanupCategory MapCategory(string category) => category switch
+    {
+        "Temporary Files"              => CleanupCategory.TempFiles,
+        "Browser Cache"                => CleanupCategory.BrowserCache,
+        "Windows Update Cache"         => CleanupCategory.WindowsUpdateCache,
+        "Error Reports & Crash Dumps"  => CleanupCategory.WindowsErrorReporting,
+        "Delivery Optimization Cache"  => CleanupCategory.DeliveryOptimization,
+        _                              => CleanupCategory.CacheFolders,
+    };
 
     public async Task<IReadOnlyList<SmartCleanGroup>> AnalyzeAsync(
         IProgress<string>? progress  = null,
@@ -168,7 +185,7 @@ public sealed class SmartCleanerService : ISmartCleanerService
         IProgress<string>?             progress = null,
         CancellationToken              ct       = default)
     {
-        long freed = 0;
+        long totalFreed = 0;
 
         foreach (var group in groups)
         {
@@ -179,23 +196,75 @@ public sealed class SmartCleanerService : ISmartCleanerService
                 .Select(p => new DeletionRequest(p, method, DryRun: false))
                 .ToList();
 
+            long groupFreed   = 0;
+            var  failedPaths  = new List<string>();
+            string? firstError = null;
+
             await foreach (var outcome in _deleter.DeleteManyAsync(requests, ct))
             {
                 if (outcome.Success)
                 {
-                    freed += outcome.BytesFreed;
+                    groupFreed += outcome.BytesFreed;
                     _logger.LogInformation("[SmartCleaner] Freed {Size} from {Path}",
                         outcome.BytesFreed, outcome.Path);
                 }
                 else
                 {
+                    failedPaths.Add(outcome.Path);
+                    firstError ??= outcome.Error;
                     _logger.LogWarning("[SmartCleaner] Failed {Path}: {Error}",
                         outcome.Path, outcome.Error);
                 }
             }
+
+            totalFreed += groupFreed;
+
+            // ── Audit log ─────────────────────────────────────────────────────
+            // Create synthetic CleanupSuggestion + CleanupResult so every Smart
+            // Cleaner deletion appears in the shared CleanupLog audit trail.
+            var suggestionId = Guid.NewGuid();
+
+            var syntheticSuggestion = new CleanupSuggestion
+            {
+                Id             = suggestionId,
+                RuleId         = $"smart-cleaner.{group.Category.Replace(" ", "-").Replace("&", "").ToLowerInvariant().Trim('-')}",
+                Title          = group.Category,
+                Description    = group.Description,
+                Category       = MapCategory(group.Category),
+                Risk           = CleanupRisk.Low,
+                EstimatedBytes = group.EstimatedBytes,
+                TargetPaths    = group.Paths,
+            };
+
+            var syntheticResult = new CleanupResult
+            {
+                SuggestionId = suggestionId,
+                Status       = failedPaths.Count == 0 && requests.Count > 0
+                               ? CleanupResultStatus.Success
+                               : groupFreed > 0
+                                 ? CleanupResultStatus.PartialSuccess
+                                 : requests.Count > 0
+                                   ? CleanupResultStatus.Failed
+                                   : CleanupResultStatus.Skipped,
+                BytesFreed   = groupFreed,
+                ExecutedUtc  = DateTime.UtcNow,
+                WasDryRun    = false,
+                FailedPaths  = failedPaths,
+                ErrorMessage = firstError,
+            };
+
+            try
+            {
+                await _log.LogResultAsync(syntheticResult, syntheticSuggestion, ct);
+            }
+            catch (Exception ex)
+            {
+                // Logging failure must never prevent cleanup from succeeding.
+                _logger.LogWarning(ex, "[SmartCleaner] Failed to write audit log for {Category}", group.Category);
+            }
         }
 
-        return freed;
+        return totalFreed;
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────

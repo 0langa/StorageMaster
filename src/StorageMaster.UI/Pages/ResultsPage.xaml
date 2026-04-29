@@ -27,23 +27,33 @@
                 <!-- Summary -->
                 <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                         CornerRadius="8" Padding="20">
-                    <Grid ColumnDefinitions="*,*,*,*">
-                        <StackPanel Grid.Column="0">
-                            <TextBlock Text="Scan root" Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.6"/>
-                            <TextBlock Text="{x:Bind ViewModel.ScanRoot, Mode=OneWay}" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"/>
-                        </StackPanel>
-                        <StackPanel Grid.Column="1">
-                            <TextBlock Text="Date" Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.6"/>
-                            <TextBlock Text="{x:Bind ViewModel.ScanDate, Mode=OneWay}"/>
-                        </StackPanel>
-                        <StackPanel Grid.Column="2">
-                            <TextBlock Text="Total size" Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.6"/>
-                            <TextBlock Text="{x:Bind ViewModel.TotalSize, Mode=OneWay}" FontWeight="SemiBold"/>
-                        </StackPanel>
-                        <StackPanel Grid.Column="3">
-                            <TextBlock Text="Files" Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.6"/>
-                            <TextBlock Text="{x:Bind ViewModel.TotalFiles, Mode=OneWay}" FontWeight="SemiBold"/>
-                        </StackPanel>
+                    <Grid ColumnDefinitions="*,Auto">
+                        <Grid Grid.Column="0" ColumnDefinitions="*,*,*,*">
+                            <StackPanel Grid.Column="0">
+                                <TextBlock Text="Scan root" Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.6"/>
+                                <TextBlock Text="{x:Bind ViewModel.ScanRoot, Mode=OneWay}" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="1">
+                                <TextBlock Text="Date" Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.6"/>
+                                <TextBlock Text="{x:Bind ViewModel.ScanDate, Mode=OneWay}"/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="2">
+                                <TextBlock Text="Total size" Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.6"/>
+                                <TextBlock Text="{x:Bind ViewModel.TotalSize, Mode=OneWay}" FontWeight="SemiBold"/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="3">
+                                <TextBlock Text="Files" Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.6"/>
+                                <TextBlock Text="{x:Bind ViewModel.TotalFiles, Mode=OneWay}" FontWeight="SemiBold"/>
+                            </StackPanel>
+                        </Grid>
+                        <!-- Delete this scan session from history -->
+                        <Button Grid.Column="1"
+                                Content="&#xE74D;"
+                                FontFamily="Segoe MDL2 Assets"
+                                Width="36" Height="36" Padding="0"
+                                VerticalAlignment="Center" Margin="16,0,0,0"
+                                ToolTipService.ToolTip="Delete this scan from history"
+                                Command="{x:Bind ViewModel.DeleteSessionCommand}" />
                     </Grid>
                 </Border>
 
@@ -90,6 +100,27 @@
                             <ListView.ItemTemplate>
                                 <DataTemplate>
                                     <Grid ColumnDefinitions="*,130,140,120,36,36" Padding="0,4">
+                                        <!-- Right-click: copy path, open in Explorer, delete -->
+                                        <Grid.ContextFlyout>
+                                            <MenuFlyout>
+                                                <MenuFlyoutItem Text="Copy full path"
+                                                                Command="{Binding ViewModel.CopyFilePathCommand, ElementName=PageRoot}"
+                                                                CommandParameter="{Binding}">
+                                                    <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE8C8;"/></MenuFlyoutItem.Icon>
+                                                </MenuFlyoutItem>
+                                                <MenuFlyoutItem Text="Open in Explorer"
+                                                                Command="{Binding ViewModel.OpenInExplorerCommand, ElementName=PageRoot}"
+                                                                CommandParameter="{Binding}">
+                                                    <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE8DA;"/></MenuFlyoutItem.Icon>
+                                                </MenuFlyoutItem>
+                                                <MenuFlyoutSeparator/>
+                                                <MenuFlyoutItem Text="Send to Recycle Bin"
+                                                                Command="{Binding ViewModel.DeleteFileCommand, ElementName=PageRoot}"
+                                                                CommandParameter="{Binding}">
+                                                    <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE74D;"/></MenuFlyoutItem.Icon>
+                                                </MenuFlyoutItem>
+                                            </MenuFlyout>
+                                        </Grid.ContextFlyout>
                                         <StackPanel Grid.Column="0">
                                             <TextBlock Text="{Binding FileName}" FontWeight="SemiBold"
                                                        TextTrimming="CharacterEllipsis"/>
@@ -156,6 +187,21 @@
                             <ListView.ItemTemplate>
                                 <DataTemplate>
                                     <Grid ColumnDefinitions="*,130,100,36" Padding="0,4">
+                                        <!-- Right-click: copy path, open in Explorer -->
+                                        <Grid.ContextFlyout>
+                                            <MenuFlyout>
+                                                <MenuFlyoutItem Text="Copy full path"
+                                                                Command="{Binding ViewModel.CopyFolderPathCommand, ElementName=PageRoot}"
+                                                                CommandParameter="{Binding}">
+                                                    <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE8C8;"/></MenuFlyoutItem.Icon>
+                                                </MenuFlyoutItem>
+                                                <MenuFlyoutItem Text="Open in Explorer"
+                                                                Command="{Binding ViewModel.OpenFolderInExplorerCommand, ElementName=PageRoot}"
+                                                                CommandParameter="{Binding}">
+                                                    <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE8DA;"/></MenuFlyoutItem.Icon>
+                                                </MenuFlyoutItem>
+                                            </MenuFlyout>
+                                        </Grid.ContextFlyout>
                                         <TextBlock Grid.Column="0"
                                                    Text="{Binding FullPath}"
                                                    TextTrimming="CharacterEllipsis"

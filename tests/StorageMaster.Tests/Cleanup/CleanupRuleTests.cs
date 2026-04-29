@@ -78,6 +78,47 @@ public sealed class LargeOldFilesRuleTests
         suggestions.Should().BeEmpty("files below the size threshold must not be suggested");
     }
 
+    [Fact]
+    public async Task AnalyseAsync_ExactlyAtThreshold_IsIncluded()
+    {
+        // File is exactly at the size threshold and exactly at the age threshold.
+        var thresholdFile = MakeFile(
+            @"C:\Users\user\Documents\exact.iso",
+            sizeBytes: 100 * 1024 * 1024L,  // exactly 100 MB
+            modifiedDaysAgo: 30);            // exactly 30 days
+
+        _repoMock
+            .Setup(r => r.GetLargestFilesAsync(1, 1000, It.IsAny<CancellationToken>()))
+            .ReturnsAsync([thresholdFile]);
+
+        var suggestions = new List<CleanupSuggestion>();
+        await foreach (var s in _rule.AnalyzeAsync(1, _settings))
+            suggestions.Add(s);
+
+        suggestions.Should().ContainSingle("a file at exactly the threshold should be included");
+    }
+
+    [Fact]
+    public async Task AnalyseAsync_MultipleEligibleFiles_EachGetsSeparateSuggestion()
+    {
+        var files = Enumerable.Range(0, 5)
+            .Select(i => MakeFile(
+                $@"C:\Users\user\Downloads\big{i}.iso",
+                sizeBytes: 200 * 1024 * 1024L,
+                modifiedDaysAgo: 60))
+            .ToList();
+
+        _repoMock
+            .Setup(r => r.GetLargestFilesAsync(1, 1000, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(files);
+
+        var suggestions = new List<CleanupSuggestion>();
+        await foreach (var s in _rule.AnalyzeAsync(1, _settings))
+            suggestions.Add(s);
+
+        suggestions.Should().HaveCount(5, "each eligible file gets its own suggestion");
+    }
+
     private static FileEntry MakeFile(string path, long sizeBytes, int modifiedDaysAgo) => new()
     {
         Id           = 1,

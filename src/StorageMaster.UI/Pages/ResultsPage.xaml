@@ -4,6 +4,7 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:converters="using:StorageMaster.UI.Converters"
+    xmlns:local="using:StorageMaster.UI.Pages"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d">
@@ -57,10 +58,23 @@
                     </Grid>
                 </Border>
 
-                <!-- Filter -->
-                <TextBox PlaceholderText="Filter by path…"
-                         Text="{x:Bind ViewModel.FilterText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                         MaxWidth="400" HorizontalAlignment="Left"/>
+                <!-- Filter with debounce, clear button, and result count -->
+                <StackPanel Spacing="4" MaxWidth="480" HorizontalAlignment="Left">
+                    <Grid ColumnDefinitions="*,36">
+                        <TextBox Grid.Column="0"
+                                 PlaceholderText="Filter by path or name…"
+                                 Text="{x:Bind ViewModel.FilterText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
+                        <Button Grid.Column="1"
+                                Content="&#xE711;"
+                                FontFamily="Segoe MDL2 Assets"
+                                Width="36" Height="36" Padding="0"
+                                VerticalAlignment="Center" Margin="4,0,0,0"
+                                ToolTipService.ToolTip="Clear filter"
+                                Command="{x:Bind ViewModel.ClearFilterCommand}"/>
+                    </Grid>
+                    <TextBlock Text="{x:Bind ViewModel.FilterCountLabel, Mode=OneWay}"
+                               Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.65"/>
+                </StackPanel>
 
                 <!-- Pivot for tabs -->
                 <Pivot>
@@ -297,6 +311,38 @@
                                 </DataTemplate>
                             </ListView.ItemTemplate>
                         </ListView>
+                    </PivotItem>
+
+                    <!-- Folder Tree -->
+                    <PivotItem Header="Folder Tree">
+                        <StackPanel Spacing="8" Margin="0,8,0,0">
+                            <TextBlock Text="Folders sorted by recursive total size. Expand a node to see its sub-folders."
+                                       Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.65"/>
+                            <TreeView x:Name="FolderTreeControl"
+                                      SelectionMode="None"
+                                      MaxHeight="700">
+                                <TreeView.ItemTemplate>
+                                    <DataTemplate>
+                                        <!-- DataContext here is TreeViewNode; Content is FolderTreeNode -->
+                                        <Grid ColumnDefinitions="*,120,80">
+                                            <TextBlock Grid.Column="0"
+                                                       Text="{Binding Content.DisplayName}"
+                                                       TextTrimming="CharacterEllipsis"
+                                                       VerticalAlignment="Center"/>
+                                            <TextBlock Grid.Column="1"
+                                                       Text="{Binding Content.SizeText}"
+                                                       HorizontalAlignment="Right" VerticalAlignment="Center"
+                                                       FontWeight="SemiBold"/>
+                                            <TextBlock Grid.Column="2"
+                                                       Text="{Binding Content.FileCountText}"
+                                                       HorizontalAlignment="Right" VerticalAlignment="Center"
+                                                       Opacity="0.6"
+                                                       Style="{StaticResource CaptionTextBlockStyle}"/>
+                                        </Grid>
+                                    </DataTemplate>
+                                </TreeView.ItemTemplate>
+                            </TreeView>
+                        </StackPanel>
                     </PivotItem>
 
                 </Pivot>

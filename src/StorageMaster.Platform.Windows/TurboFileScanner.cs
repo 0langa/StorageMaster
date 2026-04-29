@@ -98,6 +98,10 @@ public sealed class TurboFileScanner : IFileScanner
         var folderBuffer = new List<FolderEntry>(100);
         var errors       = new List<ScanError>();
 
+        // Accumulates the sum of file sizes directly inside each folder path.
+        // Used post-scan to populate DirectSizeBytes before running FolderSizeAggregator.
+        var parentSizes = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
+
         var stopwatch = Stopwatch.StartNew();
 
         await Task.Run(async () =>
@@ -124,7 +128,7 @@ public sealed class TurboFileScanner : IFileScanner
                         SessionId       = session.Id,
                         FullPath        = rec.Path,
                         FolderName      = Path.GetFileName(rec.Path) ?? rec.Path,
-                        DirectSizeBytes = 0,
+                        DirectSizeBytes = 0,   // patched post-scan via parentSizes
                         TotalSizeBytes  = 0,
                         FileCount       = 0,
                         SubFolderCount  = 0,
@@ -165,6 +169,11 @@ public sealed class TurboFileScanner : IFileScanner
                     fileCount++;
                     totalBytes += (long)rec.Size;
 
+                    // Accumulate file size into its parent directory bucket.
+                    var parentDir = Path.GetDirectoryName(rec.Path);
+                    if (parentDir is not null)
+                        parentSizes[parentDir] = parentSizes.GetValueOrDefault(parentDir) + (long)rec.Size;
+
                     if (fileBuffer.Count >= 500)
                     {
                         await _repo.InsertFileEntriesAsync([..fileBuffer], cancellationToken);
@@ -198,8 +207,24 @@ public sealed class TurboFileScanner : IFileScanner
         await stderrTask;
 
         // Post-scan: aggregate folder totals bottom-up.
+        // Patch DirectSizeBytes from the per-folder file-size accumulator so the
+        // aggregator produces correct recursive totals (the turbo-scanner emits
+        // directory entries with size=0 and file entries separately).
+        progress.Report(new ScanProgress
+        {
+            CurrentPath    = "Finalizing: computing folder sizes…",
+            FilesScanned   = fileCount,
+            FoldersScanned = folderCount,
+            BytesScanned   = totalBytes,
+            ErrorCount     = 0,
+            IsComplete     = false,
+        });
+
         var allFolders = await _repo.GetAllFolderPathsForSessionAsync(session.Id, cancellationToken);
-        var totals = FolderSizeAggregator.Compute(allFolders);
+        var patchedFolders = allFolders
+            .Select(f => f with { DirectSizeBytes = parentSizes.GetValueOrDefault(f.FullPath, 0L) })
+            .ToList();
+        var totals = FolderSizeAggregator.Compute(patchedFolders);
         await _repo.UpdateFolderTotalsAsync(session.Id, totals, cancellationToken);
 
         if (errors.Count > 0 && _errorRepo is not null)

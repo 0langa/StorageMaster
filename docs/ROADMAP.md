@@ -1,6 +1,6 @@
 # StorageMaster — Development Roadmap
 
-> **Baseline:** v1.3.2 (2026-04-29) — parallel scanning, Rust Turbo Scanner, 10 cleanup rules, Smart Cleaner, admin elevation, sortable Results, delete-from-Results, CI/CD pipeline, Inno Setup installer.
+> **Baseline:** v1.4.0 (2026-04-29) — parallel scanning, Rust Turbo Scanner (fixed DirectSizeBytes), 10 cleanup rules, Smart Cleaner, admin elevation, sortable/filterable Results with folder tree, 60+ tests, CI/CD pipeline, Inno Setup installer.
 > **Target:** v1.5.0 — a feature-complete, polished, accessible, and robust Windows utility.
 
 ---
@@ -18,13 +18,11 @@
 ## Phase overview
 
 ```
-v1.3.2  Current release                        ← SHIPPED
+v1.3.x  Bug fixes & quick wins                 ← SHIPPED (v1.3.3)
   │
-v1.3.x  Bug fixes & quick wins                 ← immediate (v1.3.3 in progress)
+v1.4.0  Results & Interaction depth            ← SHIPPED
   │
-v1.4.0  Results & Interaction depth            ← next major milestone
-  │
-v1.4.x  Hardening, compat, accessibility      ← stabilization
+v1.4.x  Hardening, compat, accessibility      ← next milestone
   │
 v1.5.0  Visualization, scheduling, CLI        ← feature complete
 ```
@@ -47,39 +45,18 @@ v1.5.0  Visualization, scheduling, CLI        ← feature complete
 
 ---
 
-### P0-1 — Log Smart Cleaner deletions to CleanupLog
-
-**Complexity:** S | **Impact:** Medium | **Target:** v1.3.3
-
-`SmartCleanerService.CleanAsync()` currently calls `IFileDeleter.DeleteManyAsync()` without writing to `CleanupLog`. Smart Cleaner operations leave no audit trail.
-
-**Fix:** Inject `ICleanupLogRepository` into `SmartCleanerService`. After each group is cleaned, write a synthetic `CleanupResult` + `CleanupSuggestion` to the log. Use `RuleId = "smart-cleaner.<category-slug>"`.
-
-**Files:** `SmartCleanerService.cs`
+### ✅ P0-1 — Log Smart Cleaner deletions to CleanupLog
+**Shipped:** v1.3.3 — `SmartCleanerService` injects `ICleanupLogRepository`; writes synthetic `CleanupResult` + `CleanupSuggestion` per category group with `RuleId = "smart-cleaner.<slug>"`.
 
 ---
 
-### P0-4 — Session deletion from Results page
-
-**Complexity:** S | **Impact:** Medium | **Target:** v1.3.3
-
-Allow users to delete a scan session directly from the Results page header. `IScanRepository.DeleteSessionAsync` already exists.
-
-**Implementation:** Add `DeleteSessionCommand` to `ResultsViewModel` (confirmation `ContentDialog` → `_repo.DeleteSessionAsync(_sessionId)` → navigate to Dashboard). Add a "Delete scan" button to the Results summary card.
-
-**Files:** `ResultsViewModel.cs`, `ResultsPage.xaml`
+### ✅ P0-4 — Session deletion from Results page
+**Shipped:** v1.3.3 — `DeleteSessionCommand` in `ResultsViewModel` (confirmation `ContentDialog` → `_repo.DeleteSessionAsync` → navigate to Dashboard); trash icon in Results summary card.
 
 ---
 
-### P0-5 — Fix Turbo Scanner's FolderEntry DirectSizeBytes
-
-**Complexity:** M | **Impact:** Medium
-
-When `turbo-scanner.exe` emits a directory entry (`is_dir=true`), `TurboFileScanner.cs` sets `DirectSizeBytes = 0`. `FolderSizeAggregator` then computes `TotalSizeBytes` correctly from file records, but `DirectSizeBytes` stays 0 for all Turbo-scanned folders.
-
-**Fix:** During JSONL parsing, accumulate file `size` values into a `Dictionary<string, long>` keyed by parent folder path; patch `FolderEntry.DirectSizeBytes` before inserting.
-
-**Files:** `TurboFileScanner.cs`
+### ✅ P0-5 — Fix Turbo Scanner's FolderEntry DirectSizeBytes
+**Shipped:** v1.4.0 — Accumulates file sizes per parent path during JSONL parsing; patches `FolderEntry.DirectSizeBytes` before `FolderSizeAggregator.Compute`, producing correct recursive totals. Also adds finalization progress reporting to TurboFileScanner.
 
 ---
 
@@ -94,16 +71,8 @@ When `turbo-scanner.exe` emits a directory entry (`is_dir=true`), `TurboFileScan
 
 ---
 
-### M-1.2 — Copy path to clipboard from Results
-
-**Complexity:** S | **Impact:** Medium | **Target:** v1.3.3
-
-Right-click context menu on file and folder rows:
-- **"Copy full path"** — writes `FileEntry.FullPath` / `FolderEntry.FullPath` to clipboard via `Windows.ApplicationModel.DataTransfer.Clipboard`
-- **"Open in Explorer"** — same as the existing button
-- **"Send to Recycle Bin"** — same as the existing delete button (files only)
-
-**Files:** `ResultsViewModel.cs`, `ResultsPage.xaml`
+### ✅ M-1.2 — Copy path to clipboard from Results
+**Shipped:** v1.3.3 — Right-click `ContextFlyout` on file and folder rows: "Copy full path" (Clipboard), "Open in Explorer", "Send to Recycle Bin" (files only).
 
 ---
 
@@ -112,38 +81,13 @@ Right-click context menu on file and folder rows:
 
 ---
 
-### M-1.4 — Results page: filter improvements
-
-**Complexity:** S | **Impact:** Medium
-
-- Filter debounce (300 ms) — don't re-sort on every keystroke
-- Clear filter button (×) inside the TextBox when filter text is non-empty
-- Show filtered count: "Showing 47 of 500 files"
-- Filter by extension shortcut (e.g., type `.mp4` to filter by extension)
-
-**Files:** `ResultsViewModel.cs`, `ResultsPage.xaml`
+### ✅ M-1.4 — Results page: filter improvements
+**Shipped:** v1.4.0 — 300 ms debounce on filter input, clear (×) button, "Showing N of M files" count label below the filter box.
 
 ---
 
-### M-1.5 — Interactive folder tree view
-
-**Complexity:** L | **Impact:** High
-**Depends on:** P0-5 (DirectSizeBytes fix)
-
-Replace the flat "Largest Folders" list with an expandable `TreeView` (WinUI 3):
-
-```
-C:\                       [████████████████░░░░] 347 GB
-  └─ Users\               [████████░░░░░░░░░░░░] 120 GB
-       ├─ Alice\           [███████░░░░░░░░░░░░░]  98 GB
-       │    ├─ Videos\     [████░░░░░░░░░░░░░░░░]  42 GB
-       │    └─ Downloads\  [██░░░░░░░░░░░░░░░░░░]  28 GB
-       └─ Public\          [█░░░░░░░░░░░░░░░░░░░]  11 GB
-```
-
-Root nodes load children lazily. `IsVirtualized=true`.
-
-**Files:** `ResultsPage.xaml`, `ResultsViewModel.cs`, new `FolderTreeItem.cs` model
+### ✅ M-1.5 — Interactive folder tree view
+**Shipped:** v1.4.0 — New "Folder Tree" PivotItem in Results shows the loaded folder hierarchy in a WinUI 3 `TreeView`. Nodes are expandable, sorted largest-first at every level. Built from `FolderTreeNode` POCOs in the ViewModel; mapped to `TreeViewNode` in code-behind. Depends on P0-5 for correct sizes.
 
 ---
 
@@ -224,11 +168,8 @@ Test at 125%, 150%, 200% text scaling. No clipped text, no overlapping elements.
 
 ---
 
-### M-2.7 — Expand test coverage to 60+ tests
-
-**Complexity:** M | **Impact:** High (engineering quality)
-
-Current: 41 tests. Target: 60+ with new test classes for cleanup rules, engine orchestration, settings round-trip, FolderSizeAggregator edge cases, TurboFileScanner fallback, and SmartCleanerService.
+### ✅ M-2.7 — Expand test coverage to 60+ tests
+**Shipped:** v1.4.0 — 60 tests (was 41). Added `CleanupEngineTests` (9 engine/orchestration tests), 4 `FolderSizeAggregatorTests` edge cases, 2 `LargeOldFilesRuleTests`, and 3 additional `ScanRepositoryTests`.
 
 ---
 
@@ -370,6 +311,18 @@ On first launch after an update: slide-in InfoBar listing new features. Dismisse
 **Complexity:** M | **Impact:** High
 
 On startup (max once per day): `GET https://api.github.com/repos/0langa/StorageMaster/releases/latest`. If newer than current assembly version: unobtrusive "Update available" InfoBar on Dashboard with "Download" button (opens GitHub). No auto-download, no telemetry.
+
+---
+
+## Next sprint (v1.4.x targets)
+
+Priority order for the next patch/minor release:
+
+1. **M-1.6** — Cleanup page: analyse without a prior session (direct path)
+2. **M-2.1** — Windows 10 1809 compatibility matrix test
+3. **M-2.8** — Structured logging via Serilog rolling file sink
+4. **M-2.9** — Scan cancellation robustness (OperationCancelledException during post-scan aggregation)
+5. **M-2.3** — Keyboard navigation & focus management (accessibility foundation)
 
 ---
 

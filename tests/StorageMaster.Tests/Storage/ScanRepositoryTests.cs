@@ -211,6 +211,49 @@ public sealed class ScanRepositoryTests : IAsyncDisposable
             "folders should be ordered by TotalSizeBytes descending");
     }
 
+    [Fact]
+    public async Task InsertFileEntries_MultipleEntries_AllRetrieved()
+    {
+        var session = await _repo.CreateSessionAsync(@"C:\");
+        var entries = Enumerable.Range(0, 10)
+            .Select(i => MakeEntry(session.Id, ".txt", FileTypeCategory.Document, 1024 * (i + 1)))
+            .ToList();
+
+        await _repo.InsertFileEntriesAsync(entries);
+
+        var results = await _repo.GetLargestFilesAsync(session.Id, topN: 100);
+        results.Should().HaveCount(10);
+    }
+
+    [Fact]
+    public async Task GetLargestFiles_TopNRespected()
+    {
+        var session = await _repo.CreateSessionAsync(@"C:\");
+        var entries = Enumerable.Range(0, 20)
+            .Select(i => MakeEntry(session.Id, ".dat", FileTypeCategory.Unknown, 1000 + i))
+            .ToList();
+
+        await _repo.InsertFileEntriesAsync(entries);
+
+        var results = await _repo.GetLargestFilesAsync(session.Id, topN: 5);
+        results.Should().HaveCount(5, "topN=5 should return exactly 5 results");
+        results[0].SizeBytes.Should().BeGreaterThanOrEqualTo(results[1].SizeBytes,
+            "results should be ordered largest-first");
+    }
+
+    [Fact]
+    public async Task GetRecentSessions_CountLimited()
+    {
+        for (int i = 0; i < 5; i++)
+        {
+            await _repo.CreateSessionAsync($@"C:\scan{i}");
+            await Task.Delay(5); // Ensure distinct timestamps
+        }
+
+        var sessions = await _repo.GetRecentSessionsAsync(count: 3);
+        sessions.Should().HaveCount(3, "count=3 should return at most 3 sessions");
+    }
+
     public async ValueTask DisposeAsync()
     {
         await _ctx.DisposeAsync();

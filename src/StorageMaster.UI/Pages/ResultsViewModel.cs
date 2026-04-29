@@ -21,16 +21,20 @@ public sealed partial class ResultsViewModel : ObservableObject
     private readonly DispatcherQueue      _dispatcherQueue;
 
     [ObservableProperty] private bool   _isLoading;
-    [ObservableProperty] private string _scanRoot    = string.Empty;
-    [ObservableProperty] private string _scanDate    = string.Empty;
-    [ObservableProperty] private string _totalSize   = "—";
+    [ObservableProperty] private string _scanRoot         = string.Empty;
+    [ObservableProperty] private string _scanDate         = string.Empty;
+    [ObservableProperty] private string _totalSize        = "—";
     [ObservableProperty] private long   _totalFiles;
-    [ObservableProperty] private string _filterText  = string.Empty;
+    [ObservableProperty] private string _filterText       = string.Empty;
     [ObservableProperty] private int    _errorCount;
+    [ObservableProperty] private string _filterCountLabel = string.Empty;
 
     private long _sessionId;
     private IReadOnlyList<FileEntry>   _allFiles   = [];
     private IReadOnlyList<FolderEntry> _allFolders = [];
+
+    // ── Filter debounce ──────────────────────────────────────────────────────
+    private CancellationTokenSource? _filterDebounce;
 
     // ── Sort state ──────────────────────────────────────────────────────────
     // Files
@@ -54,10 +58,14 @@ public sealed partial class ResultsViewModel : ObservableObject
     /// <summary>Set by ResultsPage.OnNavigatedTo so the ViewModel can show dialogs.</summary>
     public XamlRoot? XamlRoot { get; set; }
 
-    public ObservableCollection<FileEntry>   LargestFiles      { get; } = [];
-    public ObservableCollection<FolderEntry> LargestFolders    { get; } = [];
-    public ObservableCollection<CategoryRow> CategoryBreakdown { get; } = [];
-    public ObservableCollection<ScanError>   ScanErrors        { get; } = [];
+    public ObservableCollection<FileEntry>    LargestFiles      { get; } = [];
+    public ObservableCollection<FolderEntry>  LargestFolders    { get; } = [];
+    public ObservableCollection<CategoryRow>  CategoryBreakdown { get; } = [];
+    public ObservableCollection<ScanError>    ScanErrors        { get; } = [];
+
+    /// <summary>Root nodes of the folder hierarchy for the Folder Tree tab.</summary>
+    public IReadOnlyList<FolderTreeNode> FolderTreeRoots => _folderTreeRoots;
+    private List<FolderTreeNode> _folderTreeRoots = [];
 
     public bool HasErrors => ErrorCount > 0;
 
@@ -106,6 +114,7 @@ public sealed partial class ResultsViewModel : ObservableObject
             _allFolders = await _repo.GetLargestFoldersAsync(sessionId,  topN: 200);
 
             ApplyFilter();
+            BuildFolderTree();
 
             var breakdown = await _repo.GetCategoryBreakdownAsync(sessionId);
             CategoryBreakdown.Clear();
@@ -126,7 +135,27 @@ public sealed partial class ResultsViewModel : ObservableObject
         }
     }
 
-    partial void OnFilterTextChanged(string value) => ApplyFilter();
+    partial void OnFilterTextChanged(string value)
+    {
+        // Debounce: wait 300 ms after the last keystroke before applying the filter.
+        _filterDebounce?.Cancel();
+        _filterDebounce = new CancellationTokenSource();
+        var token = _filterDebounce.Token;
+
+        _ = Task.Delay(300, token).ContinueWith(
+            _ => _dispatcherQueue.TryEnqueue(ApplyFilter),
+            token,
+            TaskContinuationOptions.OnlyOnRanToCompletion,
+            TaskScheduler.Default);
+    }
+
+    [RelayCommand]
+    private void ClearFilter()
+    {
+        _filterDebounce?.Cancel();
+        FilterText = string.Empty;
+        ApplyFilter(); // immediate response for explicit clear
+    }
 
     [RelayCommand]
     private static void OpenInExplorer(FileEntry file)
@@ -266,6 +295,45 @@ public sealed partial class ResultsViewModel : ObservableObject
         });
     }
 
+    // ── Folder Tree ──────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Builds a hierarchical tree of <see cref="FolderTreeNode"/> objects from the
+    /// flat <see cref="_allFolders"/> list. Called after every <see cref="LoadAsync"/>.
+    /// </summary>
+    private void BuildFolderTree()
+    {
+        // Build a node for every loaded folder; process shallow paths first so
+        // parent entries are available when wiring up children.
+        var nodeMap = new Dictionary<string, FolderTreeNode>(StringComparer.OrdinalIgnoreCase);
+        foreach (var folder in _allFolders.OrderBy(f => f.FullPath.Length))
+            nodeMap[folder.FullPath] = new FolderTreeNode(folder);
+
+        // Wire parent → child relationships.
+        foreach (var (path, node) in nodeMap)
+        {
+            var parentPath = Path.GetDirectoryName(path);
+            if (parentPath is not null && nodeMap.TryGetValue(parentPath, out var parentNode))
+                parentNode.Children.Add(node);
+        }
+
+        // Sort each node's children largest-first.
+        foreach (var node in nodeMap.Values)
+            node.SortChildren();
+
+        // Collect roots: nodes whose immediate parent is not in the map.
+        var roots = new List<FolderTreeNode>();
+        foreach (var (path, node) in nodeMap)
+        {
+            var parentPath = Path.GetDirectoryName(path);
+            if (parentPath is null || !nodeMap.ContainsKey(parentPath))
+                roots.Add(node);
+        }
+
+        _folderTreeRoots = [.. roots.OrderByDescending(n => n.TotalSizeBytes)];
+        OnPropertyChanged(nameof(FolderTreeRoots));
+    }
+
     // ── Filter + Sort ─────────────────────────────────────────────────────────
 
     [RelayCommand]
@@ -295,6 +363,11 @@ public sealed partial class ResultsViewModel : ObservableObject
         LargestFiles.Clear();
         foreach (var f in filteredFiles.Take(200))
             LargestFiles.Add(f);
+
+        // Update filter count label.
+        FilterCountLabel = string.IsNullOrEmpty(filter)
+            ? $"{_allFiles.Count:N0} files"
+            : $"Showing {LargestFiles.Count:N0} of {_allFiles.Count:N0} files";
 
         // ── Folders ──
         IEnumerable<FolderEntry> filteredFolders = _allFolders;

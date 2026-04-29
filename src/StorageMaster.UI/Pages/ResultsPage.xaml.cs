@@ -18,6 +18,9 @@ public sealed partial class ResultsPage : Page
     {
         base.OnNavigatedTo(e);
 
+        // Give the ViewModel the XamlRoot so it can show ContentDialogs (e.g. delete confirm).
+        ViewModel.XamlRoot = XamlRoot;
+
         if (e.Parameter is long sessionId && sessionId > 0)
             await ViewModel.LoadAsync(sessionId);
         else

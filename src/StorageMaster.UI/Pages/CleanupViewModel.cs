@@ -277,7 +277,11 @@ public sealed partial class CleanupViewModel : ObservableObject
 
         try
         {
-            var results = await _engine.ExecuteAsync(suggestions, dryRun, method, progress);
+            // Run the engine on the thread pool so that synchronous Win32 calls inside
+            // FileDeleter (SHFileOperation, SHEmptyRecycleBin) never block the UI thread.
+            var results = await Task.Run(
+                () => _engine.ExecuteAsync(suggestions, dryRun, method, progress),
+                CancellationToken.None);
 
             foreach (var r in results)
             {

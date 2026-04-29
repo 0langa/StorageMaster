@@ -2,6 +2,9 @@ using System.Collections.ObjectModel;
 using System.Diagnostics;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Microsoft.UI.Dispatching;
+using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
 using StorageMaster.Core.Interfaces;
 using StorageMaster.Core.Models;
 using StorageMaster.UI.Converters;
@@ -12,6 +15,8 @@ public sealed partial class ResultsViewModel : ObservableObject
 {
     private readonly IScanRepository      _repo;
     private readonly IScanErrorRepository _errorRepo;
+    private readonly IFileDeleter         _deleter;
+    private readonly DispatcherQueue      _dispatcherQueue;
 
     [ObservableProperty] private bool   _isLoading;
     [ObservableProperty] private string _scanRoot    = string.Empty;
@@ -25,6 +30,28 @@ public sealed partial class ResultsViewModel : ObservableObject
     private IReadOnlyList<FileEntry>   _allFiles   = [];
     private IReadOnlyList<FolderEntry> _allFolders = [];
 
+    // ── Sort state ──────────────────────────────────────────────────────────
+    // Files
+    private string _fileSortColumn    = "Size";
+    private bool   _fileSortDesc      = true;
+    // Folders
+    private string _folderSortColumn  = "Size";
+    private bool   _folderSortDesc    = true;
+
+    // Sort-indicator headers — updated by the sort commands below.
+    public string FileSizeHeader      => "Size"       + Indicator("Size",     _fileSortColumn,   _fileSortDesc);
+    public string FileModifiedHeader  => "Modified"   + Indicator("Modified", _fileSortColumn,   _fileSortDesc);
+    public string FileTypeHeader      => "Type"       + Indicator("Type",     _fileSortColumn,   _fileSortDesc);
+    public string FolderSizeHeader    => "Total Size" + Indicator("Size",     _folderSortColumn, _folderSortDesc);
+    public string FolderFilesHeader   => "Files"      + Indicator("Files",    _folderSortColumn, _folderSortDesc);
+
+    private static string Indicator(string col, string current, bool desc) =>
+        current == col ? (desc ? " ▼" : " ▲") : "";
+
+    // ── XamlRoot for ContentDialogs ──────────────────────────────────────────
+    /// <summary>Set by ResultsPage.OnNavigatedTo so the ViewModel can show dialogs.</summary>
+    public XamlRoot? XamlRoot { get; set; }
+
     public ObservableCollection<FileEntry>   LargestFiles      { get; } = [];
     public ObservableCollection<FolderEntry> LargestFolders    { get; } = [];
     public ObservableCollection<CategoryRow> CategoryBreakdown { get; } = [];
@@ -32,10 +59,12 @@ public sealed partial class ResultsViewModel : ObservableObject
 
     public bool HasErrors => ErrorCount > 0;
 
-    public ResultsViewModel(IScanRepository repo, IScanErrorRepository errorRepo)
+    public ResultsViewModel(IScanRepository repo, IScanErrorRepository errorRepo, IFileDeleter deleter)
     {
-        _repo      = repo;
-        _errorRepo = errorRepo;
+        _repo            = repo;
+        _errorRepo       = errorRepo;
+        _deleter         = deleter;
+        _dispatcherQueue = DispatcherQueue.GetForCurrentThread();
     }
 
     /// <summary>
@@ -110,28 +139,133 @@ public sealed partial class ResultsViewModel : ObservableObject
         });
     }
 
+    // ── Sort commands ─────────────────────────────────────────────────────────
+
+    [RelayCommand]
+    private void SortFilesBy(string column)
+    {
+        if (_fileSortColumn == column)
+            _fileSortDesc = !_fileSortDesc;
+        else
+        {
+            _fileSortColumn = column;
+            _fileSortDesc   = true;
+        }
+        RefreshFileSortHeaders();
+        ApplyFilter();
+    }
+
+    [RelayCommand]
+    private void SortFoldersBy(string column)
+    {
+        if (_folderSortColumn == column)
+            _folderSortDesc = !_folderSortDesc;
+        else
+        {
+            _folderSortColumn = column;
+            _folderSortDesc   = true;
+        }
+        RefreshFolderSortHeaders();
+        ApplyFilter();
+    }
+
+    private void RefreshFileSortHeaders()
+    {
+        OnPropertyChanged(nameof(FileSizeHeader));
+        OnPropertyChanged(nameof(FileModifiedHeader));
+        OnPropertyChanged(nameof(FileTypeHeader));
+    }
+
+    private void RefreshFolderSortHeaders()
+    {
+        OnPropertyChanged(nameof(FolderSizeHeader));
+        OnPropertyChanged(nameof(FolderFilesHeader));
+    }
+
+    // ── Delete command ────────────────────────────────────────────────────────
+
+    [RelayCommand]
+    private async Task DeleteFileAsync(FileEntry file)
+    {
+        if (XamlRoot is null) return;
+
+        var dialog = new ContentDialog
+        {
+            Title             = "Send to Recycle Bin?",
+            Content           = $"Move \"{file.FileName}\" ({ByteSizeConverter.Format(file.SizeBytes)}) to the Recycle Bin?",
+            PrimaryButtonText  = "Send to Recycle Bin",
+            CloseButtonText   = "Cancel",
+            DefaultButton     = ContentDialogButton.Close,
+            XamlRoot          = XamlRoot,
+        };
+
+        var result = await dialog.ShowAsync();
+        if (result != ContentDialogResult.Primary) return;
+
+        var outcome = await Task.Run(() => _deleter.DeleteAsync(
+            new DeletionRequest(file.FullPath, DeletionMethod.RecycleBin, DryRun: false)));
+
+        _dispatcherQueue.TryEnqueue(() =>
+        {
+            if (outcome.Success)
+            {
+                LargestFiles.Remove(file);
+                // Prune from the backing list so re-filtering doesn't resurrect it.
+                _allFiles = _allFiles.Where(f => f.FullPath != file.FullPath).ToList();
+            }
+            // On failure: leave the item in the list; the user can retry or investigate.
+        });
+    }
+
+    // ── Filter + Sort ─────────────────────────────────────────────────────────
+
     [RelayCommand]
     private void ApplyFilter()
     {
         var filter = FilterText.Trim();
 
-        LargestFiles.Clear();
-        foreach (var f in _allFiles
-            .Where(f => string.IsNullOrEmpty(filter) ||
-                        f.FullPath.Contains(filter, StringComparison.OrdinalIgnoreCase))
-            .Take(200))
+        // ── Files ──
+        IEnumerable<FileEntry> filteredFiles = _allFiles;
+        if (!string.IsNullOrEmpty(filter))
+            filteredFiles = filteredFiles.Where(f =>
+                f.FullPath.Contains(filter, StringComparison.OrdinalIgnoreCase));
+
+        filteredFiles = _fileSortColumn switch
         {
+            "Modified" => _fileSortDesc
+                ? filteredFiles.OrderByDescending(f => f.ModifiedUtc)
+                : filteredFiles.OrderBy(f => f.ModifiedUtc),
+            "Type"     => _fileSortDesc
+                ? filteredFiles.OrderByDescending(f => f.Category)
+                : filteredFiles.OrderBy(f => f.Category),
+            _          => _fileSortDesc          // "Size" (default)
+                ? filteredFiles.OrderByDescending(f => f.SizeBytes)
+                : filteredFiles.OrderBy(f => f.SizeBytes),
+        };
+
+        LargestFiles.Clear();
+        foreach (var f in filteredFiles.Take(200))
             LargestFiles.Add(f);
-        }
+
+        // ── Folders ──
+        IEnumerable<FolderEntry> filteredFolders = _allFolders;
+        if (!string.IsNullOrEmpty(filter))
+            filteredFolders = filteredFolders.Where(f =>
+                f.FullPath.Contains(filter, StringComparison.OrdinalIgnoreCase));
+
+        filteredFolders = _folderSortColumn switch
+        {
+            "Files" => _folderSortDesc
+                ? filteredFolders.OrderByDescending(f => f.FileCount)
+                : filteredFolders.OrderBy(f => f.FileCount),
+            _       => _folderSortDesc           // "Size" (default)
+                ? filteredFolders.OrderByDescending(f => f.TotalSizeBytes)
+                : filteredFolders.OrderBy(f => f.TotalSizeBytes),
+        };
 
         LargestFolders.Clear();
-        foreach (var f in _allFolders
-            .Where(f => string.IsNullOrEmpty(filter) ||
-                        f.FullPath.Contains(filter, StringComparison.OrdinalIgnoreCase))
-            .Take(100))
-        {
+        foreach (var f in filteredFolders.Take(100))
             LargestFolders.Add(f);
-        }
     }
 }
 

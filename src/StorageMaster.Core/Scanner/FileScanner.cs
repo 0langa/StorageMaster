@@ -63,8 +63,21 @@ public sealed class FileScanner : IFileScanner
             await FlushFolderBufferAsync(state, cancellationToken).ConfigureAwait(false);
 
             // Post-scan: propagate folder sizes bottom-up so TotalSizeBytes is accurate.
+            // Report an explicit status so the UI shows "Finalizing…" rather than appearing
+            // frozen while we do the potentially expensive aggregation and DB write.
+            state.LastScannedPath = "Finalizing: loading folder tree…";
+            progress.Report(BuildProgress(state, complete: false));
+
             var allFolders = await _repo.GetAllFolderPathsForSessionAsync(session.Id, cancellationToken).ConfigureAwait(false);
+
+            state.LastScannedPath = "Finalizing: computing folder sizes…";
+            progress.Report(BuildProgress(state, complete: false));
+
             var totals = FolderSizeAggregator.Compute(allFolders);
+
+            state.LastScannedPath = "Finalizing: writing folder totals…";
+            progress.Report(BuildProgress(state, complete: false));
+
             await _repo.UpdateFolderTotalsAsync(session.Id, totals, cancellationToken).ConfigureAwait(false);
 
             // Flush accumulated scan errors (access denied, I/O failures) if a repo is wired in.
@@ -309,6 +322,14 @@ public sealed class FileScanner : IFileScanner
         catch (Exception ex) when (ex is IOException or SecurityException)
         {
             _logger.LogDebug("Skip dir {Dir}: {Msg}", dir, ex.Message);
+
+            // DirectoryNotFoundException means the folder disappeared during the scan
+            // (a race condition with another process or Windows itself).  It is not a
+            // user-actionable error — silently ignore it rather than showing it in the
+            // Errors tab where it would only cause confusion.
+            if (ex is DirectoryNotFoundException)
+                return;
+
             state.ErrorBuffer.Enqueue(new ScanError
             {
                 Id = 0, SessionId = state.SessionId, Path = dir,

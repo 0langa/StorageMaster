@@ -60,16 +60,36 @@
                         <ListView ItemsSource="{x:Bind ViewModel.LargestFiles}"
                                   SelectionMode="None" Margin="0,8,0,0">
                             <ListView.Header>
-                                <Grid ColumnDefinitions="*,120,120,120,36" Padding="12,4" Opacity="0.6">
-                                    <TextBlock Grid.Column="0" Text="File" />
-                                    <TextBlock Grid.Column="1" Text="Size" HorizontalAlignment="Right"/>
-                                    <TextBlock Grid.Column="2" Text="Modified" HorizontalAlignment="Right"/>
-                                    <TextBlock Grid.Column="3" Text="Type" HorizontalAlignment="Right"/>
+                                <!-- Sortable column headers — click a column name to sort;
+                                     click again to toggle direction. ▼/▲ shows active sort. -->
+                                <Grid ColumnDefinitions="*,130,140,120,36,36" Padding="4,2" Opacity="0.7">
+                                    <TextBlock Grid.Column="0" Text="File" VerticalAlignment="Center" Margin="8,0,0,0"/>
+                                    <Button Grid.Column="1"
+                                            Content="{Binding ViewModel.FileSizeHeader, ElementName=PageRoot}"
+                                            Command="{Binding ViewModel.SortFilesByCommand, ElementName=PageRoot}"
+                                            CommandParameter="Size"
+                                            HorizontalAlignment="Right" VerticalAlignment="Center"
+                                            Background="Transparent" BorderThickness="0" Padding="4,2"
+                                            FontSize="12"/>
+                                    <Button Grid.Column="2"
+                                            Content="{Binding ViewModel.FileModifiedHeader, ElementName=PageRoot}"
+                                            Command="{Binding ViewModel.SortFilesByCommand, ElementName=PageRoot}"
+                                            CommandParameter="Modified"
+                                            HorizontalAlignment="Right" VerticalAlignment="Center"
+                                            Background="Transparent" BorderThickness="0" Padding="4,2"
+                                            FontSize="12"/>
+                                    <Button Grid.Column="3"
+                                            Content="{Binding ViewModel.FileTypeHeader, ElementName=PageRoot}"
+                                            Command="{Binding ViewModel.SortFilesByCommand, ElementName=PageRoot}"
+                                            CommandParameter="Type"
+                                            HorizontalAlignment="Right" VerticalAlignment="Center"
+                                            Background="Transparent" BorderThickness="0" Padding="4,2"
+                                            FontSize="12"/>
                                 </Grid>
                             </ListView.Header>
                             <ListView.ItemTemplate>
                                 <DataTemplate>
-                                    <Grid ColumnDefinitions="*,120,120,120,36" Padding="0,4">
+                                    <Grid ColumnDefinitions="*,130,140,120,36,36" Padding="0,4">
                                         <StackPanel Grid.Column="0">
                                             <TextBlock Text="{Binding FileName}" FontWeight="SemiBold"
                                                        TextTrimming="CharacterEllipsis"/>
@@ -96,6 +116,14 @@
                                                 Command="{Binding ViewModel.OpenInExplorerCommand, ElementName=PageRoot}"
                                                 CommandParameter="{Binding}"
                                                 VerticalAlignment="Center"/>
+                                        <Button Grid.Column="5"
+                                                Content="&#xE74D;"
+                                                FontFamily="Segoe MDL2 Assets"
+                                                Width="32" Height="32" Padding="0"
+                                                ToolTipService.ToolTip="Send to Recycle Bin"
+                                                Command="{Binding ViewModel.DeleteFileCommand, ElementName=PageRoot}"
+                                                CommandParameter="{Binding}"
+                                                VerticalAlignment="Center"/>
                                     </Grid>
                                 </DataTemplate>
                             </ListView.ItemTemplate>
@@ -107,15 +135,27 @@
                         <ListView ItemsSource="{x:Bind ViewModel.LargestFolders}"
                                   SelectionMode="None" Margin="0,8,0,0">
                             <ListView.Header>
-                                <Grid ColumnDefinitions="*,120,100,36" Padding="12,4" Opacity="0.6">
-                                    <TextBlock Grid.Column="0" Text="Folder" />
-                                    <TextBlock Grid.Column="1" Text="Total Size" HorizontalAlignment="Right"/>
-                                    <TextBlock Grid.Column="2" Text="Files" HorizontalAlignment="Right"/>
+                                <Grid ColumnDefinitions="*,130,100,36" Padding="4,2" Opacity="0.7">
+                                    <TextBlock Grid.Column="0" Text="Folder" VerticalAlignment="Center" Margin="8,0,0,0"/>
+                                    <Button Grid.Column="1"
+                                            Content="{Binding ViewModel.FolderSizeHeader, ElementName=PageRoot}"
+                                            Command="{Binding ViewModel.SortFoldersByCommand, ElementName=PageRoot}"
+                                            CommandParameter="Size"
+                                            HorizontalAlignment="Right" VerticalAlignment="Center"
+                                            Background="Transparent" BorderThickness="0" Padding="4,2"
+                                            FontSize="12"/>
+                                    <Button Grid.Column="2"
+                                            Content="{Binding ViewModel.FolderFilesHeader, ElementName=PageRoot}"
+                                            Command="{Binding ViewModel.SortFoldersByCommand, ElementName=PageRoot}"
+                                            CommandParameter="Files"
+                                            HorizontalAlignment="Right" VerticalAlignment="Center"
+                                            Background="Transparent" BorderThickness="0" Padding="4,2"
+                                            FontSize="12"/>
                                 </Grid>
                             </ListView.Header>
                             <ListView.ItemTemplate>
                                 <DataTemplate>
-                                    <Grid ColumnDefinitions="*,120,100,36" Padding="0,4">
+                                    <Grid ColumnDefinitions="*,130,100,36" Padding="0,4">
                                         <TextBlock Grid.Column="0"
                                                    Text="{Binding FullPath}"
                                                    TextTrimming="CharacterEllipsis"

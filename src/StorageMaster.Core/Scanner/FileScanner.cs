@@ -361,17 +361,42 @@ public sealed class FileScanner : IFileScanner
     }
 
     // ── Buffer flushing ────────────────────────────────────────────────────
+    //
+    // Multiple consumer tasks can hit the threshold simultaneously.
+    // The SemaphoreSlim ensures only one thread drains the buffer at a time,
+    // preventing duplicate or lost entries. The lock is NOT held during I/O
+    // — only during the ConcurrentQueue drain; the actual DB insert runs
+    // after releasing the semaphore is unnecessary because DrainQueue is
+    // atomic (TryDequeue returns each item exactly once).
 
     private async Task FlushFileBufferAsync(ScanState state, CancellationToken ct)
     {
-        var batch = DrainQueue(state.FileBuffer);
+        await state.FileFlushLock.WaitAsync(ct).ConfigureAwait(false);
+        List<FileEntry> batch;
+        try
+        {
+            batch = DrainQueue(state.FileBuffer);
+        }
+        finally
+        {
+            state.FileFlushLock.Release();
+        }
         if (batch.Count == 0) return;
         await _repo.InsertFileEntriesAsync(batch, ct).ConfigureAwait(false);
     }
 
     private async Task FlushFolderBufferAsync(ScanState state, CancellationToken ct)
     {
-        var batch = DrainQueue(state.FolderBuffer);
+        await state.FolderFlushLock.WaitAsync(ct).ConfigureAwait(false);
+        List<FolderEntry> batch;
+        try
+        {
+            batch = DrainQueue(state.FolderBuffer);
+        }
+        finally
+        {
+            state.FolderFlushLock.Release();
+        }
         if (batch.Count == 0) return;
         await _repo.UpsertFolderEntriesAsync(batch, ct).ConfigureAwait(false);
     }
@@ -480,10 +505,14 @@ public sealed class FileScanner : IFileScanner
         }
 
         // ConcurrentQueue is the right structure here: many producers (worker
-        // tasks), one periodic flusher. No locking needed.
+        // tasks), serialised flush via per-buffer SemaphoreSlim.
         public ConcurrentQueue<FileEntry>   FileBuffer   { get; } = new();
         public ConcurrentQueue<FolderEntry> FolderBuffer { get; } = new();
         public ConcurrentQueue<ScanError>   ErrorBuffer  { get; } = new();
+
+        // Serialise buffer drains so concurrent consumers never double-drain.
+        public SemaphoreSlim FileFlushLock   { get; } = new(1, 1);
+        public SemaphoreSlim FolderFlushLock { get; } = new(1, 1);
 
         public ScanState(long sessionId, ScanOptions _)
         {

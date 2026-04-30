@@ -28,15 +28,23 @@ public sealed class SettingsRepository : ISettingsRepository
 
     public async Task SaveAsync(AppSettings settings, CancellationToken ct = default)
     {
-        var json = JsonSerializer.Serialize(settings);
-        var conn = await _db.GetConnectionAsync(ct);
-        using var cmd = conn.CreateCommand();
-        cmd.CommandText = """
-            INSERT INTO Settings (Key, Value) VALUES ($key, $val)
-            ON CONFLICT(Key) DO UPDATE SET Value = excluded.Value;
-            """;
-        cmd.Parameters.AddWithValue("$key", Key);
-        cmd.Parameters.AddWithValue("$val", json);
-        await cmd.ExecuteNonQueryAsync(ct);
+        await _db.WriteLock.WaitAsync(ct);
+        try
+        {
+            var json = JsonSerializer.Serialize(settings);
+            var conn = await _db.GetConnectionAsync(ct);
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = """
+                INSERT INTO Settings (Key, Value) VALUES ($key, $val)
+                ON CONFLICT(Key) DO UPDATE SET Value = excluded.Value;
+                """;
+            cmd.Parameters.AddWithValue("$key", Key);
+            cmd.Parameters.AddWithValue("$val", json);
+            await cmd.ExecuteNonQueryAsync(ct);
+        }
+        finally
+        {
+            _db.WriteLock.Release();
+        }
     }
 }

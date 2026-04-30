@@ -27,12 +27,26 @@ internal static partial class Shell32Interop
         nint hToken,
         out nint ppszPath);
 
+    /// <summary>
+    /// Resolves a known folder GUID to a filesystem path.
+    /// Throws <see cref="IOException"/> on HRESULT failure instead of
+    /// dereferencing a null pointer.
+    /// </summary>
     internal static string GetKnownFolderPath(Guid folderId)
     {
-        SHGetKnownFolderPath(ref folderId, 0, nint.Zero, out nint ptr);
-        string path = Marshal.PtrToStringUni(ptr)!;
-        Marshal.FreeCoTaskMem(ptr);
-        return path;
+        int hr = SHGetKnownFolderPath(ref folderId, 0, nint.Zero, out nint ptr);
+        if (hr < 0)
+            Marshal.ThrowExceptionForHR(hr);
+        try
+        {
+            return Marshal.PtrToStringUni(ptr)
+                ?? throw new IOException($"SHGetKnownFolderPath returned null for {folderId}");
+        }
+        finally
+        {
+            if (ptr != nint.Zero)
+                Marshal.FreeCoTaskMem(ptr);
+        }
     }
 
     // ── Structs / enums ───────────────────────────────────────────────────────

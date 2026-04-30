@@ -170,6 +170,7 @@ public sealed partial class CleanupViewModel : ObservableObject
         IsLoading           = true;
         HasResults          = false;
         HasExecutionResults = false;
+        UnsubscribeAllSuggestions();
         Suggestions.Clear();
         ExecutionResults.Clear();
         _lastSelectedSuggestions = [];
@@ -338,6 +339,16 @@ public sealed partial class CleanupViewModel : ObservableObject
             .Where(s => s.IsSelected)
             .Sum(s => s.Suggestion.EstimatedBytes);
         TotalSelectedSize = ByteSizeConverter.Format(total);
+    }
+
+    /// <summary>
+    /// Unsubscribes the PropertyChanged handler from every current suggestion
+    /// item to prevent memory leaks when the collection is cleared and rebuilt.
+    /// </summary>
+    private void UnsubscribeAllSuggestions()
+    {
+        foreach (var item in Suggestions)
+            item.PropertyChanged -= SuggestionItem_PropertyChanged;
     }
 
     private void SuggestionItem_PropertyChanged(object? sender, PropertyChangedEventArgs e)

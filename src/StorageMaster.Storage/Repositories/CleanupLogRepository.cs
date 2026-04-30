@@ -12,23 +12,31 @@ public sealed class CleanupLogRepository : ICleanupLogRepository
 
     public async Task LogResultAsync(CleanupResult result, CleanupSuggestion suggestion, CancellationToken ct = default)
     {
-        var conn = await _db.GetConnectionAsync(ct);
-        using var cmd = conn.CreateCommand();
-        cmd.CommandText = """
-            INSERT INTO CleanupLog
-                (SuggestionId, RuleId, Title, BytesFreed, WasDryRun, Status, ExecutedUtc, ErrorMessage)
-            VALUES
-                ($sid, $rule, $title, $freed, $dry, $status, $executed, $error);
-            """;
-        cmd.Parameters.AddWithValue("$sid",      result.SuggestionId.ToString());
-        cmd.Parameters.AddWithValue("$rule",     suggestion.RuleId);
-        cmd.Parameters.AddWithValue("$title",    suggestion.Title);
-        cmd.Parameters.AddWithValue("$freed",    result.BytesFreed);
-        cmd.Parameters.AddWithValue("$dry",      result.WasDryRun ? 1 : 0);
-        cmd.Parameters.AddWithValue("$status",   result.Status.ToString());
-        cmd.Parameters.AddWithValue("$executed", result.ExecutedUtc.ToString("O"));
-        cmd.Parameters.AddWithValue("$error",    (object?)result.ErrorMessage ?? DBNull.Value);
-        await cmd.ExecuteNonQueryAsync(ct);
+        await _db.WriteLock.WaitAsync(ct);
+        try
+        {
+            var conn = await _db.GetConnectionAsync(ct);
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = """
+                INSERT INTO CleanupLog
+                    (SuggestionId, RuleId, Title, BytesFreed, WasDryRun, Status, ExecutedUtc, ErrorMessage)
+                VALUES
+                    ($sid, $rule, $title, $freed, $dry, $status, $executed, $error);
+                """;
+            cmd.Parameters.AddWithValue("$sid",      result.SuggestionId.ToString());
+            cmd.Parameters.AddWithValue("$rule",     suggestion.RuleId);
+            cmd.Parameters.AddWithValue("$title",    suggestion.Title);
+            cmd.Parameters.AddWithValue("$freed",    result.BytesFreed);
+            cmd.Parameters.AddWithValue("$dry",      result.WasDryRun ? 1 : 0);
+            cmd.Parameters.AddWithValue("$status",   result.Status.ToString());
+            cmd.Parameters.AddWithValue("$executed", result.ExecutedUtc.ToString("O"));
+            cmd.Parameters.AddWithValue("$error",    (object?)result.ErrorMessage ?? DBNull.Value);
+            await cmd.ExecuteNonQueryAsync(ct);
+        }
+        finally
+        {
+            _db.WriteLock.Release();
+        }
     }
 
     public async Task<IReadOnlyList<CleanupLogEntry>> GetRecentAsync(int count = 50, CancellationToken ct = default)

@@ -20,24 +20,32 @@ public sealed class ScanRepository : IScanRepository
 
     public async Task<ScanSession> CreateSessionAsync(string rootPath, CancellationToken ct = default)
     {
-        var conn = await _db.GetConnectionAsync(ct);
-        using var cmd = conn.CreateCommand();
-        cmd.CommandText = """
-            INSERT INTO ScanSessions (RootPath, StartedUtc, Status)
-            VALUES ($root, $started, 'Running');
-            SELECT last_insert_rowid();
-            """;
-        cmd.Parameters.AddWithValue("$root",    rootPath);
-        cmd.Parameters.AddWithValue("$started", DateTime.UtcNow.ToString("O"));
-        var id = Convert.ToInt64(await cmd.ExecuteScalarAsync(ct));
-
-        return new ScanSession
+        await _db.WriteLock.WaitAsync(ct);
+        try
         {
-            Id        = id,
-            RootPath  = rootPath,
-            StartedUtc = DateTime.UtcNow,
-            Status    = ScanStatus.Running,
-        };
+            var conn = await _db.GetConnectionAsync(ct);
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = """
+                INSERT INTO ScanSessions (RootPath, StartedUtc, Status)
+                VALUES ($root, $started, 'Running');
+                SELECT last_insert_rowid();
+                """;
+            cmd.Parameters.AddWithValue("$root",    rootPath);
+            cmd.Parameters.AddWithValue("$started", DateTime.UtcNow.ToString("O"));
+            var id = Convert.ToInt64(await cmd.ExecuteScalarAsync(ct));
+
+            return new ScanSession
+            {
+                Id        = id,
+                RootPath  = rootPath,
+                StartedUtc = DateTime.UtcNow,
+                Status    = ScanStatus.Running,
+            };
+        }
+        finally
+        {
+            _db.WriteLock.Release();
+        }
     }
 
     public async Task<ScanSession?> GetSessionAsync(long sessionId, CancellationToken ct = default)
@@ -65,28 +73,36 @@ public sealed class ScanRepository : IScanRepository
 
     public async Task UpdateSessionAsync(ScanSession session, CancellationToken ct = default)
     {
-        var conn = await _db.GetConnectionAsync(ct);
-        using var cmd = conn.CreateCommand();
-        cmd.CommandText = """
-            UPDATE ScanSessions SET
-                CompletedUtc      = $completed,
-                Status            = $status,
-                TotalSizeBytes    = $size,
-                TotalFiles        = $files,
-                TotalFolders      = $folders,
-                AccessDeniedCount = $denied,
-                ErrorMessage      = $error
-            WHERE Id = $id;
-            """;
-        cmd.Parameters.AddWithValue("$completed", (object?)session.CompletedUtc?.ToString("O") ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("$status",    session.Status.ToString());
-        cmd.Parameters.AddWithValue("$size",      session.TotalSizeBytes);
-        cmd.Parameters.AddWithValue("$files",     session.TotalFiles);
-        cmd.Parameters.AddWithValue("$folders",   session.TotalFolders);
-        cmd.Parameters.AddWithValue("$denied",    session.AccessDeniedCount);
-        cmd.Parameters.AddWithValue("$error",     (object?)session.ErrorMessage ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("$id",        session.Id);
-        await cmd.ExecuteNonQueryAsync(ct);
+        await _db.WriteLock.WaitAsync(ct);
+        try
+        {
+            var conn = await _db.GetConnectionAsync(ct);
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = """
+                UPDATE ScanSessions SET
+                    CompletedUtc      = $completed,
+                    Status            = $status,
+                    TotalSizeBytes    = $size,
+                    TotalFiles        = $files,
+                    TotalFolders      = $folders,
+                    AccessDeniedCount = $denied,
+                    ErrorMessage      = $error
+                WHERE Id = $id;
+                """;
+            cmd.Parameters.AddWithValue("$completed", (object?)session.CompletedUtc?.ToString("O") ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$status",    session.Status.ToString());
+            cmd.Parameters.AddWithValue("$size",      session.TotalSizeBytes);
+            cmd.Parameters.AddWithValue("$files",     session.TotalFiles);
+            cmd.Parameters.AddWithValue("$folders",   session.TotalFolders);
+            cmd.Parameters.AddWithValue("$denied",    session.AccessDeniedCount);
+            cmd.Parameters.AddWithValue("$error",     (object?)session.ErrorMessage ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$id",        session.Id);
+            await cmd.ExecuteNonQueryAsync(ct);
+        }
+        finally
+        {
+            _db.WriteLock.Release();
+        }
     }
 
     // ── File entries ──────────────────────────────────────────────────────
@@ -275,11 +291,19 @@ public sealed class ScanRepository : IScanRepository
 
     public async Task DeleteSessionAsync(long sessionId, CancellationToken ct = default)
     {
-        var conn = await _db.GetConnectionAsync(ct);
-        using var cmd = conn.CreateCommand();
-        cmd.CommandText = "DELETE FROM ScanSessions WHERE Id = $id;";
-        cmd.Parameters.AddWithValue("$id", sessionId);
-        await cmd.ExecuteNonQueryAsync(ct);
+        await _db.WriteLock.WaitAsync(ct);
+        try
+        {
+            var conn = await _db.GetConnectionAsync(ct);
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = "DELETE FROM ScanSessions WHERE Id = $id;";
+            cmd.Parameters.AddWithValue("$id", sessionId);
+            await cmd.ExecuteNonQueryAsync(ct);
+        }
+        finally
+        {
+            _db.WriteLock.Release();
+        }
     }
 
     public async Task<IReadOnlyList<FolderEntry>> GetAllFolderPathsForSessionAsync(

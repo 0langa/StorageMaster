@@ -82,176 +82,248 @@ public sealed class TurboFileScanner : IFileScanner
         using var process = new Process { StartInfo = psi };
         process.Start();
 
-        // Drain stderr in background so the process never blocks on a full pipe.
-        var stderrTask = Task.Run(async () =>
+        try
         {
-            while (await process.StandardError.ReadLineAsync(cancellationToken) is { } line)
-                _logger.LogDebug("[turbo-scanner] {Line}", line);
-        }, cancellationToken);
-
-        long fileCount   = 0;
-        long folderCount = 0;
-        long totalBytes  = 0;
-        string lastPath  = string.Empty;
-
-        var fileBuffer   = new List<FileEntry>(500);
-        var folderBuffer = new List<FolderEntry>(100);
-        var errors       = new List<ScanError>();
-
-        // Accumulates the sum of file sizes directly inside each folder path.
-        // Used post-scan to populate DirectSizeBytes before running FolderSizeAggregator.
-        var parentSizes = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
-
-        var stopwatch = Stopwatch.StartNew();
-
-        await Task.Run(async () =>
-        {
-            while (await process.StandardOutput.ReadLineAsync(cancellationToken) is { } line)
+            // Drain stderr in background so the process never blocks on a full pipe.
+            // Use CancellationToken.None — we always want to drain stderr even on cancel.
+            var stderrTask = Task.Run(async () =>
             {
-                cancellationToken.ThrowIfCancellationRequested();
-
-                TurboRecord? rec;
-                try { rec = JsonSerializer.Deserialize<TurboRecord>(line, JsonOpts); }
-                catch { continue; }
-                if (rec is null) continue;
-
-                // Skip paths covered by the excluded list.
-                if (!options.DeepScan && IsExcluded(rec.Path, options)) continue;
-
-                lastPath = rec.Path;
-
-                if (rec.IsDir)
+                try
                 {
-                    var fe = new FolderEntry
-                    {
-                        Id              = 0,
-                        SessionId       = session.Id,
-                        FullPath        = rec.Path,
-                        FolderName      = Path.GetFileName(rec.Path) ?? rec.Path,
-                        DirectSizeBytes = 0,   // patched post-scan via parentSizes
-                        TotalSizeBytes  = 0,
-                        FileCount       = 0,
-                        SubFolderCount  = 0,
-                        IsReparsePoint  = false,
-                        WasAccessDenied = false,
-                    };
-                    folderBuffer.Add(fe);
-                    folderCount++;
+                    while (await process.StandardError.ReadLineAsync(CancellationToken.None) is { } line)
+                        _logger.LogDebug("[turbo-scanner] {Line}", line);
+                }
+                catch (OperationCanceledException) { /* process killed */ }
+                catch (ObjectDisposedException) { /* process disposed */ }
+            }, CancellationToken.None);
 
-                    if (folderBuffer.Count >= 100)
+            long fileCount   = 0;
+            long folderCount = 0;
+            long totalBytes  = 0;
+            string lastPath  = string.Empty;
+
+            var fileBuffer   = new List<FileEntry>(500);
+            var folderBuffer = new List<FolderEntry>(100);
+            var errors       = new List<ScanError>();
+
+            // Accumulates the sum of file sizes directly inside each folder path.
+            // Used post-scan to populate DirectSizeBytes before running FolderSizeAggregator.
+            var parentSizes = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
+
+            var stopwatch = Stopwatch.StartNew();
+
+            await Task.Run(async () =>
+            {
+                while (await process.StandardOutput.ReadLineAsync(cancellationToken) is { } line)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+
+                    TurboRecord? rec;
+                    try { rec = JsonSerializer.Deserialize<TurboRecord>(line, JsonOpts); }
+                    catch { continue; }
+                    if (rec is null) continue;
+
+                    // Skip paths covered by the excluded list.
+                    if (!options.DeepScan && IsExcluded(rec.Path, options)) continue;
+
+                    lastPath = rec.Path;
+
+                    if (rec.IsDir)
                     {
-                        await _repo.UpsertFolderEntriesAsync([..folderBuffer], cancellationToken);
-                        folderBuffer.Clear();
+                        var fe = new FolderEntry
+                        {
+                            Id              = 0,
+                            SessionId       = session.Id,
+                            FullPath        = rec.Path,
+                            FolderName      = Path.GetFileName(rec.Path) ?? rec.Path,
+                            DirectSizeBytes = 0,   // patched post-scan via parentSizes
+                            TotalSizeBytes  = 0,
+                            FileCount       = 0,
+                            SubFolderCount  = 0,
+                            IsReparsePoint  = false,
+                            WasAccessDenied = false,
+                        };
+                        folderBuffer.Add(fe);
+                        folderCount++;
+
+                        if (folderBuffer.Count >= 100)
+                        {
+                            await _repo.UpsertFolderEntriesAsync([..folderBuffer], cancellationToken);
+                            folderBuffer.Clear();
+                        }
+                    }
+                    else
+                    {
+                        var ext       = Path.GetExtension(rec.Path);
+                        var modUtc    = DateTimeOffset.FromUnixTimeSeconds(rec.ModifiedUnix).UtcDateTime;
+                        var createUtc = DateTimeOffset.FromUnixTimeSeconds(rec.CreatedUnix).UtcDateTime;
+
+                        var fe = new FileEntry
+                        {
+                            Id            = 0,
+                            SessionId     = session.Id,
+                            FullPath      = rec.Path,
+                            FileName      = Path.GetFileName(rec.Path),
+                            Extension     = ext,
+                            SizeBytes     = (long)rec.Size,
+                            CreatedUtc    = createUtc,
+                            ModifiedUtc   = modUtc,
+                            AccessedUtc   = modUtc,
+                            Attributes    = FileAttributes.Normal,
+                            Category      = FileTypeCategorizor.Categorize(ext),
+                            IsReparsePoint = false,
+                        };
+                        fileBuffer.Add(fe);
+                        fileCount++;
+                        totalBytes += (long)rec.Size;
+
+                        // Accumulate file size into its parent directory bucket.
+                        var parentDir = Path.GetDirectoryName(rec.Path);
+                        if (parentDir is not null)
+                            parentSizes[parentDir] = parentSizes.GetValueOrDefault(parentDir) + (long)rec.Size;
+
+                        if (fileBuffer.Count >= 500)
+                        {
+                            await _repo.InsertFileEntriesAsync([..fileBuffer], cancellationToken);
+                            fileBuffer.Clear();
+                        }
+                    }
+
+                    // Report progress every ~300 ms.
+                    if (stopwatch.ElapsedMilliseconds >= 300)
+                    {
+                        stopwatch.Restart();
+                        progress.Report(new ScanProgress
+                        {
+                            CurrentPath    = lastPath,
+                            FilesScanned   = fileCount,
+                            FoldersScanned = folderCount,
+                            BytesScanned   = totalBytes,
+                            ErrorCount     = 0,
+                            IsComplete     = false,
+                        });
                     }
                 }
-                else
+
+                // Flush remaining buffers.
+                if (fileBuffer.Count   > 0) await _repo.InsertFileEntriesAsync([..fileBuffer], cancellationToken);
+                if (folderBuffer.Count > 0) await _repo.UpsertFolderEntriesAsync([..folderBuffer], cancellationToken);
+
+            }, cancellationToken);
+
+            await process.WaitForExitAsync(CancellationToken.None);
+            await stderrTask;
+
+            // ── C3 fix: treat non-zero exit code as failure ──────────────────
+            if (process.ExitCode != 0)
+            {
+                _logger.LogError("turbo-scanner.exe exited with code {ExitCode}", process.ExitCode);
+
+                var failed = session with
                 {
-                    var ext       = Path.GetExtension(rec.Path);
-                    var modUtc    = DateTimeOffset.FromUnixTimeSeconds(rec.ModifiedUnix).UtcDateTime;
-                    var createUtc = DateTimeOffset.FromUnixTimeSeconds(rec.CreatedUnix).UtcDateTime;
-
-                    var fe = new FileEntry
-                    {
-                        Id            = 0,
-                        SessionId     = session.Id,
-                        FullPath      = rec.Path,
-                        FileName      = Path.GetFileName(rec.Path),
-                        Extension     = ext,
-                        SizeBytes     = (long)rec.Size,
-                        CreatedUtc    = createUtc,
-                        ModifiedUtc   = modUtc,
-                        AccessedUtc   = modUtc,
-                        Attributes    = FileAttributes.Normal,
-                        Category      = FileTypeCategorizor.Categorize(ext),
-                        IsReparsePoint = false,
-                    };
-                    fileBuffer.Add(fe);
-                    fileCount++;
-                    totalBytes += (long)rec.Size;
-
-                    // Accumulate file size into its parent directory bucket.
-                    var parentDir = Path.GetDirectoryName(rec.Path);
-                    if (parentDir is not null)
-                        parentSizes[parentDir] = parentSizes.GetValueOrDefault(parentDir) + (long)rec.Size;
-
-                    if (fileBuffer.Count >= 500)
-                    {
-                        await _repo.InsertFileEntriesAsync([..fileBuffer], cancellationToken);
-                        fileBuffer.Clear();
-                    }
-                }
-
-                // Report progress every ~300 ms.
-                if (stopwatch.ElapsedMilliseconds >= 300)
-                {
-                    stopwatch.Restart();
-                    progress.Report(new ScanProgress
-                    {
-                        CurrentPath    = lastPath,
-                        FilesScanned   = fileCount,
-                        FoldersScanned = folderCount,
-                        BytesScanned   = totalBytes,
-                        ErrorCount     = 0,
-                        IsComplete     = false,
-                    });
-                }
+                    Status       = ScanStatus.Failed,
+                    CompletedUtc = DateTime.UtcNow,
+                    ErrorMessage = $"turbo-scanner.exe exited with code {process.ExitCode}",
+                    TotalFiles   = fileCount,
+                    TotalFolders = folderCount,
+                    TotalSizeBytes = totalBytes,
+                };
+                await _repo.UpdateSessionAsync(failed, CancellationToken.None);
+                return failed;
             }
 
-            // Flush remaining buffers.
-            if (fileBuffer.Count   > 0) await _repo.InsertFileEntriesAsync([..fileBuffer], cancellationToken);
-            if (folderBuffer.Count > 0) await _repo.UpsertFolderEntriesAsync([..folderBuffer], cancellationToken);
+            // Post-scan: aggregate folder totals bottom-up.
+            progress.Report(new ScanProgress
+            {
+                CurrentPath    = "Finalizing: computing folder sizes…",
+                FilesScanned   = fileCount,
+                FoldersScanned = folderCount,
+                BytesScanned   = totalBytes,
+                ErrorCount     = 0,
+                IsComplete     = false,
+            });
 
-        }, cancellationToken);
+            var allFolders = await _repo.GetAllFolderPathsForSessionAsync(session.Id, cancellationToken);
+            var patchedFolders = allFolders
+                .Select(f => f with { DirectSizeBytes = parentSizes.GetValueOrDefault(f.FullPath, 0L) })
+                .ToList();
+            var totals = FolderSizeAggregator.Compute(patchedFolders);
+            await _repo.UpdateFolderTotalsAsync(session.Id, totals, cancellationToken);
 
-        await process.WaitForExitAsync(cancellationToken);
-        await stderrTask;
+            if (errors.Count > 0 && _errorRepo is not null)
+                await _errorRepo.LogErrorsAsync(session.Id, errors, cancellationToken);
 
-        // Post-scan: aggregate folder totals bottom-up.
-        // Patch DirectSizeBytes from the per-folder file-size accumulator so the
-        // aggregator produces correct recursive totals (the turbo-scanner emits
-        // directory entries with size=0 and file entries separately).
-        progress.Report(new ScanProgress
+            var completed = session with
+            {
+                Status         = ScanStatus.Completed,
+                CompletedUtc   = DateTime.UtcNow,
+                TotalFiles     = fileCount,
+                TotalFolders   = folderCount,
+                TotalSizeBytes = totalBytes,
+            };
+            await _repo.UpdateSessionAsync(completed, cancellationToken);
+
+            progress.Report(new ScanProgress
+            {
+                CurrentPath    = lastPath,
+                FilesScanned   = fileCount,
+                FoldersScanned = folderCount,
+                BytesScanned   = totalBytes,
+                ErrorCount     = 0,
+                IsComplete     = true,
+            });
+
+            _logger.LogInformation("Turbo scan {Id} complete. Files={F} Size={S}", session.Id, fileCount, totalBytes);
+            return completed;
+        }
+        catch (OperationCanceledException)
         {
-            CurrentPath    = "Finalizing: computing folder sizes…",
-            FilesScanned   = fileCount,
-            FoldersScanned = folderCount,
-            BytesScanned   = totalBytes,
-            ErrorCount     = 0,
-            IsComplete     = false,
-        });
+            // ── C2 fix: kill process tree on cancellation ────────────────
+            await KillProcessSafelyAsync(process);
 
-        var allFolders = await _repo.GetAllFolderPathsForSessionAsync(session.Id, cancellationToken);
-        var patchedFolders = allFolders
-            .Select(f => f with { DirectSizeBytes = parentSizes.GetValueOrDefault(f.FullPath, 0L) })
-            .ToList();
-        var totals = FolderSizeAggregator.Compute(patchedFolders);
-        await _repo.UpdateFolderTotalsAsync(session.Id, totals, cancellationToken);
-
-        if (errors.Count > 0 && _errorRepo is not null)
-            await _errorRepo.LogErrorsAsync(session.Id, errors, cancellationToken);
-
-        var completed = session with
+            var cancelled = session with
+            {
+                Status       = ScanStatus.Cancelled,
+                CompletedUtc = DateTime.UtcNow,
+            };
+            await _repo.UpdateSessionAsync(cancelled, CancellationToken.None);
+            _logger.LogWarning("Turbo scan {Id} cancelled — process killed", session.Id);
+            return cancelled;
+        }
+        catch (Exception ex)
         {
-            Status         = ScanStatus.Completed,
-            CompletedUtc   = DateTime.UtcNow,
-            TotalFiles     = fileCount,
-            TotalFolders   = folderCount,
-            TotalSizeBytes = totalBytes,
-        };
-        await _repo.UpdateSessionAsync(completed, cancellationToken);
+            // ── C2 fix: kill process tree on unexpected failure ──────────
+            await KillProcessSafelyAsync(process);
 
-        progress.Report(new ScanProgress
+            _logger.LogError(ex, "Turbo scan {Id} failed", session.Id);
+            var failed = session with
+            {
+                Status       = ScanStatus.Failed,
+                CompletedUtc = DateTime.UtcNow,
+                ErrorMessage = ex.Message,
+            };
+            await _repo.UpdateSessionAsync(failed, CancellationToken.None);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Kills the process if still running, awaits exit, and suppresses any
+    /// errors from an already-exited process. Uses Kill(entireProcessTree: true)
+    /// to clean up any child processes spawned by turbo-scanner.
+    /// </summary>
+    private static async Task KillProcessSafelyAsync(Process process)
+    {
+        try
         {
-            CurrentPath    = lastPath,
-            FilesScanned   = fileCount,
-            FoldersScanned = folderCount,
-            BytesScanned   = totalBytes,
-            ErrorCount     = 0,
-            IsComplete     = true,
-        });
-
-        _logger.LogInformation("Turbo scan {Id} complete. Files={F} Size={S}", session.Id, fileCount, totalBytes);
-        return completed;
+            if (!process.HasExited)
+            {
+                process.Kill(entireProcessTree: true);
+                await process.WaitForExitAsync(CancellationToken.None).ConfigureAwait(false);
+            }
+        }
+        catch (InvalidOperationException) { /* already exited */ }
+        catch (SystemException) { /* process handle invalid */ }
     }
 
     public IAsyncEnumerable<FileEntry> GetLargestFilesAsync(

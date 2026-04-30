@@ -187,8 +187,14 @@ public sealed class FileDeleter : IFileDeleter
             foreach (var path in paths)
             {
                 var item = FileOperationInterop.CreateShellItem(path);
-                fo.DeleteItem(item, IntPtr.Zero);
-                Marshal.ReleaseComObject(item);
+                try
+                {
+                    fo.DeleteItem(item, IntPtr.Zero);
+                }
+                finally
+                {
+                    Marshal.ReleaseComObject(item);
+                }
             }
 
             int hr = fo.PerformOperations();
@@ -205,12 +211,58 @@ public sealed class FileDeleter : IFileDeleter
         }
     }
 
-    private static void DeletePermanently(string path)
+    /// <summary>
+    /// Permanently deletes a file or directory. Junction/symlink-safe:
+    /// reparse points are removed as links only — their targets are NOT
+    /// recursively deleted. This prevents destroying data outside the
+    /// intended directory tree.
+    /// </summary>
+    internal static void DeletePermanently(string path)
     {
         if (Directory.Exists(path))
-            Directory.Delete(path, recursive: true);
+        {
+            // If the directory itself is a reparse point (junction/symlink),
+            // delete the link only — never recurse into the target.
+            if (IsReparsePoint(path))
+            {
+                Directory.Delete(path, recursive: false);
+                return;
+            }
+            DeleteDirectoryRecursiveSafe(path);
+        }
         else
+        {
             File.Delete(path);
+        }
+    }
+
+    /// <summary>
+    /// Recursive directory delete that skips into reparse-point subdirectories,
+    /// removing them as links only.
+    /// </summary>
+    private static void DeleteDirectoryRecursiveSafe(string dir)
+    {
+        foreach (var subDir in Directory.EnumerateDirectories(dir))
+        {
+            if (IsReparsePoint(subDir))
+                Directory.Delete(subDir, recursive: false); // remove link, not target
+            else
+                DeleteDirectoryRecursiveSafe(subDir);
+        }
+
+        foreach (var file in Directory.EnumerateFiles(dir))
+            File.Delete(file);
+
+        Directory.Delete(dir, recursive: false);
+    }
+
+    private static bool IsReparsePoint(string path)
+    {
+        try
+        {
+            return (File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0;
+        }
+        catch { return false; }
     }
 
     private DeletionOutcome EmptyRecycleBin()

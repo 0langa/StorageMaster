@@ -91,13 +91,14 @@ public sealed class StorageDbContext : IAsyncDisposable
             _logger.LogInformation("Migrating schema from v{Current} to v{Target}",
                 current, DatabaseSchema.CurrentVersion);
 
+            // Each migration level is applied in its own transaction that also
+            // stamps the schema version — so a crash mid-migration never leaves
+            // the DB in an ambiguous state.
             if (current < 1)
-                await ApplyStatementsAsync(conn, DatabaseSchema.V1Statements, ct);
+                await ApplyMigrationAsync(conn, DatabaseSchema.V1Statements, 1, ct);
 
             if (current < 2)
-                await ApplyStatementsAsync(conn, DatabaseSchema.V2Statements, ct);
-
-            await SetSchemaVersionAsync(conn, DatabaseSchema.CurrentVersion, ct);
+                await ApplyMigrationAsync(conn, DatabaseSchema.V2Statements, 2, ct);
         }
     }
 
@@ -114,28 +115,32 @@ public sealed class StorageDbContext : IAsyncDisposable
         catch { return 0; }
     }
 
-    private static async Task SetSchemaVersionAsync(SqliteConnection conn, int version, CancellationToken ct)
-    {
-        using var cmd = conn.CreateCommand();
-        cmd.CommandText = "INSERT INTO SchemaVersion (Version, AppliedUtc) VALUES ($v, $t);";
-        cmd.Parameters.AddWithValue("$v", version);
-        cmd.Parameters.AddWithValue("$t", DateTime.UtcNow.ToString("O"));
-        await cmd.ExecuteNonQueryAsync(ct);
-    }
-
-    private static async Task ApplyStatementsAsync(
+    /// <summary>
+    /// Applies DDL statements AND stamps the schema version in one atomic
+    /// transaction. If the app crashes mid-migration, the version is not
+    /// stamped and the migration will re-run cleanly on next launch.
+    /// </summary>
+    private static async Task ApplyMigrationAsync(
         SqliteConnection conn,
         string[]         statements,
+        int              version,
         CancellationToken ct)
     {
         using var tx = await conn.BeginTransactionAsync(ct);
         foreach (var sql in statements)
         {
             using var cmd = conn.CreateCommand();
-            cmd.CommandText    = sql;
-            cmd.Transaction    = (SqliteTransaction)tx;
+            cmd.CommandText = sql;
+            cmd.Transaction = (SqliteTransaction)tx;
             await cmd.ExecuteNonQueryAsync(ct);
         }
+        // Stamp version inside the same transaction — atomic with DDL.
+        using var stampCmd = conn.CreateCommand();
+        stampCmd.CommandText = "INSERT INTO SchemaVersion (Version, AppliedUtc) VALUES ($v, $t);";
+        stampCmd.Transaction = (SqliteTransaction)tx;
+        stampCmd.Parameters.AddWithValue("$v", version);
+        stampCmd.Parameters.AddWithValue("$t", DateTime.UtcNow.ToString("O"));
+        await stampCmd.ExecuteNonQueryAsync(ct);
         await tx.CommitAsync(ct);
     }
 

@@ -110,8 +110,20 @@ public sealed partial class SettingsViewModel : ObservableObject
     [ObservableProperty] private string       _updateStatusMessage = string.Empty;
     [ObservableProperty] private UpdateInfo?  _availableUpdate;
 
-    partial void OnIsCheckingForUpdatesChanged(bool value)   => OnPropertyChanged(nameof(CanCheckForUpdates));
-    partial void OnIsDownloadingUpdateChanged(bool value)    => OnPropertyChanged(nameof(CanDownloadAndInstall));
+    partial void OnIsCheckingForUpdatesChanged(bool value)
+    {
+        OnPropertyChanged(nameof(CanCheckForUpdates));
+        OnPropertyChanged(nameof(CanDownloadAndInstall));
+        NotifyUpdateCommandStates();
+    }
+
+    partial void OnIsDownloadingUpdateChanged(bool value)
+    {
+        OnPropertyChanged(nameof(CanCheckForUpdates));
+        OnPropertyChanged(nameof(CanDownloadAndInstall));
+        NotifyUpdateCommandStates();
+    }
+
     partial void OnUpdateStatusMessageChanged(string value)  => OnPropertyChanged(nameof(HasUpdateStatusMessage));
     partial void OnAvailableUpdateChanged(UpdateInfo? value)
     {
@@ -119,6 +131,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         OnPropertyChanged(nameof(UpdateAvailableText));
         OnPropertyChanged(nameof(ReleaseNotesUri));
         OnPropertyChanged(nameof(CanDownloadAndInstall));
+        NotifyUpdateCommandStates();
     }
 
     public bool   CanCheckForUpdates    => !IsCheckingForUpdates && !IsDownloadingUpdate;
@@ -329,7 +342,7 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     // ── Update commands ───────────────────────────────────────────────────────
 
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(CanCheckForUpdates))]
     private async Task CheckForUpdatesAsync()
     {
         IsCheckingForUpdates = true;
@@ -356,7 +369,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         }
     }
 
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(CanDownloadAndInstall))]
     private async Task DownloadAndInstallAsync()
     {
         if (AvailableUpdate is null) return;
@@ -429,6 +442,12 @@ public sealed partial class SettingsViewModel : ObservableObject
     private void CancelDownload()
     {
         _downloadCts?.Cancel();
+    }
+
+    private void NotifyUpdateCommandStates()
+    {
+        CheckForUpdatesCommand.NotifyCanExecuteChanged();
+        DownloadAndInstallCommand.NotifyCanExecuteChanged();
     }
 
     [RelayCommand]

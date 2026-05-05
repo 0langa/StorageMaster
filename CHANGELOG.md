@@ -4,6 +4,15 @@ All notable changes to StorageMaster are documented here.
 
 ---
 
+## [1.7.2] — 2026-05-06 — Updater Button Fix
+
+### Fixed
+
+- Fixed Settings update check state so **Download & Install** re-enables after a compatible update is found.
+- Added updater command `CanExecute` guards so update buttons stay synchronized during checks and downloads.
+
+---
+
 ## [1.7.1] — 2026-05-06 — Duplicates Crash Fix
 
 ### Fixed

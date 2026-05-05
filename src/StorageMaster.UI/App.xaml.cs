@@ -104,6 +104,13 @@ public partial class App : Application
         services.AddSingleton<ICleanupRule>(sp => new UninstalledProgramLeftoversRule(
             sp.GetRequiredService<IInstalledProgramProvider>()));
         services.AddSingleton<ICleanupRule, LargeOldFilesCleanupRule>();
+        services.AddSingleton<ICleanupRule, ThumbnailCacheRule>();
+        services.AddSingleton<ICleanupRule, IconCacheRule>();
+        services.AddSingleton<ICleanupRule, FontCacheRule>();
+        services.AddSingleton<ICleanupRule, DnsClientCacheRule>();
+        services.AddSingleton<ICleanupRule>(sp => new PrefetchFilesRule(
+            sp.GetRequiredService<IAdminService>()));
+        services.AddSingleton<ICleanupRule, MicrosoftStoreLogsRule>();
 
         services.AddSingleton<ICleanupEngine, CleanupEngine>();
 

@@ -15,4 +15,10 @@ public enum CleanupCategory
     DeliveryOptimization,
     WindowsErrorReporting,
     Custom,
+    ThumbnailCache,
+    IconCache,
+    FontCache,
+    DnsCache,
+    PrefetchFiles,
+    StoreLogs,
 }

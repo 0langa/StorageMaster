@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Microsoft.Extensions.Logging;
@@ -53,6 +54,9 @@ public sealed class FileDeleter : IFileDeleter
         if (request.Path == "::RecycleBin::")
             return EmptyRecycleBin();
 
+        if (request.Path == "::DnsFlush::")
+            return await FlushDnsCacheAsync();
+
         try
         {
             long size = EstimateSize(request.Path);
@@ -79,7 +83,8 @@ public sealed class FileDeleter : IFileDeleter
         // ── Fast path: batch all RecycleBin real deletions in one shell call ──
         // This is the common cleanup case and is dramatically faster than N calls.
         bool allRecycleBin = requests.All(r => !r.DryRun && r.Method == DeletionMethod.RecycleBin
-                                                          && r.Path != "::RecycleBin::");
+                                                          && r.Path != "::RecycleBin::"
+                                                          && r.Path != "::DnsFlush::");
         if (allRecycleBin && requests.Count > 1)
         {
             await foreach (var o in BatchRecycleBinAsync(requests, cancellationToken))
@@ -263,6 +268,28 @@ public sealed class FileDeleter : IFileDeleter
             return (File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0;
         }
         catch { return false; }
+    }
+
+    private async Task<DeletionOutcome> FlushDnsCacheAsync()
+    {
+        try
+        {
+            var psi = new ProcessStartInfo("ipconfig", "/flushdns")
+            {
+                UseShellExecute        = false,
+                CreateNoWindow         = true,
+                RedirectStandardOutput = true,
+            };
+            using var proc = Process.Start(psi)!;
+            await proc.WaitForExitAsync();
+            _logger.LogInformation("DNS cache flushed (exit code {Code})", proc.ExitCode);
+            return new DeletionOutcome("::DnsFlush::", proc.ExitCode == 0, 0);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to flush DNS cache");
+            return new DeletionOutcome("::DnsFlush::", false, 0, ex.Message);
+        }
     }
 
     private DeletionOutcome EmptyRecycleBin()

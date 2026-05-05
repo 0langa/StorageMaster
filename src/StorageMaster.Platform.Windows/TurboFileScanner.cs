@@ -1,6 +1,8 @@
 using System.Diagnostics;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Threading.Channels;
 using Microsoft.Extensions.Logging;
 using StorageMaster.Core.Interfaces;
 using StorageMaster.Core.Models;
@@ -17,8 +19,13 @@ namespace StorageMaster.Platform.Windows;
 /// than the managed FileScanner on multi-core systems with SSDs.
 ///
 /// Data flow:
-///   C# spawns turbo-scanner.exe → reads JSONL from stdout line-by-line →
-///   batches FileEntry objects → inserts to database → reports progress.
+///   C# spawns turbo-scanner.exe → reads JSONL from stdout (1 MB buffer) →
+///   producer writes to Channel → consumer batches + inserts to database.
+///
+/// The producer and consumer run concurrently so the stdout pipe is never
+/// blocked waiting for a DB insert to finish. Previously, awaiting DB inserts
+/// inside the read loop caused the 64 KB Windows pipe buffer to fill, stalling
+/// the Rust process and negating its parallelism advantage.
 ///
 /// Falls back gracefully to the managed FileScanner if the binary is not
 /// found alongside the executable (e.g. during local F5 debug runs without
@@ -77,15 +84,21 @@ public sealed class TurboFileScanner : IFileScanner
             RedirectStandardError  = true,
             UseShellExecute     = false,
             CreateNoWindow      = true,
+            // Disable the default StreamReader wrapping — we create our own with a 1 MB buffer below.
+            StandardOutputEncoding = Encoding.UTF8,
         };
 
         using var process = new Process { StartInfo = psi };
         process.Start();
 
+        // Pre-compute the exclusion list once so the producer hot-loop does no allocation per record.
+        var sortedExclusions = options.ExcludedPaths
+            .OrderBy(p => p, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
         try
         {
             // Drain stderr in background so the process never blocks on a full pipe.
-            // Use CancellationToken.None — we always want to drain stderr even on cancel.
             var stderrTask = Task.Run(async () =>
             {
                 try
@@ -94,38 +107,69 @@ public sealed class TurboFileScanner : IFileScanner
                         _logger.LogDebug("[turbo-scanner] {Line}", line);
                 }
                 catch (OperationCanceledException) { /* process killed */ }
-                catch (ObjectDisposedException) { /* process disposed */ }
+                catch (ObjectDisposedException)    { /* process disposed */ }
             }, CancellationToken.None);
+
+            // ── Channel: decouples stdout reading from DB inserts ─────────────
+            // Bounded at 2000 records so the producer can run ahead without
+            // unbounded memory growth, while never blocking long enough for
+            // the pipe buffer to fill (DB inserts are fast at batch size 500).
+            var pipe = Channel.CreateBounded<TurboRecord>(new BoundedChannelOptions(2000)
+            {
+                SingleWriter = true,
+                SingleReader = true,
+                FullMode     = BoundedChannelFullMode.Wait,
+            });
 
             long fileCount   = 0;
             long folderCount = 0;
             long totalBytes  = 0;
             string lastPath  = string.Empty;
 
+            // ── Producer: read stdout at full speed, never awaits DB ──────────
+            var producer = Task.Run(async () =>
+            {
+                // 1 MB StreamReader buffer keeps the pipe draining fast.
+                // process.StandardOutput.BaseStream is the raw pipe — we wrap it
+                // ourselves instead of using the 4 KB default StreamReader.
+                using var stdoutReader = new StreamReader(
+                    process.StandardOutput.BaseStream,
+                    encoding: Encoding.UTF8,
+                    detectEncodingFromByteOrderMarks: false,
+                    bufferSize: 1_048_576,
+                    leaveOpen: true);
+                try
+                {
+                    while (await stdoutReader.ReadLineAsync(cancellationToken) is { } line)
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+
+                        TurboRecord? rec;
+                        try { rec = JsonSerializer.Deserialize<TurboRecord>(line, JsonOpts); }
+                        catch { continue; }
+                        if (rec is null) continue;
+
+                        if (!options.DeepScan && IsExcluded(rec.Path, sortedExclusions)) continue;
+
+                        await pipe.Writer.WriteAsync(rec, cancellationToken);
+                    }
+                }
+                finally
+                {
+                    pipe.Writer.Complete();
+                }
+            }, cancellationToken);
+
+            // ── Consumer: batch + DB insert — runs concurrently with producer ─
             var fileBuffer   = new List<FileEntry>(500);
             var folderBuffer = new List<FolderEntry>(100);
-            var errors       = new List<ScanError>();
+            var parentSizes  = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
+            var stopwatch    = Stopwatch.StartNew();
 
-            // Accumulates the sum of file sizes directly inside each folder path.
-            // Used post-scan to populate DirectSizeBytes before running FolderSizeAggregator.
-            var parentSizes = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
-
-            var stopwatch = Stopwatch.StartNew();
-
-            await Task.Run(async () =>
+            var consumer = Task.Run(async () =>
             {
-                while (await process.StandardOutput.ReadLineAsync(cancellationToken) is { } line)
+                await foreach (var rec in pipe.Reader.ReadAllAsync(cancellationToken))
                 {
-                    cancellationToken.ThrowIfCancellationRequested();
-
-                    TurboRecord? rec;
-                    try { rec = JsonSerializer.Deserialize<TurboRecord>(line, JsonOpts); }
-                    catch { continue; }
-                    if (rec is null) continue;
-
-                    // Skip paths covered by the excluded list.
-                    if (!options.DeepScan && IsExcluded(rec.Path, options)) continue;
-
                     lastPath = rec.Path;
 
                     if (rec.IsDir)
@@ -136,7 +180,7 @@ public sealed class TurboFileScanner : IFileScanner
                             SessionId       = session.Id,
                             FullPath        = rec.Path,
                             FolderName      = Path.GetFileName(rec.Path) ?? rec.Path,
-                            DirectSizeBytes = 0,   // patched post-scan via parentSizes
+                            DirectSizeBytes = 0,
                             TotalSizeBytes  = 0,
                             FileCount       = 0,
                             SubFolderCount  = 0,
@@ -160,24 +204,23 @@ public sealed class TurboFileScanner : IFileScanner
 
                         var fe = new FileEntry
                         {
-                            Id            = 0,
-                            SessionId     = session.Id,
-                            FullPath      = rec.Path,
-                            FileName      = Path.GetFileName(rec.Path),
-                            Extension     = ext,
-                            SizeBytes     = (long)rec.Size,
-                            CreatedUtc    = createUtc,
-                            ModifiedUtc   = modUtc,
-                            AccessedUtc   = modUtc,
-                            Attributes    = FileAttributes.Normal,
-                            Category      = FileTypeCategorizor.Categorize(ext),
+                            Id             = 0,
+                            SessionId      = session.Id,
+                            FullPath       = rec.Path,
+                            FileName       = Path.GetFileName(rec.Path),
+                            Extension      = ext,
+                            SizeBytes      = (long)rec.Size,
+                            CreatedUtc     = createUtc,
+                            ModifiedUtc    = modUtc,
+                            AccessedUtc    = modUtc,
+                            Attributes     = FileAttributes.Normal,
+                            Category       = FileTypeCategorizor.Categorize(ext),
                             IsReparsePoint = false,
                         };
                         fileBuffer.Add(fe);
                         fileCount++;
                         totalBytes += (long)rec.Size;
 
-                        // Accumulate file size into its parent directory bucket.
                         var parentDir = Path.GetDirectoryName(rec.Path);
                         if (parentDir is not null)
                             parentSizes[parentDir] = parentSizes.GetValueOrDefault(parentDir) + (long)rec.Size;
@@ -205,27 +248,29 @@ public sealed class TurboFileScanner : IFileScanner
                     }
                 }
 
-                // Flush remaining buffers.
+                // Flush remaining buffers after the channel is drained.
                 if (fileBuffer.Count   > 0) await _repo.InsertFileEntriesAsync([..fileBuffer], cancellationToken);
                 if (folderBuffer.Count > 0) await _repo.UpsertFolderEntriesAsync([..folderBuffer], cancellationToken);
 
             }, cancellationToken);
 
+            // Run producer and consumer concurrently — this is the key fix.
+            await Task.WhenAll(producer, consumer);
+
             await process.WaitForExitAsync(CancellationToken.None);
             await stderrTask;
 
-            // ── C3 fix: treat non-zero exit code as failure ──────────────────
             if (process.ExitCode != 0)
             {
                 _logger.LogError("turbo-scanner.exe exited with code {ExitCode}", process.ExitCode);
 
                 var failed = session with
                 {
-                    Status       = ScanStatus.Failed,
-                    CompletedUtc = DateTime.UtcNow,
-                    ErrorMessage = $"turbo-scanner.exe exited with code {process.ExitCode}",
-                    TotalFiles   = fileCount,
-                    TotalFolders = folderCount,
+                    Status         = ScanStatus.Failed,
+                    CompletedUtc   = DateTime.UtcNow,
+                    ErrorMessage   = $"turbo-scanner.exe exited with code {process.ExitCode}",
+                    TotalFiles     = fileCount,
+                    TotalFolders   = folderCount,
                     TotalSizeBytes = totalBytes,
                 };
                 await _repo.UpdateSessionAsync(failed, CancellationToken.None);
@@ -250,8 +295,10 @@ public sealed class TurboFileScanner : IFileScanner
             var totals = FolderSizeAggregator.Compute(patchedFolders);
             await _repo.UpdateFolderTotalsAsync(session.Id, totals, cancellationToken);
 
-            if (errors.Count > 0 && _errorRepo is not null)
-                await _errorRepo.LogErrorsAsync(session.Id, errors, cancellationToken);
+            if (_errorRepo is not null)
+            {
+                // No errors list from Rust (errors go to stderr only); nothing to log here.
+            }
 
             var completed = session with
             {
@@ -278,7 +325,6 @@ public sealed class TurboFileScanner : IFileScanner
         }
         catch (OperationCanceledException)
         {
-            // ── C2 fix: kill process tree on cancellation ────────────────
             await KillProcessSafelyAsync(process);
 
             var cancelled = session with
@@ -292,7 +338,6 @@ public sealed class TurboFileScanner : IFileScanner
         }
         catch (Exception ex)
         {
-            // ── C2 fix: kill process tree on unexpected failure ──────────
             await KillProcessSafelyAsync(process);
 
             _logger.LogError(ex, "Turbo scan {Id} failed", session.Id);
@@ -338,9 +383,19 @@ public sealed class TurboFileScanner : IFileScanner
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    private static bool IsExcluded(string path, ScanOptions options) =>
-        options.ExcludedPaths.Any(ex =>
-            path.StartsWith(ex, StringComparison.OrdinalIgnoreCase));
+    /// <summary>
+    /// Checks whether <paramref name="path"/> starts with any of the sorted
+    /// exclusion prefixes. Called on the producer hot-loop — kept allocation-free.
+    /// </summary>
+    private static bool IsExcluded(string path, string[] sortedExclusions)
+    {
+        foreach (var ex in sortedExclusions)
+        {
+            if (path.StartsWith(ex, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+        return false;
+    }
 
     private sealed class TurboRecord
     {

@@ -31,4 +31,12 @@ public sealed class AppSettings
     public bool   CleanWindowsErrorReports  { get; set; } = true;
     public bool   CleanProgramLeftovers     { get; set; } = true;
     public bool   CleanLargeOldFiles        { get; set; } = false;   // off by default — higher risk
+
+    // ── New cleanup rule toggles ─────────────────────────────────────────────
+    public bool   CleanThumbnailCache  { get; set; } = true;
+    public bool   CleanIconCache       { get; set; } = true;
+    public bool   CleanFontCache       { get; set; } = false;  // rebuilds on boot, opt-in
+    public bool   CleanDnsCache        { get; set; } = true;
+    public bool   CleanPrefetchFiles   { get; set; } = false;  // medium risk, needs elevation, opt-in
+    public bool   CleanStoreLogs       { get; set; } = true;
 }

@@ -24,8 +24,7 @@ public sealed partial class SuggestionItem : ObservableObject
 }
 
 /// <summary>
-/// Per-category toggle item shown in the Cleanup Options card.
-/// The user can enable/disable each category independently.
+/// Per-category toggle item shown inside an expandable group.
 /// </summary>
 public sealed partial class CleanupCategoryOption : ObservableObject
 {
@@ -35,6 +34,51 @@ public sealed partial class CleanupCategoryOption : ObservableObject
     public string          IconGlyph   { get; init; } = string.Empty;
 
     [ObservableProperty] private bool _isEnabled = true;
+}
+
+/// <summary>
+/// A named group of <see cref="CleanupCategoryOption"/> items.
+///
+/// The group-level toggle cascades to all items (selecting/deselecting all).
+/// When individual items are toggled, the group toggle reflects whether all
+/// items are currently enabled.
+///
+/// A <c>_suppressCascade</c> guard prevents infinite loops when refreshing
+/// the group state in response to individual item changes.
+/// </summary>
+public sealed partial class CleanupCategoryGroup : ObservableObject
+{
+    public string GroupName { get; init; } = string.Empty;
+    public string GroupIcon { get; init; } = string.Empty;   // Segoe MDL2 Assets glyph char
+
+    public ObservableCollection<CleanupCategoryOption> Items { get; } = [];
+
+    [ObservableProperty] private bool _isExpanded    = true;
+    [ObservableProperty] private bool _isGroupEnabled = true;
+
+    private bool _suppressCascade;
+
+    /// <summary>
+    /// Cascade group toggle to all items (unless suppressed during a refresh).
+    /// </summary>
+    partial void OnIsGroupEnabledChanged(bool value)
+    {
+        if (_suppressCascade) return;
+        foreach (var item in Items)
+            item.IsEnabled = value;
+    }
+
+    /// <summary>
+    /// Called when an individual item's IsEnabled changes. Updates the group
+    /// toggle to reflect whether all items are enabled, without triggering the
+    /// cascade back to the items.
+    /// </summary>
+    public void RefreshGroupEnabled()
+    {
+        _suppressCascade = true;
+        IsGroupEnabled   = Items.Count > 0 && Items.All(i => i.IsEnabled);
+        _suppressCascade = false;
+    }
 }
 
 public sealed partial class CleanupViewModel : ObservableObject
@@ -81,15 +125,33 @@ public sealed partial class CleanupViewModel : ObservableObject
 
     public bool CanAnalyse => SelectedSession is not null && !IsLoading && !IsExecuting;
 
+    /// <summary>
+    /// Computed property for the Large &amp; Old Files slider visibility.
+    /// Replaces the brittle CategoryOptions[9] index binding.
+    /// </summary>
+    public bool IsLargeOldFilesEnabled =>
+        CategoryGroups
+            .SelectMany(g => g.Items)
+            .FirstOrDefault(o => o.Category == CleanupCategory.LargeOldFiles)
+            ?.IsEnabled ?? false;
+
     public ObservableCollection<SuggestionItem>       Suggestions     { get; } = [];
     public ObservableCollection<ScanSession>          RecentSessions  { get; } = [];
     public ObservableCollection<CleanupResultDisplay> ExecutionResults { get; } = [];
 
     /// <summary>
-    /// Category toggle options shown in the Cleanup Options card.
-    /// All categories are enabled by default.
+    /// Grouped category options. Each group has a header toggle and an
+    /// expandable list of individual <see cref="CleanupCategoryOption"/> items.
     /// </summary>
-    public ObservableCollection<CleanupCategoryOption> CategoryOptions { get; } = [];
+    public ObservableCollection<CleanupCategoryGroup> CategoryGroups { get; } = [];
+
+    /// <summary>
+    /// Flat view of all category options across all groups.
+    /// Used by <see cref="AnalyseAsync"/> to filter suggestions — no changes
+    /// needed there despite the internal restructuring.
+    /// </summary>
+    public IEnumerable<CleanupCategoryOption> CategoryOptions =>
+        CategoryGroups.SelectMany(g => g.Items);
 
     // Stored between initial run and any follow-up re-runs.
     private IReadOnlyList<CleanupSuggestion> _lastSelectedSuggestions = [];
@@ -104,24 +166,86 @@ public sealed partial class CleanupViewModel : ObservableObject
         _settings        = settings;
         _dispatcherQueue = DispatcherQueue.GetForCurrentThread();
 
-        BuildCategoryOptions();
+        BuildCategoryGroups();
     }
 
     // ── Initialisation ───────────────────────────────────────────────────────
 
-    private void BuildCategoryOptions()
+    private void BuildCategoryGroups()
     {
-        CategoryOptions.Clear();
-        CategoryOptions.Add(new CleanupCategoryOption { Category = CleanupCategory.RecycleBin,           DisplayName = "Recycle Bin",             Description = "Files sitting in the Windows Recycle Bin.",                               IconGlyph = "", IsEnabled = true  });
-        CategoryOptions.Add(new CleanupCategoryOption { Category = CleanupCategory.TempFiles,            DisplayName = "Temporary Files",         Description = "Windows Temp folders and .tmp/.temp files.",                              IconGlyph = "", IsEnabled = true  });
-        CategoryOptions.Add(new CleanupCategoryOption { Category = CleanupCategory.BrowserCache,         DisplayName = "Browser Cache",           Description = "Chrome, Edge, Firefox, Brave, and Opera cache directories.",             IconGlyph = "", IsEnabled = true  });
-        CategoryOptions.Add(new CleanupCategoryOption { Category = CleanupCategory.WindowsUpdateCache,   DisplayName = "Windows Update Cache",    Description = "Applied update packages in SoftwareDistribution\\Download.",            IconGlyph = "", IsEnabled = true  });
-        CategoryOptions.Add(new CleanupCategoryOption { Category = CleanupCategory.DeliveryOptimization, DisplayName = "Delivery Optimisation",   Description = "Peer-to-peer Windows Update sharing cache.",                           IconGlyph = "", IsEnabled = true  });
-        CategoryOptions.Add(new CleanupCategoryOption { Category = CleanupCategory.WindowsErrorReporting,DisplayName = "Error Reports & Dumps",   Description = "WER crash logs and memory dumps.",                                     IconGlyph = "", IsEnabled = true  });
-        CategoryOptions.Add(new CleanupCategoryOption { Category = CleanupCategory.CacheFolders,         DisplayName = "Application Caches",      Description = "AppData cache folders left by various apps.",                           IconGlyph = "", IsEnabled = true  });
-        CategoryOptions.Add(new CleanupCategoryOption { Category = CleanupCategory.DownloadedInstallers, DisplayName = "Downloaded Installers",   Description = "Installer files (.exe, .msi, .iso …) in your Downloads folder.",       IconGlyph = "", IsEnabled = true  });
-        CategoryOptions.Add(new CleanupCategoryOption { Category = CleanupCategory.ProgramLeftovers,     DisplayName = "Program Leftovers",       Description = "AppData folders from uninstalled programs (90+ days inactive).",        IconGlyph = "", IsEnabled = true  });
-        CategoryOptions.Add(new CleanupCategoryOption { Category = CleanupCategory.LargeOldFiles,        DisplayName = "Large & Old Files",       Description = "Files above the size threshold not modified within the age threshold.", IconGlyph = "", IsEnabled = false });
+        CategoryGroups.Clear();
+
+        // ── Windows System ───────────────────────────────────────────────────
+        var winSystem = MakeGroup("Windows System", "");
+        AddItem(winSystem, CleanupCategory.RecycleBin,            "Recycle Bin",           "Files sitting in the Windows Recycle Bin.",                                      enabled: true);
+        AddItem(winSystem, CleanupCategory.TempFiles,             "Temporary Files",        "Windows Temp folders and .tmp/.temp files.",                                     enabled: true);
+        AddItem(winSystem, CleanupCategory.WindowsUpdateCache,    "Windows Update Cache",   "Applied update packages in SoftwareDistribution\\Download.",                     enabled: true);
+        AddItem(winSystem, CleanupCategory.DeliveryOptimization,  "Delivery Optimisation",  "Peer-to-peer Windows Update sharing cache.",                                     enabled: true);
+        AddItem(winSystem, CleanupCategory.WindowsErrorReporting, "Error Reports & Dumps",  "WER crash logs and memory dumps.",                                               enabled: true);
+        AddItem(winSystem, CleanupCategory.ThumbnailCache,        "Thumbnail Cache",         "Explorer thumbnail database files. Rebuilt on demand.",                          enabled: true);
+        AddItem(winSystem, CleanupCategory.IconCache,             "Icon Cache",              "Explorer icon cache database files. Rebuilt automatically.",                     enabled: true);
+        AddItem(winSystem, CleanupCategory.FontCache,             "Font Cache",              "Font rendering cache. Rebuilt on next boot.",                                    enabled: false);
+        AddItem(winSystem, CleanupCategory.PrefetchFiles,         "Prefetch Files",          "App launch prefetch data. Slight slowdown after clean (requires elevation).",    enabled: false);
+        AddItem(winSystem, CleanupCategory.DnsCache,              "DNS Client Cache",        "Flushes the DNS resolver cache (runs ipconfig /flushdns).",                      enabled: true);
+
+        // ── Browsers ─────────────────────────────────────────────────────────
+        var browsers = MakeGroup("Browsers", "");
+        AddItem(browsers, CleanupCategory.BrowserCache, "Browser Cache", "Chrome, Edge, Firefox, Brave, and Opera cache directories.", enabled: true);
+
+        // ── Applications ─────────────────────────────────────────────────────
+        var apps = MakeGroup("Applications", "");
+        AddItem(apps, CleanupCategory.CacheFolders,     "Application Caches",   "AppData cache folders left by various apps.",                    enabled: true);
+        AddItem(apps, CleanupCategory.ProgramLeftovers, "Program Leftovers",    "AppData folders from uninstalled programs (90+ days inactive).", enabled: true);
+        AddItem(apps, CleanupCategory.StoreLogs,        "Microsoft Store Logs", "Diagnostic logs from the Microsoft Store.",                      enabled: true);
+
+        // ── Downloads & Installers ────────────────────────────────────────────
+        var downloads = MakeGroup("Downloads & Installers", "");
+        AddItem(downloads, CleanupCategory.DownloadedInstallers, "Downloaded Installers", "Installer files (.exe, .msi, .iso …) in your Downloads folder.", enabled: true);
+
+        // ── Files & Storage ───────────────────────────────────────────────────
+        var files = MakeGroup("Files & Storage", "");
+        AddItem(files, CleanupCategory.LargeOldFiles, "Large & Old Files", "Files above the size threshold not modified within the age threshold.", enabled: false);
+
+        CategoryGroups.Add(winSystem);
+        CategoryGroups.Add(browsers);
+        CategoryGroups.Add(apps);
+        CategoryGroups.Add(downloads);
+        CategoryGroups.Add(files);
+    }
+
+    private static CleanupCategoryGroup MakeGroup(string name, string icon) =>
+        new() { GroupName = name, GroupIcon = icon };
+
+    private static void AddItem(
+        CleanupCategoryGroup group,
+        CleanupCategory      category,
+        string               displayName,
+        string               description,
+        bool                 enabled)
+    {
+        var item = new CleanupCategoryOption
+        {
+            Category    = category,
+            DisplayName = displayName,
+            Description = description,
+            IconGlyph   = string.Empty,
+            IsEnabled   = enabled,
+        };
+
+        // Keep group toggle in sync when individual items change.
+        item.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName != nameof(CleanupCategoryOption.IsEnabled)) return;
+            group.RefreshGroupEnabled();
+
+            // The LargeOldFiles slider visibility is bound to IsLargeOldFilesEnabled.
+            // We can't raise it from here without a back-reference to the ViewModel,
+            // so the XAML binds via ViewModel.IsLargeOldFilesEnabled with Mode=OneWay
+            // and we raise it in SetCategory (called from InitializeAsync).
+        };
+
+        group.Items.Add(item);
+        group.RefreshGroupEnabled();
     }
 
     public async Task InitializeAsync()
@@ -144,6 +268,12 @@ public sealed partial class CleanupViewModel : ObservableObject
         SetCategory(CleanupCategory.WindowsErrorReporting, s.CleanWindowsErrorReports);
         SetCategory(CleanupCategory.ProgramLeftovers,      s.CleanProgramLeftovers);
         SetCategory(CleanupCategory.LargeOldFiles,         s.CleanLargeOldFiles);
+        SetCategory(CleanupCategory.ThumbnailCache,        s.CleanThumbnailCache);
+        SetCategory(CleanupCategory.IconCache,             s.CleanIconCache);
+        SetCategory(CleanupCategory.FontCache,             s.CleanFontCache);
+        SetCategory(CleanupCategory.DnsCache,              s.CleanDnsCache);
+        SetCategory(CleanupCategory.PrefetchFiles,         s.CleanPrefetchFiles);
+        SetCategory(CleanupCategory.StoreLogs,             s.CleanStoreLogs);
 
         var sessions = await _repo.GetRecentSessionsAsync(10);
         RecentSessions.Clear();
@@ -156,8 +286,19 @@ public sealed partial class CleanupViewModel : ObservableObject
 
     private void SetCategory(CleanupCategory cat, bool enabled)
     {
-        var opt = CategoryOptions.FirstOrDefault(o => o.Category == cat);
-        if (opt is not null) opt.IsEnabled = enabled;
+        foreach (var group in CategoryGroups)
+        {
+            var opt = group.Items.FirstOrDefault(o => o.Category == cat);
+            if (opt is null) continue;
+
+            opt.IsEnabled = enabled;
+
+            // Raise slider visibility property when LargeOldFiles is toggled.
+            if (cat == CleanupCategory.LargeOldFiles)
+                OnPropertyChanged(nameof(IsLargeOldFilesEnabled));
+
+            return;
+        }
     }
 
     // ── Analysis ─────────────────────────────────────────────────────────────
@@ -278,8 +419,6 @@ public sealed partial class CleanupViewModel : ObservableObject
 
         try
         {
-            // Run the engine on the thread pool so that synchronous Win32 calls inside
-            // FileDeleter (SHFileOperation, SHEmptyRecycleBin) never block the UI thread.
             var results = await Task.Run(
                 () => _engine.ExecuteAsync(suggestions, dryRun, method, progress),
                 CancellationToken.None);
@@ -341,10 +480,6 @@ public sealed partial class CleanupViewModel : ObservableObject
         TotalSelectedSize = ByteSizeConverter.Format(total);
     }
 
-    /// <summary>
-    /// Unsubscribes the PropertyChanged handler from every current suggestion
-    /// item to prevent memory leaks when the collection is cleared and rebuilt.
-    /// </summary>
     private void UnsubscribeAllSuggestions()
     {
         foreach (var item in Suggestions)

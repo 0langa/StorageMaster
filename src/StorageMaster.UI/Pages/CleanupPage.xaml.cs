@@ -25,6 +25,14 @@ public sealed partial class CleanupPage : Page
         await ViewModel.InitializeAsync();
     }
 
+    // ── Group expand/collapse ──────────────────────────────────────────────
+
+    private void GroupChevron_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button btn && btn.Tag is CleanupCategoryGroup group)
+            group.IsExpanded = !group.IsExpanded;
+    }
+
     // ── "Clean Up Selected…" button ────────────────────────────────────────
 
     private async void ExecuteButton_Click(object sender, RoutedEventArgs e)

@@ -12,6 +12,7 @@
         <converters:BoolToVisibilityConverter x:Key="BoolVis" />
         <converters:BoolToVisibilityConverter x:Key="InvBoolVis" Invert="True" />
         <converters:BoolNegationConverter     x:Key="NotBool" />
+        <converters:BoolToChevronConverter    x:Key="ChevronConv" />
     </Page.Resources>
 
     <ScrollViewer Padding="32,24">
@@ -44,7 +45,7 @@
                 </StackPanel>
             </Border>
 
-            <!-- ── Cleanup Options (toggle cards per category) ─────────────── -->
+            <!-- ── Cleanup Options (grouped, expandable categories) ────────── -->
             <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                     CornerRadius="8" Padding="20">
                 <StackPanel Spacing="14">
@@ -62,42 +63,87 @@
 
                     <TextBlock Text="Categories to include:" Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.7" />
 
-                    <!-- Category toggle cards -->
-                    <ListView ItemsSource="{x:Bind ViewModel.CategoryOptions}"
-                              SelectionMode="None"
-                              IsItemClickEnabled="False">
-                        <ListView.ItemContainerStyle>
-                            <Style TargetType="ListViewItem">
-                                <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-                                <Setter Property="Padding" Value="0,3" />
-                            </Style>
-                        </ListView.ItemContainerStyle>
-                        <ListView.ItemTemplate>
-                            <DataTemplate x:DataType="local:CleanupCategoryOption">
+                    <!-- ── Grouped category list ──────────────────────────── -->
+                    <ItemsControl ItemsSource="{x:Bind ViewModel.CategoryGroups}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="local:CleanupCategoryGroup">
                                 <Border Background="{ThemeResource ControlFillColorDefaultBrush}"
-                                        CornerRadius="6" Padding="12,10">
-                                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
-                                        <!-- Toggle on left, directly beside the label -->
-                                        <ToggleSwitch Grid.Column="0"
-                                                      IsOn="{x:Bind IsEnabled, Mode=TwoWay}"
-                                                      VerticalAlignment="Center"
-                                                      OnContent="" OffContent=""
-                                                      MinWidth="0" />
-                                        <StackPanel Grid.Column="1" VerticalAlignment="Center">
-                                            <TextBlock Text="{x:Bind DisplayName}" FontWeight="SemiBold" />
-                                            <TextBlock Text="{x:Bind Description}"
-                                                       Style="{StaticResource CaptionTextBlockStyle}"
-                                                       Opacity="0.65" TextWrapping="Wrap" />
-                                        </StackPanel>
-                                    </Grid>
+                                        CornerRadius="6" Margin="0,3" Padding="0">
+                                    <StackPanel>
+
+                                        <!-- Group header row -->
+                                        <Grid ColumnDefinitions="Auto,*,Auto" Padding="12,10"
+                                              ColumnSpacing="8">
+                                            <!-- Chevron expand/collapse button -->
+                                            <Button Grid.Column="0"
+                                                    Content="{x:Bind IsExpanded, Mode=OneWay, Converter={StaticResource ChevronConv}}"
+                                                    Tag="{x:Bind}"
+                                                    Click="GroupChevron_Click"
+                                                    Background="Transparent"
+                                                    BorderBrush="Transparent"
+                                                    Padding="6,4"
+                                                    FontFamily="Segoe MDL2 Assets"
+                                                    FontSize="12"
+                                                    VerticalAlignment="Center" />
+
+                                            <!-- Group icon + name -->
+                                            <StackPanel Grid.Column="1"
+                                                        Orientation="Horizontal"
+                                                        Spacing="8"
+                                                        VerticalAlignment="Center">
+                                                <TextBlock Text="{x:Bind GroupIcon}"
+                                                           FontFamily="Segoe MDL2 Assets"
+                                                           FontSize="14"
+                                                           VerticalAlignment="Center"
+                                                           Opacity="0.75" />
+                                                <TextBlock Text="{x:Bind GroupName}"
+                                                           FontWeight="SemiBold"
+                                                           VerticalAlignment="Center" />
+                                            </StackPanel>
+
+                                            <!-- Group-level toggle -->
+                                            <ToggleSwitch Grid.Column="2"
+                                                          IsOn="{x:Bind IsGroupEnabled, Mode=TwoWay}"
+                                                          OnContent="" OffContent=""
+                                                          MinWidth="0"
+                                                          VerticalAlignment="Center" />
+                                        </Grid>
+
+                                        <!-- Expandable individual items -->
+                                        <ItemsControl ItemsSource="{x:Bind Items}"
+                                                      Padding="12,0,12,10"
+                                                      Visibility="{x:Bind IsExpanded, Mode=OneWay, Converter={StaticResource BoolVis}}">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate x:DataType="local:CleanupCategoryOption">
+                                                    <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                                            CornerRadius="6" Padding="12,10" Margin="0,3">
+                                                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
+                                                            <ToggleSwitch Grid.Column="0"
+                                                                          IsOn="{x:Bind IsEnabled, Mode=TwoWay}"
+                                                                          VerticalAlignment="Center"
+                                                                          OnContent="" OffContent=""
+                                                                          MinWidth="0" />
+                                                            <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                                                <TextBlock Text="{x:Bind DisplayName}" FontWeight="SemiBold" />
+                                                                <TextBlock Text="{x:Bind Description}"
+                                                                           Style="{StaticResource CaptionTextBlockStyle}"
+                                                                           Opacity="0.65" TextWrapping="Wrap" />
+                                                            </StackPanel>
+                                                        </Grid>
+                                                    </Border>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+
+                                    </StackPanel>
                                 </Border>
                             </DataTemplate>
-                        </ListView.ItemTemplate>
-                    </ListView>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
 
-                    <!-- Large-file / old-file sliders — visible only when that category is toggled on -->
+                    <!-- Large-file / old-file sliders — visible only when LargeOldFiles category is on -->
                     <StackPanel Spacing="10"
-                                Visibility="{x:Bind ViewModel.CategoryOptions[9].IsEnabled, Mode=OneWay, Converter={StaticResource BoolVis}}">
+                                Visibility="{x:Bind ViewModel.IsLargeOldFilesEnabled, Mode=OneWay, Converter={StaticResource BoolVis}}">
                         <StackPanel>
                             <TextBlock Text="{x:Bind ViewModel.LargeFileSizeLabel, Mode=OneWay}"
                                        Style="{StaticResource CaptionTextBlockStyle}" Margin="0,0,0,4"/>

@@ -1,7 +1,8 @@
 # StorageMaster — Codemap
 
-> **Version:** 1.3.0 | **Date:** 2026-04-28
+> **Version:** 1.7.0 | **Date:** 2026-05-06
 > Quick-reference for every file, type, method, and database table in the project.
+> **Note:** Sections describing v1.3–v1.6 internals remain accurate. New v1.7.0 additions (CLI, tray, scheduler, 7 new cleanup rules, duplicate previews, quarantine restore) are documented in `ARCHITECTURE.md` and `README.md`.
 
 ---
 

@@ -1,6 +1,7 @@
 # StorageMaster — Full Technical Documentation
 
-> **Version:** 1.3.0 | **Date:** 2026-04-28 | **.NET 8 / WinUI 3 / Windows App SDK 1.6**
+> **Version:** 1.7.0 | **Date:** 2026-05-06 | **.NET 8 / WinUI 3 / Windows App SDK 1.6**
+> **Note:** Core API sections remain accurate. New v1.7.0 features (CLI interface, tray/background mode, scheduled tasks, low-disk notifications, duplicate previews, quarantine restore, 7 new cleanup rules) are documented in `README.md` and `ARCHITECTURE.md`.
 
 ---
 

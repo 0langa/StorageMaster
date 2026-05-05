@@ -1,0 +1,110 @@
+# Changelog
+
+All notable changes to StorageMaster are documented here.
+
+---
+
+## [1.7.0] — 2026-05-06 — Power Automation Release
+
+### Added
+
+**CLI / headless interface**
+- `--cli` flag allocates a console and runs the command dispatcher; exits without launching the GUI.
+- `--headless` attaches to the parent console (used by scheduled tasks).
+- Subcommands: `scan`, `report last-scan`, `dedupe scan`, `cleanup analyze`, `cleanup execute`, `jobs run`.
+- Structured exit codes: 0 success · 1 unexpected error · 2 bad arguments · 3 missing `--confirm` · 4 not found / not elevated.
+- JSON and CSV export flags on all reporting commands.
+
+**System tray**
+- H.NotifyIcon.WinUI tray icon with context menu: Open, Run Smart Clean, Start Scan, Review Duplicates, Pause Notifications, Exit.
+- **Minimize to tray** setting: close button hides the window instead of exiting.
+- **Start in tray** (`--start-in-tray` arg): launch minimized, set by the startup registry entry.
+
+**Low-disk notifications**
+- Configurable warning (default 15 %) and critical (default 5 %) free-space thresholds.
+- Checked every 15 minutes via `DispatcherQueueTimer`.
+- Per-drive per-level 12-hour debounce prevents notification spam.
+- Tray balloon shows drive letter, percentage free, and GB remaining.
+- "Pause Notifications" tray menu item silences balloons for 12 hours.
+
+**Windows Task Scheduler integration**
+- Create, update, and delete scheduled jobs from the Settings page.
+- Daily and weekly frequency support with configurable start time.
+- Job kinds: Scan, Scan + Report, Cleanup Analyze, Cleanup Execute (safe rules only).
+- Each job triggers `StorageMaster.UI.exe --headless jobs run --id <id>`.
+- Last-run status and next-run time displayed in the scheduler list.
+
+**Duplicate previews**
+- Image groups: thumbnail strip with dimensions and size per member.
+- Video groups: FFmpeg keyframe extraction at 3 s (configurable FFmpeg path in Settings); falls back gracefully if FFmpeg is absent.
+- Text groups: normalized-text comparison; first differing line highlighted in subtitle.
+- Exact groups: file name and byte size shown per member.
+
+**Quarantine restore UI**
+- Duplicates page shows a restorable-files panel listing all quarantined files with original path and quarantine timestamp.
+- Per-file **Restore** button moves the file back to its original path.
+
+**7 new cleanup rules** (total now 17)
+- `ThumbnailCacheRule` — Windows Explorer thumbnail cache database files.
+- `IconCacheRule` — icon cache database files; rebuilt automatically by Explorer.
+- `FontCacheRule` — Windows font cache service data files.
+- `DnsClientCacheRule` — flushes DNS resolver cache via `ipconfig /flushdns`.
+- `PrefetchFilesRule` — `C:\Windows\Prefetch` files; rebuilt on next launch.
+- `MicrosoftStoreLogsRule` — Store package diagnostic output directories.
+- `DuplicateFilesCleanupRule` — surfaces duplicate groups from the last dedupe run as cleanup suggestions.
+
+**Startup registration**
+- Settings toggle to register StorageMaster in `HKCU\...\Run` so it starts with Windows.
+- Uses `--start-in-tray` so it launches silently to the tray.
+
+### Changed
+
+- `ServiceBootstrapper.BuildServices()` replaces the inline DI setup in `App.xaml.cs`.
+- `Program.Main()` now handles CLI dispatch before WinUI initialization.
+- Settings page reorganized to include Tray, Notifications, and Scheduler sections.
+- Window sizing clamped between 1200×750 and 1800×1100 (up from 900×700).
+
+### Fixed
+
+- `ScheduledTaskService`: `/TR` argument double-quoting bug — paths with spaces in the executable path were wrapped in mismatched quotes, causing `schtasks.exe` to fail. Now uses inner `\"` escaping so `CommandLineToArgvW` parses the value correctly.
+- `DuplicatePreviewService`: FFmpeg subprocess switched from `Arguments` string (broken for paths with quotes or spaces) to `ProcessStartInfo.ArgumentList` for correct per-argument escaping.
+- `CommandRunner`: invalid CLI inputs (`--path` not found, `--session` not an integer, conflicting deletion flags, no matching rules, unknown duplicate method) now throw `CommandLineException` (exit code 2) instead of untyped `InvalidOperationException` or `FormatException`, so the error is printed and usage is shown rather than generating an unhandled-exception stack trace.
+
+---
+
+## [1.6.1] — 2026-05-05 — Hardening Sweep
+
+- Fixed tray icon not appearing on cold launch.
+- Fixed database migration failing on schema version 4 → 5 when `QuarantinedFiles` table already existed.
+- Fixed `DuplicateGroupMembers` selection state not persisted after page navigation.
+- Fixed admin elevation restart losing the `--deep-scan` flag.
+
+---
+
+## [1.6.0] — 2026-05-04 — Duplicate Analysis
+
+- Full duplicate detection engine: exact SHA-256, normalized-text comparison, image pHash, optional video pHash via FFmpeg.
+- Quarantine deletion mode: moves files to `%LOCALAPPDATA%\StorageMaster\Quarantine` instead of Recycle Bin.
+- `DuplicateSignatures` table with source-size / mtime / identity validity metadata for incremental re-use.
+- Duplicates page with scope filters (folder, extension, category), method selection, group review, and delete/quarantine actions.
+- `DuplicateFilesCleanupRule` surfaces duplicate groups in the Cleanup page.
+
+---
+
+## [1.5.0] — 2026-04-30 — Results & Turbo Fix
+
+- Fixed Turbo Scanner `DirectSizeBytes` always zero (accumulate in C# post-pass).
+- Results page: sortable columns, folder tree expansion, Open-in-Explorer action, delete-from-results action.
+- Smart Cleaner: scan-and-clean flow without a prior session.
+- 6 new cleanup rules (Thumbnail Cache, Icon Cache, Font Cache, DNS Cache, Prefetch, Store Logs).
+- Admin elevation restart preserves `--deep-scan` flag.
+
+---
+
+## [1.4.0] — 2026-04-28 — Foundation
+
+- Initial public release.
+- Parallel BFS scanner (managed C#) + Rust Turbo Scanner (jwalk).
+- 10 cleanup rules with Recycle Bin / permanent deletion.
+- SQLite schema v1 with WAL mode.
+- CI/CD pipeline: test → publish → installer → GitHub Release.

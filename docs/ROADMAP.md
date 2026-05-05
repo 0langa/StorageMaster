@@ -1,7 +1,7 @@
 # StorageMaster — Development Roadmap
 
-> **Baseline:** v1.4.1 (2026-04-30) — parallel scanning, Rust Turbo Scanner (fixed DirectSizeBytes), 10 cleanup rules, Smart Cleaner, admin elevation, sortable/filterable Results with folder tree, 60+ tests, CI/CD pipeline, Inno Setup installer. IFileOperation replaces SHFileOperation for AV-safe Recycle Bin deletion.
-> **Target:** v1.5.0 — a feature-complete, polished, accessible, and robust Windows utility.
+> **Current release:** v1.7.0 (2026-05-06) — CLI/headless mode, system tray, low-disk notifications, Windows Task Scheduler integration, 17 cleanup rules (7 new), duplicate preview strip, quarantine restore UI.
+> **Previous baseline:** v1.6.1 — parallel scanning, Rust Turbo Scanner, Smart Cleaner, admin elevation, duplicate analysis (exact SHA-256 / normalized text / image pHash / video pHash), results actions, 60+ tests, CI/CD, Inno Setup installer.
 
 ---
 

@@ -1,6 +1,6 @@
 # StorageMaster    [![Release](https://github.com/0langa/StorageMaster/actions/workflows/release.yml/badge.svg?event=release)](https://github.com/0langa/StorageMaster/actions/workflows/release.yml)
 
-> **Current version:** 1.6.1 — Windows disk analyzer, junk cleaner, and storage health tool.
+> **Current version:** 1.7.0 — Windows disk analyzer, junk cleaner, and storage health tool.
 
 A Windows disk analyzer and storage cleaner built with **C# / .NET 8 / WinUI 3**, with an optional native Rust scan engine for maximum throughput on multi-core systems.
 
@@ -13,14 +13,20 @@ A Windows disk analyzer and storage cleaner built with **C# / .NET 8 / WinUI 3**
 | **Parallel scanner** | BFS directory walker with bounded work-stealing concurrency |
 | **Turbo Scanner** | Optional Rust-powered scanner (jwalk) — up to 4× faster on SSDs |
 | **Smart Cleaner** | One-click scan & clean — no prior scan session needed |
-| **10 cleanup rules** | Temp files, browser caches, Windows Update, WER, Delivery Optimization, downloaded installers, app caches, program leftovers, Recycle Bin, large old files |
+| **17 cleanup rules** | Temp files, browser caches, Windows Update, WER, Delivery Optimization, downloaded installers, app caches, program leftovers, Recycle Bin, large old files, thumbnail cache, icon cache, font cache, DNS cache, prefetch files, Microsoft Store logs, duplicate files |
 | **Deep scan / Admin elevation** | Restart-as-admin flow to scan protected directories |
 | **Recycle Bin integration** | All deletions go to Recycle Bin by default (recoverable) |
+| **Quarantine** | Duplicate deletions can be quarantined with one-click restore from the UI |
 | **Audit trail** | Every deletion logged to SQLite `CleanupLog` — forever |
 | **Scan history** | Every scan session stored; browse and compare historical results |
-| **Duplicate analysis** | Pluggable dedupe engine with exact SHA-256, normalized-text review, image pHash, optional video pHash, quarantine/recycle deletion, and audit trail |
+| **Duplicate analysis** | Pluggable dedupe engine with exact SHA-256, normalized-text review, image pHash, optional video pHash (requires FFmpeg), quarantine/recycle deletion, and audit trail |
+| **Duplicate previews** | Inline previews for image and video groups; first-difference highlight for text duplicates |
 | **Results visualization** | Largest files, largest folders, file-type breakdown, error log, category filters, and paged loading |
 | **Folder size aggregation** | Bottom-up propagation gives accurate folder totals |
+| **CLI / headless mode** | Full-featured command-line interface for scripting and automation |
+| **System tray** | Minimize to tray; tray menu for common actions; balloon notifications |
+| **Low-disk notifications** | Configurable warning/critical thresholds; per-drive 12 h debounce |
+| **Scheduled tasks** | Windows Task Scheduler integration — daily/weekly scans and cleanups |
 | **GitHub release updater** | Checks GitHub Releases, verifies digest/signature policy, downloads setup EXE, and launches installer on demand |
 | **Theme + retention settings** | Persisted light/dark/default theme, scan-history retention window, and uninstall-safe user data |
 
@@ -56,9 +62,34 @@ StorageMaster/
 | **Scan** | Configure and run a full directory scan (managed or Turbo) |
 | **Results** | Largest files, largest folders, file types, scan errors |
 | **Cleanup** | Session-based cleanup with per-category toggles and dry-run |
-| **Duplicates** | Scope by folders/categories/extensions, run exact or fuzzy methods, review errors, and delete/quarantine selected copies |
+| **Duplicates** | Scope by folders/categories/extensions, run exact or fuzzy methods, review previews, delete/quarantine selected copies, restore quarantined files |
 | **Smart Cleaner** | Direct one-click scan → review → clean, no session needed |
-| **Settings** | All user preferences, scanner options, cleanup thresholds, and app update controls |
+| **Settings** | All user preferences, scanner options, cleanup thresholds, scheduler, tray, and app update controls |
+
+---
+
+## CLI interface
+
+StorageMaster ships a full command-line interface. Use `--cli` for an interactive console session or `--headless` to attach to the parent process console (used by scheduled tasks).
+
+```
+StorageMaster.UI.exe --cli scan --path <abs-path> [--turbo] [--deep] [--json <file>]
+StorageMaster.UI.exe --cli report last-scan [--json <file>] [--csv <file>]
+StorageMaster.UI.exe --cli dedupe scan --session <id> --methods exact,text,image,video [--min-size <mb>] [--extensions ...] [--json <file>]
+StorageMaster.UI.exe --cli cleanup analyze --session <id> [--json <file>]
+StorageMaster.UI.exe --cli cleanup execute --session <id> --rules <csv> --recycle-bin|--quarantine --confirm
+StorageMaster.UI.exe --headless jobs run --id <job-id>
+```
+
+Exit codes: `0` success · `1` unexpected error · `2` bad arguments · `3` missing `--confirm` · `4` not found / not elevated.
+
+---
+
+## Tray and background mode
+
+- **Minimize to tray:** when enabled in Settings, the close button hides the window instead of exiting. Right-click the tray icon for Open, Run Smart Clean, Start Scan, Review Duplicates, Pause Notifications, and Exit.
+- **Start in tray:** launch with `--start-in-tray` to open minimized (used by the startup registry entry).
+- **Low-disk notifications:** tray balloon when a drive falls below the warning (default 15 %) or critical (default 5 %) threshold. Checked every 15 minutes with a 12-hour debounce per drive per level.
 
 ---
 
@@ -122,7 +153,7 @@ Copy-Item turbo-scanner\target\x86_64-pc-windows-msvc\release\turbo-scanner.exe 
 
 # 3. Build the installer
 iscc installer\StorageMaster.iss
-# Output: artifacts/installer/StorageMaster-1.6.1-win-x64-Setup.exe
+# Output: artifacts/installer/StorageMaster-1.7.0-win-x64-Setup.exe
 ```
 
 The automated release pipeline (`release.yml`) runs all three steps on every `v*.*.*` git tag and attaches the installer to a GitHub Release.
@@ -152,7 +183,8 @@ The Rust process runs completely hidden. There is no user-visible indication tha
 ```
 ┌─────────────────────────────────────────────────────┐
 │                   StorageMaster.UI                  │  WinUI 3 / MVVM
-│  (Pages, ViewModels, Converters, Navigation)        │
+│  (Pages, ViewModels, Converters, Navigation,        │
+│   Infrastructure, ServiceBootstrapper)              │
 └───────────────────────┬─────────────────────────────┘
                         │ calls via DI interfaces
         ┌───────────────┼───────────────┐
@@ -176,9 +208,9 @@ The Rust process runs completely hidden. There is no user-visible indication tha
 
 ### Dependency injection
 
-`App.xaml.cs::BuildServices()` wires a `Microsoft.Extensions.DependencyInjection` container:
+`ServiceBootstrapper.BuildServices()` wires a `Microsoft.Extensions.DependencyInjection` container:
 
-- **Singletons:** repositories, scanners, cleanup engine, drives, file deleter, Smart Cleaner service
+- **Singletons:** repositories, scanners, cleanup engine, drives, file deleter, notification service, scheduled task service, duplicate preview service, command runner, Smart Cleaner service
 - **Transients:** ViewModels (fresh per navigation to keep state clean)
 
 ### Scanner concurrency model
@@ -207,11 +239,11 @@ Files are **never deleted without explicit user confirmation**:
 4. On confirmation only: `CleanupEngine.ExecuteAsync()` → `IFileDeleter.DeleteManyAsync()`
 5. Every deletion attempt logged to `CleanupLog` table (append-only, never deleted)
 
-Duplicate cleanup follows the same audit path. Deleting from the Results or Duplicates pages marks the source session as stale, records structured metadata in `CleanupLog`, and stores quarantine mappings for restorable moves.
+Duplicate cleanup follows the same audit path. Quarantine moves files to a safe directory; the Duplicates page lists all quarantined files with a **Restore** button that moves them back to their original paths.
 
 ---
 
-## Cleanup rules (v1.3)
+## Cleanup rules
 
 | Rule | Category | Risk | Notes |
 |------|----------|------|-------|
@@ -225,6 +257,13 @@ Duplicate cleanup follows the same audit path. Deleting from the Results or Dupl
 | `WindowsErrorReportingRule` | Error Reports | Low | WER folders, crash dumps, `.dmp` files |
 | `UninstalledProgramLeftoversRule` | Program Leftovers | Medium | Registry cross-reference; 90-day, 10 MB thresholds |
 | `LargeOldFilesCleanupRule` | Large Old Files | Medium | Per-file suggestions; configurable size and age |
+| `ThumbnailCacheRule` | App Caches | Safe | `%LOCALAPPDATA%\Microsoft\Windows\Explorer` thumb cache |
+| `IconCacheRule` | App Caches | Safe | `iconcache*.db` — rebuilt automatically by Explorer |
+| `FontCacheRule` | App Caches | Safe | Windows font cache service data files |
+| `DnsClientCacheRule` | App Caches | Safe | Flushes DNS resolver cache via `ipconfig /flushdns` |
+| `PrefetchFilesRule` | Temp Files | Low | `C:\Windows\Prefetch` — rebuilt on next launch |
+| `MicrosoftStoreLogsRule` | Log Files | Safe | `%LOCALAPPDATA%\Packages\*\LocalState\DiagOutputDir` |
+| `DuplicateFilesCleanupRule` | Duplicate Files | Medium | Surfaces duplicate groups from last dedupe run |
 
 ---
 
@@ -246,6 +285,7 @@ Schema auto-migrates on first launch. Key tables:
 | `DuplicateSignatures` | Cached method signatures with source-size/mtime/identity validity metadata |
 | `DuplicateErrors` | Per-file dedupe errors and skipped reasons |
 | `QuarantinedFiles` | Original-to-quarantine path mapping for restore |
+| `DiagnosticsLog` | Internal event log for scheduler and CLI operations |
 
 Uninstall keeps `%LOCALAPPDATA%\StorageMaster` by default, so the database and settings survive reinstall/upgrade cycles.
 
@@ -280,4 +320,4 @@ Every push of a `v*.*.*` tag triggers `release.yml`:
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — Deep architecture reference
 - [`docs/CODEMAP.md`](docs/CODEMAP.md) — Every file, class, and method
 - [`docs/DOCUMENTATION.md`](docs/DOCUMENTATION.md) — Full API and configuration reference
-- [`docs/ROADMAP.md`](docs/ROADMAP.md) — v1.3 → v1.5 development plan
+- [`CHANGELOG.md`](CHANGELOG.md) — Release history

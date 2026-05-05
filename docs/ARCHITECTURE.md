@@ -1,6 +1,6 @@
 # StorageMaster — Architecture Overview
 
-> **Version:** 1.3.0 | **Date:** 2026-04-28 | **Framework:** .NET 8 / WinUI 3 / Windows App SDK 1.6
+> **Version:** 1.7.0 | **Date:** 2026-05-06 | **Framework:** .NET 8 / WinUI 3 / Windows App SDK 1.6
 
 ---
 
@@ -20,7 +20,7 @@
 12. [Data flows](#12-data-flows)
 13. [Performance design decisions](#13-performance-design-decisions)
 14. [Extension points](#14-extension-points)
-15. [Known limitations (v1.3)](#15-known-limitations-v13)
+15. [Known limitations (v1.7)](#15-known-limitations-v17)
 
 ---
 
@@ -92,13 +92,14 @@ The heart of the system. Contains:
 
 | Component | Responsibility |
 |-----------|---------------|
-| **Models/** | Immutable data records (`FileEntry`, `FolderEntry`, `ScanSession`, `ScanProgress`, `CleanupSuggestion`, `CleanupResult`, `AppSettings`, `ScanError`) |
-| **Interfaces/** | All cross-layer contracts (`IFileScanner`, `ICleanupRule`, `IFileDeleter`, `ISmartCleanerService`, `IInstalledProgramProvider`, etc.) |
+| **Models/** | Immutable data records (`FileEntry`, `FolderEntry`, `ScanSession`, `ScanProgress`, `CleanupSuggestion`, `CleanupResult`, `AppSettings`, `ScanError`, `ScheduledJobDefinition`, `DuplicatePreviewResult`, `QuarantinedFile`) |
+| **Interfaces/** | All cross-layer contracts (`IFileScanner`, `ICleanupRule`, `IFileDeleter`, `ISmartCleanerService`, `IInstalledProgramProvider`, `IScheduledTaskService`, `IDuplicatePreviewService`, `ICommandRunner`, `INotificationService`, etc.) |
 | **Scanner/FileScanner** | Parallel BFS directory walker; writes results via `IScanRepository` |
 | **Scanner/FileTypeCategorizor** | Extension → `FileTypeCategory` lookup (80+ mappings) |
 | **Scanner/FolderSizeAggregator** | Post-scan bottom-up folder size propagation |
+| **Scanner/ScanScopeResolver** | Builds excluded-path list from settings for both shallow and deep scans |
 | **Cleanup/CleanupEngine** | Orchestrates `ICleanupRule` list; delegates execution to `IFileDeleter` |
-| **Cleanup/Rules/** | 10 cleanup strategies; pure analysis, never delete |
+| **Cleanup/Rules/** | 17 cleanup strategies; pure analysis, never delete |
 | **SmartCleaner/SmartCleanerService** | Direct junk scan without session; implements `ISmartCleanerService` |
 
 **What Core does NOT do:** database I/O, file deletion, Win32 calls, UI rendering, subprocess spawning.
@@ -139,12 +140,19 @@ WinUI 3 MVVM application (unpackaged, `WindowsPackageType=None`):
 
 | Component | Pattern |
 |-----------|---------|
-| `App.xaml.cs` | DI container composition root; crash logging setup |
-| `MainWindow` | `NavigationView` shell with `Frame` host; DPI-aware window sizing |
+| `Program.cs` | Entry point; routes `--cli` / `--headless` to `CommandRunner`, otherwise launches WinUI app |
+| `ServiceBootstrapper.cs` | DI container wiring; all singletons and transients registered here |
+| `App.xaml.cs` | `OnLaunched` activates `MainWindow`; startup arg flags (`StartInTray`, `StartWithDeepScan`) |
+| `MainWindow` | `NavigationView` shell + `Frame` host; DPI-aware sizing; tray icon; low-disk monitor |
 | `NavigationService` | `INavigationService` abstraction over `Frame.Navigate` |
 | `*ViewModel` | `ObservableObject` + `[ObservableProperty]` + `[RelayCommand]` source-gen |
 | `*Page.xaml` | `{x:Bind}` compiled bindings; no logic in code-behind |
-| Converters | `ByteSizeConverter`, `BoolToVisibilityConverter`, `BoolNegationConverter` |
+| Converters | `ByteSizeConverter`, `BoolToVisibilityConverter`, `BoolNegationConverter`, `FilePathToBitmapImageConverter` |
+| `Infrastructure/CommandRunner` | CLI dispatcher; 6 subcommands; structured `CommandLineException` exit codes |
+| `Infrastructure/DesktopNotificationService` | Event-based notification hub; consumed by `MainWindow` for tray balloons |
+| `Infrastructure/DuplicatePreviewService` | Builds rich preview items per duplicate method; FFmpeg keyframe extraction for video |
+| `Infrastructure/ScheduledTaskService` | CRUD wrapper around `schtasks.exe`; safe `/TR` argument construction |
+| `Infrastructure/StartupRegistrationService` | Adds/removes `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` entry |
 
 ### turbo-scanner (Rust)
 
@@ -526,7 +534,7 @@ Unpackaged WinUI 3 apps do not install a `SynchronizationContext`. This means `P
 
 ## 11. Dependency injection wiring
 
-All DI configuration lives in `App.xaml.cs::BuildServices()`.
+All DI configuration lives in `ServiceBootstrapper.BuildServices()`.
 
 ```
 Singletons (one instance for app lifetime):
@@ -535,7 +543,9 @@ StorageDbContext               → manages SQLite connection
 IScanRepository                → ScanRepository
 IScanErrorRepository           → ScanErrorRepository
 ICleanupLogRepository          → CleanupLogRepository
+IDuplicateRepository           → DuplicateRepository
 ISettingsRepository            → SettingsRepository
+ILocalDiagnosticsService       → LocalDiagnosticsService
 IDriveInfoProvider             → DriveInfoProvider
 IFileDeleter                   → FileDeleter
 IRecycleBinInfoProvider        → RecycleBinInfoProvider
@@ -544,9 +554,16 @@ IInstalledProgramProvider      → InstalledProgramProvider
 FileScanner                    → concrete singleton (managed scanner)
 TurboFileScanner               → concrete singleton (Rust-backed; wraps FileScanner as fallback)
 IFileScanner                   → FileScanner (default; ScanViewModel selects turbo at runtime)
-ICleanupRule (×10)             → all 10 rules in registration order
+ICleanupRule (×17)             → all 17 rules in registration order
 ICleanupEngine                 → CleanupEngine
 ISmartCleanerService           → SmartCleanerService
+IDuplicateFinderService        → DuplicateFinderService
+IDuplicatePreviewService       → DuplicatePreviewService
+IScheduledTaskService          → ScheduledTaskService
+INotificationService           → DesktopNotificationService
+ICommandRunner                 → CommandRunner
+StartupRegistrationService     → (concrete; no interface)
+DesktopNotificationService     → (concrete; also satisfies INotificationService)
 INavigationService             → NavigationService
 MainWindow                     → singleton window
 
@@ -556,11 +573,24 @@ DashboardViewModel
 ScanViewModel     ← factory lambda; injects FileScanner + TurboFileScanner explicitly
 ResultsViewModel
 CleanupViewModel
+DuplicatesViewModel
 SettingsViewModel
 SmartCleanerViewModel
 ```
 
 **Why ScanViewModel is Singleton:** The scan operation owns a long-running `CancellationTokenSource` and must survive page navigation. All other ViewModels are Transient (new instance per navigation → clean state).
+
+### CLI dispatch
+
+`Program.Main()` runs before WinUI starts. When `--cli` or `--headless` is present, it allocates (or attaches) a console, calls `ICommandRunner.RunAsync()`, and exits — the WinUI application is never created. This keeps the GUI and the CLI entirely separate at runtime.
+
+### Tray and background
+
+`MainWindow` owns a `TaskbarIcon` (H.NotifyIcon.WinUI). When `MinimizeToTray` is enabled, the `AppWindowClosing` event is cancelled and the window is hidden instead. A `DispatcherQueueTimer` running every 15 minutes drives low-disk checks; results are dispatched as `NotificationRaised` events from `DesktopNotificationService`, which `MainWindow` converts to tray balloon notifications with a 12-hour per-drive-per-level debounce.
+
+### Scheduler
+
+`ScheduledTaskService` wraps `schtasks.exe` to create, update, and delete Windows Task Scheduler entries. Each scheduled job triggers `StorageMaster.UI.exe --headless jobs run --id <job-id>`. The `/TR` value uses inner `\"` escaping for paths with spaces so `CommandLineToArgvW` parses arguments correctly.
 
 ---
 
@@ -674,17 +704,14 @@ The `CleanupEngine` discovers all `IEnumerable<ICleanupRule>` from DI automatica
 
 ---
 
-## 15. Known limitations (v1.3)
+## 15. Known limitations (v1.7)
 
-| Area | Limitation | Planned fix |
-|------|-----------|-------------|
-| **Symlink detection** | Path-based dedup only; no NTFS FileId | v1.4: use `FILE_ID_INFO` via `GetFileInformationByHandleEx` |
-| **Turbo Scanner folders** | Folder `DirectSizeBytes` not populated (jwalk doesn't sum file sizes per dir) | Mitigated by `FolderSizeAggregator` post-pass; v1.4: accumulate in C# |
-| **Duplicate detection** | `DuplicateFiles` category defined but no rule | v1.5: SHA-256 hash grouping |
-| **Results actions** | No "Open in Explorer" or delete-from-results in v1.3 | v1.4 |
-| **No treemap** | Flat list only | v1.5: WebView2 + D3.js |
-| **No tray icon** | Must open app manually | v1.5 |
-| **No scheduled scans** | Manual only | v1.5: Windows Task Scheduler integration |
-| **CLI** | No headless mode | v1.5 |
+| Area | Limitation | Notes |
+|------|-----------|-------|
+| **Symlink detection** | Path-based dedup only; no NTFS FileId deduplication | Use `FILE_ID_INFO` via `GetFileInformationByHandleEx` in a future version |
+| **Turbo Scanner folders** | Folder `DirectSizeBytes` not populated by jwalk | Mitigated by `FolderSizeAggregator` post-pass |
+| **No treemap** | Flat largest-files/folders list only | WebView2 + D3.js planned for v2.0 |
 | **Localization** | English only | v2.0 |
-| **Smart Cleaner log** | Cleanup not logged to `CleanupLog` (uses `IFileDeleter` directly via service) | v1.4: route through `CleanupEngine.ExecuteAsync` or add dedicated log |
+| **Smart Cleaner log** | Smart Cleaner cleanup uses `IFileDeleter` directly; not routed through `CleanupEngine` | Entries still appear in `CleanupLog` via `FileDeleter` logging |
+| **pHash threshold changes** | Image/video pHash similarity thresholds require app restart to take effect (singleton snapshot at startup) | Known trade-off; settings UI notes this |
+| **FFmpeg for video previews** | Video preview keyframes require user to configure FFmpeg path in Settings | Clear guidance shown in UI when FFmpeg is absent |

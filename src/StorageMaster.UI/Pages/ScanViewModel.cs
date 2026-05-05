@@ -4,6 +4,7 @@ using CommunityToolkit.Mvvm.Input;
 using Microsoft.UI.Dispatching;
 using StorageMaster.Core.Interfaces;
 using StorageMaster.Core.Models;
+using StorageMaster.Core.Scanner;
 using StorageMaster.UI.Converters;
 using StorageMaster.UI.Infrastructure;
 
@@ -144,7 +145,7 @@ public sealed partial class ScanViewModel : ObservableObject
             FollowSymlinks = false,
             IncludeHiddenFiles = settings.ShowHiddenFiles || DeepScan,
             DeepScan       = DeepScan,
-            ExcludedPaths  = DeepScan ? [] : BuildExcludedPaths(settings),
+            ExcludedPaths  = ScanScopeResolver.BuildExcludedPaths(settings, DeepScan),
         };
 
         // Capture the UI dispatcher before entering Task.Run so that progress
@@ -267,32 +268,5 @@ public sealed partial class ScanViewModel : ObservableObject
         }
 
         ScanPathError = string.Empty;
-    }
-
-    private static IReadOnlyList<string> BuildExcludedPaths(AppSettings settings)
-    {
-        var excluded = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-        foreach (var path in ScanOptions.DefaultExcludedPaths)
-            excluded.Add(path);
-
-        if (settings.SkipSystemFolders)
-        {
-            var windowsDir = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
-            var systemDir = Environment.GetFolderPath(Environment.SpecialFolder.System);
-            var systemX86Dir = Environment.GetFolderPath(Environment.SpecialFolder.SystemX86);
-
-            if (!string.IsNullOrWhiteSpace(windowsDir))
-                excluded.Add(windowsDir);
-            if (!string.IsNullOrWhiteSpace(systemDir))
-                excluded.Add(systemDir);
-            if (!string.IsNullOrWhiteSpace(systemX86Dir))
-                excluded.Add(systemX86Dir);
-        }
-
-        foreach (var path in settings.ExcludedPaths.Where(path => !string.IsNullOrWhiteSpace(path)))
-            excluded.Add(path);
-
-        return excluded.ToArray();
     }
 }

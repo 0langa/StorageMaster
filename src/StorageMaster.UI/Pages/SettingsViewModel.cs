@@ -11,12 +11,24 @@ using StorageMaster.UI.Infrastructure;
 
 namespace StorageMaster.UI.Pages;
 
+public sealed partial class ScheduledJobEditorItem : ObservableObject
+{
+    public ScheduledTaskInfo Info { get; }
+    public string Summary =>
+        $"{Info.Job.Kind} · {Info.Job.Frequency} · {Info.Job.StartTimeLocal}" +
+        (string.IsNullOrWhiteSpace(Info.Job.TargetPath) ? string.Empty : $" · {Info.Job.TargetPath}");
+
+    public ScheduledJobEditorItem(ScheduledTaskInfo info) => Info = info;
+}
+
 public sealed partial class SettingsViewModel : ObservableObject
 {
     private readonly ISettingsRepository _repo;
     private readonly IUpdateService      _updateService;
     private readonly IScanRepository     _scanRepository;
     private readonly ILocalDiagnosticsService _diagnostics;
+    private readonly IScheduledTaskService _scheduledTaskService;
+    private readonly StartupRegistrationService _startupRegistration;
     private AppSettings _loadedSettings = new();
 
     private CancellationTokenSource? _downloadCts;
@@ -72,6 +84,24 @@ public sealed partial class SettingsViewModel : ObservableObject
     [ObservableProperty] private bool   _checkOnStartup    = true;
     [ObservableProperty] private bool   _includePrerelease = false;
     [ObservableProperty] private bool   _requireSignedUpdates;
+    [ObservableProperty] private bool   _minimizeToTray;
+    [ObservableProperty] private bool   _startTrayOnLogin;
+    [ObservableProperty] private bool   _enableLowDiskNotifications = true;
+    [ObservableProperty] private int    _lowDiskWarningPercent = 15;
+    [ObservableProperty] private int    _lowDiskCriticalPercent = 5;
+    [ObservableProperty] private bool   _scheduledTasksEnabled;
+
+    // ── Scheduler editor ────────────────────────────────────────────────────
+    [ObservableProperty] private ScheduledJobEditorItem? _selectedScheduledJob;
+    [ObservableProperty] private string _scheduledJobName = string.Empty;
+    [ObservableProperty] private ScheduledJobKind _scheduledJobKind = ScheduledJobKind.Scan;
+    [ObservableProperty] private ScheduledJobFrequency _scheduledJobFrequency = ScheduledJobFrequency.Daily;
+    [ObservableProperty] private DayOfWeek _scheduledJobDay = DayOfWeek.Monday;
+    [ObservableProperty] private string _scheduledJobTime = "09:00";
+    [ObservableProperty] private string _scheduledJobTargetPath = @"C:\";
+    [ObservableProperty] private string _scheduledJobRulesCsv = string.Empty;
+    [ObservableProperty] private bool _scheduledJobEnabled = true;
+    [ObservableProperty] private bool _isSavingScheduledJob;
 
     // ── Update state ─────────────────────────────────────────────────────────
     [ObservableProperty] private bool         _isCheckingForUpdates;
@@ -114,8 +144,12 @@ public sealed partial class SettingsViewModel : ObservableObject
     [ObservableProperty] private bool _isExportingDiagnostics;
 
     public ObservableCollection<string> ExcludedPaths { get; } = [];
+    public ObservableCollection<ScheduledJobEditorItem> ScheduledJobs { get; } = [];
     public Array ThemeOptions => Enum.GetValues(typeof(ThemePreference));
     public Array KeeperPolicyOptions => Enum.GetValues(typeof(KeeperPolicy));
+    public Array ScheduledJobKindOptions => Enum.GetValues(typeof(ScheduledJobKind));
+    public Array ScheduledJobFrequencyOptions => Enum.GetValues(typeof(ScheduledJobFrequency));
+    public Array ScheduledJobDayOptions => Enum.GetValues(typeof(DayOfWeek));
 
     public string LargeFileThresholdLabel => $"Large file threshold: {LargeFileSizeMb} MB";
     public string OldFileAgeThresholdLabel => $"Old file threshold: {OldFileAgeDays} days";
@@ -128,17 +162,24 @@ public sealed partial class SettingsViewModel : ObservableObject
     public bool HasFfmpegPathError => !string.IsNullOrWhiteSpace(FfmpegPathError);
     public bool CanSave => !HasDefaultScanPathError && !HasFfmpegPathError;
     public bool CanExportDiagnostics => !IsExportingDiagnostics;
+    public bool HasScheduledJobSelection => SelectedScheduledJob is not null;
+    public bool CanSaveScheduledJob => !IsSavingScheduledJob;
+    public bool CanDeleteScheduledJob => SelectedScheduledJob is not null && !IsSavingScheduledJob;
 
     public SettingsViewModel(
         ISettingsRepository repo,
         IUpdateService updateService,
         IScanRepository scanRepository,
-        ILocalDiagnosticsService diagnostics)
+        ILocalDiagnosticsService diagnostics,
+        IScheduledTaskService scheduledTaskService,
+        StartupRegistrationService startupRegistration)
     {
         _repo          = repo;
         _updateService = updateService;
         _scanRepository = scanRepository;
         _diagnostics = diagnostics;
+        _scheduledTaskService = scheduledTaskService;
+        _startupRegistration = startupRegistration;
     }
 
     partial void OnLargeFileSizeMbChanged(int value) => OnPropertyChanged(nameof(LargeFileThresholdLabel));
@@ -148,10 +189,31 @@ public sealed partial class SettingsViewModel : ObservableObject
     partial void OnSavedMessageChanged(string value) => OnPropertyChanged(nameof(HasSavedMessage));
     partial void OnIsPurgingHistoryChanged(bool value) => OnPropertyChanged(nameof(CanPurgeHistory));
     partial void OnIsExportingDiagnosticsChanged(bool value) => OnPropertyChanged(nameof(CanExportDiagnostics));
+    partial void OnIsSavingScheduledJobChanged(bool value)
+    {
+        OnPropertyChanged(nameof(CanSaveScheduledJob));
+        OnPropertyChanged(nameof(CanDeleteScheduledJob));
+    }
     partial void OnDefaultScanPathChanged(string value) => ValidateDefaultScanPath();
     partial void OnFfmpegPathChanged(string value) => ValidateFfmpegPath();
     partial void OnDefaultScanPathErrorChanged(string value) => OnPropertyChanged(nameof(HasDefaultScanPathError));
     partial void OnFfmpegPathErrorChanged(string value) => OnPropertyChanged(nameof(HasFfmpegPathError));
+    partial void OnSelectedScheduledJobChanged(ScheduledJobEditorItem? value)
+    {
+        OnPropertyChanged(nameof(HasScheduledJobSelection));
+        OnPropertyChanged(nameof(CanDeleteScheduledJob));
+        if (value is null)
+            return;
+
+        ScheduledJobName = value.Info.Job.Name;
+        ScheduledJobKind = value.Info.Job.Kind;
+        ScheduledJobFrequency = value.Info.Job.Frequency;
+        ScheduledJobDay = value.Info.Job.WeeklyDay;
+        ScheduledJobTime = value.Info.Job.StartTimeLocal;
+        ScheduledJobTargetPath = value.Info.Job.TargetPath;
+        ScheduledJobRulesCsv = value.Info.Job.RulesCsv;
+        ScheduledJobEnabled = value.Info.Job.Enabled;
+    }
 
     public async Task LoadAsync()
     {
@@ -197,10 +259,19 @@ public sealed partial class SettingsViewModel : ObservableObject
         CheckOnStartup             = s.CheckOnStartup;
         IncludePrerelease          = s.IncludePrerelease;
         RequireSignedUpdates       = s.RequireSignedUpdates;
+        MinimizeToTray             = s.MinimizeToTray;
+        StartTrayOnLogin           = s.StartTrayOnLogin || _startupRegistration.IsEnabled();
+        EnableLowDiskNotifications = s.EnableLowDiskNotifications;
+        LowDiskWarningPercent      = s.LowDiskWarningPercent;
+        LowDiskCriticalPercent     = s.LowDiskCriticalPercent;
+        ScheduledTasksEnabled      = s.ScheduledTasksEnabled;
 
         ExcludedPaths.Clear();
         foreach (var p in s.ExcludedPaths)
             ExcludedPaths.Add(p);
+
+        await RefreshScheduledJobsAsync();
+        SelectedScheduledJob = ScheduledJobs.FirstOrDefault();
 
         ValidateDefaultScanPath();
         ValidateFfmpegPath();
@@ -239,6 +310,7 @@ public sealed partial class SettingsViewModel : ObservableObject
 
         var settings = BuildSettings();
         await _repo.SaveAsync(settings);
+        _startupRegistration.SetEnabled(StartTrayOnLogin);
         _loadedSettings = CloneSettings(settings);
         SavedMessage = "Settings saved.";
         await Task.Delay(3000);
@@ -446,6 +518,12 @@ public sealed partial class SettingsViewModel : ObservableObject
         settings.CheckOnStartup             = CheckOnStartup;
         settings.IncludePrerelease          = IncludePrerelease;
         settings.RequireSignedUpdates       = RequireSignedUpdates;
+        settings.MinimizeToTray             = MinimizeToTray;
+        settings.StartTrayOnLogin           = StartTrayOnLogin;
+        settings.EnableLowDiskNotifications = EnableLowDiskNotifications;
+        settings.LowDiskWarningPercent      = Math.Clamp(LowDiskWarningPercent, 1, 99);
+        settings.LowDiskCriticalPercent     = Math.Clamp(LowDiskCriticalPercent, 1, 99);
+        settings.ScheduledTasksEnabled      = ScheduledTasksEnabled;
         settings.ExcludedPaths              = ExcludedPaths.ToList();
         return settings;
     }
@@ -480,4 +558,82 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     private static AppSettings CloneSettings(AppSettings settings) =>
         JsonSerializer.Deserialize<AppSettings>(JsonSerializer.Serialize(settings)) ?? new AppSettings();
+
+    [RelayCommand]
+    private async Task RefreshScheduledJobsAsync()
+    {
+        ScheduledJobs.Clear();
+        foreach (var job in await _scheduledTaskService.ListAsync())
+            ScheduledJobs.Add(new ScheduledJobEditorItem(job));
+        OnPropertyChanged(nameof(HasScheduledJobSelection));
+    }
+
+    [RelayCommand]
+    private void NewScheduledJob()
+    {
+        SelectedScheduledJob = null;
+        ScheduledJobName = string.Empty;
+        ScheduledJobKind = ScheduledJobKind.Scan;
+        ScheduledJobFrequency = ScheduledJobFrequency.Daily;
+        ScheduledJobDay = DayOfWeek.Monday;
+        ScheduledJobTime = "09:00";
+        ScheduledJobTargetPath = DefaultScanPath;
+        ScheduledJobRulesCsv = string.Empty;
+        ScheduledJobEnabled = true;
+    }
+
+    [RelayCommand]
+    private async Task SaveScheduledJobAsync()
+    {
+        IsSavingScheduledJob = true;
+        try
+        {
+            var job = new ScheduledJobDefinition
+            {
+                Id = SelectedScheduledJob?.Info.Job.Id ?? Guid.NewGuid().ToString("N"),
+                Name = ScheduledJobName,
+                Kind = ScheduledJobKind,
+                Frequency = ScheduledJobFrequency,
+                WeeklyDay = ScheduledJobDay,
+                StartTimeLocal = ScheduledJobTime,
+                TargetPath = ScheduledJobTargetPath,
+                RulesCsv = ScheduledJobRulesCsv,
+                Enabled = ScheduledJobEnabled,
+            };
+
+            await _scheduledTaskService.UpsertAsync(job);
+            ScheduledTasksEnabled = true;
+            await RefreshScheduledJobsAsync();
+            SelectedScheduledJob = ScheduledJobs.FirstOrDefault(item => item.Info.Job.Id == job.Id);
+            SavedMessage = "Scheduled job saved.";
+            await Task.Delay(2500);
+            SavedMessage = string.Empty;
+        }
+        finally
+        {
+            IsSavingScheduledJob = false;
+        }
+    }
+
+    [RelayCommand]
+    private async Task DeleteScheduledJobAsync()
+    {
+        if (SelectedScheduledJob is null)
+            return;
+
+        IsSavingScheduledJob = true;
+        try
+        {
+            await _scheduledTaskService.DeleteAsync(SelectedScheduledJob.Info.Job.Id);
+            await RefreshScheduledJobsAsync();
+            NewScheduledJob();
+            SavedMessage = "Scheduled job deleted.";
+            await Task.Delay(2500);
+            SavedMessage = string.Empty;
+        }
+        finally
+        {
+            IsSavingScheduledJob = false;
+        }
+    }
 }

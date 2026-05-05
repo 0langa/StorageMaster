@@ -20,6 +20,8 @@ public sealed record DuplicateCategoryOption(
     IReadOnlyList<FileTypeCategory> Categories,
     bool UsesCustomExtensions = false);
 
+public sealed record DuplicateMethodFilterOption(string Label, DuplicateMethod? Method);
+
 public sealed partial class DuplicateMemberItem : ObservableObject
 {
     [ObservableProperty] private bool _isSelected;
@@ -132,6 +134,7 @@ public sealed partial class DuplicatesViewModel : ObservableObject
     private readonly IDuplicateFinderService _duplicateFinderService;
     private readonly IDuplicateRepository _duplicateRepository;
     private readonly IDuplicateDeletionService _duplicateDeletionService;
+    private readonly IDuplicatePreviewService _previewService;
     private readonly IDialogService _dialogs;
     private readonly IReadOnlyDictionary<DuplicateMethod, IDuplicateDetectionStrategy> _strategyMap;
     private readonly List<DuplicateGroupItem> _allGroups = [];
@@ -168,19 +171,31 @@ public sealed partial class DuplicatesViewModel : ObservableObject
     [ObservableProperty] private DuplicateCategoryOption? _selectedCategory;
     [ObservableProperty] private string _searchText = string.Empty;
     [ObservableProperty] private DuplicateGroupItem? _selectedGroup;
+    [ObservableProperty] private DuplicateMethodFilterOption? _selectedMethodFilter;
     [ObservableProperty] private DuplicateGroupSortBy _groupSortBy = DuplicateGroupSortBy.ReclaimableBytesDesc;
     [ObservableProperty] private bool _filterSelectedOnly;
     [ObservableProperty] private bool _filterMissingOnly;
     [ObservableProperty] private bool _filterErroredOnly;
     [ObservableProperty] private double _minimumConfidenceFilter;
+    [ObservableProperty] private string _previewSummary = string.Empty;
 
     public ObservableCollection<ScanSession> Sessions { get; } = [];
     public ObservableCollection<DuplicateGroupItem> Groups { get; } = [];
     public ObservableCollection<DuplicateError> Errors { get; } = [];
+    public ObservableCollection<DuplicatePreviewItem> PreviewItems { get; } = [];
+    public ObservableCollection<QuarantinedFile> QuarantineItems { get; } = [];
 
     public Array KeeperPolicyOptions => Enum.GetValues(typeof(KeeperPolicy));
     public Array ScopeModeOptions => Enum.GetValues(typeof(DuplicateScopeMode));
     public Array GroupSortOptions => Enum.GetValues(typeof(DuplicateGroupSortBy));
+    public ObservableCollection<DuplicateMethodFilterOption> MethodFilterOptions { get; } =
+    [
+        new("All methods", null),
+        new("Exact", DuplicateMethod.ExactSha256),
+        new("Normalized text", DuplicateMethod.NormalizedText),
+        new("Image pHash", DuplicateMethod.ImagePHash),
+        new("Video pHash", DuplicateMethod.VideoPHash),
+    ];
     public ObservableCollection<DuplicateCategoryOption> CategoryOptions { get; } =
     [
         new("All files", []),
@@ -196,6 +211,8 @@ public sealed partial class DuplicatesViewModel : ObservableObject
     public bool HasErrors => Errors.Count > 0;
     public bool HasLatestRun => LatestRun is not null;
     public bool HasSelectedGroup => SelectedGroup is not null;
+    public bool HasPreviewItems => PreviewItems.Count > 0;
+    public bool HasQuarantineItems => QuarantineItems.Count > 0;
     public bool CanRun => SelectedSession is not null && !IsRunning && !IsDeleting;
     public bool CanCancel => IsRunning;
     public bool CanDeleteSelected => _allGroups.Any(static group => group.SelectedCount > 0) && !IsDeleting && !IsRunning;
@@ -235,6 +252,7 @@ public sealed partial class DuplicatesViewModel : ObservableObject
         IDuplicateFinderService duplicateFinderService,
         IDuplicateRepository duplicateRepository,
         IDuplicateDeletionService duplicateDeletionService,
+        IDuplicatePreviewService previewService,
         IDialogService dialogs,
         IEnumerable<IDuplicateDetectionStrategy> strategies)
     {
@@ -243,9 +261,11 @@ public sealed partial class DuplicatesViewModel : ObservableObject
         _duplicateFinderService = duplicateFinderService;
         _duplicateRepository = duplicateRepository;
         _duplicateDeletionService = duplicateDeletionService;
+        _previewService = previewService;
         _dialogs = dialogs;
         _strategyMap = strategies.ToDictionary(static s => s.Method);
         SelectedCategory = CategoryOptions.FirstOrDefault();
+        SelectedMethodFilter = MethodFilterOptions.FirstOrDefault();
     }
 
     partial void OnSelectedSessionChanged(ScanSession? value)
@@ -276,6 +296,7 @@ public sealed partial class DuplicatesViewModel : ObservableObject
     }
 
     partial void OnSearchTextChanged(string value) => _ = ReloadCurrentGroupPageAsync();
+    partial void OnSelectedMethodFilterChanged(DuplicateMethodFilterOption? value) => _ = ReloadCurrentGroupPageAsync();
     partial void OnGroupSortByChanged(DuplicateGroupSortBy value) => _ = ReloadCurrentGroupPageAsync();
     partial void OnFilterSelectedOnlyChanged(bool value) => _ = ReloadCurrentGroupPageAsync();
     partial void OnFilterMissingOnlyChanged(bool value) => _ = ReloadCurrentGroupPageAsync();
@@ -285,6 +306,7 @@ public sealed partial class DuplicatesViewModel : ObservableObject
     partial void OnSelectedGroupChanged(DuplicateGroupItem? value)
     {
         OnPropertyChanged(nameof(HasSelectedGroup));
+        _ = LoadSelectedGroupDetailAsync();
     }
 
     public async Task InitializeAsync(long? preselectedSessionId = null)
@@ -354,6 +376,9 @@ public sealed partial class DuplicatesViewModel : ObservableObject
         StatusText = "Starting duplicate analysis…";
         Groups.Clear();
         Errors.Clear();
+        PreviewItems.Clear();
+        QuarantineItems.Clear();
+        PreviewSummary = string.Empty;
         _allGroups.Clear();
         RaiseSummaryProperties();
 
@@ -519,12 +544,30 @@ public sealed partial class DuplicatesViewModel : ObservableObject
         Directory.CreateDirectory(exportDir);
         var filePath = Path.Combine(exportDir, $"dedupe-{LatestRun.Id}-report.json");
 
+        var groups = await _duplicateRepository.GetGroupsForRunAsync(LatestRun.Id);
+        var groupPayload = new List<object>(groups.Count);
+        foreach (var group in groups)
+        {
+            var members = await _duplicateRepository.GetDuplicateGroupMembersAsync(group.Id);
+            groupPayload.Add(new
+            {
+                group.Id,
+                Method = group.Method.ToString(),
+                group.Confidence,
+                group.TotalBytes,
+                group.ReclaimableBytes,
+                Members = members,
+            });
+        }
+
         var payload = new
         {
             run = LatestRun,
             summary = _runSummary,
+            settings = await _settingsRepository.LoadAsync(),
             errors = await _duplicateRepository.GetErrorsForRunAsync(LatestRun.Id),
-            groups = await _duplicateRepository.GetGroupsForRunAsync(LatestRun.Id),
+            quarantined = await _duplicateRepository.GetQuarantinedFilesAsync(LatestRun.Id),
+            groups = groupPayload,
         };
         await File.WriteAllTextAsync(filePath, System.Text.Json.JsonSerializer.Serialize(payload, new System.Text.Json.JsonSerializerOptions
         {
@@ -562,16 +605,22 @@ public sealed partial class DuplicatesViewModel : ObservableObject
         foreach (var group in groups)
         {
             var members = await _duplicateRepository.GetDuplicateGroupMembersAsync(group.Id);
+            var preview = await _previewService.BuildPreviewAsync(group.Method, members);
             var keeper = members.FirstOrDefault(static m => m.IsKeeper)?.FullPath ?? string.Empty;
             foreach (var member in members.Where(static m => !m.IsKeeper))
             {
+                var previewPath = preview.Items.FirstOrDefault(item =>
+                    string.Equals(item.Path, member.FullPath, StringComparison.OrdinalIgnoreCase))?.PreviewPath;
+                var previewHtml = !string.IsNullOrWhiteSpace(previewPath) && File.Exists(previewPath)
+                    ? $"<img src=\"{new Uri(previewPath).AbsoluteUri}\" alt=\"preview\" style=\"max-width:180px;max-height:120px;display:block;margin-bottom:6px;\" />"
+                    : string.Empty;
                 lines.Add("<tr>" +
                           $"<td>{EscapeHtml(group.Id.ToString())}</td>" +
                           $"<td>{EscapeHtml(group.Method.ToString())}</td>" +
                           $"<td>{EscapeHtml($"{group.Confidence:P0}")}</td>" +
                           $"<td>{EscapeHtml(ByteSizeConverter.Format(group.ReclaimableBytes))}</td>" +
                           $"<td>{EscapeHtml(keeper)}</td>" +
-                          $"<td>{EscapeHtml(member.FullPath)}</td>" +
+                          $"<td>{previewHtml}{EscapeHtml(member.FullPath)}</td>" +
                           "</tr>");
             }
         }
@@ -593,6 +642,44 @@ public sealed partial class DuplicatesViewModel : ObservableObject
     {
         group.ApplyKeeperPolicy(KeeperPolicy.Oldest);
         OnPropertyChanged(nameof(CanDeleteSelected));
+    }
+
+    [RelayCommand]
+    private void KeepShortestPath(DuplicateGroupItem group)
+    {
+        group.ApplyKeeperPolicy(KeeperPolicy.ShortestPath);
+        OnPropertyChanged(nameof(CanDeleteSelected));
+    }
+
+    [RelayCommand]
+    private void KeepLongestPath(DuplicateGroupItem group)
+    {
+        group.ApplyKeeperPolicy(KeeperPolicy.LongestPath);
+        OnPropertyChanged(nameof(CanDeleteSelected));
+    }
+
+    [RelayCommand]
+    private void SelectSafeExactDuplicates()
+    {
+        foreach (var group in _allGroups.Where(static item => item.Group.Method == DuplicateMethod.ExactSha256))
+        {
+            foreach (var member in group.Members)
+                member.IsSelected = !member.IsKeeper && member.Member.ExistsNow;
+        }
+
+        RaiseSummaryProperties();
+    }
+
+    [RelayCommand]
+    private void DeselectAll()
+    {
+        foreach (var group in _allGroups)
+        {
+            foreach (var member in group.Members)
+                member.IsSelected = false;
+        }
+
+        RaiseSummaryProperties();
     }
 
     [RelayCommand]
@@ -651,10 +738,21 @@ public sealed partial class DuplicatesViewModel : ObservableObject
         }
     }
 
+    [RelayCommand]
+    private async Task RestoreQuarantinedAsync(QuarantinedFile file)
+    {
+        await _duplicateDeletionService.RestoreFromQuarantineAsync(file.Id);
+        await LoadLatestRunAsync();
+        StatusText = $"Restored {file.OriginalPath}.";
+    }
+
     private async Task LoadLatestRunAsync()
     {
         Groups.Clear();
         Errors.Clear();
+        PreviewItems.Clear();
+        QuarantineItems.Clear();
+        PreviewSummary = string.Empty;
         _allGroups.Clear();
         LatestRun = null;
         _runSummary = new DuplicateRunSummary();
@@ -705,6 +803,7 @@ public sealed partial class DuplicatesViewModel : ObservableObject
         var filter = new DuplicateGroupQueryFilter
         {
             SearchText = SearchText,
+            Method = SelectedMethodFilter?.Method,
             MinConfidence = MinimumConfidenceFilter > 0 ? MinimumConfidenceFilter : null,
             HasSelectedMembers = FilterSelectedOnly ? true : null,
             ExistsNow = FilterMissingOnly ? false : null,
@@ -729,6 +828,9 @@ public sealed partial class DuplicatesViewModel : ObservableObject
         if (_hasMoreGroupPages)
             groups = groups.Take(GroupPageSize).ToList();
         Groups.Clear();
+        PreviewItems.Clear();
+        QuarantineItems.Clear();
+        PreviewSummary = string.Empty;
         _allGroups.Clear();
 
         foreach (var group in groups)
@@ -764,6 +866,32 @@ public sealed partial class DuplicatesViewModel : ObservableObject
 
         RaiseSummaryProperties();
     }
+
+    private async Task LoadSelectedGroupDetailAsync()
+    {
+        PreviewItems.Clear();
+        QuarantineItems.Clear();
+        PreviewSummary = string.Empty;
+
+        if (SelectedGroup is null || LatestRun is null)
+        {
+            RaiseSummaryProperties();
+            return;
+        }
+
+        var preview = await _previewService.BuildPreviewAsync(
+            SelectedGroup.Group.Method,
+            SelectedGroup.Members.Select(static member => member.Member).ToList());
+        PreviewSummary = preview.Summary;
+        foreach (var item in preview.Items)
+            PreviewItems.Add(item);
+
+        foreach (var item in await _duplicateRepository.GetQuarantinedFilesAsync(LatestRun.Id))
+            QuarantineItems.Add(item);
+
+        RaiseSummaryProperties();
+    }
+
     private bool IsMethodAvailable(DuplicateMethod method) =>
         _strategyMap.TryGetValue(method, out var strategy) && strategy.IsAvailable;
 
@@ -778,6 +906,8 @@ public sealed partial class DuplicatesViewModel : ObservableObject
         OnPropertyChanged(nameof(HasGroups));
         OnPropertyChanged(nameof(HasErrors));
         OnPropertyChanged(nameof(HasSelectedGroup));
+        OnPropertyChanged(nameof(HasPreviewItems));
+        OnPropertyChanged(nameof(HasQuarantineItems));
         OnPropertyChanged(nameof(CanDeleteSelected));
         OnPropertyChanged(nameof(TotalGroupCount));
         OnPropertyChanged(nameof(ExactGroupCount));

@@ -1,24 +1,45 @@
 using System.Runtime.InteropServices;
+using H.NotifyIcon;
+using H.NotifyIcon.Core;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Windowing;
 using StorageMaster.UI.Infrastructure;
+using StorageMaster.Core.Interfaces;
 using StorageMaster.UI.Pages;
+using Windows.Graphics;
 
 namespace StorageMaster.UI;
 
 public sealed partial class MainWindow : Window
 {
     private readonly INavigationService _nav;
+    private readonly ISettingsRepository _settingsRepository;
+    private readonly IDriveInfoProvider _driveInfoProvider;
+    private readonly DesktopNotificationService _notificationService;
+    private readonly TaskbarIcon _trayIcon;
     private bool _isUpdatingSelection;
+    private bool _allowClose;
+    private DateTimeOffset? _notificationsPausedUntilUtc;
+    private DispatcherQueueTimer? _diskMonitorTimer;
 
-    public MainWindow(INavigationService nav)
+    public MainWindow(
+        INavigationService nav,
+        ISettingsRepository settingsRepository,
+        IDriveInfoProvider driveInfoProvider,
+        DesktopNotificationService notificationService)
     {
         _nav = nav;
+        _settingsRepository = settingsRepository;
+        _driveInfoProvider = driveInfoProvider;
+        _notificationService = notificationService;
+        _trayIcon = CreateTrayIcon();
         InitializeComponent();
         _nav.Initialize(ContentFrame);
         _nav.Navigated += OnNavigated;
+        _notificationService.NotificationRaised += OnNotificationRaised;
 
         Title = "StorageMaster";
         ApplyStartupWindowSize();
@@ -37,6 +58,8 @@ public sealed partial class MainWindow : Window
         // Navigate to dashboard on launch.
         _nav.NavigateTo(typeof(DashboardPage));
         SyncSelection(typeof(DashboardPage));
+        AppWindow.Closing += OnAppWindowClosing;
+        Activated += OnWindowActivated;
     }
 
     // ── Win32 icon helpers ────────────────────────────────────────────────────
@@ -168,5 +191,177 @@ public sealed partial class MainWindow : Window
         {
             _isUpdatingSelection = false;
         }
+    }
+
+    private async void OnWindowActivated(object sender, WindowActivatedEventArgs args)
+    {
+        Activated -= OnWindowActivated;
+        try
+        {
+            var settings = await _settingsRepository.LoadAsync();
+            ConfigureDiskMonitor(settings);
+            if (App.StartInTray || settings.MinimizeToTray)
+                HideToTray();
+        }
+        catch
+        {
+            // Keep startup resilient even if tray bootstrap fails.
+        }
+    }
+
+    private async void OnAppWindowClosing(AppWindow sender, AppWindowClosingEventArgs args)
+    {
+        if (_allowClose)
+            return;
+
+        var settings = await _settingsRepository.LoadAsync();
+        if (!settings.MinimizeToTray)
+            return;
+
+        args.Cancel = true;
+        HideToTray();
+    }
+
+    private void HideToTray()
+    {
+        _trayIcon.ForceCreate(false);
+        WindowExtensions.Hide(this, enableEfficiencyMode: false);
+    }
+
+    private void ShowFromTray()
+    {
+        WindowExtensions.Show(this, false);
+        Activate();
+    }
+
+    private void ConfigureDiskMonitor(Core.Models.AppSettings settings)
+    {
+        _diskMonitorTimer?.Stop();
+        if (!settings.EnableLowDiskNotifications)
+            return;
+
+        _diskMonitorTimer = DispatcherQueue.GetForCurrentThread().CreateTimer();
+        _diskMonitorTimer.Interval = TimeSpan.FromMinutes(15);
+        _diskMonitorTimer.Tick += async (_, _) => await CheckLowDiskAsync();
+        _diskMonitorTimer.Start();
+        _ = CheckLowDiskAsync();
+    }
+
+    private async Task CheckLowDiskAsync()
+    {
+        var settings = await _settingsRepository.LoadAsync();
+        if (!settings.EnableLowDiskNotifications)
+            return;
+
+        if (_notificationsPausedUntilUtc is { } pausedUntil && pausedUntil > DateTimeOffset.UtcNow)
+            return;
+
+        var state = settings.LowDiskNotificationState;
+        foreach (var drive in _driveInfoProvider.GetAvailableDrives())
+        {
+            if (!drive.IsReady || drive.TotalBytes <= 0)
+                continue;
+
+            var freePercent = (int)Math.Round((double)drive.FreeBytes / drive.TotalBytes * 100.0);
+            string? level = freePercent <= settings.LowDiskCriticalPercent
+                ? "critical"
+                : freePercent <= settings.LowDiskWarningPercent
+                    ? "warning"
+                    : null;
+            if (level is null)
+                continue;
+
+            var stateKey = $"{drive.Name}|{level}";
+            if (state.TryGetValue(stateKey, out var lastText) &&
+                DateTimeOffset.TryParse(lastText, out var lastUtc) &&
+                lastUtc > DateTimeOffset.UtcNow.AddHours(-12))
+            {
+                continue;
+            }
+
+            state[stateKey] = DateTimeOffset.UtcNow.ToString("O");
+            await _settingsRepository.SaveAsync(settings);
+            await _notificationService.ShowWarningAsync(
+                "Low disk space",
+                $"{drive.Name} is down to {freePercent}% free ({drive.FreeBytes / 1024 / 1024 / 1024.0:F1} GB).");
+        }
+    }
+
+    private void OnNotificationRaised(object? sender, DesktopNotificationEventArgs e)
+    {
+        _trayIcon.ForceCreate(false);
+        var icon = e.Level switch
+        {
+            "error" => NotificationIcon.Error,
+            "warning" => NotificationIcon.Warning,
+            _ => NotificationIcon.Info,
+        };
+        _trayIcon.ShowNotification(e.Title, e.Message, icon);
+    }
+
+    private void TrayOpen_Click(object sender, RoutedEventArgs e) => ShowFromTray();
+
+    private void TraySmartClean_Click(object sender, RoutedEventArgs e)
+    {
+        ShowFromTray();
+        _nav.NavigateTo(typeof(SmartCleanerPage));
+    }
+
+    private void TrayStartScan_Click(object sender, RoutedEventArgs e)
+    {
+        ShowFromTray();
+        _nav.NavigateTo(typeof(ScanPage));
+    }
+
+    private void TrayReviewDuplicates_Click(object sender, RoutedEventArgs e)
+    {
+        ShowFromTray();
+        _nav.NavigateTo(typeof(DuplicatesPage));
+    }
+
+    private void TrayPauseNotifications_Click(object sender, RoutedEventArgs e)
+    {
+        _notificationsPausedUntilUtc = DateTimeOffset.UtcNow.AddHours(12);
+        _trayIcon.ShowNotification("Notifications paused", "Low-disk tray notifications are paused for 12 hours.", NotificationIcon.Info);
+    }
+
+    private void TrayExit_Click(object sender, RoutedEventArgs e)
+    {
+        _allowClose = true;
+        _trayIcon.Dispose();
+        Close();
+    }
+
+    private TaskbarIcon CreateTrayIcon()
+    {
+        var menu = new MenuFlyout();
+        menu.Items.Add(MakeMenuItem("Open StorageMaster", TrayOpen_Click));
+        menu.Items.Add(MakeMenuItem("Run Smart Clean", TraySmartClean_Click));
+        menu.Items.Add(MakeMenuItem("Start Scan", TrayStartScan_Click));
+        menu.Items.Add(MakeMenuItem("Review Duplicates", TrayReviewDuplicates_Click));
+        menu.Items.Add(MakeMenuItem("Pause Notifications", TrayPauseNotifications_Click));
+        menu.Items.Add(new MenuFlyoutSeparator());
+        menu.Items.Add(MakeMenuItem("Exit", TrayExit_Click));
+
+        return new TaskbarIcon
+        {
+            ToolTipText = "StorageMaster",
+            ContextFlyout = menu,
+            MenuActivation = PopupActivationMode.LeftOrRightClick,
+            IconSource = new GeneratedIconSource
+            {
+                Text = "SM",
+            },
+        };
+    }
+
+    private static MenuFlyoutItem MakeMenuItem(string text, RoutedEventHandler handler)
+    {
+        var item = new MenuFlyoutItem
+        {
+            Text = text,
+        };
+        item.Click += handler;
+        return item;
     }
 }

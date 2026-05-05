@@ -49,6 +49,16 @@ public sealed class AppSettings
     public bool   IncludePrerelease    { get; set; } = false;
     public bool   RequireSignedUpdates { get; set; } = false;
 
+    // ── Background / tray / scheduler ──────────────────────────────────────
+    public bool   MinimizeToTray            { get; set; } = false;
+    public bool   StartTrayOnLogin          { get; set; } = false;
+    public bool   EnableLowDiskNotifications { get; set; } = true;
+    public int    LowDiskWarningPercent     { get; set; } = 15;
+    public int    LowDiskCriticalPercent    { get; set; } = 5;
+    public bool   ScheduledTasksEnabled     { get; set; } = false;
+    public IList<ScheduledJobDefinition> ScheduledJobs { get; set; } = [];
+    public IDictionary<string, string> LowDiskNotificationState { get; set; } = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
     // ── New cleanup rule toggles ─────────────────────────────────────────────
     public bool   CleanThumbnailCache  { get; set; } = true;
     public bool   CleanIconCache       { get; set; } = true;

@@ -224,6 +224,104 @@
                 </StackPanel>
             </Border>
 
+            <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    CornerRadius="8" Padding="20">
+                <StackPanel Spacing="14">
+                    <TextBlock Text="Background &amp; Tray" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                    <ToggleSwitch Header="Minimize to tray instead of closing"
+                                  IsOn="{x:Bind ViewModel.MinimizeToTray, Mode=TwoWay}" />
+                    <ToggleSwitch Header="Start in tray on Windows sign-in"
+                                  IsOn="{x:Bind ViewModel.StartTrayOnLogin, Mode=TwoWay}" />
+                    <ToggleSwitch Header="Enable low-disk tray notifications"
+                                  IsOn="{x:Bind ViewModel.EnableLowDiskNotifications, Mode=TwoWay}" />
+                    <Grid ColumnDefinitions="*,*" ColumnSpacing="12">
+                        <NumberBox Grid.Column="0"
+                                   Header="Warning at % free"
+                                   Minimum="1" Maximum="99"
+                                   SpinButtonPlacementMode="Inline"
+                                   Value="{x:Bind ViewModel.LowDiskWarningPercent, Mode=TwoWay}" />
+                        <NumberBox Grid.Column="1"
+                                   Header="Critical at % free"
+                                   Minimum="1" Maximum="99"
+                                   SpinButtonPlacementMode="Inline"
+                                   Value="{x:Bind ViewModel.LowDiskCriticalPercent, Mode=TwoWay}" />
+                    </Grid>
+                    <TextBlock Text="Low-disk notifications are debounced per drive for 12 hours. Pause is also available from the tray menu."
+                               Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.65" TextWrapping="Wrap" />
+                </StackPanel>
+            </Border>
+
+            <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    CornerRadius="8" Padding="20">
+                <StackPanel Spacing="14">
+                    <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="12">
+                        <TextBlock Grid.Column="0" Text="Scheduled Jobs" Style="{StaticResource BodyStrongTextBlockStyle}" VerticalAlignment="Center" />
+                        <Button Grid.Column="1" Content="Refresh" Command="{x:Bind ViewModel.RefreshScheduledJobsCommand}" />
+                        <Button Grid.Column="2" Content="New Job" Command="{x:Bind ViewModel.NewScheduledJobCommand}" />
+                    </Grid>
+
+                    <ListView ItemsSource="{x:Bind ViewModel.ScheduledJobs}"
+                              SelectedItem="{x:Bind ViewModel.SelectedScheduledJob, Mode=TwoWay}"
+                              MaxHeight="220">
+                        <ListView.ItemTemplate>
+                            <DataTemplate x:DataType="local:ScheduledJobEditorItem">
+                                <StackPanel Spacing="2">
+                                    <TextBlock Text="{x:Bind Info.Job.Name}" FontWeight="SemiBold" />
+                                    <TextBlock Text="{x:Bind Summary}" Opacity="0.75" TextWrapping="Wrap" />
+                                    <TextBlock Text="{x:Bind Info.StatusText}" Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.65" />
+                                </StackPanel>
+                            </DataTemplate>
+                        </ListView.ItemTemplate>
+                    </ListView>
+
+                    <Grid ColumnDefinitions="*,*" ColumnSpacing="12">
+                        <TextBox Grid.Column="0"
+                                 Header="Job name"
+                                 Text="{x:Bind ViewModel.ScheduledJobName, Mode=TwoWay}" />
+                        <TextBox Grid.Column="1"
+                                 Header="Target path"
+                                 Text="{x:Bind ViewModel.ScheduledJobTargetPath, Mode=TwoWay}" />
+                    </Grid>
+
+                    <Grid ColumnDefinitions="*,*,*" ColumnSpacing="12">
+                        <ComboBox Grid.Column="0"
+                                  Header="Action"
+                                  ItemsSource="{x:Bind ViewModel.ScheduledJobKindOptions, Mode=OneWay}"
+                                  SelectedItem="{x:Bind ViewModel.ScheduledJobKind, Mode=TwoWay}" />
+                        <ComboBox Grid.Column="1"
+                                  Header="Frequency"
+                                  ItemsSource="{x:Bind ViewModel.ScheduledJobFrequencyOptions, Mode=OneWay}"
+                                  SelectedItem="{x:Bind ViewModel.ScheduledJobFrequency, Mode=TwoWay}" />
+                        <ComboBox Grid.Column="2"
+                                  Header="Weekly day"
+                                  ItemsSource="{x:Bind ViewModel.ScheduledJobDayOptions, Mode=OneWay}"
+                                  SelectedItem="{x:Bind ViewModel.ScheduledJobDay, Mode=TwoWay}" />
+                    </Grid>
+
+                    <Grid ColumnDefinitions="*,*" ColumnSpacing="12">
+                        <TextBox Grid.Column="0"
+                                 Header="Start time (HH:mm)"
+                                 Text="{x:Bind ViewModel.ScheduledJobTime, Mode=TwoWay}" />
+                        <TextBox Grid.Column="1"
+                                 Header="Cleanup rules CSV"
+                                 PlaceholderText="TempFiles,CacheFolders,BrowserCache"
+                                 Text="{x:Bind ViewModel.ScheduledJobRulesCsv, Mode=TwoWay}" />
+                    </Grid>
+
+                    <ToggleSwitch Header="Enabled"
+                                  IsOn="{x:Bind ViewModel.ScheduledJobEnabled, Mode=TwoWay}" />
+
+                    <StackPanel Orientation="Horizontal" Spacing="12">
+                        <Button Content="Save Job"
+                                Command="{x:Bind ViewModel.SaveScheduledJobCommand}"
+                                IsEnabled="{x:Bind ViewModel.CanSaveScheduledJob, Mode=OneWay}" />
+                        <Button Content="Delete Job"
+                                Command="{x:Bind ViewModel.DeleteScheduledJobCommand}"
+                                IsEnabled="{x:Bind ViewModel.CanDeleteScheduledJob, Mode=OneWay}" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
             <!-- Action buttons -->
             <StackPanel Orientation="Horizontal" Spacing="12">
                 <Button Content="Save Settings"

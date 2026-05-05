@@ -17,6 +17,7 @@ $RECYCLE.BIN/
 *.sln.docstates
 *.rsuser
 *.DotSettings.user
+.claude/
 
 # Local environment and secrets
 .env

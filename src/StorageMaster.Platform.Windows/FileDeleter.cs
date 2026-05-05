@@ -60,6 +60,10 @@ public sealed class FileDeleter : IFileDeleter
         try
         {
             long size = EstimateSize(request.Path);
+
+            if (request.Method == DeletionMethod.Quarantine)
+                return await QuarantineAsync(request, size);
+
             if (request.Method == DeletionMethod.RecycleBin)
                 RecyclePathsViaIFileOperation([request.Path]);
             else
@@ -82,9 +86,11 @@ public sealed class FileDeleter : IFileDeleter
 
         // ── Fast path: batch all RecycleBin real deletions in one shell call ──
         // This is the common cleanup case and is dramatically faster than N calls.
-        bool allRecycleBin = requests.All(r => !r.DryRun && r.Method == DeletionMethod.RecycleBin
+        bool allRecycleBin = requests.All(r => !r.DryRun
+                                                          && r.Method == DeletionMethod.RecycleBin
                                                           && r.Path != "::RecycleBin::"
                                                           && r.Path != "::DnsFlush::");
+                                                          // Quarantine is per-file; falls through to normal path
         if (allRecycleBin && requests.Count > 1)
         {
             await foreach (var o in BatchRecycleBinAsync(requests, cancellationToken))
@@ -268,6 +274,49 @@ public sealed class FileDeleter : IFileDeleter
             return (File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0;
         }
         catch { return false; }
+    }
+
+    // ── Quarantine ──────────────────────────────────────────────────────────
+
+    private static readonly string QuarantineRoot = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "StorageMaster", "Quarantine");
+
+    private async Task<DeletionOutcome> QuarantineAsync(DeletionRequest request, long size)
+    {
+        var runId       = request.QuarantineRunId ?? 0;
+        var relative    = MakeRelativeQuarantinePath(request.Path);
+        var destination = Path.Combine(QuarantineRoot, runId.ToString(), relative);
+
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
+
+            // Avoid collisions: append counter suffix if destination already exists.
+            var dest = destination;
+            var counter = 1;
+            while (File.Exists(dest))
+                dest = destination + $".{counter++}";
+
+            await Task.Yield();
+            File.Move(request.Path, dest);
+            _logger.LogInformation("Quarantined {Source} → {Dest}", request.Path, dest);
+            return new DeletionOutcome(request.Path, true, size, QuarantinePath: dest);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to quarantine {Path}", request.Path);
+            return new DeletionOutcome(request.Path, false, 0, ex.Message);
+        }
+    }
+
+    private static string MakeRelativeQuarantinePath(string absolutePath)
+    {
+        // Strip drive letter/UNC prefix; replace ':' to keep valid path chars.
+        var rooted = absolutePath.Replace(':', '_');
+        if (Path.IsPathRooted(rooted))
+            rooted = rooted.TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        return rooted;
     }
 
     private async Task<DeletionOutcome> FlushDnsCacheAsync()

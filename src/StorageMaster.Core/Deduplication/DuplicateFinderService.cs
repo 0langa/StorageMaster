@@ -5,332 +5,421 @@ using StorageMaster.Core.Models;
 
 namespace StorageMaster.Core.Deduplication;
 
+/// <summary>
+/// Coordinates one or more <see cref="IDuplicateDetectionStrategy"/> instances
+/// to produce a complete duplicate analysis run.
+///
+/// Pipeline per strategy:
+///   1.  Build candidate query (strategy decides exact vs. fuzzy scope).
+///   2.  Fetch candidates from repository.
+///   3.  Load cached signatures; re-use when still valid (size + mtime + algorithm version).
+///   4.  Compute missing/stale signatures (parallel, bounded concurrency).
+///       - ExactSha256: applies partial-hash pre-filter before full hash.
+///       - All: before/after snapshot comparison to detect file changes during hash.
+///   5.  Upsert signatures into DB.
+///   6.  Call strategy.BuildMatches() to cluster into duplicate groups.
+///   7.  Apply keeper policy; persist groups + members.
+///
+/// Progress emitted is per-phase and never exceeds the phase total.
+/// Cancellation persists DuplicateRunStatus.Cancelled; partial results are
+/// discarded from the active run.
+/// </summary>
 public sealed class DuplicateFinderService(
-    IDuplicateRepository repository,
-    IDuplicateCandidateProvider candidateProvider,
-    IFileContentHasher hasher,
-    IEnumerable<IDuplicateSignatureProvider> signatureProviders,
-    IDuplicateKeeperPolicy keeperPolicy,
-    IFileIdentityProvider fileIdentityProvider,
+    IDuplicateRepository         repository,
+    IDuplicateCandidateProvider  candidateProvider,
+    IFileContentHasher           hasher,
+    IEnumerable<IDuplicateDetectionStrategy> strategies,
+    IDuplicateKeeperPolicy       keeperPolicy,
     ILogger<DuplicateFinderService> logger) : IDuplicateFinderService
 {
+    private readonly IReadOnlyDictionary<DuplicateMethod, IDuplicateDetectionStrategy> _strategyMap =
+        strategies.ToDictionary(s => s.Method);
+
     public async Task<DuplicateRun> RunAsync(
-        DuplicateScanOptions options,
+        DuplicateScanOptions                options,
         IProgress<DuplicateDetectionProgress>? progress = null,
-        CancellationToken ct = default)
+        CancellationToken                   ct = default)
     {
+        // ── P0.3: Validate methods before expensive work ───────────────────
+        var missing = options.Methods
+            .Where(m => !_strategyMap.ContainsKey(m))
+            .ToList();
+        if (missing.Count > 0)
+        {
+            var names = string.Join(", ", missing.Select(m => m.ToString()));
+            throw new InvalidOperationException(
+                $"The following duplicate detection methods have no registered strategy: {names}. " +
+                "Install the required provider package or disable the method.");
+        }
+
+        var unavailable = options.Methods
+            .Select(m => _strategyMap[m])
+            .Where(static s => !s.IsAvailable)
+            .ToList();
+        if (unavailable.Count > 0)
+        {
+            var message = string.Join("; ", unavailable.Select(s =>
+                s.UnavailableReason is { Length: > 0 }
+                    ? $"{s.DisplayName}: {s.UnavailableReason}"
+                    : s.DisplayName));
+            throw new InvalidOperationException(
+                $"One or more duplicate detection methods are unavailable: {message}");
+        }
+
         var run = await repository.CreateRunAsync(options, ct);
-        var signatures = new ConcurrentBag<DuplicateSignature>();
-        var errors = new ConcurrentBag<DuplicateError>();
-        var providers = signatureProviders.ToDictionary(provider => provider.Method);
+        var allSignatures  = new ConcurrentBag<DuplicateSignature>();
+        var allErrors      = new ConcurrentBag<DuplicateError>();
+        var allGroupPairs  = new List<(DuplicateGroup Group, List<DuplicateGroupMember> Members)>();
+        var nextOrdinal    = new long[] { 1L };  // boxed to avoid ref-in-async restriction
 
         try
         {
-            var allCandidates = await candidateProvider.GetExactCandidatesAsync(options, ct);
-            var processed = 0;
-            var exactGroups = new List<(DuplicateGroup Group, List<DuplicateGroupMember> Members)>();
-            var nextGroupOrdinal = 1L;
-
-            if (options.Methods.Contains(DuplicateMethod.ExactSha256))
+            foreach (var method in options.Methods)
             {
-                var candidatesBySize = allCandidates
-                    .GroupBy(static candidate => candidate.File.SizeBytes)
-                    .Where(static group => group.Count() > 1)
-                    .ToList();
-                var total = candidatesBySize.Sum(static group => group.Count());
+                ct.ThrowIfCancellationRequested();
 
-                foreach (var sizeGroup in candidatesBySize)
-                {
-                    ct.ThrowIfCancellationRequested();
+                var strategy = _strategyMap[method];
+                logger.LogInformation("Run {RunId}: starting {Method} phase", run.Id, method);
 
-                    var existingCandidates = sizeGroup
-                        .Where(static candidate => File.Exists(candidate.File.FullPath))
-                        .Where(static candidate => candidate.File.SizeBytes > 0)
-                        .ToList();
-
-                    var validCandidates = new List<DuplicateCandidate>(existingCandidates.Count);
-                    foreach (var candidate in existingCandidates)
-                    {
-                        try
-                        {
-                            var info = new FileInfo(candidate.File.FullPath);
-                            if (!info.Exists || info.Length != candidate.File.SizeBytes)
-                                continue;
-
-                            validCandidates.Add(candidate with
-                            {
-                                Identity = await fileIdentityProvider.GetIdentityAsync(candidate.File.FullPath, ct)
-                            });
-                        }
-                        catch (Exception ex)
-                        {
-                            errors.Add(new DuplicateError
-                            {
-                                Id = 0,
-                                RunId = run.Id,
-                                FileEntryId = candidate.File.Id,
-                                Path = candidate.File.FullPath,
-                                ErrorType = "Validation",
-                                Message = ex.Message,
-                                OccurredUtc = DateTime.UtcNow,
-                            });
-                        }
-                    }
-
-                    var partialGroups = new ConcurrentDictionary<string, ConcurrentBag<DuplicateCandidate>>(StringComparer.Ordinal);
-                    await Parallel.ForEachAsync(validCandidates, new ParallelOptions
-                    {
-                        CancellationToken = ct,
-                        MaxDegreeOfParallelism = Math.Max(1, options.MaxConcurrency),
-                    }, async (candidate, token) =>
-                    {
-                        try
-                        {
-                            var partialHash = await hasher.ComputePartialHashAsync(candidate.File.FullPath, token);
-                            partialGroups.GetOrAdd(partialHash, static _ => []).Add(candidate);
-                        }
-                        catch (Exception ex)
-                        {
-                            errors.Add(new DuplicateError
-                            {
-                                Id = 0,
-                                RunId = run.Id,
-                                FileEntryId = candidate.File.Id,
-                                Path = candidate.File.FullPath,
-                                ErrorType = "PartialHash",
-                                Message = ex.Message,
-                                OccurredUtc = DateTime.UtcNow,
-                            });
-                        }
-                        finally
-                        {
-                            var current = Interlocked.Increment(ref processed);
-                            progress?.Report(new DuplicateDetectionProgress(
-                                current,
-                                total,
-                                candidate.File.FullPath,
-                                "Hashing exact candidates"));
-                        }
-                    });
-
-                    foreach (var partialGroup in partialGroups.Values.Where(static group => group.Count > 1))
-                    {
-                        var shaGroups = new ConcurrentDictionary<string, ConcurrentBag<DuplicateCandidate>>(StringComparer.Ordinal);
-                        await Parallel.ForEachAsync(partialGroup, new ParallelOptions
-                        {
-                            CancellationToken = ct,
-                            MaxDegreeOfParallelism = Math.Max(1, options.MaxConcurrency),
-                        }, async (candidate, token) =>
-                        {
-                            try
-                            {
-                                var signature = await providers[DuplicateMethod.ExactSha256].ComputeAsync(candidate, token);
-                                signatures.Add(signature);
-                                shaGroups.GetOrAdd(signature.SignatureText!, static _ => []).Add(candidate);
-                            }
-                            catch (Exception ex)
-                            {
-                                errors.Add(new DuplicateError
-                                {
-                                    Id = 0,
-                                    RunId = run.Id,
-                                    FileEntryId = candidate.File.Id,
-                                    Path = candidate.File.FullPath,
-                                    ErrorType = "Sha256",
-                                    Message = ex.Message,
-                                    OccurredUtc = DateTime.UtcNow,
-                                });
-                            }
-                        });
-
-                        foreach (var shaGroup in shaGroups.Values.Where(static group => group.Count > 1))
-                        {
-                            var distinctFiles = shaGroup
-                                .GroupBy(static candidate => candidate.Identity is null
-                                    ? candidate.File.FullPath
-                                    : $"{candidate.Identity.VolumeSerial}:{candidate.Identity.FileIndex}")
-                                .Select(static group => group.First())
-                                .ToList();
-
-                            if (distinctFiles.Count < 2)
-                                continue;
-
-                            exactGroups.Add(CreateGroup(
-                                keeperPolicy,
-                                run.Id,
-                                ref nextGroupOrdinal,
-                                DuplicateMethod.ExactSha256,
-                                "SHA-256",
-                                distinctFiles,
-                                options.KeeperPolicy,
-                                autoSelectDuplicates: true,
-                                confidence: 1.0d,
-                                reasonText: "Exact byte duplicate"));
-                        }
-                    }
-                }
+                await RunStrategyPhaseAsync(
+                    run, options, strategy, progress,
+                    allSignatures, allErrors, allGroupPairs,
+                    nextOrdinal, ct);
             }
 
-            if (options.Methods.Contains(DuplicateMethod.NormalizedText)
-                && providers.TryGetValue(DuplicateMethod.NormalizedText, out var normalizedProvider))
-            {
-                var textCandidates = allCandidates
-                    .Where(static candidate => NormalizedTextSignatureProvider.CanProcess(candidate.File))
-                    .ToList();
-                var total = textCandidates.Count;
-
-                var normalizedGroups = new ConcurrentDictionary<string, ConcurrentBag<DuplicateCandidate>>(StringComparer.Ordinal);
-                await Parallel.ForEachAsync(textCandidates, new ParallelOptions
-                {
-                    CancellationToken = ct,
-                    MaxDegreeOfParallelism = Math.Max(1, options.MaxConcurrency),
-                }, async (candidate, token) =>
-                {
-                    try
-                    {
-                        var signature = await normalizedProvider.ComputeAsync(candidate, token);
-                        signatures.Add(signature);
-                        normalizedGroups.GetOrAdd(signature.SignatureText!, static _ => []).Add(candidate);
-                    }
-                    catch (Exception ex)
-                    {
-                        errors.Add(new DuplicateError
-                        {
-                            Id = 0,
-                            RunId = run.Id,
-                            FileEntryId = candidate.File.Id,
-                            Path = candidate.File.FullPath,
-                            ErrorType = "NormalizedText",
-                            Message = ex.Message,
-                            OccurredUtc = DateTime.UtcNow,
-                        });
-                    }
-                    finally
-                    {
-                        var current = Interlocked.Increment(ref processed);
-                        progress?.Report(new DuplicateDetectionProgress(
-                            current,
-                            Math.Max(total, 1),
-                            candidate.File.FullPath,
-                            "Normalizing text duplicates"));
-                    }
-                });
-
-                foreach (var group in normalizedGroups.Values.Where(static candidates => candidates.Count > 1))
-                {
-                    var distinctFiles = group
-                        .GroupBy(static candidate => candidate.File.FullPath, StringComparer.OrdinalIgnoreCase)
-                        .Select(static duplicateGroup => duplicateGroup.First())
-                        .ToList();
-                    if (distinctFiles.Count < 2)
-                        continue;
-
-                    exactGroups.Add(CreateGroup(
-                        keeperPolicy,
-                        run.Id,
-                        ref nextGroupOrdinal,
-                        DuplicateMethod.NormalizedText,
-                        "TEXT-NORM-SHA256",
-                        distinctFiles,
-                        options.KeeperPolicy,
-                        autoSelectDuplicates: false,
-                        confidence: 0.8d,
-                        reasonText: "Normalized text review"));
-                }
-            }
-
-            var groupRecords = exactGroups.Select(static pair => pair.Group).ToList();
-            var memberRecords = exactGroups.SelectMany(static pair => pair.Members).ToList();
+            var groupRecords  = allGroupPairs.Select(static p => p.Group).ToList();
+            var memberRecords = allGroupPairs.SelectMany(static p => p.Members).ToList();
 
             await repository.SaveResultsAsync(
                 run.Id,
-                [.. signatures],
+                [.. allSignatures],
                 groupRecords,
                 memberRecords,
-                [.. errors],
+                [.. allErrors],
                 ct);
 
             await repository.CompleteRunAsync(
                 run.Id,
                 DuplicateRunStatus.Completed,
-                allCandidates.Count,
+                allSignatures.Count,
                 groupRecords.Count,
-                groupRecords.Sum(static group => group.TotalBytes),
-                groupRecords.Sum(static group => group.ReclaimableBytes),
-                errors.Count,
+                groupRecords.Sum(static g => g.TotalBytes),
+                groupRecords.Sum(static g => g.ReclaimableBytes),
+                allErrors.Count,
                 ct: ct);
         }
         catch (OperationCanceledException)
         {
-            await repository.CompleteRunAsync(run.Id, DuplicateRunStatus.Cancelled, 0, 0, 0, 0, errors.Count, ct: CancellationToken.None);
+            logger.LogInformation("Run {RunId} cancelled", run.Id);
+            await repository.CompleteRunAsync(
+                run.Id, DuplicateRunStatus.Cancelled,
+                0, 0, 0, 0, allErrors.Count,
+                ct: CancellationToken.None);
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Duplicate run {RunId} failed", run.Id);
-            await repository.CompleteRunAsync(run.Id, DuplicateRunStatus.Failed, 0, 0, 0, 0, errors.Count, ex.Message, CancellationToken.None);
+            logger.LogError(ex, "Run {RunId} failed", run.Id);
+            await repository.CompleteRunAsync(
+                run.Id, DuplicateRunStatus.Failed,
+                0, 0, 0, 0, allErrors.Count, ex.Message,
+                CancellationToken.None);
         }
 
-        var completedRun = (await repository.GetRunsForSessionAsync(options.SessionId, CancellationToken.None))
-            .First(candidateRun => candidateRun.Id == run.Id);
-        return completedRun;
+        var completed = (await repository.GetRunsForSessionAsync(options.SessionId, CancellationToken.None))
+            .First(r => r.Id == run.Id);
+        return completed;
     }
 
-    private static (DuplicateGroup Group, List<DuplicateGroupMember> Members) CreateGroup(
-        IDuplicateKeeperPolicy keeperPolicy,
-        long runId,
-        ref long nextGroupOrdinal,
-        DuplicateMethod method,
-        string algorithm,
-        IReadOnlyList<DuplicateCandidate> candidates,
-        KeeperPolicy keeperPolicyValue,
-        bool autoSelectDuplicates,
-        double confidence,
-        string reasonText)
+    // ── Per-strategy phase ────────────────────────────────────────────────────
+
+    private async Task RunStrategyPhaseAsync(
+        DuplicateRun                           run,
+        DuplicateScanOptions                   options,
+        IDuplicateDetectionStrategy            strategy,
+        IProgress<DuplicateDetectionProgress>? progress,
+        ConcurrentBag<DuplicateSignature>      allSignatures,
+        ConcurrentBag<DuplicateError>          allErrors,
+        List<(DuplicateGroup, List<DuplicateGroupMember>)> allGroupPairs,
+        long[]                                 nextOrdinal,   // [0] = next group ordinal
+        CancellationToken                      ct)
     {
-        var keeper = keeperPolicy.ChooseKeeper(candidates, keeperPolicyValue);
-        var totalBytes = candidates.Sum(static candidate => candidate.File.SizeBytes);
-        var reclaimableBytes = totalBytes - keeper.File.SizeBytes;
-        var groupId = nextGroupOrdinal++;
+        // 1. Candidates
+        var query      = strategy.BuildCandidateQuery(options);
+        var candidates = await candidateProvider.GetCandidatesAsync(query, ct);
+        if (candidates.Count == 0) return;
+
+        // 2. Load cached signatures
+        var cached = await repository.GetCachedSignaturesAsync(
+            options.SessionId, strategy.Method, strategy.Algorithm, strategy.AlgorithmVersion, ct);
+        var cacheMap = cached.ToDictionary(s => s.FileEntryId);
+
+        // 3. Determine which candidates need fresh signatures
+        var needsSig   = new List<DuplicateCandidate>(candidates.Count);
+        var sigsByKey  = new ConcurrentDictionary<string, ConcurrentBag<DuplicateCandidate>>(StringComparer.Ordinal);
+        var groupsFound = new int[] { 0 };  // boxed counter — passed to async helpers
+
+        foreach (var c in candidates)
+        {
+            if (cacheMap.TryGetValue(c.File.Id, out var cached_sig) &&
+                IsCacheValid(cached_sig, c.File, strategy.AlgorithmVersion))
+            {
+                // Reuse cached signature
+                allSignatures.Add(cached_sig);
+                if (cached_sig.SignatureText is not null)
+                    sigsByKey.GetOrAdd(cached_sig.SignatureText, static _ => []).Add(c);
+            }
+            else
+            {
+                needsSig.Add(c);
+            }
+        }
+
+        // 4. Compute missing signatures
+        if (needsSig.Count > 0)
+        {
+            if (strategy.UsePartialHashPreFilter)
+            {
+                await RunWithPartialHashPreFilterAsync(
+                    run, options, strategy, progress,
+                    needsSig, allSignatures, allErrors,
+                    sigsByKey, groupsFound, ct);
+            }
+            else
+            {
+                await ComputeSignaturesAsync(
+                    run, options, strategy, progress,
+                    needsSig, needsSig.Count, allSignatures, allErrors,
+                    sigsByKey, groupsFound, ct);
+            }
+        }
+
+        // 5. Build duplicate groups from signature clusters
+        var signatureGroupsSnapshot = sigsByKey
+            .ToDictionary(
+                kv => kv.Key,
+                kv => (IReadOnlyList<DuplicateCandidate>)kv.Value.ToList());
+
+        foreach (var match in strategy.BuildMatches(signatureGroupsSnapshot))
+        {
+            allGroupPairs.Add(CreateGroup(
+                keeperPolicy, run.Id, nextOrdinal,
+                strategy, match, options.KeeperPolicy));
+            groupsFound[0]++;
+        }
+
+        logger.LogInformation(
+            "Run {RunId}: {Method} phase done — {Candidates} candidates, {Groups} groups, {Errors} errors",
+            run.Id, strategy.Method, candidates.Count, groupsFound[0], allErrors.Count);
+    }
+
+    // ── Partial-hash pre-filter (ExactSha256) ─────────────────────────────────
+
+    private async Task RunWithPartialHashPreFilterAsync(
+        DuplicateRun                           run,
+        DuplicateScanOptions                   options,
+        IDuplicateDetectionStrategy            strategy,
+        IProgress<DuplicateDetectionProgress>? progress,
+        IReadOnlyList<DuplicateCandidate>      candidates,
+        ConcurrentBag<DuplicateSignature>      allSignatures,
+        ConcurrentBag<DuplicateError>          allErrors,
+        ConcurrentDictionary<string, ConcurrentBag<DuplicateCandidate>> sigsByKey,
+        int[]                                  groupsFound,   // [0] = count
+        CancellationToken                      ct)
+    {
+        // Group candidates by size — the SQL already filters to multi-occurrence
+        // sizes, but we bucket in memory here to drive partial-hash clustering.
+        var bySizeGroups = candidates
+            .GroupBy(static c => c.File.SizeBytes)
+            .Where(static g => g.Count() > 1)
+            .ToList();
+
+        // Validate existence + current size before any I/O
+        var totalToHash = 0;
+        var validBySizeGroups = new List<(long Size, List<DuplicateCandidate> Valid)>();
+        foreach (var sizeGroup in bySizeGroups)
+        {
+            var valid = new List<DuplicateCandidate>(sizeGroup.Count());
+            foreach (var c in sizeGroup)
+            {
+                var info = new FileInfo(c.File.FullPath);
+                if (!info.Exists || info.Length != c.File.SizeBytes) continue;
+                valid.Add(c);
+            }
+            if (valid.Count > 1)
+            {
+                validBySizeGroups.Add((sizeGroup.Key, valid));
+                totalToHash += valid.Count;
+            }
+        }
+
+        if (totalToHash == 0) return;
+
+        var processed = 0;
+
+        foreach (var (_, validCandidates) in validBySizeGroups)
+        {
+            ct.ThrowIfCancellationRequested();
+
+            // Partial hash — cluster, then full-hash only clusters with > 1 member
+            var partialGroups = new ConcurrentDictionary<string, ConcurrentBag<DuplicateCandidate>>(StringComparer.Ordinal);
+            await Parallel.ForEachAsync(validCandidates, new ParallelOptions
+            {
+                CancellationToken = ct,
+                MaxDegreeOfParallelism = Math.Max(1, options.MaxConcurrency),
+            }, async (c, token) =>
+            {
+                try
+                {
+                    var ph = await hasher.ComputePartialHashAsync(c.File.FullPath, token);
+                    partialGroups.GetOrAdd(ph, static _ => []).Add(c);
+                }
+                catch (Exception ex)
+                {
+                    allErrors.Add(MakeError(run.Id, c, "PartialHash", ex.Message));
+                }
+                finally
+                {
+                    var cur = Interlocked.Increment(ref processed);
+                    progress?.Report(new DuplicateDetectionProgress
+                    {
+                        RunId = run.Id,
+                        Phase = "Partial hash pre-filter",
+                        Method = strategy.Method,
+                        Processed = cur,
+                        Total = totalToHash,
+                        CurrentPath = c.File.FullPath,
+                        GroupsFound = groupsFound[0],
+                        Errors = allErrors.Count,
+                        CanCancel = true,
+                    });
+                }
+            });
+
+            // Full-hash only within partial-hash clusters
+            foreach (var cluster in partialGroups.Values.Where(static g => g.Count > 1))
+            {
+                await ComputeSignaturesAsync(
+                    run, options, strategy, progress,
+                    cluster.ToList(), totalToHash, allSignatures, allErrors,
+                    sigsByKey, groupsFound, ct);
+            }
+        }
+    }
+
+    // ── Parallel signature computation ────────────────────────────────────────
+
+    private async Task ComputeSignaturesAsync(
+        DuplicateRun                           run,
+        DuplicateScanOptions                   options,
+        IDuplicateDetectionStrategy            strategy,
+        IProgress<DuplicateDetectionProgress>? progress,
+        IReadOnlyList<DuplicateCandidate>      candidates,
+        int                                    phaseTotal,
+        ConcurrentBag<DuplicateSignature>      allSignatures,
+        ConcurrentBag<DuplicateError>          allErrors,
+        ConcurrentDictionary<string, ConcurrentBag<DuplicateCandidate>> sigsByKey,
+        int[]                                  groupsFound,
+        CancellationToken                      ct)
+    {
+        var processed = 0;
+        await Parallel.ForEachAsync(candidates, new ParallelOptions
+        {
+            CancellationToken      = ct,
+            MaxDegreeOfParallelism = Math.Max(1, options.MaxConcurrency),
+        }, async (c, token) =>
+        {
+            var sig = await strategy.ComputeSignatureAsync(c, token);
+            allSignatures.Add(sig);
+
+            if (sig.Status == "Ready" && sig.SignatureText is not null)
+                sigsByKey.GetOrAdd(sig.SignatureText, static _ => []).Add(c);
+            else if (sig.Status == "Error" && sig.ErrorMessage is not null)
+                allErrors.Add(MakeError(run.Id, c, sig.ErrorMessage.Contains("Changed") ? "FileChangedDuringHash" : "SignatureError", sig.ErrorMessage ?? string.Empty));
+
+            var cur = Interlocked.Increment(ref processed);
+            progress?.Report(new DuplicateDetectionProgress
+            {
+                RunId       = run.Id,
+                Phase       = strategy.DisplayName,
+                Method      = strategy.Method,
+                Processed   = cur,
+                Total       = Math.Max(phaseTotal, 1),
+                CurrentPath = c.File.FullPath,
+                GroupsFound = groupsFound[0],
+                Errors      = allErrors.Count,
+                CanCancel   = true,
+            });
+        });
+    }
+
+    // ── Group creation ────────────────────────────────────────────────────────
+
+    private static (DuplicateGroup, List<DuplicateGroupMember>) CreateGroup(
+        IDuplicateKeeperPolicy              keeperPolicy,
+        long                               runId,
+        long[]                             nextOrdinal,
+        IDuplicateDetectionStrategy        strategy,
+        DuplicateStrategyMatch             match,
+        KeeperPolicy                       policy)
+    {
+        var keeper      = keeperPolicy.ChooseKeeper(match.Candidates, policy);
+        var totalBytes  = match.Candidates.Sum(static c => c.File.SizeBytes);
+        var reclaimable = totalBytes - keeper.File.SizeBytes;
+        var groupId     = Interlocked.Increment(ref nextOrdinal[0]) - 1;
 
         var groupRecord = new DuplicateGroup
         {
-            Id = groupId,
-            RunId = runId,
-            Method = method,
-            Algorithm = algorithm,
-            Confidence = confidence,
-            TotalBytes = totalBytes,
-            ReclaimableBytes = reclaimableBytes,
+            Id                        = groupId,
+            RunId                     = runId,
+            Method                    = strategy.Method,
+            Algorithm                 = strategy.Algorithm,
+            Confidence                = match.Confidence,
+            TotalBytes                = totalBytes,
+            ReclaimableBytes          = reclaimable,
             RepresentativeFileEntryId = keeper.File.Id,
         };
 
-        var members = candidates
-            .Select(candidate => new DuplicateGroupMember
+        var members = match.Candidates
+            .Select(c => new DuplicateGroupMember
             {
-                Id = 0,
-                GroupId = groupId,
-                FileEntryId = candidate.File.Id,
-                FullPath = candidate.File.FullPath,
-                FileName = candidate.File.FileName,
-                SizeBytes = candidate.File.SizeBytes,
-                ModifiedUtc = candidate.File.ModifiedUtc,
-                Score = confidence,
-                IsKeeper = candidate.File.Id == keeper.File.Id,
-                IsSelected = autoSelectDuplicates && candidate.File.Id != keeper.File.Id,
-                RecommendationReason = candidate.File.Id == keeper.File.Id
-                    ? DescribeKeeperReason(true, keeperPolicyValue)
-                    : reasonText,
+                Id       = 0,
+                GroupId  = groupId,
+                FileEntryId = c.File.Id,
+                FullPath = c.File.FullPath,
+                FileName = c.File.FileName,
+                SizeBytes = c.File.SizeBytes,
+                ModifiedUtc = c.File.ModifiedUtc,
+                Score    = match.Confidence,
+                IsKeeper = c.File.Id == keeper.File.Id,
+                IsSelected = strategy.SupportsAutoSelection && c.File.Id != keeper.File.Id,
+                RecommendationReason = c.File.Id == keeper.File.Id
+                    ? $"Kept by policy {policy}"
+                    : match.ReasonText,
                 ExistsNow = true,
             })
-            .OrderBy(static member => member.IsKeeper ? 0 : 1)
-            .ThenBy(static member => member.FullPath, StringComparer.OrdinalIgnoreCase)
+            .OrderBy(static m => m.IsKeeper ? 0 : 1)
+            .ThenBy(static m => m.FullPath, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
         return (groupRecord, members);
     }
 
-    private static string DescribeKeeperReason(bool isKeeper, KeeperPolicy policy) =>
-        isKeeper
-            ? $"Kept by policy {policy}"
-            : "Duplicate copy";
+    // ── Utilities ─────────────────────────────────────────────────────────────
+
+    private static bool IsCacheValid(DuplicateSignature cached, FileEntry current, int currentAlgorithmVersion) =>
+        cached.Status == "Ready" &&
+        cached.AlgorithmVersion == currentAlgorithmVersion &&
+        cached.SourceSizeBytes  == current.SizeBytes &&
+        cached.SourceModifiedUtc == current.ModifiedUtc;
+
+    private static DuplicateError MakeError(long runId, DuplicateCandidate c, string type, string msg) =>
+        new()
+        {
+            Id = 0, RunId = runId,
+            FileEntryId = c.File.Id,
+            Path = c.File.FullPath,
+            ErrorType = type,
+            Message = msg,
+            OccurredUtc = DateTime.UtcNow,
+        };
 }

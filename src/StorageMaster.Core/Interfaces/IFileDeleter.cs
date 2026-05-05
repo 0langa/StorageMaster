@@ -1,17 +1,31 @@
 namespace StorageMaster.Core.Interfaces;
 
-public enum DeletionMethod { RecycleBin, Permanent }
+public enum DeletionMethod
+{
+    RecycleBin,
+    Permanent,
+    /// <summary>
+    /// Move file to the app's quarantine folder
+    /// (%LOCALAPPDATA%\StorageMaster\Quarantine\&lt;runId&gt;\...).
+    /// The move is reversible via <see cref="IDuplicateDeletionService.RestoreFromQuarantineAsync"/>.
+    /// </summary>
+    Quarantine,
+}
 
 public sealed record DeletionRequest(
     string         Path,
     DeletionMethod Method,
-    bool           DryRun);
+    bool           DryRun,
+    /// <summary>Optional run ID required when Method == Quarantine.</summary>
+    long?          QuarantineRunId = null);
 
 public sealed record DeletionOutcome(
     string  Path,
     bool    Success,
     long    BytesFreed,
-    string? Error = null);
+    string? Error         = null,
+    /// <summary>Set when Method == Quarantine and move succeeded.</summary>
+    string? QuarantinePath = null);
 
 /// <summary>
 /// Platform abstraction for file/folder deletion.

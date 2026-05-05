@@ -4,71 +4,80 @@ using StorageMaster.Core.Models;
 
 namespace StorageMaster.Core.Deduplication;
 
+/// <summary>
+/// Deletes or quarantines selected duplicate group members with safety guards:
+///
+///   1. Snapshot validation: size + mtime must match what was recorded at scan time.
+///   2. Keeper safety: refuses deletion when no keeper exists or keeper is missing.
+///   3. Changed-file skipping: files that moved or changed since scan are skipped.
+///   4. Audit logging: every deletion/quarantine emitted to <see cref="ICleanupLogRepository"/>.
+///   5. Quarantine restore: moves file back to original (or alternate) path.
+/// </summary>
 public sealed class DuplicateDeletionService(
-    IFileDeleter deleter,
-    ICleanupLogRepository cleanupLogRepository,
-    IDuplicateRepository duplicateRepository) : IDuplicateDeletionService
+    IFileDeleter             deleter,
+    ICleanupLogRepository    cleanupLogRepository,
+    IDuplicateRepository     duplicateRepository) : IDuplicateDeletionService
 {
     public async Task<long> DeleteSelectedAsync(
-        DuplicateGroup group,
+        DuplicateGroup                   group,
         IReadOnlyList<DuplicateGroupMember> members,
-        DeletionMethod method,
-        CancellationToken ct = default)
+        DeletionMethod                   method,
+        CancellationToken                ct = default)
     {
-        var selected = members.Where(static member => member.IsSelected && !member.IsKeeper && member.ExistsNow).ToList();
+        // ── Safety: refuse when keeper is absent ──────────────────────────
+        var keeper = members.FirstOrDefault(static m => m.IsKeeper);
+        if (keeper is null || !File.Exists(keeper.FullPath))
+            throw new InvalidOperationException(
+                $"Group {group.Id}: keeper file is missing or not designated. " +
+                "Cannot delete duplicates without a confirmed keeper.");
+
+        var selected = members
+            .Where(static m => m.IsSelected && !m.IsKeeper && m.ExistsNow)
+            .ToList();
         if (selected.Count == 0)
-            return 0;
+            return 0L;
 
-        long freed = 0;
-        var deletedMemberIds = new List<long>(selected.Count);
-
+        var validated = new List<(DuplicateGroupMember Member, DeletionRequest Request)>(selected.Count);
         foreach (var member in selected)
         {
-            var info = new FileInfo(member.FullPath);
-            if (!info.Exists || info.Length != member.SizeBytes || info.LastWriteTimeUtc != member.ModifiedUtc.ToUniversalTime())
+            ct.ThrowIfCancellationRequested();
+
+            if (!IsSafeToDelete(member))
                 continue;
 
-            var outcome = await deleter.DeleteAsync(new DeletionRequest(member.FullPath, method, DryRun: false), ct);
-            if (!outcome.Success)
+            validated.Add((member, new DeletionRequest(
+                member.FullPath,
+                method,
+                DryRun: false,
+                QuarantineRunId: group.RunId)));
+        }
+
+        if (validated.Count == 0)
+            return 0L;
+
+        long freed = 0L;
+        var deletedMemberIds = new List<long>(validated.Count);
+        var membersByPath = validated.ToDictionary(
+            static item => item.Member.FullPath,
+            static item => item.Member,
+            StringComparer.OrdinalIgnoreCase);
+
+        await foreach (var outcome in deleter.DeleteManyAsync(validated.Select(static item => item.Request).ToList(), ct))
+        {
+            if (!outcome.Success || !membersByPath.TryGetValue(outcome.Path, out var member))
                 continue;
 
             freed += outcome.BytesFreed;
             deletedMemberIds.Add(member.Id);
 
-            var suggestion = new CleanupSuggestion
+            if (method == DeletionMethod.Quarantine && outcome.QuarantinePath is not null)
             {
-                Id = Guid.NewGuid(),
-                RuleId = $"duplicates.{group.Method}".ToLowerInvariant(),
-                Title = $"Duplicate file: {member.FileName}",
-                Description = $"Duplicate file selected from duplicate group {group.Id}.",
-                Category = CleanupCategory.DuplicateFiles,
-                Risk = CleanupRisk.Low,
-                EstimatedBytes = member.SizeBytes,
-                TargetPaths = [member.FullPath],
-                IsSystemPath = false,
-                AuditDataJson = JsonSerializer.Serialize(new
-                {
-                    DuplicateGroupId = group.Id,
-                    group.RunId,
-                    DuplicateMethod = group.Method.ToString(),
-                    group.Confidence,
-                    KeeperFileEntryId = members.FirstOrDefault(static candidate => candidate.IsKeeper)?.FileEntryId,
-                    DeletedFileEntryId = member.FileEntryId,
-                    member.FullPath,
-                    DeletionMethod = method.ToString(),
-                }),
-            };
+                await duplicateRepository.RecordQuarantineAsync(
+                    member.Id, group.RunId,
+                    member.FullPath, outcome.QuarantinePath, ct);
+            }
 
-            var result = new CleanupResult
-            {
-                SuggestionId = suggestion.Id,
-                Status = CleanupResultStatus.Success,
-                BytesFreed = outcome.BytesFreed,
-                ExecutedUtc = DateTime.UtcNow,
-                WasDryRun = false,
-            };
-
-            await cleanupLogRepository.LogResultAsync(result, suggestion, ct);
+            await LogAuditAsync(group, member, keeper, method, outcome, ct);
         }
 
         if (deletedMemberIds.Count > 0)
@@ -76,4 +85,100 @@ public sealed class DuplicateDeletionService(
 
         return freed;
     }
+
+    public async Task RestoreFromQuarantineAsync(
+        long              quarantineId,
+        string?           targetPath    = null,
+        CancellationToken ct            = default)
+    {
+        var record = await duplicateRepository.GetQuarantinedFileAsync(quarantineId, ct)
+            ?? throw new InvalidOperationException($"Quarantine record {quarantineId} was not found.");
+
+        if (record.RestoredUtc is not null)
+            throw new InvalidOperationException($"Quarantine record {quarantineId} was already restored.");
+
+        if (!File.Exists(record.QuarantinePath))
+            throw new FileNotFoundException("Quarantined file is missing.", record.QuarantinePath);
+
+        var restorePath = string.IsNullOrWhiteSpace(targetPath) ? record.OriginalPath : targetPath;
+        var restoreDirectory = Path.GetDirectoryName(restorePath);
+        if (!string.IsNullOrWhiteSpace(restoreDirectory))
+            Directory.CreateDirectory(restoreDirectory);
+
+        if (File.Exists(restorePath))
+            throw new IOException($"Restore target already exists: {restorePath}");
+
+        File.Move(record.QuarantinePath, restorePath);
+        await duplicateRepository.MarkRestoredAsync(quarantineId, restorePath, ct);
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private static bool IsSafeToDelete(DuplicateGroupMember member)
+    {
+        var info = new FileInfo(member.FullPath);
+        if (!info.Exists)
+            return false;
+
+        return info.Length == member.SizeBytes &&
+               info.LastWriteTimeUtc.TruncateToSeconds() == member.ModifiedUtc.ToUniversalTime().TruncateToSeconds();
+    }
+
+    private async Task LogAuditAsync(
+        DuplicateGroup       group,
+        DuplicateGroupMember member,
+        DuplicateGroupMember keeper,
+        DeletionMethod       method,
+        DeletionOutcome      outcome,
+        CancellationToken    ct)
+    {
+        var suggestion = new CleanupSuggestion
+        {
+            Id          = Guid.NewGuid(),
+            RuleId      = $"duplicates.{group.Method}".ToLowerInvariant(),
+            Title       = $"Duplicate file: {member.FileName}",
+            Description = $"Duplicate file selected from group {group.Id} via {method}.",
+            Category    = CleanupCategory.DuplicateFiles,
+            Risk        = CleanupRisk.Low,
+            EstimatedBytes = member.SizeBytes,
+            TargetPaths = [member.FullPath],
+            IsSystemPath = false,
+            AuditDataJson = JsonSerializer.Serialize(new
+            {
+                DuplicateGroupId   = group.Id,
+                group.RunId,
+                DuplicateMethod    = group.Method.ToString(),
+                group.Confidence,
+                KeeperFileEntryId  = keeper.FileEntryId,
+                KeeperPath         = keeper.FullPath,
+                DeletedFileEntryId = member.FileEntryId,
+                member.FullPath,
+                member.SizeBytes,
+                member.ModifiedUtc,
+                DeletionMethod     = method.ToString(),
+                outcome.Success,
+                outcome.BytesFreed,
+                outcome.Error,
+                QuarantinePath     = outcome.QuarantinePath,
+            }),
+        };
+
+        var result = new CleanupResult
+        {
+            SuggestionId = suggestion.Id,
+            Status       = CleanupResultStatus.Success,
+            BytesFreed   = outcome.BytesFreed,
+            ExecutedUtc  = DateTime.UtcNow,
+            WasDryRun    = false,
+        };
+
+        await cleanupLogRepository.LogResultAsync(result, suggestion, ct);
+    }
+}
+
+file static class DateTimeExtensions
+{
+    /// <summary>Truncates to 1-second precision for mtime comparison (FAT / NTFS granularity).</summary>
+    internal static DateTime TruncateToSeconds(this DateTime dt) =>
+        new(dt.Year, dt.Month, dt.Day, dt.Hour, dt.Minute, dt.Second, dt.Kind);
 }

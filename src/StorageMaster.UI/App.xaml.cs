@@ -152,10 +152,48 @@ public partial class App : Application
         // Smart Cleaner
         services.AddSingleton<ISmartCleanerService, SmartCleanerService>();
         services.AddSingleton<IFileContentHasher, FileContentHasher>();
-        services.AddSingleton<IDuplicateSignatureProvider, ExactDuplicateSignatureProvider>();
-        services.AddSingleton<IDuplicateSignatureProvider, NormalizedTextSignatureProvider>();
+        services.AddSingleton<IFileSnapshotProvider, FileSnapshotProvider>();
+
+        // Duplicate detection strategies
+        services.AddSingleton<IDuplicateDetectionStrategy>(sp =>
+            new ExactSha256Strategy(
+                sp.GetRequiredService<IFileContentHasher>(),
+                sp.GetRequiredService<IFileSnapshotProvider>()));
+        services.AddSingleton<IDuplicateDetectionStrategy>(sp =>
+            new NormalizedTextStrategy(
+                sp.GetRequiredService<IFileSnapshotProvider>()));
+        services.AddSingleton<IDuplicateDetectionStrategy>(sp =>
+        {
+            var settings = sp.GetRequiredService<ISettingsRepository>()
+                .LoadAsync().GetAwaiter().GetResult();
+            return new ImagePHashStrategy(
+                sp.GetRequiredService<IFileSnapshotProvider>(),
+                settings.DuplicateImagePHashThreshold);
+        });
+        // VideoPHashStrategy: always registered; IsAvailable=false when ffmpeg absent.
+        // DuplicateFinderService validates availability before running any phase.
+        services.AddSingleton<IDuplicateDetectionStrategy>(sp =>
+        {
+            var settings  = sp.GetRequiredService<ISettingsRepository>()
+                              .LoadAsync().GetAwaiter().GetResult();
+            var ffmpegExe = string.IsNullOrWhiteSpace(settings.FfmpegPath)
+                ? string.Empty
+                : Path.Combine(settings.FfmpegPath, "ffmpeg.exe");
+            return new VideoPHashStrategy(
+                ffmpegExe,
+                sp.GetRequiredService<IFileSnapshotProvider>(),
+                settings.DuplicateMaxVideoDurationSeconds);
+        });
+
         services.AddSingleton<IDuplicateKeeperPolicy, DuplicateKeeperPolicy>();
-        services.AddSingleton<IDuplicateFinderService, DuplicateFinderService>();
+        services.AddSingleton<IDuplicateFinderService>(sp =>
+            new DuplicateFinderService(
+                sp.GetRequiredService<IDuplicateRepository>(),
+                sp.GetRequiredService<IDuplicateCandidateProvider>(),
+                sp.GetRequiredService<IFileContentHasher>(),
+                sp.GetServices<IDuplicateDetectionStrategy>(),
+                sp.GetRequiredService<IDuplicateKeeperPolicy>(),
+                sp.GetRequiredService<ILogger<DuplicateFinderService>>()));
         services.AddSingleton<IDuplicateDeletionService, DuplicateDeletionService>();
 
         // Navigation

@@ -7,7 +7,7 @@ namespace StorageMaster.Storage.Schema;
 /// </summary>
 internal static class DatabaseSchema
 {
-    internal const int CurrentVersion = 4;
+    internal const int CurrentVersion = 5;
 
     /// <summary>SQL executed once at version 1 creation.</summary>
     internal static readonly string[] V1Statements =
@@ -195,5 +195,39 @@ internal static class DatabaseSchema
     internal static readonly string[] V4Statements =
     [
         "ALTER TABLE CleanupLog ADD COLUMN AuditDataJson TEXT;"
+    ];
+
+    /// <summary>
+    /// V5: Signature cache validity metadata, quarantine table, additional indexes.
+    /// </summary>
+    internal static readonly string[] V5Statements =
+    [
+        // ── Signature cache validity columns ─────────────────────────────────
+        "ALTER TABLE DuplicateSignatures ADD COLUMN AlgorithmVersion  INTEGER NOT NULL DEFAULT 1;",
+        "ALTER TABLE DuplicateSignatures ADD COLUMN SourceSizeBytes    INTEGER NOT NULL DEFAULT 0;",
+        "ALTER TABLE DuplicateSignatures ADD COLUMN SourceModifiedUtc  TEXT    NOT NULL DEFAULT '';",
+        "ALTER TABLE DuplicateSignatures ADD COLUMN SourceFileIdentity TEXT;",
+
+        // ── Quarantine table ──────────────────────────────────────────────────
+        """
+        CREATE TABLE IF NOT EXISTS QuarantinedFiles (
+            Id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            MemberId        INTEGER NOT NULL REFERENCES DuplicateGroupMembers(Id) ON DELETE CASCADE,
+            RunId           INTEGER NOT NULL,
+            OriginalPath    TEXT    NOT NULL,
+            QuarantinePath  TEXT    NOT NULL,
+            QuarantinedUtc  TEXT    NOT NULL,
+            RestoredUtc     TEXT,
+            RestoredPath    TEXT
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS IX_QuarantinedFiles_RunId ON QuarantinedFiles (RunId);",
+        "CREATE INDEX IF NOT EXISTS IX_QuarantinedFiles_MemberId ON QuarantinedFiles (MemberId);",
+
+        // ── Additional duplicate indexes for P2 scalability ───────────────────
+        "CREATE INDEX IF NOT EXISTS IX_DuplicateGroupMembers_GroupId_Keeper ON DuplicateGroupMembers (GroupId, IsKeeper, IsSelected, ExistsNow);",
+        "CREATE INDEX IF NOT EXISTS IX_DuplicateGroups_Run_Method_Conf ON DuplicateGroups (RunId, Method, Confidence, ReclaimableBytes DESC);",
+        "CREATE INDEX IF NOT EXISTS IX_DuplicateErrors_RunId_Type ON DuplicateErrors (RunId, ErrorType);",
+        "CREATE INDEX IF NOT EXISTS IX_DuplicateSignatures_Session_Method ON DuplicateSignatures (SessionId, Method, Algorithm, AlgorithmVersion);",
     ];
 }

@@ -105,6 +105,9 @@ public sealed class StorageDbContext : IAsyncDisposable
 
             if (current < 4)
                 await ApplyMigrationAsync(conn, DatabaseSchema.V4Statements, 4, ct);
+
+            if (current < 5)
+                await ApplyMigrationAsync(conn, DatabaseSchema.V5Statements, 5, ct);
         }
     }
 

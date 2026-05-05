@@ -7,8 +7,21 @@ using StorageMaster.Core.Update;
 
 namespace StorageMaster.Tests.Update;
 
-public sealed class GitHubUpdateServiceTests
+public sealed class GitHubUpdateServiceTests : IDisposable
 {
+    private readonly string _downloadPath = Path.Combine(Path.GetTempPath(), "StorageMaster", "Updates", "StorageMaster-9.9.9-win-x64-Setup.exe");
+
+    public GitHubUpdateServiceTests()
+    {
+        var dir = Path.GetDirectoryName(_downloadPath);
+        if (!string.IsNullOrWhiteSpace(dir))
+            Directory.CreateDirectory(dir);
+        if (File.Exists(_downloadPath))
+            File.Delete(_downloadPath);
+        if (File.Exists(_downloadPath + ".part"))
+            File.Delete(_downloadPath + ".part");
+    }
+
     [Fact]
     public async Task CheckAsync_LatestStableReleaseWithMatchingInstaller_ReturnsUpdateInfo()
     {
@@ -164,6 +177,45 @@ public sealed class GitHubUpdateServiceTests
         update.Should().BeNull();
     }
 
+    [Fact]
+    public async Task DownloadAsync_DisposesPartialFileBeforeRename()
+    {
+        var payload = Encoding.UTF8.GetBytes("installer-payload");
+        var service = CreateService(request =>
+        {
+            if (request.RequestUri!.AbsoluteUri.Contains("/repos/"))
+            {
+                return Json("""
+                    {
+                      "tag_name": "v9.9.9",
+                      "prerelease": false,
+                      "draft": false,
+                      "published_at": "2026-05-01T12:00:00Z",
+                      "assets": [
+                        {
+                          "name": "StorageMaster-9.9.9-win-x64-Setup.exe",
+                          "browser_download_url": "https://example.test/download.exe"
+                        }
+                      ]
+                    }
+                    """);
+            }
+
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new ByteArrayContent(payload),
+            };
+        }, new Version(9, 9, 8));
+
+        var update = await service.CheckAsync();
+        var path = await service.DownloadAsync(update!);
+
+        path.Should().Be(_downloadPath);
+        File.Exists(path).Should().BeTrue();
+        File.ReadAllBytes(path).Should().Equal(payload);
+        File.Exists(path + ".part").Should().BeFalse();
+    }
+
     private static GitHubUpdateService CreateService(
         Func<HttpRequestMessage, HttpResponseMessage> responder,
         Version? currentVersion = null)
@@ -193,5 +245,13 @@ public sealed class GitHubUpdateServiceTests
             response.RequestMessage = request;
             return Task.FromResult(response);
         }
+    }
+
+    public void Dispose()
+    {
+        if (File.Exists(_downloadPath))
+            File.Delete(_downloadPath);
+        if (File.Exists(_downloadPath + ".part"))
+            File.Delete(_downloadPath + ".part");
     }
 }

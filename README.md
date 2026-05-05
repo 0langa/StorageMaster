@@ -1,6 +1,6 @@
 # StorageMaster    [![Release](https://github.com/0langa/StorageMaster/actions/workflows/release.yml/badge.svg?event=release)](https://github.com/0langa/StorageMaster/actions/workflows/release.yml)
 
-> **Current version:** 1.5.2 — Windows disk analyzer, junk cleaner, and storage health tool.
+> **Current version:** 1.6.0 — Windows disk analyzer, junk cleaner, and storage health tool.
 
 A Windows disk analyzer and storage cleaner built with **C# / .NET 8 / WinUI 3**, with an optional native Rust scan engine for maximum throughput on multi-core systems.
 
@@ -18,7 +18,7 @@ A Windows disk analyzer and storage cleaner built with **C# / .NET 8 / WinUI 3**
 | **Recycle Bin integration** | All deletions go to Recycle Bin by default (recoverable) |
 | **Audit trail** | Every deletion logged to SQLite `CleanupLog` — forever |
 | **Scan history** | Every scan session stored; browse and compare historical results |
-| **Duplicate analysis** | Exact SHA-256 grouping plus normalized-text review, keeper policies, and batch duplicate cleanup |
+| **Duplicate analysis** | Pluggable dedupe engine with exact SHA-256, normalized-text review, image pHash, optional video pHash, quarantine/recycle deletion, and audit trail |
 | **Results visualization** | Largest files, largest folders, file-type breakdown, error log, category filters, and paged loading |
 | **Folder size aggregation** | Bottom-up propagation gives accurate folder totals |
 | **GitHub release updater** | Checks GitHub Releases, downloads the signed setup EXE, and launches the installer on demand |
@@ -56,7 +56,7 @@ StorageMaster/
 | **Scan** | Configure and run a full directory scan (managed or Turbo) |
 | **Results** | Largest files, largest folders, file types, scan errors |
 | **Cleanup** | Session-based cleanup with per-category toggles and dry-run |
-| **Duplicates** | Review duplicate groups, change keeper policy, and delete selected copies |
+| **Duplicates** | Scope by folders/categories/extensions, run exact or fuzzy methods, review errors, and delete/quarantine selected copies |
 | **Smart Cleaner** | Direct one-click scan → review → clean, no session needed |
 | **Settings** | All user preferences, scanner options, cleanup thresholds, and app update controls |
 
@@ -122,7 +122,7 @@ Copy-Item turbo-scanner\target\x86_64-pc-windows-msvc\release\turbo-scanner.exe 
 
 # 3. Build the installer
 iscc installer\StorageMaster.iss
-# Output: artifacts/installer/StorageMaster-1.5.2-win-x64-Setup.exe
+# Output: artifacts/installer/StorageMaster-1.6.0-win-x64-Setup.exe
 ```
 
 The automated release pipeline (`release.yml`) runs all three steps on every `v*.*.*` git tag and attaches the installer to a GitHub Release.
@@ -207,7 +207,7 @@ Files are **never deleted without explicit user confirmation**:
 4. On confirmation only: `CleanupEngine.ExecuteAsync()` → `IFileDeleter.DeleteManyAsync()`
 5. Every deletion attempt logged to `CleanupLog` table (append-only, never deleted)
 
-Duplicate cleanup follows the same audit path. Deleting from the Results or Duplicates pages marks the source session as stale and stores structured metadata in `CleanupLog`.
+Duplicate cleanup follows the same audit path. Deleting from the Results or Duplicates pages marks the source session as stale, records structured metadata in `CleanupLog`, and stores quarantine mappings for restorable moves.
 
 ---
 
@@ -242,6 +242,10 @@ Schema auto-migrates on first launch. Key tables:
 | `ScanErrors` | Per-path errors (access denied, I/O) |
 | `CleanupLog` | Append-only deletion audit |
 | `Settings` | JSON-serialised `AppSettings` |
+| `DuplicateRuns` / `DuplicateGroups` / `DuplicateGroupMembers` | Saved dedupe runs, groups, members, selection state |
+| `DuplicateSignatures` | Cached method signatures with source-size/mtime/identity validity metadata |
+| `DuplicateErrors` | Per-file dedupe errors and skipped reasons |
+| `QuarantinedFiles` | Original-to-quarantine path mapping for restore |
 
 Uninstall keeps `%LOCALAPPDATA%\StorageMaster` by default, so the database and settings survive reinstall/upgrade cycles.
 

@@ -30,12 +30,12 @@ public sealed class C5_AtomicMigrationTests : IAsyncDisposable
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "SELECT MAX(Version) FROM SchemaVersion;";
         var version = Convert.ToInt32(await cmd.ExecuteScalarAsync());
-        version.Should().Be(4, "all migrations should stamp their versions");
+        version.Should().Be(5, "all migrations should stamp their versions");
 
-        // Verify there are exactly 4 version rows (one per migration).
+        // Verify there are exactly 5 version rows (one per migration).
         cmd.CommandText = "SELECT COUNT(*) FROM SchemaVersion;";
         var count = Convert.ToInt32(await cmd.ExecuteScalarAsync());
-        count.Should().Be(4, "each migration level stamps its own row");
+        count.Should().Be(5, "each migration level stamps its own row");
 
         cmd.CommandText = "SELECT COUNT(*) FROM pragma_table_info('CleanupLog') WHERE name = 'AuditDataJson';";
         var auditColumnCount = Convert.ToInt32(await cmd.ExecuteScalarAsync());
@@ -54,11 +54,11 @@ public sealed class C5_AtomicMigrationTests : IAsyncDisposable
         _ctx = new StorageDbContext(_dbPath, NullLogger<StorageDbContext>.Instance);
         var conn = await _ctx.GetConnectionAsync();
 
-        // Should still have exactly 4 version rows (not 8).
+        // Should still have exactly 5 version rows (not 10).
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "SELECT COUNT(*) FROM SchemaVersion;";
         var count = Convert.ToInt32(await cmd.ExecuteScalarAsync());
-        count.Should().Be(4, "migrations must not re-run on second open");
+        count.Should().Be(5, "migrations must not re-run on second open");
     }
 
     public async ValueTask DisposeAsync()

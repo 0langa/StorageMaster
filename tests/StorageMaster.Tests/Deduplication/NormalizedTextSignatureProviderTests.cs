@@ -33,14 +33,16 @@ public sealed class NormalizedTextSignatureProviderTests : IDisposable
     }
 
     [Fact]
-    public async Task ComputeAsync_UnsupportedExtension_Throws()
+    public async Task ComputeAsync_UnsupportedExtension_ReturnsErrorSignature()
     {
         var provider = new NormalizedTextSignatureProvider();
         var path = Path.Combine(_tempDir, "photo.jpg");
         await File.WriteAllBytesAsync(path, [1, 2, 3]);
 
-        var act = () => provider.ComputeAsync(new DuplicateCandidate(MakeFileEntry(3, path)));
-        await act.Should().ThrowAsync<InvalidOperationException>();
+        var signature = await provider.ComputeAsync(new DuplicateCandidate(MakeFileEntry(3, path)));
+
+        signature.Status.Should().Be("Error");
+        signature.ErrorMessage.Should().Contain("not supported");
     }
 
     public void Dispose()

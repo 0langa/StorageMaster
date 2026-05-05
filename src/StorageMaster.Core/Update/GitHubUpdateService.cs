@@ -148,26 +148,27 @@ public sealed class GitHubUpdateService : IUpdateService
 
             var totalBytes = response.Content.Headers.ContentLength ?? -1L;
 
-            await using var src  = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
-            await using var dest = new FileStream(
+            await using (var src = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false))
+            await using (var dest = new FileStream(
                 tempPath,
                 FileMode.Create, FileAccess.Write, FileShare.None,
-                bufferSize: 81920, useAsync: true);
-
-            var buffer     = new byte[81920];
-            long bytesRead = 0;
-            int  read;
-
-            while ((read = await src.ReadAsync(buffer, ct).ConfigureAwait(false)) > 0)
+                bufferSize: 81920, useAsync: true))
             {
-                await dest.WriteAsync(buffer.AsMemory(0, read), ct).ConfigureAwait(false);
-                bytesRead += read;
+                var buffer     = new byte[81920];
+                long bytesRead = 0;
+                int  read;
 
-                if (progress is not null && totalBytes > 0)
-                    progress.Report((double)bytesRead / totalBytes * 100.0);
+                while ((read = await src.ReadAsync(buffer, ct).ConfigureAwait(false)) > 0)
+                {
+                    await dest.WriteAsync(buffer.AsMemory(0, read), ct).ConfigureAwait(false);
+                    bytesRead += read;
+
+                    if (progress is not null && totalBytes > 0)
+                        progress.Report((double)bytesRead / totalBytes * 100.0);
+                }
+
+                await dest.FlushAsync(ct).ConfigureAwait(false);
             }
-
-            await dest.FlushAsync(ct).ConfigureAwait(false);
 
             if (File.Exists(destPath))
                 File.Delete(destPath);

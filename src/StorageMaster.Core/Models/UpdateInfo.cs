@@ -20,6 +20,15 @@ public sealed record UpdateInfo
     /// <summary>Direct download URL for the installer asset.</summary>
     public required string DownloadUrl { get; init; }
 
+    /// <summary>GitHub release page URL.</summary>
+    public required string ReleaseUrl { get; init; }
+
+    /// <summary>Optional SHA-256 digest from GitHub release asset metadata.</summary>
+    public string? Sha256Digest { get; init; }
+
+    /// <summary>True when update points to a prerelease tag.</summary>
+    public bool IsPrerelease { get; init; }
+
     /// <summary>When the release was published on GitHub.</summary>
     public required DateTimeOffset PublishedAt { get; init; }
 }

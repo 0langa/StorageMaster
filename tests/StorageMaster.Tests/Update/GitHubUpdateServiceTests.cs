@@ -3,6 +3,8 @@ using System.Net.Http;
 using System.Text;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
+using StorageMaster.Core.Interfaces;
+using StorageMaster.Core.Models;
 using StorageMaster.Core.Update;
 
 namespace StorageMaster.Tests.Update;
@@ -52,6 +54,7 @@ public sealed class GitHubUpdateServiceTests : IDisposable
         update.TagName.Should().Be("v1.6.0");
         update.AssetName.Should().Be("StorageMaster-1.6.0-win-x64-Setup.exe");
         update.DownloadUrl.Should().Be("https://example.test/win-x64.exe");
+        update.ReleaseUrl.Should().Contain("/releases/tag/v1.6.0");
     }
 
     [Fact]
@@ -216,9 +219,77 @@ public sealed class GitHubUpdateServiceTests : IDisposable
         File.Exists(path + ".part").Should().BeFalse();
     }
 
+    [Fact]
+    public async Task DownloadAsync_DigestMismatch_ThrowsChecksumFailure()
+    {
+        var payload = Encoding.UTF8.GetBytes("installer-payload");
+        var service = CreateService(_ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new ByteArrayContent(payload),
+        });
+
+        var update = new UpdateInfo
+        {
+            Version = new Version(9, 9, 9),
+            TagName = "v9.9.9",
+            ReleaseNotes = "notes",
+            AssetName = "StorageMaster-9.9.9-win-x64-Setup.exe",
+            DownloadUrl = "https://example.test/download.exe",
+            ReleaseUrl = "https://github.com/0langa/StorageMaster/releases/tag/v9.9.9",
+            Sha256Digest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            IsPrerelease = false,
+            PublishedAt = DateTimeOffset.UtcNow,
+        };
+
+        var act = async () => await service.DownloadAsync(update);
+        var ex = await act.Should().ThrowAsync<UpdateException>();
+        ex.Which.Kind.Should().Be(UpdateFailureKind.ChecksumMismatch);
+    }
+
+    [Fact]
+    public async Task DownloadAsync_UnsignedInstallerBlockedWhenRequired()
+    {
+        var payload = Encoding.UTF8.GetBytes("installer-payload");
+        var service = CreateService(
+            _ => new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new ByteArrayContent(payload),
+            },
+            settings: new AppSettings
+            {
+                RequireSignedUpdates = true,
+            },
+            trustResult: new InstallerTrustVerificationResult
+            {
+                IsSigned = false,
+                IsSignatureValid = false,
+                HasTrustedTimestamp = false,
+                Status = "NotSigned",
+                Message = "Unsigned",
+            });
+
+        var update = new UpdateInfo
+        {
+            Version = new Version(9, 9, 9),
+            TagName = "v9.9.9",
+            ReleaseNotes = "notes",
+            AssetName = "StorageMaster-9.9.9-win-x64-Setup.exe",
+            DownloadUrl = "https://example.test/download.exe",
+            ReleaseUrl = "https://github.com/0langa/StorageMaster/releases/tag/v9.9.9",
+            IsPrerelease = false,
+            PublishedAt = DateTimeOffset.UtcNow,
+        };
+
+        var act = async () => await service.DownloadAsync(update);
+        var ex = await act.Should().ThrowAsync<UpdateException>();
+        ex.Which.Kind.Should().Be(UpdateFailureKind.InvalidSignature);
+    }
+
     private static GitHubUpdateService CreateService(
         Func<HttpRequestMessage, HttpResponseMessage> responder,
-        Version? currentVersion = null)
+        Version? currentVersion = null,
+        AppSettings? settings = null,
+        InstallerTrustVerificationResult? trustResult = null)
     {
         var handler = new StubHttpMessageHandler(responder);
         var client = new HttpClient(handler, disposeHandler: true);
@@ -226,7 +297,16 @@ public sealed class GitHubUpdateServiceTests : IDisposable
         return new GitHubUpdateService(
             client,
             currentVersion ?? new Version(1, 5, 0),
-            NullLogger<GitHubUpdateService>.Instance);
+            NullLogger<GitHubUpdateService>.Instance,
+            new StubSettingsRepository(settings ?? new AppSettings()),
+            new StubInstallerTrustVerifier(trustResult ?? new InstallerTrustVerificationResult
+            {
+                IsSigned = false,
+                IsSignatureValid = false,
+                HasTrustedTimestamp = false,
+                Status = "NotSigned",
+                Message = "Unsigned test payload",
+            }));
     }
 
     private static HttpResponseMessage Json(string payload) => new(HttpStatusCode.OK)
@@ -245,6 +325,22 @@ public sealed class GitHubUpdateServiceTests : IDisposable
             response.RequestMessage = request;
             return Task.FromResult(response);
         }
+    }
+
+    private sealed class StubSettingsRepository(AppSettings settings) : ISettingsRepository
+    {
+        public Task<AppSettings> LoadAsync(CancellationToken ct = default) => Task.FromResult(settings);
+
+        public Task SaveAsync(AppSettings settings, CancellationToken ct = default)
+        {
+            throw new NotSupportedException();
+        }
+    }
+
+    private sealed class StubInstallerTrustVerifier(InstallerTrustVerificationResult result) : IInstallerTrustVerifier
+    {
+        public Task<InstallerTrustVerificationResult> VerifyAsync(string installerPath, CancellationToken ct = default) =>
+            Task.FromResult(result);
     }
 
     public void Dispose()

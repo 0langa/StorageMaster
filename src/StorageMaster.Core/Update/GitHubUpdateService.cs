@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Security.Cryptography;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -31,18 +32,25 @@ public sealed class GitHubUpdateService : IUpdateService
     private readonly HttpClient                    _http;
     private readonly Version                       _currentVersion;
     private readonly ILogger<GitHubUpdateService>  _logger;
+    private readonly ISettingsRepository           _settingsRepository;
+    private readonly IInstallerTrustVerifier       _installerTrustVerifier;
 
     /// <inheritdoc/>
     public UpdateInfo? LastCheckResult { get; private set; }
+    public UpdateFailureKind? LastFailureKind { get; private set; }
 
     public GitHubUpdateService(
         HttpClient                   http,
         Version                      currentVersion,
-        ILogger<GitHubUpdateService> logger)
+        ILogger<GitHubUpdateService> logger,
+        ISettingsRepository          settingsRepository,
+        IInstallerTrustVerifier      installerTrustVerifier)
     {
         _http           = http;
         _currentVersion = currentVersion;
         _logger         = logger;
+        _settingsRepository = settingsRepository;
+        _installerTrustVerifier = installerTrustVerifier;
     }
 
     // ── IUpdateService ────────────────────────────────────────────────────────
@@ -53,6 +61,7 @@ public sealed class GitHubUpdateService : IUpdateService
         CancellationToken ct               = default)
     {
         LastCheckResult = null;
+        LastFailureKind = null;
 
         var currentVersion = SemanticVersion.FromVersion(_currentVersion);
 
@@ -115,28 +124,36 @@ public sealed class GitHubUpdateService : IUpdateService
         IProgress<double>? progress = null,
         CancellationToken  ct       = default)
     {
+        LastFailureKind = null;
+
         if (!Uri.TryCreate(info.DownloadUrl, UriKind.Absolute, out var downloadUri) ||
             !string.Equals(downloadUri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
         {
-            throw new InvalidOperationException("Updater requires an HTTPS download URL.");
+            throw new UpdateException(UpdateFailureKind.InsecureDownloadUrl, "Updater requires an HTTPS download URL.");
         }
 
         var downloadDir = Path.Combine(
             Path.GetTempPath(), "StorageMaster", "Updates");
         Directory.CreateDirectory(downloadDir);
+        CleanupStalePartialFiles(downloadDir);
 
         var destPath = Path.Combine(downloadDir, info.AssetName);
         var tempPath = destPath + ".part";
 
-        if (File.Exists(tempPath))
-            File.Delete(tempPath);
+        TryDeleteIfExists(tempPath);
 
         try
         {
-            using var response = await _http.GetAsync(
-                downloadUri,
-                HttpCompletionOption.ResponseHeadersRead,
-                ct).ConfigureAwait(false);
+            using var response = await _http.GetAsync(downloadUri, HttpCompletionOption.ResponseHeadersRead, ct)
+                .ConfigureAwait(false);
+
+            if (response.StatusCode == HttpStatusCode.NotFound)
+            {
+                throw new UpdateException(
+                    UpdateFailureKind.MissingInstallerAsset,
+                    $"Installer asset is no longer available: {info.AssetName}.");
+            }
+
             response.EnsureSuccessStatusCode();
 
             var finalUri = response.RequestMessage?.RequestUri;
@@ -171,22 +188,59 @@ public sealed class GitHubUpdateService : IUpdateService
             }
 
             if (File.Exists(destPath))
-                File.Delete(destPath);
+                TryDeleteIfExists(destPath);
 
             File.Move(tempPath, destPath);
         }
+        catch (TaskCanceledException ex) when (!ct.IsCancellationRequested)
+        {
+            TryDeleteIfExists(tempPath);
+            LastFailureKind = UpdateFailureKind.NetworkTimeout;
+            throw new UpdateException(UpdateFailureKind.NetworkTimeout, "Network timeout while downloading update.", ex);
+        }
+        catch (IOException ex) when (IsFileInUseError(ex))
+        {
+            TryDeleteIfExists(tempPath);
+            LastFailureKind = UpdateFailureKind.DownloadFileInUse;
+            throw new UpdateException(
+                UpdateFailureKind.DownloadFileInUse,
+                "Download failed because the target file is currently in use. Close other installers and try again.",
+                ex);
+        }
+        catch (UpdateException ex)
+        {
+            TryDeleteIfExists(tempPath);
+            LastFailureKind = ex.Kind;
+            throw;
+        }
         catch
         {
-            if (File.Exists(tempPath))
-                File.Delete(tempPath);
+            TryDeleteIfExists(tempPath);
             throw;
         }
 
         // Basic validation.
         var fi = new FileInfo(destPath);
         if (!fi.Exists || fi.Length == 0)
-            throw new InvalidOperationException(
+            throw new UpdateException(
+                UpdateFailureKind.MissingInstallerAsset,
                 $"Downloaded file is empty or missing: {destPath}");
+
+        if (!string.IsNullOrWhiteSpace(info.Sha256Digest))
+        {
+            var expected = NormalizeDigest(info.Sha256Digest);
+            var actual = await ComputeSha256HexAsync(destPath, ct).ConfigureAwait(false);
+            if (!string.Equals(expected, actual, StringComparison.OrdinalIgnoreCase))
+            {
+                LastFailureKind = UpdateFailureKind.ChecksumMismatch;
+                throw new UpdateException(
+                    UpdateFailureKind.ChecksumMismatch,
+                    $"Checksum mismatch for downloaded installer. Expected {expected}, got {actual}.");
+            }
+        }
+
+        await VerifyInstallerTrustAsync(destPath, ct).ConfigureAwait(false);
+        PruneOldInstallers(downloadDir, destPath);
 
         _logger.LogInformation("Downloaded {Asset} ({Bytes:N0} bytes) to {Path}",
             info.AssetName, fi.Length, destPath);
@@ -196,6 +250,7 @@ public sealed class GitHubUpdateService : IUpdateService
     /// <inheritdoc/>
     public bool LaunchInstaller(string installerPath)
     {
+        LastFailureKind = null;
         try
         {
             var psi = new ProcessStartInfo(installerPath)
@@ -212,8 +267,15 @@ public sealed class GitHubUpdateService : IUpdateService
             _logger.LogInformation("Installer launched (PID {Pid})", proc.Id);
             return true;
         }
+        catch (System.ComponentModel.Win32Exception ex) when (ex.NativeErrorCode == 1223)
+        {
+            LastFailureKind = UpdateFailureKind.UserCancelledElevation;
+            _logger.LogInformation("Installer elevation prompt was cancelled by the user.");
+            return false;
+        }
         catch (Exception ex)
         {
+            LastFailureKind = UpdateFailureKind.Unknown;
             _logger.LogError(ex, "Failed to launch installer {Path}", installerPath);
             return false;
         }
@@ -301,6 +363,9 @@ public sealed class GitHubUpdateService : IUpdateService
             ReleaseNotes = release.Body ?? string.Empty,
             AssetName    = asset.Name!,
             DownloadUrl  = asset.BrowserDownloadUrl,
+            ReleaseUrl   = release.HtmlUrl ?? $"https://github.com/{OwnerRepo}/releases/tag/{release.TagName}",
+            Sha256Digest = NormalizeDigest(asset.Digest),
+            IsPrerelease = release.Prerelease,
             PublishedAt  = release.PublishedAt ?? DateTimeOffset.MinValue,
         };
 
@@ -311,6 +376,7 @@ public sealed class GitHubUpdateService : IUpdateService
 
     private sealed record GitHubRelease(
         [property: JsonPropertyName("tag_name")]     string?          TagName,
+        [property: JsonPropertyName("html_url")]     string?          HtmlUrl,
         [property: JsonPropertyName("prerelease")]   bool             Prerelease,
         [property: JsonPropertyName("draft")]        bool             Draft,
         [property: JsonPropertyName("body")]         string?          Body,
@@ -319,5 +385,107 @@ public sealed class GitHubUpdateService : IUpdateService
 
     private sealed record GitHubAsset(
         [property: JsonPropertyName("name")]                 string? Name,
-        [property: JsonPropertyName("browser_download_url")] string? BrowserDownloadUrl);
+        [property: JsonPropertyName("browser_download_url")] string? BrowserDownloadUrl,
+        [property: JsonPropertyName("digest")]               string? Digest);
+
+    private async Task VerifyInstallerTrustAsync(string installerPath, CancellationToken ct)
+    {
+        var settings = await _settingsRepository.LoadAsync(ct).ConfigureAwait(false);
+        var trust = await _installerTrustVerifier.VerifyAsync(installerPath, ct).ConfigureAwait(false);
+
+        if (trust.IsSigned)
+        {
+            if (!trust.IsSignatureValid || !trust.HasTrustedTimestamp)
+            {
+                LastFailureKind = UpdateFailureKind.InvalidSignature;
+                throw new UpdateException(
+                    UpdateFailureKind.InvalidSignature,
+                    $"Installer signature is invalid or missing a trusted timestamp ({trust.Status}).");
+            }
+            return;
+        }
+
+        if (settings.RequireSignedUpdates)
+        {
+            LastFailureKind = UpdateFailureKind.InvalidSignature;
+            throw new UpdateException(
+                UpdateFailureKind.InvalidSignature,
+                "Installer is unsigned and 'Require signed update installers' is enabled.");
+        }
+
+        _logger.LogWarning("Installer {Path} is unsigned. Continuing because RequireSignedUpdates=false.", installerPath);
+    }
+
+    private static async Task<string> ComputeSha256HexAsync(string filePath, CancellationToken ct)
+    {
+        await using var stream = new FileStream(
+            filePath,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.Read,
+            bufferSize: 131072,
+            useAsync: true);
+        var hash = await SHA256.HashDataAsync(stream, ct).ConfigureAwait(false);
+        return Convert.ToHexString(hash).ToLowerInvariant();
+    }
+
+    private static string? NormalizeDigest(string? digest)
+    {
+        if (string.IsNullOrWhiteSpace(digest))
+            return null;
+
+        var trimmed = digest.Trim();
+        if (trimmed.StartsWith("sha256:", StringComparison.OrdinalIgnoreCase))
+            trimmed = trimmed["sha256:".Length..];
+
+        return trimmed.ToLowerInvariant();
+    }
+
+    private static void CleanupStalePartialFiles(string downloadDir)
+    {
+        foreach (var path in Directory.EnumerateFiles(downloadDir, "*.part", SearchOption.TopDirectoryOnly))
+        {
+            try
+            {
+                var age = DateTime.UtcNow - File.GetLastWriteTimeUtc(path);
+                if (age > TimeSpan.FromHours(6))
+                    File.Delete(path);
+            }
+            catch
+            {
+                // best-effort cleanup only
+            }
+        }
+    }
+
+    private static void PruneOldInstallers(string downloadDir, string keepPath)
+    {
+        var installers = Directory.EnumerateFiles(downloadDir, "StorageMaster-*-win-x64-Setup.exe", SearchOption.TopDirectoryOnly)
+            .Where(path => !string.Equals(path, keepPath, StringComparison.OrdinalIgnoreCase))
+            .Select(path => new FileInfo(path))
+            .OrderByDescending(static fi => fi.LastWriteTimeUtc)
+            .ToList();
+
+        foreach (var stale in installers.Skip(2))
+        {
+            TryDeleteIfExists(stale.FullName);
+        }
+    }
+
+    private static bool IsFileInUseError(IOException ex) =>
+        ex.HResult == unchecked((int)0x80070020) || // ERROR_SHARING_VIOLATION
+        ex.HResult == unchecked((int)0x80070021);   // ERROR_LOCK_VIOLATION
+
+    private static void TryDeleteIfExists(string path)
+    {
+        try
+        {
+            if (File.Exists(path))
+                File.Delete(path);
+        }
+        catch
+        {
+            // best-effort cleanup only
+        }
+    }
 }

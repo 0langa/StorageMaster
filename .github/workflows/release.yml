@@ -13,10 +13,12 @@ jobs:
     runs-on: windows-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
       - name: Setup .NET 8
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v5
         with:
           dotnet-version: '8.0.x'
 
@@ -26,7 +28,7 @@ jobs:
           targets: x86_64-pc-windows-msvc
 
       - name: Cache Rust build artifacts
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/registry
@@ -37,6 +39,21 @@ jobs:
 
       - name: Build Turbo Scanner (Rust)
         run: cargo build --release --manifest-path turbo-scanner/Cargo.toml --target x86_64-pc-windows-msvc
+
+      - name: Determine signing mode
+        id: signing
+        shell: pwsh
+        env:
+          PFX_B64:  ${{ secrets.CODE_SIGNING_PFX }}
+          PFX_PASS: ${{ secrets.CODE_SIGNING_PFX_PASSWORD }}
+        run: |
+          $enabled = -not [string]::IsNullOrWhiteSpace($env:PFX_B64) -and -not [string]::IsNullOrWhiteSpace($env:PFX_PASS)
+          "enabled=$enabled" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          if ($enabled) {
+            Write-Host "Code signing is enabled for this release."
+          } else {
+            Write-Host "::notice::Code signing secrets are missing; this release will be unsigned."
+          }
 
       - name: Restore all projects
         run: |
@@ -65,12 +82,11 @@ jobs:
       # Set CODE_SIGNING_PFX (base-64-encoded .pfx) and CODE_SIGNING_PFX_PASSWORD
       # in repo Settings → Secrets to enable Authenticode signing.
       - name: Sign binaries (optional)
+        if: steps.signing.outputs.enabled == 'True'
         env:
           PFX_B64:  ${{ secrets.CODE_SIGNING_PFX }}
           PFX_PASS: ${{ secrets.CODE_SIGNING_PFX_PASSWORD }}
         run: |
-          if (-not $env:PFX_B64) { Write-Host "No signing cert configured — skipping."; exit 0 }
-
           $pfxPath = "$env:RUNNER_TEMP\cert.pfx"
           [IO.File]::WriteAllBytes($pfxPath, [Convert]::FromBase64String($env:PFX_B64))
 
@@ -97,12 +113,11 @@ jobs:
           iscc installer\StorageMaster.iss /DAppVersion=$version
 
       - name: Sign installer (optional)
+        if: steps.signing.outputs.enabled == 'True'
         env:
           PFX_B64:  ${{ secrets.CODE_SIGNING_PFX }}
           PFX_PASS: ${{ secrets.CODE_SIGNING_PFX_PASSWORD }}
         run: |
-          if (-not $env:PFX_B64) { Write-Host "No signing cert configured — skipping."; exit 0 }
-
           $pfxPath = "$env:RUNNER_TEMP\cert.pfx"
           [IO.File]::WriteAllBytes($pfxPath, [Convert]::FromBase64String($env:PFX_B64))
 
@@ -120,10 +135,88 @@ jobs:
 
           Remove-Item $pfxPath -Force
 
+      - name: Verify Authenticode signatures
+        if: steps.signing.outputs.enabled == 'True'
+        shell: pwsh
+        run: |
+          $targets = @()
+          $targets += Get-ChildItem artifacts\publish\win-x64 -Recurse -Include *.exe,*.dll
+          $targets += Get-ChildItem artifacts\installer -Filter *.exe
+
+          if ($targets.Count -eq 0) {
+            throw "No binaries found to verify."
+          }
+
+          foreach ($file in $targets) {
+            $sig = Get-AuthenticodeSignature -FilePath $file.FullName
+            if ($sig.Status -ne 'Valid') {
+              throw "Invalid signature for $($file.FullName): $($sig.Status)"
+            }
+            if ($null -eq $sig.TimeStamperCertificate) {
+              throw "Missing trusted timestamp for $($file.FullName)."
+            }
+          }
+
+      - name: Generate checksums
+        shell: pwsh
+        run: |
+          $checksumPath = "artifacts\installer\checksums.txt"
+          $assets = Get-ChildItem artifacts\installer\StorageMaster-*-win-x64-Setup.exe
+          if ($assets.Count -eq 0) {
+            throw "Installer asset not found."
+          }
+          $lines = foreach ($asset in $assets) {
+            $hash = (Get-FileHash -Path $asset.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$hash  $($asset.Name)"
+          }
+          $lines | Set-Content -Path $checksumPath -Encoding ascii
+
+      - name: Generate release notes
+        shell: pwsh
+        env:
+          SIGNED_RELEASE: ${{ steps.signing.outputs.enabled }}
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $version = $tag -replace '^v', ''
+          $isSigned = [System.String]::Equals($env:SIGNED_RELEASE, 'True', [System.StringComparison]::OrdinalIgnoreCase)
+          $trustLine = if ($isSigned) {
+            "Signed release: all binaries and installer are Authenticode-signed."
+          } else {
+            "Unsigned release: signing secrets were not configured for this run."
+          }
+
+          $previousTag = git tag --sort=-v:refname | Where-Object { $_ -ne $tag } | Select-Object -First 1
+          $changes = if ($previousTag) {
+            git log "$previousTag..$tag" --pretty='- %s (%h)'
+          } else {
+            git log -n 50 --pretty='- %s (%h)'
+          }
+          if (-not $changes) {
+            $changes = @("- Internal maintenance updates.")
+          }
+
+          $notes = @(
+            "# StorageMaster $version"
+            ""
+            $trustLine
+            ""
+            "## Changelog"
+          ) + $changes + @(
+            ""
+            "## Assets"
+            "- StorageMaster-$version-win-x64-Setup.exe"
+            "- checksums.txt"
+          )
+
+          $notes | Set-Content -Path artifacts\installer\release-notes.md -Encoding utf8
+
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
-          files: artifacts/installer/StorageMaster-*-win-x64-Setup.exe
-          generate_release_notes: true
+          files: |
+            artifacts/installer/StorageMaster-*-win-x64-Setup.exe
+            artifacts/installer/checksums.txt
+          body_path: artifacts/installer/release-notes.md
+          generate_release_notes: false
           draft: false
           prerelease: false

@@ -148,6 +148,85 @@ public sealed class DuplicateRepositoryTests : IAsyncDisposable
         loaded.QuarantinePath.Should().Be(@"C:\q\orig.txt");
     }
 
+    [Fact]
+    public async Task PagedGroupAndErrorQueries_ReturnExpectedSlices()
+    {
+        var session = await _scanRepository.CreateSessionAsync(@"C:\scope");
+        await _scanRepository.InsertFileEntriesAsync([
+            MakeEntry(session.Id, @"C:\scope\a1.bin", 100, FileTypeCategory.Unknown),
+            MakeEntry(session.Id, @"C:\scope\a2.bin", 100, FileTypeCategory.Unknown),
+            MakeEntry(session.Id, @"C:\scope\b1.bin", 90, FileTypeCategory.Unknown),
+            MakeEntry(session.Id, @"C:\scope\b2.bin", 90, FileTypeCategory.Unknown),
+        ]);
+        var files = await _scanRepository.GetLargestFilesAsync(session.Id, 10);
+        var fileList = files.ToList();
+        var run = await _repo.CreateRunAsync(new DuplicateScanOptions { SessionId = session.Id });
+
+        await _repo.SaveResultsAsync(
+            run.Id,
+            [],
+            [
+                new DuplicateGroup
+                {
+                    Id = 1, RunId = run.Id, Method = DuplicateMethod.ExactSha256, Algorithm = "SHA-256",
+                    Confidence = 1.0, TotalBytes = 200, ReclaimableBytes = 100, RepresentativeFileEntryId = fileList[0].Id,
+                },
+                new DuplicateGroup
+                {
+                    Id = 2, RunId = run.Id, Method = DuplicateMethod.NormalizedText, Algorithm = "TEXT-NORM",
+                    Confidence = 0.8, TotalBytes = 180, ReclaimableBytes = 90, RepresentativeFileEntryId = fileList[2].Id,
+                },
+            ],
+            [
+                new DuplicateGroupMember
+                {
+                    Id = 1, GroupId = 1, FileEntryId = fileList[0].Id, FullPath = fileList[0].FullPath, FileName = fileList[0].FileName,
+                    SizeBytes = fileList[0].SizeBytes, ModifiedUtc = fileList[0].ModifiedUtc, Score = 1.0, IsKeeper = true, IsSelected = false, RecommendationReason = "keeper", ExistsNow = true,
+                },
+                new DuplicateGroupMember
+                {
+                    Id = 2, GroupId = 1, FileEntryId = fileList[1].Id, FullPath = fileList[1].FullPath, FileName = fileList[1].FileName,
+                    SizeBytes = fileList[1].SizeBytes, ModifiedUtc = fileList[1].ModifiedUtc, Score = 1.0, IsKeeper = false, IsSelected = true, RecommendationReason = "duplicate", ExistsNow = true,
+                },
+                new DuplicateGroupMember
+                {
+                    Id = 3, GroupId = 2, FileEntryId = fileList[2].Id, FullPath = fileList[2].FullPath, FileName = fileList[2].FileName,
+                    SizeBytes = fileList[2].SizeBytes, ModifiedUtc = fileList[2].ModifiedUtc, Score = 0.8, IsKeeper = true, IsSelected = false, RecommendationReason = "keeper", ExistsNow = true,
+                },
+                new DuplicateGroupMember
+                {
+                    Id = 4, GroupId = 2, FileEntryId = fileList[3].Id, FullPath = fileList[3].FullPath, FileName = fileList[3].FileName,
+                    SizeBytes = fileList[3].SizeBytes, ModifiedUtc = fileList[3].ModifiedUtc, Score = 0.8, IsKeeper = false, IsSelected = false, RecommendationReason = "review", ExistsNow = false,
+                },
+            ],
+            [
+                new DuplicateError
+                {
+                    Id = 0, RunId = run.Id, FileEntryId = fileList[3].Id, Path = fileList[3].FullPath,
+                    ErrorType = "DecoderError", Message = "test", OccurredUtc = DateTime.UtcNow,
+                },
+            ]);
+
+        var summary = await _repo.GetDuplicateRunSummaryAsync(run.Id);
+        summary.GroupCount.Should().Be(2);
+        summary.ExactGroupCount.Should().Be(1);
+        summary.ReviewGroupCount.Should().Be(1);
+        summary.ErrorCount.Should().Be(1);
+
+        var firstPage = await _repo.GetDuplicateGroupsPageAsync(
+            run.Id, 1, 1, null, DuplicateGroupSortBy.ReclaimableBytesDesc);
+        firstPage.Should().HaveCount(1);
+        firstPage[0].Method.Should().Be(DuplicateMethod.ExactSha256);
+
+        var filtered = await _repo.GetDuplicateGroupsPageAsync(
+            run.Id, 1, 10, new DuplicateGroupQueryFilter { IncludeErroredOnly = true }, DuplicateGroupSortBy.ReclaimableBytesDesc);
+        filtered.Should().ContainSingle();
+        filtered[0].Method.Should().Be(DuplicateMethod.NormalizedText);
+
+        var errorsPage = await _repo.GetDuplicateErrorsPageAsync(run.Id, 1, 10);
+        errorsPage.Should().ContainSingle();
+    }
+
     public async ValueTask DisposeAsync()
     {
         await _ctx.DisposeAsync();

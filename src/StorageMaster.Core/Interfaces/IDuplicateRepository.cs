@@ -30,7 +30,22 @@ public interface IDuplicateRepository
         CancellationToken ct = default);
 
     Task<IReadOnlyList<DuplicateRun>>         GetRunsForSessionAsync(long sessionId, CancellationToken ct = default);
+    Task<DuplicateRunSummary> GetDuplicateRunSummaryAsync(long runId, CancellationToken ct = default);
+    Task<IReadOnlyList<DuplicateGroup>> GetDuplicateGroupsPageAsync(
+        long runId,
+        int page,
+        int pageSize,
+        DuplicateGroupQueryFilter? filters,
+        DuplicateGroupSortBy sortBy,
+        CancellationToken ct = default);
+    Task<IReadOnlyList<DuplicateError>> GetDuplicateErrorsPageAsync(
+        long runId,
+        int page,
+        int pageSize,
+        CancellationToken ct = default);
+
     Task<IReadOnlyList<DuplicateGroup>>       GetGroupsForRunAsync(long runId, CancellationToken ct = default);
+    Task<IReadOnlyList<DuplicateGroupMember>> GetDuplicateGroupMembersAsync(long groupId, CancellationToken ct = default);
     Task<IReadOnlyList<DuplicateGroupMember>> GetMembersForGroupAsync(long groupId, CancellationToken ct = default);
     Task<IReadOnlyList<DuplicateError>>       GetErrorsForRunAsync(long runId, CancellationToken ct = default);
     Task MarkMembersDeletedAsync(IReadOnlyList<long> memberIds, CancellationToken ct = default);

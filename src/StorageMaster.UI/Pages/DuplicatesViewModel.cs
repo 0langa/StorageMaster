@@ -124,6 +124,9 @@ public sealed partial class DuplicateGroupItem : ObservableObject
 
 public sealed partial class DuplicatesViewModel : ObservableObject
 {
+    private const int GroupPageSize = 100;
+    private const int ErrorPageSize = 100;
+
     private readonly IScanRepository _scanRepository;
     private readonly ISettingsRepository _settingsRepository;
     private readonly IDuplicateFinderService _duplicateFinderService;
@@ -132,6 +135,11 @@ public sealed partial class DuplicatesViewModel : ObservableObject
     private readonly IDialogService _dialogs;
     private readonly IReadOnlyDictionary<DuplicateMethod, IDuplicateDetectionStrategy> _strategyMap;
     private readonly List<DuplicateGroupItem> _allGroups = [];
+    private DuplicateRunSummary _runSummary = new();
+    private int _currentGroupPage = 1;
+    private bool _hasMoreGroupPages;
+    private int _currentErrorPage = 1;
+    private bool _hasMoreErrorPages;
 
     private CancellationTokenSource? _analysisCts;
 
@@ -160,6 +168,11 @@ public sealed partial class DuplicatesViewModel : ObservableObject
     [ObservableProperty] private DuplicateCategoryOption? _selectedCategory;
     [ObservableProperty] private string _searchText = string.Empty;
     [ObservableProperty] private DuplicateGroupItem? _selectedGroup;
+    [ObservableProperty] private DuplicateGroupSortBy _groupSortBy = DuplicateGroupSortBy.ReclaimableBytesDesc;
+    [ObservableProperty] private bool _filterSelectedOnly;
+    [ObservableProperty] private bool _filterMissingOnly;
+    [ObservableProperty] private bool _filterErroredOnly;
+    [ObservableProperty] private double _minimumConfidenceFilter;
 
     public ObservableCollection<ScanSession> Sessions { get; } = [];
     public ObservableCollection<DuplicateGroupItem> Groups { get; } = [];
@@ -167,6 +180,7 @@ public sealed partial class DuplicatesViewModel : ObservableObject
 
     public Array KeeperPolicyOptions => Enum.GetValues(typeof(KeeperPolicy));
     public Array ScopeModeOptions => Enum.GetValues(typeof(DuplicateScopeMode));
+    public Array GroupSortOptions => Enum.GetValues(typeof(DuplicateGroupSortBy));
     public ObservableCollection<DuplicateCategoryOption> CategoryOptions { get; } =
     [
         new("All files", []),
@@ -185,14 +199,18 @@ public sealed partial class DuplicatesViewModel : ObservableObject
     public bool CanRun => SelectedSession is not null && !IsRunning && !IsDeleting;
     public bool CanCancel => IsRunning;
     public bool CanDeleteSelected => _allGroups.Any(static group => group.SelectedCount > 0) && !IsDeleting && !IsRunning;
+    public bool CanLoadPreviousGroups => _currentGroupPage > 1 && !IsLoading && !IsRunning;
+    public bool CanLoadNextGroups => _hasMoreGroupPages && !IsLoading && !IsRunning;
+    public bool CanLoadMoreErrors => _hasMoreErrorPages && !IsLoading;
     public bool IsImagePHashAvailable => IsMethodAvailable(DuplicateMethod.ImagePHash);
     public bool IsVideoPHashAvailable => IsMethodAvailable(DuplicateMethod.VideoPHash);
     public string ProgressText => ProgressTotal <= 0 ? string.Empty : $"{ProgressProcessed:N0} / {ProgressTotal:N0}";
-    public int TotalGroupCount => _allGroups.Count;
-    public int ExactGroupCount => _allGroups.Count(static group => group.Group.Method == DuplicateMethod.ExactSha256);
-    public int ReviewGroupCount => _allGroups.Count(static group => group.RequiresReview);
-    public string ReclaimableText => ByteSizeConverter.Format(_allGroups.Sum(static group => group.Group.ReclaimableBytes));
-    public string ErrorSummary => Errors.Count == 0 ? "No errors or skipped files." : $"{Errors.Count:N0} error / skipped item(s)";
+    public int CurrentPage => _currentGroupPage;
+    public int TotalGroupCount => (int)_runSummary.GroupCount;
+    public int ExactGroupCount => (int)_runSummary.ExactGroupCount;
+    public int ReviewGroupCount => (int)_runSummary.ReviewGroupCount;
+    public string ReclaimableText => ByteSizeConverter.Format(_runSummary.ReclaimableBytes);
+    public string ErrorSummary => _runSummary.ErrorCount == 0 ? "No errors or skipped files." : $"{_runSummary.ErrorCount:N0} error / skipped item(s)";
     public string LatestRunSummary => LatestRun is null
         ? "No duplicate analysis has been saved for this scan session yet."
         : $"Last run: {LatestRun.Status} on {LatestRun.CompletedUtc?.ToString("g") ?? LatestRun.StartedUtc.ToString("g")}. " +
@@ -241,8 +259,7 @@ public sealed partial class DuplicatesViewModel : ObservableObject
         foreach (var group in _allGroups)
             group.ApplyKeeperPolicy(value);
 
-        ApplyFilters();
-        OnPropertyChanged(nameof(CanDeleteSelected));
+        RaiseSummaryProperties();
     }
 
     partial void OnIsRunningChanged(bool value)
@@ -258,9 +275,17 @@ public sealed partial class DuplicatesViewModel : ObservableObject
         OnPropertyChanged(nameof(CanDeleteSelected));
     }
 
-    partial void OnSearchTextChanged(string value) => ApplyFilters();
+    partial void OnSearchTextChanged(string value) => _ = ReloadCurrentGroupPageAsync();
+    partial void OnGroupSortByChanged(DuplicateGroupSortBy value) => _ = ReloadCurrentGroupPageAsync();
+    partial void OnFilterSelectedOnlyChanged(bool value) => _ = ReloadCurrentGroupPageAsync();
+    partial void OnFilterMissingOnlyChanged(bool value) => _ = ReloadCurrentGroupPageAsync();
+    partial void OnFilterErroredOnlyChanged(bool value) => _ = ReloadCurrentGroupPageAsync();
+    partial void OnMinimumConfidenceFilterChanged(double value) => _ = ReloadCurrentGroupPageAsync();
 
-    partial void OnSelectedGroupChanged(DuplicateGroupItem? value) => OnPropertyChanged(nameof(HasSelectedGroup));
+    partial void OnSelectedGroupChanged(DuplicateGroupItem? value)
+    {
+        OnPropertyChanged(nameof(HasSelectedGroup));
+    }
 
     public async Task InitializeAsync(long? preselectedSessionId = null)
     {
@@ -356,6 +381,7 @@ public sealed partial class DuplicatesViewModel : ObservableObject
                     Methods = methods,
                     KeeperPolicy = KeeperPolicy,
                     MaxConcurrency = Math.Max(1, settings.ScanParallelism),
+                    PerDriveConcurrency = Math.Max(1, Math.Min(4, settings.ScanParallelism / 2)),
                     IncludeExtensions = extensions,
                     IncludeCategories = SelectedCategory.Categories,
                     IncludedPaths = includedPaths,
@@ -375,8 +401,8 @@ public sealed partial class DuplicatesViewModel : ObservableObject
             await LoadLatestRunAsync();
             StatusText = LatestRun?.Status == DuplicateRunStatus.Cancelled
                 ? "Analysis cancelled."
-                : _allGroups.Count > 0
-                    ? $"Loaded {_allGroups.Count:N0} duplicate group(s). Review before deleting."
+                : _runSummary.GroupCount > 0
+                    ? $"Loaded page {_currentGroupPage:N0} of {_runSummary.GroupCount:N0} duplicate group(s). Review before deleting."
                     : "No duplicate groups found for current scope.";
         }
         catch (OperationCanceledException)
@@ -400,6 +426,159 @@ public sealed partial class DuplicatesViewModel : ObservableObject
     {
         _analysisCts?.Cancel();
         StatusText = "Cancelling…";
+    }
+
+    [RelayCommand]
+    private async Task PreviousGroupsPageAsync()
+    {
+        if (_currentGroupPage <= 1 || LatestRun is null)
+            return;
+
+        await LoadGroupsPageAsync(_currentGroupPage - 1);
+        StatusText = $"Loaded page {_currentGroupPage:N0}.";
+    }
+
+    [RelayCommand]
+    private async Task NextGroupsPageAsync()
+    {
+        if (!_hasMoreGroupPages || LatestRun is null)
+            return;
+
+        await LoadGroupsPageAsync(_currentGroupPage + 1);
+        StatusText = $"Loaded page {_currentGroupPage:N0}.";
+    }
+
+    [RelayCommand]
+    private async Task LoadMoreErrorsAsync()
+    {
+        if (!_hasMoreErrorPages || LatestRun is null)
+            return;
+
+        await LoadErrorsPageAsync(_currentErrorPage + 1, append: true);
+    }
+
+    [RelayCommand]
+    private async Task ExportCsvAsync()
+    {
+        if (LatestRun is null)
+            return;
+
+        var exportDir = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "StorageMaster",
+            "exports");
+        Directory.CreateDirectory(exportDir);
+        var filePath = Path.Combine(exportDir, $"dedupe-{LatestRun.Id}-report.csv");
+
+        await using var stream = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.Read);
+        await using var writer = new StreamWriter(stream);
+        await writer.WriteLineAsync("GroupId,Method,Confidence,KeeperPath,DuplicatePath,SizeBytes,Selected,ExistsNow");
+
+        var page = 1;
+        while (true)
+        {
+            var groups = await _duplicateRepository.GetDuplicateGroupsPageAsync(
+                LatestRun.Id, page, GroupPageSize, null, DuplicateGroupSortBy.ReclaimableBytesDesc);
+            if (groups.Count == 0)
+                break;
+
+            foreach (var group in groups)
+            {
+                var members = await _duplicateRepository.GetDuplicateGroupMembersAsync(group.Id);
+                var keeper = members.FirstOrDefault(static m => m.IsKeeper)?.FullPath ?? string.Empty;
+                foreach (var member in members.Where(static m => !m.IsKeeper))
+                {
+                    var row = string.Join(',',
+                        Csv(group.Id.ToString()),
+                        Csv(group.Method.ToString()),
+                        Csv(group.Confidence.ToString("F4", System.Globalization.CultureInfo.InvariantCulture)),
+                        Csv(keeper),
+                        Csv(member.FullPath),
+                        Csv(member.SizeBytes.ToString(System.Globalization.CultureInfo.InvariantCulture)),
+                        Csv(member.IsSelected ? "1" : "0"),
+                        Csv(member.ExistsNow ? "1" : "0"));
+                    await writer.WriteLineAsync(row);
+                }
+            }
+            page++;
+        }
+
+        StatusText = $"CSV export saved to {filePath}.";
+    }
+
+    [RelayCommand]
+    private async Task ExportJsonAsync()
+    {
+        if (LatestRun is null)
+            return;
+
+        var exportDir = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "StorageMaster",
+            "exports");
+        Directory.CreateDirectory(exportDir);
+        var filePath = Path.Combine(exportDir, $"dedupe-{LatestRun.Id}-report.json");
+
+        var payload = new
+        {
+            run = LatestRun,
+            summary = _runSummary,
+            errors = await _duplicateRepository.GetErrorsForRunAsync(LatestRun.Id),
+            groups = await _duplicateRepository.GetGroupsForRunAsync(LatestRun.Id),
+        };
+        await File.WriteAllTextAsync(filePath, System.Text.Json.JsonSerializer.Serialize(payload, new System.Text.Json.JsonSerializerOptions
+        {
+            WriteIndented = true,
+        }));
+
+        StatusText = $"JSON export saved to {filePath}.";
+    }
+
+    [RelayCommand]
+    private async Task ExportHtmlAsync()
+    {
+        if (LatestRun is null)
+            return;
+
+        var exportDir = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "StorageMaster",
+            "exports");
+        Directory.CreateDirectory(exportDir);
+        var filePath = Path.Combine(exportDir, $"dedupe-{LatestRun.Id}-report.html");
+
+        var groups = await _duplicateRepository.GetGroupsForRunAsync(LatestRun.Id);
+        var lines = new List<string>
+        {
+            "<!doctype html>",
+            "<html><head><meta charset=\"utf-8\"><title>StorageMaster Duplicate Report</title>",
+            "<style>body{font-family:Segoe UI,Arial,sans-serif;padding:24px;}table{border-collapse:collapse;width:100%;}th,td{border:1px solid #ddd;padding:8px;}th{background:#f3f3f3;text-align:left;}tr:nth-child(even){background:#fafafa}</style>",
+            "</head><body>",
+            $"<h1>StorageMaster Duplicate Report (Run {LatestRun.Id})</h1>",
+            $"<p>Generated {DateTime.Now:G}. Groups: {_runSummary.GroupCount:N0}, Reclaimable: {ByteSizeConverter.Format(_runSummary.ReclaimableBytes)}</p>",
+            "<table><thead><tr><th>Group</th><th>Method</th><th>Confidence</th><th>Reclaimable</th><th>Keeper</th><th>Duplicate</th></tr></thead><tbody>",
+        };
+
+        foreach (var group in groups)
+        {
+            var members = await _duplicateRepository.GetDuplicateGroupMembersAsync(group.Id);
+            var keeper = members.FirstOrDefault(static m => m.IsKeeper)?.FullPath ?? string.Empty;
+            foreach (var member in members.Where(static m => !m.IsKeeper))
+            {
+                lines.Add("<tr>" +
+                          $"<td>{EscapeHtml(group.Id.ToString())}</td>" +
+                          $"<td>{EscapeHtml(group.Method.ToString())}</td>" +
+                          $"<td>{EscapeHtml($"{group.Confidence:P0}")}</td>" +
+                          $"<td>{EscapeHtml(ByteSizeConverter.Format(group.ReclaimableBytes))}</td>" +
+                          $"<td>{EscapeHtml(keeper)}</td>" +
+                          $"<td>{EscapeHtml(member.FullPath)}</td>" +
+                          "</tr>");
+            }
+        }
+
+        lines.Add("</tbody></table></body></html>");
+        await File.WriteAllLinesAsync(filePath, lines);
+        StatusText = $"HTML export saved to {filePath}.";
     }
 
     [RelayCommand]
@@ -478,6 +657,11 @@ public sealed partial class DuplicatesViewModel : ObservableObject
         Errors.Clear();
         _allGroups.Clear();
         LatestRun = null;
+        _runSummary = new DuplicateRunSummary();
+        _currentGroupPage = 1;
+        _hasMoreGroupPages = false;
+        _currentErrorPage = 1;
+        _hasMoreErrorPages = false;
         RaiseSummaryProperties();
 
         if (SelectedSession is null)
@@ -496,50 +680,90 @@ public sealed partial class DuplicatesViewModel : ObservableObject
             return;
         }
 
-        foreach (var error in await _duplicateRepository.GetErrorsForRunAsync(LatestRun.Id))
-            Errors.Add(error);
+        _runSummary = await _duplicateRepository.GetDuplicateRunSummaryAsync(LatestRun.Id);
+        await LoadGroupsPageAsync(1);
+        await LoadErrorsPageAsync(1, append: false);
 
-        var groups = await _duplicateRepository.GetGroupsForRunAsync(LatestRun.Id);
+        StatusText = _runSummary.GroupCount > 0
+            ? $"Loaded page {_currentGroupPage:N0} of duplicate groups ({_runSummary.GroupCount:N0} total)."
+            : "Latest duplicate analysis completed without duplicate groups.";
+    }
+
+    private async Task ReloadCurrentGroupPageAsync()
+    {
+        if (LatestRun is null || IsRunning)
+            return;
+
+        await LoadGroupsPageAsync(_currentGroupPage);
+    }
+
+    private async Task LoadGroupsPageAsync(int page)
+    {
+        if (LatestRun is null)
+            return;
+
+        var filter = new DuplicateGroupQueryFilter
+        {
+            SearchText = SearchText,
+            MinConfidence = MinimumConfidenceFilter > 0 ? MinimumConfidenceFilter : null,
+            HasSelectedMembers = FilterSelectedOnly ? true : null,
+            ExistsNow = FilterMissingOnly ? false : null,
+            IncludeErroredOnly = FilterErroredOnly,
+        };
+
+        var groups = (await _duplicateRepository.GetDuplicateGroupsPageAsync(
+            LatestRun.Id,
+            page,
+            GroupPageSize + 1,
+            filter,
+            GroupSortBy)).ToList();
+
+        if (groups.Count == 0 && page > 1)
+        {
+            await LoadGroupsPageAsync(1);
+            return;
+        }
+
+        _currentGroupPage = Math.Max(1, page);
+        _hasMoreGroupPages = groups.Count > GroupPageSize;
+        if (_hasMoreGroupPages)
+            groups = groups.Take(GroupPageSize).ToList();
+        Groups.Clear();
+        _allGroups.Clear();
+
         foreach (var group in groups)
         {
-            var members = await _duplicateRepository.GetMembersForGroupAsync(group.Id);
+            var members = await _duplicateRepository.GetDuplicateGroupMembersAsync(group.Id);
             var item = new DuplicateGroupItem(group, members);
             foreach (var member in item.Members)
                 member.PropertyChanged += (_, _) => OnPropertyChanged(nameof(CanDeleteSelected));
             item.ApplyKeeperPolicy(KeeperPolicy);
             _allGroups.Add(item);
+            Groups.Add(item);
         }
 
-        ApplyFilters();
-        StatusText = _allGroups.Count > 0
-            ? $"Loaded {_allGroups.Count:N0} group(s) from the latest duplicate analysis."
-            : "Latest duplicate analysis completed without duplicate groups.";
-    }
-
-    private void ApplyFilters()
-    {
-        Groups.Clear();
-        IEnumerable<DuplicateGroupItem> filtered = _allGroups;
-
-        if (!string.IsNullOrWhiteSpace(SearchText))
-        {
-            filtered = filtered.Where(group =>
-                group.Members.Any(member =>
-                    member.Member.FileName.Contains(SearchText, StringComparison.OrdinalIgnoreCase) ||
-                    member.Member.FullPath.Contains(SearchText, StringComparison.OrdinalIgnoreCase)));
-        }
-
-        foreach (var group in filtered.OrderByDescending(static group => group.Group.ReclaimableBytes))
-            Groups.Add(group);
-
-        if (SelectedGroup is not null && !Groups.Contains(SelectedGroup))
-            SelectedGroup = Groups.FirstOrDefault();
-        else if (SelectedGroup is null)
-            SelectedGroup = Groups.FirstOrDefault();
-
+        SelectedGroup = Groups.FirstOrDefault();
         RaiseSummaryProperties();
     }
 
+    private async Task LoadErrorsPageAsync(int page, bool append)
+    {
+        if (LatestRun is null)
+            return;
+
+        var errors = (await _duplicateRepository.GetDuplicateErrorsPageAsync(LatestRun.Id, page, ErrorPageSize + 1)).ToList();
+        _currentErrorPage = Math.Max(1, page);
+        _hasMoreErrorPages = errors.Count > ErrorPageSize;
+        if (_hasMoreErrorPages)
+            errors = errors.Take(ErrorPageSize).ToList();
+
+        if (!append)
+            Errors.Clear();
+        foreach (var error in errors)
+            Errors.Add(error);
+
+        RaiseSummaryProperties();
+    }
     private bool IsMethodAvailable(DuplicateMethod method) =>
         _strategyMap.TryGetValue(method, out var strategy) && strategy.IsAvailable;
 
@@ -561,5 +785,21 @@ public sealed partial class DuplicatesViewModel : ObservableObject
         OnPropertyChanged(nameof(ReclaimableText));
         OnPropertyChanged(nameof(ErrorSummary));
         OnPropertyChanged(nameof(ProgressText));
+        OnPropertyChanged(nameof(CurrentPage));
+        OnPropertyChanged(nameof(CanLoadPreviousGroups));
+        OnPropertyChanged(nameof(CanLoadNextGroups));
+        OnPropertyChanged(nameof(CanLoadMoreErrors));
     }
+
+    private static string Csv(string value)
+    {
+        var escaped = value.Replace("\"", "\"\"", StringComparison.Ordinal);
+        return $"\"{escaped}\"";
+    }
+
+    private static string EscapeHtml(string value) =>
+        value.Replace("&", "&amp;", StringComparison.Ordinal)
+             .Replace("<", "&lt;", StringComparison.Ordinal)
+             .Replace(">", "&gt;", StringComparison.Ordinal)
+             .Replace("\"", "&quot;", StringComparison.Ordinal);
 }

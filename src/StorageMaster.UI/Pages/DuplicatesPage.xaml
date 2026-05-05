@@ -33,6 +33,15 @@
                           Label="Delete selected"
                           Command="{x:Bind ViewModel.DeleteSelectedCommand}"
                           IsEnabled="{x:Bind ViewModel.CanDeleteSelected, Mode=OneWay}" />
+            <AppBarButton Icon="Save"
+                          Label="Export CSV"
+                          Command="{x:Bind ViewModel.ExportCsvCommand}" />
+            <AppBarButton Icon="SaveLocal"
+                          Label="Export JSON"
+                          Command="{x:Bind ViewModel.ExportJsonCommand}" />
+            <AppBarButton Icon="Document"
+                          Label="Export HTML"
+                          Command="{x:Bind ViewModel.ExportHtmlCommand}" />
             <CommandBar.Content>
                 <TextBlock Text="Deduplicate"
                            Style="{StaticResource TitleLargeTextBlockStyle}"
@@ -209,14 +218,54 @@
                 <Grid RowSpacing="12">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
                         <RowDefinition Height="*" />
                     </Grid.RowDefinitions>
 
-                    <TextBox Grid.Row="0"
-                             PlaceholderText="Search filename or path"
-                             Text="{x:Bind ViewModel.SearchText, Mode=TwoWay}" />
+                    <Grid Grid.Row="0" ColumnSpacing="8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBox Grid.Column="0"
+                                 PlaceholderText="Search filename or path"
+                                 Text="{x:Bind ViewModel.SearchText, Mode=TwoWay}" />
+                        <Button Grid.Column="1"
+                                Content="Previous"
+                                Command="{x:Bind ViewModel.PreviousGroupsPageCommand}"
+                                IsEnabled="{x:Bind ViewModel.CanLoadPreviousGroups, Mode=OneWay}" />
+                        <TextBlock Grid.Column="2"
+                                   Text="{x:Bind ViewModel.CurrentPage, Mode=OneWay}"
+                                   VerticalAlignment="Center" />
+                        <Button Grid.Column="3"
+                                Content="Next"
+                                Command="{x:Bind ViewModel.NextGroupsPageCommand}"
+                                IsEnabled="{x:Bind ViewModel.CanLoadNextGroups, Mode=OneWay}" />
+                    </Grid>
 
-                    <ListView Grid.Row="1"
+                    <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="12">
+                        <ComboBox Width="180"
+                                  Header="Sort"
+                                  ItemsSource="{x:Bind ViewModel.GroupSortOptions, Mode=OneWay}"
+                                  SelectedItem="{x:Bind ViewModel.GroupSortBy, Mode=TwoWay}" />
+                        <NumberBox Width="160"
+                                   Header="Min confidence"
+                                   Minimum="0"
+                                   Maximum="1"
+                                   SmallChange="0.1"
+                                   SpinButtonPlacementMode="Inline"
+                                   Value="{x:Bind ViewModel.MinimumConfidenceFilter, Mode=TwoWay}" />
+                        <ToggleSwitch Header="Selected only"
+                                      IsOn="{x:Bind ViewModel.FilterSelectedOnly, Mode=TwoWay}" />
+                        <ToggleSwitch Header="Missing only"
+                                      IsOn="{x:Bind ViewModel.FilterMissingOnly, Mode=TwoWay}" />
+                        <ToggleSwitch Header="Errored only"
+                                      IsOn="{x:Bind ViewModel.FilterErroredOnly, Mode=TwoWay}" />
+                    </StackPanel>
+
+                    <ListView Grid.Row="2"
                               ItemsSource="{x:Bind ViewModel.Groups}"
                               SelectedItem="{x:Bind ViewModel.SelectedGroup, Mode=TwoWay}"
                               SelectionMode="Single">
@@ -333,6 +382,7 @@
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="*" />
+                            <RowDefinition Height="Auto" />
                         </Grid.RowDefinitions>
                         <TextBlock Grid.Row="0"
                                    Text="{x:Bind ViewModel.ErrorSummary, Mode=OneWay}"
@@ -350,6 +400,12 @@
                                 </DataTemplate>
                             </ListView.ItemTemplate>
                         </ListView>
+                        <Button Grid.Row="2"
+                                HorizontalAlignment="Right"
+                                Margin="0,8,0,0"
+                                Content="Load more"
+                                Command="{x:Bind ViewModel.LoadMoreErrorsCommand}"
+                                IsEnabled="{x:Bind ViewModel.CanLoadMoreErrors, Mode=OneWay}" />
                     </Grid>
                 </Border>
             </Grid>

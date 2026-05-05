@@ -152,6 +152,7 @@ public sealed class DuplicateFinderService(
         var cached = await repository.GetCachedSignaturesAsync(
             options.SessionId, strategy.Method, strategy.Algorithm, strategy.AlgorithmVersion, ct);
         var cacheMap = cached.ToDictionary(s => s.FileEntryId);
+        var perDriveSemaphores = new ConcurrentDictionary<string, SemaphoreSlim>(StringComparer.OrdinalIgnoreCase);
 
         // 3. Determine which candidates need fresh signatures
         var needsSig   = new List<DuplicateCandidate>(candidates.Count);
@@ -182,14 +183,14 @@ public sealed class DuplicateFinderService(
                 await RunWithPartialHashPreFilterAsync(
                     run, options, strategy, progress,
                     needsSig, allSignatures, allErrors,
-                    sigsByKey, groupsFound, ct);
+                    sigsByKey, groupsFound, perDriveSemaphores, ct);
             }
             else
             {
                 await ComputeSignaturesAsync(
                     run, options, strategy, progress,
                     needsSig, needsSig.Count, allSignatures, allErrors,
-                    sigsByKey, groupsFound, ct);
+                    sigsByKey, groupsFound, perDriveSemaphores, ct);
             }
         }
 
@@ -224,6 +225,7 @@ public sealed class DuplicateFinderService(
         ConcurrentBag<DuplicateError>          allErrors,
         ConcurrentDictionary<string, ConcurrentBag<DuplicateCandidate>> sigsByKey,
         int[]                                  groupsFound,   // [0] = count
+        ConcurrentDictionary<string, SemaphoreSlim> perDriveSemaphores,
         CancellationToken                      ct)
     {
         // Group candidates by size — the SQL already filters to multi-occurrence
@@ -268,8 +270,15 @@ public sealed class DuplicateFinderService(
                 MaxDegreeOfParallelism = Math.Max(1, options.MaxConcurrency),
             }, async (c, token) =>
             {
+                var driveKey = GetDriveKey(c.File.FullPath);
+                var driveGate = perDriveSemaphores.GetOrAdd(
+                    driveKey,
+                    _ => new SemaphoreSlim(Math.Max(1, options.PerDriveConcurrency)));
+                var acquired = false;
                 try
                 {
+                    await driveGate.WaitAsync(token);
+                    acquired = true;
                     var ph = await hasher.ComputePartialHashAsync(c.File.FullPath, token);
                     partialGroups.GetOrAdd(ph, static _ => []).Add(c);
                 }
@@ -279,6 +288,8 @@ public sealed class DuplicateFinderService(
                 }
                 finally
                 {
+                    if (acquired)
+                        driveGate.Release();
                     var cur = Interlocked.Increment(ref processed);
                     progress?.Report(new DuplicateDetectionProgress
                     {
@@ -301,7 +312,7 @@ public sealed class DuplicateFinderService(
                 await ComputeSignaturesAsync(
                     run, options, strategy, progress,
                     cluster.ToList(), totalToHash, allSignatures, allErrors,
-                    sigsByKey, groupsFound, ct);
+                    sigsByKey, groupsFound, perDriveSemaphores, ct);
             }
         }
     }
@@ -319,6 +330,7 @@ public sealed class DuplicateFinderService(
         ConcurrentBag<DuplicateError>          allErrors,
         ConcurrentDictionary<string, ConcurrentBag<DuplicateCandidate>> sigsByKey,
         int[]                                  groupsFound,
+        ConcurrentDictionary<string, SemaphoreSlim> perDriveSemaphores,
         CancellationToken                      ct)
     {
         var processed = 0;
@@ -328,13 +340,28 @@ public sealed class DuplicateFinderService(
             MaxDegreeOfParallelism = Math.Max(1, options.MaxConcurrency),
         }, async (c, token) =>
         {
-            var sig = await strategy.ComputeSignatureAsync(c, token);
-            allSignatures.Add(sig);
+            var driveKey = GetDriveKey(c.File.FullPath);
+            var driveGate = perDriveSemaphores.GetOrAdd(
+                driveKey,
+                _ => new SemaphoreSlim(Math.Max(1, options.PerDriveConcurrency)));
+            var acquired = false;
+            await driveGate.WaitAsync(token);
+            acquired = true;
+            try
+            {
+                var sig = await strategy.ComputeSignatureAsync(c, token);
+                allSignatures.Add(sig);
 
-            if (sig.Status == "Ready" && sig.SignatureText is not null)
-                sigsByKey.GetOrAdd(sig.SignatureText, static _ => []).Add(c);
-            else if (sig.Status == "Error" && sig.ErrorMessage is not null)
-                allErrors.Add(MakeError(run.Id, c, sig.ErrorMessage.Contains("Changed") ? "FileChangedDuringHash" : "SignatureError", sig.ErrorMessage ?? string.Empty));
+                if (sig.Status == "Ready" && sig.SignatureText is not null)
+                    sigsByKey.GetOrAdd(sig.SignatureText, static _ => []).Add(c);
+                else if (sig.Status == "Error" && sig.ErrorMessage is not null)
+                    allErrors.Add(MakeError(run.Id, c, sig.ErrorMessage.Contains("Changed") ? "FileChangedDuringHash" : "SignatureError", sig.ErrorMessage ?? string.Empty));
+            }
+            finally
+            {
+                if (acquired)
+                    driveGate.Release();
+            }
 
             var cur = Interlocked.Increment(ref processed);
             progress?.Report(new DuplicateDetectionProgress
@@ -422,4 +449,16 @@ public sealed class DuplicateFinderService(
             Message = msg,
             OccurredUtc = DateTime.UtcNow,
         };
+
+    private static string GetDriveKey(string path)
+    {
+        try
+        {
+            return Path.GetPathRoot(path) ?? string.Empty;
+        }
+        catch
+        {
+            return string.Empty;
+        }
+    }
 }

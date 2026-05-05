@@ -47,6 +47,7 @@ public sealed class AppSettings
     // ── Update preferences ──────────────────────────────────────────────────
     public bool   CheckOnStartup       { get; set; } = true;
     public bool   IncludePrerelease    { get; set; } = false;
+    public bool   RequireSignedUpdates { get; set; } = false;
 
     // ── New cleanup rule toggles ─────────────────────────────────────────────
     public bool   CleanThumbnailCache  { get; set; } = true;
@@ -65,6 +66,9 @@ public sealed class AppSettings
     public int    DuplicateImagePHashThreshold    { get; set; } = 6;
     public int    DuplicateVideoFrameThreshold    { get; set; } = 8;
     public int    DuplicateMaxVideoDurationSeconds { get; set; } = 1800;
+    /// <summary>
+    /// Absolute path to ffmpeg.exe. Legacy directory values are normalized on load.
+    /// </summary>
     public string FfmpegPath                      { get; set; } = string.Empty;
 
     // Preserve forwards-compatible JSON fields on load-modify-save cycles.

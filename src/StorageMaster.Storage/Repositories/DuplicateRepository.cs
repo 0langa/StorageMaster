@@ -242,6 +242,201 @@ public sealed class DuplicateRepository(StorageDbContext db) : IDuplicateReposit
         return list;
     }
 
+    public async Task<DuplicateRunSummary> GetDuplicateRunSummaryAsync(long runId, CancellationToken ct = default)
+    {
+        var conn = await _db.GetConnectionAsync(ct);
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            SELECT
+                COUNT(*) AS GroupCount,
+                COALESCE(SUM(CASE WHEN Method = 'ExactSha256' THEN 1 ELSE 0 END), 0) AS ExactGroupCount,
+                COALESCE(SUM(CASE WHEN Method <> 'ExactSha256' THEN 1 ELSE 0 END), 0) AS ReviewGroupCount,
+                COALESCE(SUM(ReclaimableBytes), 0) AS ReclaimableBytes
+            FROM DuplicateGroups
+            WHERE RunId = $run;
+            """;
+        cmd.Parameters.AddWithValue("$run", runId);
+        using var reader = await cmd.ExecuteReaderAsync(ct);
+        var groupCount = 0L;
+        var exactGroupCount = 0L;
+        var reviewGroupCount = 0L;
+        var reclaimableBytes = 0L;
+        if (await reader.ReadAsync(ct))
+        {
+            groupCount = reader.GetInt64(reader.GetOrdinal("GroupCount"));
+            exactGroupCount = reader.GetInt64(reader.GetOrdinal("ExactGroupCount"));
+            reviewGroupCount = reader.GetInt64(reader.GetOrdinal("ReviewGroupCount"));
+            reclaimableBytes = reader.GetInt64(reader.GetOrdinal("ReclaimableBytes"));
+        }
+
+        using var errCmd = conn.CreateCommand();
+        errCmd.CommandText = "SELECT COUNT(*) FROM DuplicateErrors WHERE RunId = $run;";
+        errCmd.Parameters.AddWithValue("$run", runId);
+        var errorCount = Convert.ToInt64(await errCmd.ExecuteScalarAsync(ct));
+
+        return new DuplicateRunSummary
+        {
+            RunId = runId,
+            GroupCount = groupCount,
+            ExactGroupCount = exactGroupCount,
+            ReviewGroupCount = reviewGroupCount,
+            ReclaimableBytes = reclaimableBytes,
+            ErrorCount = errorCount,
+        };
+    }
+
+    public async Task<IReadOnlyList<DuplicateGroup>> GetDuplicateGroupsPageAsync(
+        long runId,
+        int page,
+        int pageSize,
+        DuplicateGroupQueryFilter? filters,
+        DuplicateGroupSortBy sortBy,
+        CancellationToken ct = default)
+    {
+        var safePage = Math.Max(1, page);
+        var safePageSize = Math.Clamp(pageSize, 1, 500);
+        var offset = (safePage - 1) * safePageSize;
+
+        var whereParts = new List<string> { "g.RunId = $run" };
+        var parameters = new List<(string Name, object Value)>
+        {
+            ("$run", runId),
+        };
+
+        if (filters is not null)
+        {
+            if (filters.Method is { } method)
+            {
+                whereParts.Add("g.Method = $method");
+                parameters.Add(("$method", method.ToString()));
+            }
+
+            if (filters.MinConfidence is { } minConfidence)
+            {
+                whereParts.Add("g.Confidence >= $minConfidence");
+                parameters.Add(("$minConfidence", minConfidence));
+            }
+
+            if (filters.HasSelectedMembers is { } selectedOnly)
+            {
+                whereParts.Add(selectedOnly
+                    ? "EXISTS (SELECT 1 FROM DuplicateGroupMembers gm WHERE gm.GroupId = g.Id AND gm.IsSelected = 1 AND gm.IsKeeper = 0)"
+                    : "NOT EXISTS (SELECT 1 FROM DuplicateGroupMembers gm WHERE gm.GroupId = g.Id AND gm.IsSelected = 1 AND gm.IsKeeper = 0)");
+            }
+
+            if (filters.ExistsNow is { } existsNow)
+            {
+                whereParts.Add(existsNow
+                    ? "EXISTS (SELECT 1 FROM DuplicateGroupMembers gm WHERE gm.GroupId = g.Id AND gm.ExistsNow = 1)"
+                    : "EXISTS (SELECT 1 FROM DuplicateGroupMembers gm WHERE gm.GroupId = g.Id AND gm.ExistsNow = 0)");
+            }
+
+            if (filters.IncludeErroredOnly)
+            {
+                whereParts.Add("""
+                    EXISTS (
+                        SELECT 1
+                        FROM DuplicateGroupMembers gm
+                        JOIN DuplicateErrors de
+                          ON de.RunId = g.RunId
+                         AND de.FileEntryId = gm.FileEntryId
+                        WHERE gm.GroupId = g.Id
+                    )
+                    """);
+            }
+
+            if (!string.IsNullOrWhiteSpace(filters.SearchText))
+            {
+                whereParts.Add("""
+                    EXISTS (
+                        SELECT 1 FROM DuplicateGroupMembers gm
+                        WHERE gm.GroupId = g.Id
+                          AND (lower(gm.FileName) LIKE $search OR lower(gm.FullPath) LIKE $search)
+                    )
+                    """);
+                parameters.Add(("$search", "%" + filters.SearchText.ToLowerInvariant() + "%"));
+            }
+        }
+
+        var sortSql = sortBy switch
+        {
+            DuplicateGroupSortBy.ConfidenceDesc => "g.Confidence DESC, g.ReclaimableBytes DESC, g.Id ASC",
+            DuplicateGroupSortBy.Method => "g.Method ASC, g.ReclaimableBytes DESC, g.Id ASC",
+            DuplicateGroupSortBy.MemberCountDesc => "(SELECT COUNT(*) FROM DuplicateGroupMembers gm WHERE gm.GroupId = g.Id) DESC, g.ReclaimableBytes DESC, g.Id ASC",
+            DuplicateGroupSortBy.LatestModifiedDesc => "(SELECT MAX(gm.ModifiedUtc) FROM DuplicateGroupMembers gm WHERE gm.GroupId = g.Id) DESC, g.ReclaimableBytes DESC, g.Id ASC",
+            _ => "g.ReclaimableBytes DESC, g.Id ASC",
+        };
+
+        var conn = await _db.GetConnectionAsync(ct);
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = $"""
+            SELECT g.*
+            FROM DuplicateGroups g
+            WHERE {string.Join(" AND ", whereParts)}
+            ORDER BY {sortSql}
+            LIMIT $take OFFSET $skip;
+            """;
+        cmd.Parameters.AddWithValue("$take", safePageSize);
+        cmd.Parameters.AddWithValue("$skip", offset);
+        foreach (var (name, value) in parameters)
+            cmd.Parameters.AddWithValue(name, value);
+
+        using var reader = await cmd.ExecuteReaderAsync(ct);
+        var list = new List<DuplicateGroup>();
+        while (await reader.ReadAsync(ct))
+            list.Add(new DuplicateGroup
+            {
+                Id = reader.GetInt64(reader.GetOrdinal("Id")),
+                RunId = reader.GetInt64(reader.GetOrdinal("RunId")),
+                Method = Enum.Parse<DuplicateMethod>(reader.GetString(reader.GetOrdinal("Method"))),
+                Algorithm = reader.GetString(reader.GetOrdinal("Algorithm")),
+                Confidence = reader.GetDouble(reader.GetOrdinal("Confidence")),
+                TotalBytes = reader.GetInt64(reader.GetOrdinal("TotalBytes")),
+                ReclaimableBytes = reader.GetInt64(reader.GetOrdinal("ReclaimableBytes")),
+                RepresentativeFileEntryId = reader.GetInt64(reader.GetOrdinal("RepresentativeFileEntryId")),
+            });
+        return list;
+    }
+
+    public async Task<IReadOnlyList<DuplicateError>> GetDuplicateErrorsPageAsync(
+        long runId,
+        int page,
+        int pageSize,
+        CancellationToken ct = default)
+    {
+        var safePage = Math.Max(1, page);
+        var safePageSize = Math.Clamp(pageSize, 1, 500);
+        var offset = (safePage - 1) * safePageSize;
+
+        var conn = await _db.GetConnectionAsync(ct);
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            SELECT * FROM DuplicateErrors
+            WHERE RunId = $run
+            ORDER BY OccurredUtc DESC, Id DESC
+            LIMIT $take OFFSET $skip;
+            """;
+        cmd.Parameters.AddWithValue("$run", runId);
+        cmd.Parameters.AddWithValue("$take", safePageSize);
+        cmd.Parameters.AddWithValue("$skip", offset);
+        using var reader = await cmd.ExecuteReaderAsync(ct);
+        var list = new List<DuplicateError>();
+        while (await reader.ReadAsync(ct))
+            list.Add(new DuplicateError
+            {
+                Id          = reader.GetInt64(reader.GetOrdinal("Id")),
+                RunId       = reader.GetInt64(reader.GetOrdinal("RunId")),
+                FileEntryId = reader.IsDBNull(reader.GetOrdinal("FileEntryId"))
+                                ? null
+                                : reader.GetInt64(reader.GetOrdinal("FileEntryId")),
+                Path        = reader.GetString(reader.GetOrdinal("Path")),
+                ErrorType   = reader.GetString(reader.GetOrdinal("ErrorType")),
+                Message     = reader.GetString(reader.GetOrdinal("Message")),
+                OccurredUtc = DateTime.Parse(reader.GetString(reader.GetOrdinal("OccurredUtc"))),
+            });
+        return list;
+    }
+
     public async Task<IReadOnlyList<DuplicateGroup>> GetGroupsForRunAsync(long runId, CancellationToken ct = default)
     {
         var conn = await _db.GetConnectionAsync(ct);
@@ -270,6 +465,11 @@ public sealed class DuplicateRepository(StorageDbContext db) : IDuplicateReposit
     }
 
     public async Task<IReadOnlyList<DuplicateGroupMember>> GetMembersForGroupAsync(long groupId, CancellationToken ct = default)
+    {
+        return await GetDuplicateGroupMembersAsync(groupId, ct);
+    }
+
+    public async Task<IReadOnlyList<DuplicateGroupMember>> GetDuplicateGroupMembersAsync(long groupId, CancellationToken ct = default)
     {
         var conn = await _db.GetConnectionAsync(ct);
         using var cmd = conn.CreateCommand();

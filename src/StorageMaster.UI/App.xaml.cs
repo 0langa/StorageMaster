@@ -94,10 +94,13 @@ public partial class App : Application
             client.DefaultRequestHeaders.Accept.ParseAdd("application/vnd.github+json");
             return client;
         });
+        services.AddSingleton<IInstallerTrustVerifier, InstallerTrustVerifier>();
         services.AddSingleton<IUpdateService>(sp => new GitHubUpdateService(
             sp.GetRequiredService<HttpClient>(),
             sp.GetRequiredService<Version>(),
-            sp.GetRequiredService<ILogger<GitHubUpdateService>>()));
+            sp.GetRequiredService<ILogger<GitHubUpdateService>>(),
+            sp.GetRequiredService<ISettingsRepository>(),
+            sp.GetRequiredService<IInstallerTrustVerifier>()));
 
         // Platform
         services.AddSingleton<IDriveInfoProvider,         DriveInfoProvider>();
@@ -176,9 +179,7 @@ public partial class App : Application
         {
             var settings  = sp.GetRequiredService<ISettingsRepository>()
                               .LoadAsync().GetAwaiter().GetResult();
-            var ffmpegExe = string.IsNullOrWhiteSpace(settings.FfmpegPath)
-                ? string.Empty
-                : Path.Combine(settings.FfmpegPath, "ffmpeg.exe");
+            var ffmpegExe = FfmpegPathNormalizer.Normalize(settings.FfmpegPath);
             return new VideoPHashStrategy(
                 ffmpegExe,
                 sp.GetRequiredService<IFileSnapshotProvider>(),
@@ -199,6 +200,7 @@ public partial class App : Application
         // Navigation
         services.AddSingleton<INavigationService, NavigationService>();
         services.AddSingleton<IDialogService, DialogService>();
+        services.AddSingleton<ILocalDiagnosticsService, LocalDiagnosticsService>();
 
         // ViewModels
         services.AddTransient<DashboardViewModel>();

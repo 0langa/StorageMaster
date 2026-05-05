@@ -21,7 +21,11 @@ public sealed class SettingsRepository : ISettingsRepository
         var result = await cmd.ExecuteScalarAsync(ct);
 
         if (result is string json)
-            return JsonSerializer.Deserialize<AppSettings>(json) ?? new AppSettings();
+        {
+            var settings = JsonSerializer.Deserialize<AppSettings>(json) ?? new AppSettings();
+            settings.FfmpegPath = FfmpegPathNormalizer.Normalize(settings.FfmpegPath);
+            return settings;
+        }
 
         return new AppSettings();
     }
@@ -31,6 +35,7 @@ public sealed class SettingsRepository : ISettingsRepository
         await _db.WriteLock.WaitAsync(ct);
         try
         {
+            settings.FfmpegPath = FfmpegPathNormalizer.Normalize(settings.FfmpegPath);
             var json = JsonSerializer.Serialize(settings);
             var conn = await _db.GetConnectionAsync(ct);
             using var cmd = conn.CreateCommand();

@@ -17,6 +17,12 @@ public interface IUpdateService
     UpdateInfo? LastCheckResult { get; }
 
     /// <summary>
+    /// Failure category from the most recent updater operation, or <c>null</c>
+    /// if the last operation succeeded.
+    /// </summary>
+    UpdateFailureKind? LastFailureKind { get; }
+
+    /// <summary>
     /// Queries <c>GET /repos/{owner}/{repo}/releases/latest</c> and returns an
     /// <see cref="UpdateInfo"/> when a newer version with a matching installer
     /// asset is found, or <c>null</c> otherwise.

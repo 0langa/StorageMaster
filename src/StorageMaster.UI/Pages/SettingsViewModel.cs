@@ -6,6 +6,8 @@ using CommunityToolkit.Mvvm.Input;
 using Microsoft.UI.Xaml;
 using StorageMaster.Core.Interfaces;
 using StorageMaster.Core.Models;
+using StorageMaster.Core.Update;
+using StorageMaster.UI.Infrastructure;
 
 namespace StorageMaster.UI.Pages;
 
@@ -14,6 +16,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     private readonly ISettingsRepository _repo;
     private readonly IUpdateService      _updateService;
     private readonly IScanRepository     _scanRepository;
+    private readonly ILocalDiagnosticsService _diagnostics;
     private AppSettings _loadedSettings = new();
 
     private CancellationTokenSource? _downloadCts;
@@ -68,6 +71,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     // ── Update preferences ───────────────────────────────────────────────────
     [ObservableProperty] private bool   _checkOnStartup    = true;
     [ObservableProperty] private bool   _includePrerelease = false;
+    [ObservableProperty] private bool   _requireSignedUpdates;
 
     // ── Update state ─────────────────────────────────────────────────────────
     [ObservableProperty] private bool         _isCheckingForUpdates;
@@ -99,7 +103,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         : string.Empty;
 
     public Uri? ReleaseNotesUri => AvailableUpdate is { } u
-        ? new Uri($"https://github.com/0langa/StorageMaster/releases/tag/{u.TagName}")
+        ? new Uri(u.ReleaseUrl)
         : null;
 
     // ── UI feedback ─────────────────────────────────────────────────────────
@@ -107,6 +111,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     [ObservableProperty] private bool   _isPurgingHistory;
     [ObservableProperty] private string _defaultScanPathError = string.Empty;
     [ObservableProperty] private string _ffmpegPathError = string.Empty;
+    [ObservableProperty] private bool _isExportingDiagnostics;
 
     public ObservableCollection<string> ExcludedPaths { get; } = [];
     public Array ThemeOptions => Enum.GetValues(typeof(ThemePreference));
@@ -122,15 +127,18 @@ public sealed partial class SettingsViewModel : ObservableObject
     public bool HasDefaultScanPathError => !string.IsNullOrWhiteSpace(DefaultScanPathError);
     public bool HasFfmpegPathError => !string.IsNullOrWhiteSpace(FfmpegPathError);
     public bool CanSave => !HasDefaultScanPathError && !HasFfmpegPathError;
+    public bool CanExportDiagnostics => !IsExportingDiagnostics;
 
     public SettingsViewModel(
         ISettingsRepository repo,
         IUpdateService updateService,
-        IScanRepository scanRepository)
+        IScanRepository scanRepository,
+        ILocalDiagnosticsService diagnostics)
     {
         _repo          = repo;
         _updateService = updateService;
         _scanRepository = scanRepository;
+        _diagnostics = diagnostics;
     }
 
     partial void OnLargeFileSizeMbChanged(int value) => OnPropertyChanged(nameof(LargeFileThresholdLabel));
@@ -139,6 +147,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     partial void OnScanHistoryRetentionDaysChanged(int value) => OnPropertyChanged(nameof(ScanHistoryRetentionLabel));
     partial void OnSavedMessageChanged(string value) => OnPropertyChanged(nameof(HasSavedMessage));
     partial void OnIsPurgingHistoryChanged(bool value) => OnPropertyChanged(nameof(CanPurgeHistory));
+    partial void OnIsExportingDiagnosticsChanged(bool value) => OnPropertyChanged(nameof(CanExportDiagnostics));
     partial void OnDefaultScanPathChanged(string value) => ValidateDefaultScanPath();
     partial void OnFfmpegPathChanged(string value) => ValidateFfmpegPath();
     partial void OnDefaultScanPathErrorChanged(string value) => OnPropertyChanged(nameof(HasDefaultScanPathError));
@@ -184,9 +193,10 @@ public sealed partial class SettingsViewModel : ObservableObject
         DuplicateImagePHashThreshold = s.DuplicateImagePHashThreshold;
         DuplicateVideoFrameThreshold = s.DuplicateVideoFrameThreshold;
         DuplicateMaxVideoDurationSeconds = s.DuplicateMaxVideoDurationSeconds;
-        FfmpegPath                 = s.FfmpegPath;
+        FfmpegPath                 = FfmpegPathNormalizer.Normalize(s.FfmpegPath);
         CheckOnStartup             = s.CheckOnStartup;
         IncludePrerelease          = s.IncludePrerelease;
+        RequireSignedUpdates       = s.RequireSignedUpdates;
 
         ExcludedPaths.Clear();
         foreach (var p in s.ExcludedPaths)
@@ -261,10 +271,12 @@ public sealed partial class SettingsViewModel : ObservableObject
             UpdateStatusMessage = info is not null
                 ? $"Update to {info.Version.ToString(3)} is available."
                 : "No compatible update is currently available.";
+            await _diagnostics.RecordAsync("updater", UpdateStatusMessage);
         }
         catch (Exception ex)
         {
             UpdateStatusMessage = $"Update check failed: {ex.Message}";
+            await _diagnostics.RecordAsync("updater", UpdateStatusMessage);
         }
         finally
         {
@@ -298,16 +310,40 @@ public sealed partial class SettingsViewModel : ObservableObject
             if (_updateService.LaunchInstaller(path))
                 Application.Current.Exit();
             else
-                UpdateStatusMessage = "Could not launch installer. Run it manually from %TEMP%\\StorageMaster\\Updates\\.";
+                UpdateStatusMessage = _updateService.LastFailureKind == UpdateFailureKind.UserCancelledElevation
+                    ? "Installer launch cancelled at the elevation prompt."
+                    : "Could not launch installer. Run it manually from %TEMP%\\StorageMaster\\Updates\\.";
+            await _diagnostics.RecordAsync("updater", UpdateStatusMessage);
         }
         catch (OperationCanceledException)
         {
             UpdateStatusMessage = "Download cancelled.";
             DownloadProgress    = 0;
         }
+        catch (UpdateException ex)
+        {
+            UpdateStatusMessage = ex.Kind switch
+            {
+                UpdateFailureKind.DownloadFileInUse =>
+                    "Download failed: installer file is locked by another process. Close open installers and retry.",
+                UpdateFailureKind.ChecksumMismatch =>
+                    "Download failed: checksum verification mismatch. Please retry.",
+                UpdateFailureKind.InvalidSignature =>
+                    "Download failed: installer trust verification failed.",
+                UpdateFailureKind.NetworkTimeout =>
+                    "Download failed: network timeout while fetching release asset.",
+                UpdateFailureKind.MissingInstallerAsset =>
+                    "Download failed: release installer asset is missing.",
+                UpdateFailureKind.InsecureDownloadUrl =>
+                    "Download failed: updater refused a non-HTTPS download URL.",
+                _ => $"Download failed: {ex.Message}",
+            };
+            await _diagnostics.RecordAsync("updater", UpdateStatusMessage);
+        }
         catch (Exception ex)
         {
             UpdateStatusMessage = $"Download failed: {ex.Message}";
+            await _diagnostics.RecordAsync("updater", UpdateStatusMessage);
         }
         finally
         {
@@ -350,6 +386,23 @@ public sealed partial class SettingsViewModel : ObservableObject
         }
     }
 
+    [RelayCommand]
+    private async Task ExportDiagnosticsAsync()
+    {
+        IsExportingDiagnostics = true;
+        try
+        {
+            var bundlePath = await _diagnostics.ExportBundleAsync();
+            SavedMessage = $"Diagnostics bundle exported: {bundlePath}";
+            await Task.Delay(4000);
+            SavedMessage = string.Empty;
+        }
+        finally
+        {
+            IsExportingDiagnostics = false;
+        }
+    }
+
     private AppSettings BuildSettings()
     {
         var settings = CloneSettings(_loadedSettings);
@@ -389,9 +442,10 @@ public sealed partial class SettingsViewModel : ObservableObject
         settings.DuplicateImagePHashThreshold = DuplicateImagePHashThreshold;
         settings.DuplicateVideoFrameThreshold = DuplicateVideoFrameThreshold;
         settings.DuplicateMaxVideoDurationSeconds = DuplicateMaxVideoDurationSeconds;
-        settings.FfmpegPath                 = FfmpegPath;
+        settings.FfmpegPath                 = FfmpegPathNormalizer.Normalize(FfmpegPath);
         settings.CheckOnStartup             = CheckOnStartup;
         settings.IncludePrerelease          = IncludePrerelease;
+        settings.RequireSignedUpdates       = RequireSignedUpdates;
         settings.ExcludedPaths              = ExcludedPaths.ToList();
         return settings;
     }
@@ -410,11 +464,15 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     private void ValidateFfmpegPath()
     {
-        FfmpegPathError = string.IsNullOrWhiteSpace(FfmpegPath)
+        var normalized = FfmpegPathNormalizer.Normalize(FfmpegPath);
+        if (!string.Equals(FfmpegPath, normalized, StringComparison.Ordinal))
+            FfmpegPath = normalized;
+
+        FfmpegPathError = string.IsNullOrWhiteSpace(normalized)
             ? string.Empty
-            : !File.Exists(FfmpegPath)
+            : !File.Exists(normalized)
                 ? "FFmpeg path does not exist."
-                : !string.Equals(Path.GetExtension(FfmpegPath), ".exe", StringComparison.OrdinalIgnoreCase)
+                : !string.Equals(Path.GetFileName(normalized), "ffmpeg.exe", StringComparison.OrdinalIgnoreCase)
                     ? "FFmpeg path must point to ffmpeg.exe."
                     : string.Empty;
         OnPropertyChanged(nameof(CanSave));

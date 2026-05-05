@@ -210,14 +210,15 @@
                                SpinButtonPlacementMode="Inline"
                                Value="{x:Bind ViewModel.DuplicateMaxVideoDurationSeconds, Mode=TwoWay}" />
                     <StackPanel>
-                        <TextBlock Text="FFmpeg path (optional)" Style="{StaticResource CaptionTextBlockStyle}" Margin="0,0,0,4"/>
-                        <TextBox Text="{x:Bind ViewModel.FfmpegPath, Mode=TwoWay}" />
+                        <TextBlock Text="FFmpeg executable path (optional)" Style="{StaticResource CaptionTextBlockStyle}" Margin="0,0,0,4"/>
+                        <TextBox Text="{x:Bind ViewModel.FfmpegPath, Mode=TwoWay}"
+                                 PlaceholderText="C:\Tools\ffmpeg\bin\ffmpeg.exe" />
                         <TextBlock Text="{x:Bind ViewModel.FfmpegPathError, Mode=OneWay}"
                                    Foreground="{ThemeResource SystemFillColorCriticalBrush}"
                                    Visibility="{x:Bind ViewModel.HasFfmpegPathError, Mode=OneWay, Converter={StaticResource BoolVis}}"
                                    Style="{StaticResource CaptionTextBlockStyle}"
                                    TextWrapping="Wrap" />
-                        <TextBlock Text="Exact SHA-256 and normalized text review are active today. Image/video review toggles are stored now and light up automatically once a provider is added."
+                        <TextBlock Text="Video pHash requires ffmpeg.exe and ffprobe.exe in the same directory."
                                    Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.65" TextWrapping="Wrap" />
                     </StackPanel>
                 </StackPanel>
@@ -231,6 +232,9 @@
                         IsEnabled="{x:Bind ViewModel.CanSave, Mode=OneWay}" />
                 <Button Content="Reset to Defaults"
                         Command="{x:Bind ViewModel.ResetToDefaultsCommand}" />
+                <Button Content="Export Diagnostics"
+                        Command="{x:Bind ViewModel.ExportDiagnosticsCommand}"
+                        IsEnabled="{x:Bind ViewModel.CanExportDiagnostics, Mode=OneWay}" />
             </StackPanel>
 
             <!-- Feedback -->
@@ -261,6 +265,8 @@
 
                     <ToggleSwitch Header="Include pre-release versions"
                                   IsOn="{x:Bind ViewModel.IncludePrerelease, Mode=TwoWay}" />
+                    <ToggleSwitch Header="Require signed update installers"
+                                  IsOn="{x:Bind ViewModel.RequireSignedUpdates, Mode=TwoWay}" />
 
                     <!-- Check button + spinner -->
                     <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">

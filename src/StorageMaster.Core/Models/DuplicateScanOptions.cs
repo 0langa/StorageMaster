@@ -32,6 +32,8 @@ public sealed record DuplicateScanOptions
 
     /// <summary>Maximum parallel I/O operations. Should respect AppSettings.ScanParallelism.</summary>
     public int MaxConcurrency { get; init; } = 4;
+    /// <summary>Secondary per-volume I/O cap used to reduce HDD thrash on mixed drives.</summary>
+    public int PerDriveConcurrency { get; init; } = 2;
 
     public KeeperPolicy KeeperPolicy { get; init; } = KeeperPolicy.Newest;
 

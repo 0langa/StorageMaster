@@ -1,6 +1,6 @@
 # StorageMaster    [![Release](https://github.com/0langa/StorageMaster/actions/workflows/release.yml/badge.svg?event=release)](https://github.com/0langa/StorageMaster/actions/workflows/release.yml)
 
-> **Current version:** 1.6.0 — Windows disk analyzer, junk cleaner, and storage health tool.
+> **Current version:** 1.6.1 — Windows disk analyzer, junk cleaner, and storage health tool.
 
 A Windows disk analyzer and storage cleaner built with **C# / .NET 8 / WinUI 3**, with an optional native Rust scan engine for maximum throughput on multi-core systems.
 
@@ -21,7 +21,7 @@ A Windows disk analyzer and storage cleaner built with **C# / .NET 8 / WinUI 3**
 | **Duplicate analysis** | Pluggable dedupe engine with exact SHA-256, normalized-text review, image pHash, optional video pHash, quarantine/recycle deletion, and audit trail |
 | **Results visualization** | Largest files, largest folders, file-type breakdown, error log, category filters, and paged loading |
 | **Folder size aggregation** | Bottom-up propagation gives accurate folder totals |
-| **GitHub release updater** | Checks GitHub Releases, downloads the signed setup EXE, and launches the installer on demand |
+| **GitHub release updater** | Checks GitHub Releases, verifies digest/signature policy, downloads setup EXE, and launches installer on demand |
 | **Theme + retention settings** | Persisted light/dark/default theme, scan-history retention window, and uninstall-safe user data |
 
 ---
@@ -122,7 +122,7 @@ Copy-Item turbo-scanner\target\x86_64-pc-windows-msvc\release\turbo-scanner.exe 
 
 # 3. Build the installer
 iscc installer\StorageMaster.iss
-# Output: artifacts/installer/StorageMaster-1.6.0-win-x64-Setup.exe
+# Output: artifacts/installer/StorageMaster-1.6.1-win-x64-Setup.exe
 ```
 
 The automated release pipeline (`release.yml`) runs all three steps on every `v*.*.*` git tag and attaches the installer to a GitHub Release.

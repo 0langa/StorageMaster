@@ -9,6 +9,7 @@
 
     <Page.Resources>
         <converters:BoolToVisibilityConverter x:Key="BoolVis" />
+        <converters:BoolToVisibilityConverter x:Key="NotBoolVis" Invert="True" />
         <converters:BoolNegationConverter x:Key="NotBool" />
         <converters:FilePathToBitmapImageConverter x:Key="FilePathToImage" />
     </Page.Resources>
@@ -430,7 +431,7 @@
 
                         <TextBlock Grid.Row="3"
                                    Text="Select a group to review members."
-                                   Visibility="{x:Bind ViewModel.HasSelectedGroup, Mode=OneWay, Converter={StaticResource NotBool}}" />
+                                   Visibility="{x:Bind ViewModel.HasSelectedGroup, Mode=OneWay, Converter={StaticResource NotBoolVis}}" />
                     </Grid>
                 </Border>
 

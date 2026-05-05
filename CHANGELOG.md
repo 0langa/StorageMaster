@@ -4,6 +4,16 @@ All notable changes to StorageMaster are documented here.
 
 ---
 
+## [1.7.1] — 2026-05-06 — Duplicates Crash Fix
+
+### Fixed
+
+- Fixed Duplicates navigation crash caused by binding a boolean negation converter to a WinUI `Visibility` property.
+- Refreshed repository ignore rules for .NET/WinUI, Rust, installer, diagnostics, and local runtime output.
+- Committed the Rust scanner lockfile for reproducible release builds.
+
+---
+
 ## [1.7.0] — 2026-05-06 — Power Automation Release
 
 ### Added

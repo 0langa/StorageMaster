@@ -1,34 +1,89 @@
-# Build outputs
-[Bb]in/
-[Oo]bj/
+# StorageMaster repository ignores
 
-# Visual Studio
-.vs/
-*.user
-*.suo
-*.userosscache
-*.sln.docstates
-
-# Rider
-.idea/
-
-# NuGet
-*.nupkg
-*.snupkg
-packages/
-project.lock.json
-project.fragment.lock.json
-artifacts/
-
-# OS
+# Operating system noise
 .DS_Store
 Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
 
-# Test results
+# Editor and IDE state
+.vs/
+.vscode/
+.idea/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.rsuser
+*.DotSettings.user
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+*.pfx
+*.p12
+*.pem
+*.key
+*.cer
+*.crt
+
+# .NET, MSBuild, and WinUI generated output
+[Bb]in/
+[Oo]bj/
+[Dd]ebug/
+[Rr]elease/
+[Xx]64/
+[Xx]86/
+[Aa][Rr][Mm]64/
+AppPackages/
+BundleArtifacts/
+Generated Files/
 TestResults/
+*.binlog
+*.buildlog
+*.log
+
+# NuGet and package output
+packages/
+*.nupkg
+*.snupkg
+project.lock.json
+project.fragment.lock.json
+
+# Publish, installer, and release artifacts
+artifacts/
+publish/
+*.msix
+*.msixbundle
+*.appx
+*.appxbundle
+*.wapproj.user
+*.exe
+!src/**/Assets/*.exe
+
+# Test coverage and diagnostics
 coverage/
+coverage.*/
 *.coverage
 *.coveragexml
+*.trx
+*.cobertura.xml
+*.opencover.xml
 
-# Publish output
-publish/
+# Local runtime data
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+*.tmp
+*.temp
+
+# Rust build output
+target/
+**/target/
+
+# Keep Rust application lockfiles committed for reproducible release builds.
+!turbo-scanner/Cargo.lock

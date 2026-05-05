@@ -189,7 +189,11 @@ public sealed class FileScanner : IFileScanner
         // In deep scan mode include hidden and system directories that .NET skips by default.
         var enumOptions = options.DeepScan
             ? new EnumerationOptions { AttributesToSkip = FileAttributes.None, IgnoreInaccessible = false }
-            : new EnumerationOptions { AttributesToSkip = FileAttributes.None, IgnoreInaccessible = true };
+            : new EnumerationOptions
+            {
+                AttributesToSkip = options.IncludeHiddenFiles ? FileAttributes.None : FileAttributes.Hidden,
+                IgnoreInaccessible = true,
+            };
 
         try
         {
@@ -266,7 +270,11 @@ public sealed class FileScanner : IFileScanner
         // Deep scan: enumerate hidden and system files that .NET skips by default.
         var fileEnumOptions = options.DeepScan
             ? new EnumerationOptions { AttributesToSkip = FileAttributes.None, IgnoreInaccessible = false }
-            : new EnumerationOptions { AttributesToSkip = FileAttributes.None, IgnoreInaccessible = true };
+            : new EnumerationOptions
+            {
+                AttributesToSkip = options.IncludeHiddenFiles ? FileAttributes.None : FileAttributes.Hidden,
+                IgnoreInaccessible = true,
+            };
 
         try
         {

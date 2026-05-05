@@ -11,12 +11,14 @@ namespace StorageMaster.UI;
 public sealed partial class MainWindow : Window
 {
     private readonly INavigationService _nav;
+    private bool _isUpdatingSelection;
 
     public MainWindow(INavigationService nav)
     {
         _nav = nav;
         InitializeComponent();
         _nav.Initialize(ContentFrame);
+        _nav.Navigated += OnNavigated;
 
         Title = "StorageMaster";
         ApplyStartupWindowSize();
@@ -34,7 +36,7 @@ public sealed partial class MainWindow : Window
 
         // Navigate to dashboard on launch.
         _nav.NavigateTo(typeof(DashboardPage));
-        NavView.SelectedItem = NavView.MenuItems[0];
+        SyncSelection(typeof(DashboardPage));
     }
 
     // ── Win32 icon helpers ────────────────────────────────────────────────────
@@ -114,6 +116,9 @@ public sealed partial class MainWindow : Window
 
     private void NavView_SelectionChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
     {
+        if (_isUpdatingSelection)
+            return;
+
         if (args.IsSettingsSelected)
         {
             _nav.NavigateTo(typeof(SettingsPage));
@@ -122,16 +127,46 @@ public sealed partial class MainWindow : Window
 
         if (args.SelectedItem is NavigationViewItem item)
         {
-            var page = item.Tag?.ToString() switch
+            var tag = item.Tag?.ToString();
+            if (tag is not null && NavigationRoutes.TagToPage.TryGetValue(tag, out var page))
+                _nav.NavigateTo(page);
+        }
+    }
+
+    private void NavView_BackRequested(NavigationView sender, NavigationViewBackRequestedEventArgs args)
+    {
+        if (_nav.CanGoBack)
+            _nav.GoBack();
+    }
+
+    private void OnNavigated(object? sender, NavigationChangedEventArgs e)
+    {
+        SyncSelection(e.PageType);
+        NavView.IsBackEnabled = _nav.CanGoBack;
+    }
+
+    private void SyncSelection(Type? pageType)
+    {
+        _isUpdatingSelection = true;
+        try
+        {
+            if (pageType == typeof(SettingsPage))
             {
-                "Dashboard"    => typeof(DashboardPage),
-                "Scan"         => typeof(ScanPage),
-                "Results"      => typeof(ResultsPage),
-                "Cleanup"      => typeof(CleanupPage),
-                "SmartCleaner" => typeof(SmartCleanerPage),
-                _              => typeof(DashboardPage),
-            };
-            _nav.NavigateTo(page);
+                NavView.SelectedItem = NavView.SettingsItem;
+                return;
+            }
+
+            var tag = pageType is not null && NavigationRoutes.PageToTag.TryGetValue(pageType, out var routeTag)
+                ? routeTag
+                : NavigationRoutes.Dashboard;
+
+            NavView.SelectedItem = NavView.MenuItems
+                .OfType<NavigationViewItem>()
+                .FirstOrDefault(item => string.Equals(item.Tag?.ToString(), tag, StringComparison.Ordinal));
+        }
+        finally
+        {
+            _isUpdatingSelection = false;
         }
     }
 }

@@ -1,0 +1,149 @@
+<Page
+    x:Class="StorageMaster.UI.Pages.DuplicatesPage"
+    x:Name="PageRoot"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:StorageMaster.UI.Pages"
+    xmlns:converters="using:StorageMaster.UI.Converters">
+
+    <Page.Resources>
+        <converters:BoolToVisibilityConverter x:Key="BoolVis" />
+        <converters:BoolNegationConverter x:Key="NotBool" />
+    </Page.Resources>
+
+    <ScrollViewer Padding="32,24">
+        <StackPanel Spacing="20" MaxWidth="1100">
+            <TextBlock Text="Duplicates" Style="{StaticResource TitleLargeTextBlockStyle}" />
+
+            <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" CornerRadius="8" Padding="20">
+                <StackPanel Spacing="12">
+                    <TextBlock Text="Duplicate analysis" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                    <Grid ColumnDefinitions="2*,Auto,Auto,Auto,Auto,Auto" ColumnSpacing="12">
+                        <ComboBox Grid.Column="0"
+                                  Header="Scan session"
+                                  ItemsSource="{x:Bind ViewModel.Sessions}"
+                                  SelectedItem="{x:Bind ViewModel.SelectedSession, Mode=TwoWay}"
+                                  DisplayMemberPath="RootPath"
+                                  AutomationProperties.Name="Select scan session" />
+                        <NumberBox Grid.Column="1"
+                                   Header="Min size (MB)"
+                                   Minimum="0"
+                                   SmallChange="1"
+                                   SpinButtonPlacementMode="Inline"
+                                   Value="{x:Bind ViewModel.MinimumSizeMb, Mode=TwoWay}"
+                                   AutomationProperties.Name="Minimum duplicate size in megabytes" />
+                        <ToggleSwitch Grid.Column="2"
+                                      Header="Normalized text review"
+                                      IsOn="{x:Bind ViewModel.IncludeNormalizedText, Mode=TwoWay}"
+                                      AutomationProperties.Name="Include normalized text duplicate review" />
+                        <ComboBox Grid.Column="3"
+                                  Header="Keeper policy"
+                                  ItemsSource="{x:Bind ViewModel.KeeperPolicyOptions, Mode=OneWay}"
+                                  SelectedItem="{x:Bind ViewModel.KeeperPolicy, Mode=TwoWay}"
+                                  AutomationProperties.Name="Choose duplicate keeper policy" />
+                        <ToggleSwitch Grid.Column="4"
+                                      Header="Recycle Bin"
+                                      IsOn="{x:Bind ViewModel.UseRecycleBin, Mode=TwoWay}"
+                                      AutomationProperties.Name="Use recycle bin for duplicate deletion" />
+                        <Button Grid.Column="5"
+                                Content="Run Analysis"
+                                Style="{StaticResource AccentButtonStyle}"
+                                Command="{x:Bind ViewModel.RunAnalysisCommand}"
+                                IsEnabled="{x:Bind ViewModel.CanRun, Mode=OneWay}"
+                                VerticalAlignment="Bottom"
+                                AutomationProperties.Name="Run duplicate analysis" />
+                    </Grid>
+                    <StackPanel Orientation="Horizontal" Spacing="12">
+                        <ToggleSwitch Header="Image perceptual review"
+                                      IsOn="{x:Bind ViewModel.IncludeImagePHash, Mode=TwoWay}"
+                                      IsEnabled="{x:Bind ViewModel.IsImagePHashAvailable, Mode=OneWay}"
+                                      AutomationProperties.Name="Include image perceptual duplicate review" />
+                        <ToggleSwitch Header="Video perceptual review"
+                                      IsOn="{x:Bind ViewModel.IncludeVideoPHash, Mode=TwoWay}"
+                                      IsEnabled="{x:Bind ViewModel.IsVideoPHashAvailable, Mode=OneWay}"
+                                      AutomationProperties.Name="Include video perceptual duplicate review" />
+                    </StackPanel>
+                    <TextBlock Text="{x:Bind ViewModel.ProviderSummary, Mode=OneWay}"
+                               Style="{StaticResource CaptionTextBlockStyle}"
+                               Opacity="0.65"
+                               TextWrapping="Wrap" />
+                    <TextBlock Text="{x:Bind ViewModel.StatusText, Mode=OneWay}"
+                               TextWrapping="Wrap"
+                               Opacity="0.75" />
+                </StackPanel>
+            </Border>
+
+            <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    CornerRadius="8" Padding="16"
+                    Visibility="{x:Bind ViewModel.HasLatestRun, Mode=OneWay, Converter={StaticResource BoolVis}}">
+                <TextBlock Text="{x:Bind ViewModel.LatestRunSummary, Mode=OneWay}"
+                           TextWrapping="Wrap" Opacity="0.8" />
+            </Border>
+
+            <ProgressRing IsActive="True"
+                          Width="48"
+                          Height="48"
+                          Visibility="{x:Bind ViewModel.IsRunning, Mode=OneWay, Converter={StaticResource BoolVis}}" />
+
+            <Button Content="Delete Selected Duplicates"
+                    Style="{StaticResource AccentButtonStyle}"
+                    Command="{x:Bind ViewModel.DeleteSelectedCommand}"
+                    IsEnabled="{x:Bind ViewModel.CanDeleteSelected, Mode=OneWay}"
+                    Visibility="{x:Bind ViewModel.HasGroups, Mode=OneWay, Converter={StaticResource BoolVis}}"
+                    AutomationProperties.Name="Delete selected duplicate files" />
+
+            <ItemsControl ItemsSource="{x:Bind ViewModel.Groups}">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="local:DuplicateGroupItem">
+                        <Expander Margin="0,0,0,12">
+                            <Expander.Header>
+                                <Grid ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="12">
+                                    <TextBlock Grid.Column="0"
+                                               Text="{x:Bind MethodText}"
+                                               FontWeight="SemiBold" />
+                                    <TextBlock Grid.Column="1"
+                                               Text="{x:Bind TotalSizeText}" />
+                                    <TextBlock Grid.Column="2"
+                                               Text="{x:Bind ReclaimableText}" />
+                                    <TextBlock Grid.Column="3"
+                                               Text="{x:Bind SelectedCount}" />
+                                </Grid>
+                            </Expander.Header>
+                            <StackPanel Spacing="8">
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <Button Content="Keep Newest"
+                                            Command="{Binding ViewModel.KeepNewestCommand, ElementName=PageRoot}"
+                                            CommandParameter="{Binding}"
+                                            AutomationProperties.Name="Keep the newest file in this duplicate group" />
+                                    <Button Content="Keep Oldest"
+                                            Command="{Binding ViewModel.KeepOldestCommand, ElementName=PageRoot}"
+                                            CommandParameter="{Binding}"
+                                            AutomationProperties.Name="Keep the oldest file in this duplicate group" />
+                                </StackPanel>
+                                <ListView ItemsSource="{x:Bind Members}" SelectionMode="None">
+                                    <ListView.ItemTemplate>
+                                        <DataTemplate x:DataType="local:DuplicateMemberItem">
+                                            <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="8">
+                                                <CheckBox IsChecked="{x:Bind IsSelected, Mode=TwoWay}"
+                                                          IsEnabled="{x:Bind IsKeeper, Converter={StaticResource NotBool}}" />
+                                                <StackPanel Grid.Column="1">
+                                                    <TextBlock Text="{x:Bind Member.FileName}" FontWeight="SemiBold" />
+                                                    <TextBlock Text="{x:Bind Member.FullPath}" Opacity="0.7" TextWrapping="WrapWholeWords" />
+                                                </StackPanel>
+                                                <TextBlock Grid.Column="2" Text="{x:Bind SizeText}" VerticalAlignment="Center" />
+                                                <TextBlock Grid.Column="3"
+                                                           Text="{x:Bind ModifiedText}"
+                                                           VerticalAlignment="Center"
+                                                           Opacity="0.7" />
+                                            </Grid>
+                                        </DataTemplate>
+                                    </ListView.ItemTemplate>
+                                </ListView>
+                            </StackPanel>
+                        </Expander>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </StackPanel>
+    </ScrollViewer>
+</Page>

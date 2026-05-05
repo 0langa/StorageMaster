@@ -3,8 +3,6 @@ using System.Diagnostics;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.UI.Dispatching;
-using Microsoft.UI.Xaml;
-using Microsoft.UI.Xaml.Controls;
 using StorageMaster.Core.Interfaces;
 using StorageMaster.Core.Models;
 using StorageMaster.UI.Converters;
@@ -16,8 +14,9 @@ public sealed partial class ResultsViewModel : ObservableObject
 {
     private readonly IScanRepository      _repo;
     private readonly IScanErrorRepository _errorRepo;
-    private readonly IFileDeleter         _deleter;
+    private readonly IScanResultDeletionService _resultDeletionService;
     private readonly INavigationService   _nav;
+    private readonly IDialogService       _dialogs;
     private readonly DispatcherQueue      _dispatcherQueue;
 
     [ObservableProperty] private bool   _isLoading;
@@ -28,10 +27,19 @@ public sealed partial class ResultsViewModel : ObservableObject
     [ObservableProperty] private string _filterText       = string.Empty;
     [ObservableProperty] private int    _errorCount;
     [ObservableProperty] private string _filterCountLabel = string.Empty;
+    [ObservableProperty] private long   _totalFolderMatches;
+    [ObservableProperty] private bool   _canLoadMoreFiles;
+    [ObservableProperty] private bool   _canLoadMoreFolders;
+    [ObservableProperty] private string _selectedCategoryFilter = string.Empty;
+    [ObservableProperty] private string _sessionNote = string.Empty;
+    [ObservableProperty] private bool   _hasSession;
 
     private long _sessionId;
-    private IReadOnlyList<FileEntry>   _allFiles   = [];
-    private IReadOnlyList<FolderEntry> _allFolders = [];
+    private IReadOnlyList<FolderEntry> _treeFolders = [];
+    private int _loadedFileCount;
+    private int _loadedFolderCount;
+    private const int FilePageSize = 200;
+    private const int FolderPageSize = 100;
 
     // ── Filter debounce ──────────────────────────────────────────────────────
     private CancellationTokenSource? _filterDebounce;
@@ -54,10 +62,6 @@ public sealed partial class ResultsViewModel : ObservableObject
     private static string Indicator(string col, string current, bool desc) =>
         current == col ? (desc ? " ▼" : " ▲") : "";
 
-    // ── XamlRoot for ContentDialogs ──────────────────────────────────────────
-    /// <summary>Set by ResultsPage.OnNavigatedTo so the ViewModel can show dialogs.</summary>
-    public XamlRoot? XamlRoot { get; set; }
-
     public ObservableCollection<FileEntry>    LargestFiles      { get; } = [];
     public ObservableCollection<FolderEntry>  LargestFolders    { get; } = [];
     public ObservableCollection<CategoryRow>  CategoryBreakdown { get; } = [];
@@ -68,17 +72,21 @@ public sealed partial class ResultsViewModel : ObservableObject
     private List<FolderTreeNode> _folderTreeRoots = [];
 
     public bool HasErrors => ErrorCount > 0;
+    public bool HasCategoryFilter => !string.IsNullOrWhiteSpace(SelectedCategoryFilter);
+    public bool HasSessionNote => !string.IsNullOrWhiteSpace(SessionNote);
 
     public ResultsViewModel(
         IScanRepository      repo,
         IScanErrorRepository errorRepo,
-        IFileDeleter         deleter,
-        INavigationService   nav)
+        IScanResultDeletionService resultDeletionService,
+        INavigationService   nav,
+        IDialogService       dialogs)
     {
         _repo            = repo;
         _errorRepo       = errorRepo;
-        _deleter         = deleter;
+        _resultDeletionService = resultDeletionService;
         _nav             = nav;
+        _dialogs         = dialogs;
         _dispatcherQueue = DispatcherQueue.GetForCurrentThread();
     }
 
@@ -92,6 +100,16 @@ public sealed partial class ResultsViewModel : ObservableObject
         var latest   = sessions.FirstOrDefault(s => s.Status == Core.Models.ScanStatus.Completed);
         if (latest is not null)
             await LoadAsync(latest.Id);
+        else
+        {
+            HasSession = false;
+            FilterCountLabel = "No completed scan sessions yet.";
+            LargestFiles.Clear();
+            LargestFolders.Clear();
+            CategoryBreakdown.Clear();
+            ScanErrors.Clear();
+            ErrorCount = 0;
+        }
     }
 
     public async Task LoadAsync(long sessionId)
@@ -104,16 +122,17 @@ public sealed partial class ResultsViewModel : ObservableObject
             var session = await _repo.GetSessionAsync(sessionId);
             if (session is not null)
             {
+                HasSession = true;
                 ScanRoot   = session.RootPath;
                 ScanDate   = session.CompletedUtc?.ToString("g") ?? session.StartedUtc.ToString("g");
                 TotalSize  = ByteSizeConverter.Format(session.TotalSizeBytes);
                 TotalFiles = session.TotalFiles;
+                SessionNote = session.ErrorMessage ?? string.Empty;
             }
 
-            _allFiles   = await _repo.GetLargestFilesAsync(sessionId,   topN: 500);
-            _allFolders = await _repo.GetLargestFoldersAsync(sessionId,  topN: 200);
-
-            ApplyFilter();
+            await ReloadFilesAsync(reset: true);
+            await ReloadFoldersAsync(reset: true);
+            _treeFolders = await _repo.GetAllFolderPathsForSessionAsync(sessionId);
             BuildFolderTree();
 
             var breakdown = await _repo.GetCategoryBreakdownAsync(sessionId);
@@ -143,18 +162,21 @@ public sealed partial class ResultsViewModel : ObservableObject
         var token = _filterDebounce.Token;
 
         _ = Task.Delay(300, token).ContinueWith(
-            _ => _dispatcherQueue.TryEnqueue(ApplyFilter),
+            _ => _dispatcherQueue.TryEnqueue(async () => await ApplyFilterAsync()),
             token,
             TaskContinuationOptions.OnlyOnRanToCompletion,
             TaskScheduler.Default);
     }
 
     [RelayCommand]
-    private void ClearFilter()
+    private async Task ClearFilterAsync()
     {
         _filterDebounce?.Cancel();
         FilterText = string.Empty;
-        ApplyFilter(); // immediate response for explicit clear
+        SelectedCategoryFilter = string.Empty;
+        OnPropertyChanged(nameof(HasCategoryFilter));
+        await ReloadFilesAsync(reset: true);
+        await ReloadFoldersAsync(reset: true);
     }
 
     [RelayCommand]
@@ -198,20 +220,13 @@ public sealed partial class ResultsViewModel : ObservableObject
     [RelayCommand]
     private async Task DeleteSessionAsync()
     {
-        if (XamlRoot is null || _sessionId <= 0) return;
+        if (_sessionId <= 0) return;
 
-        var dialog = new ContentDialog
-        {
-            Title             = "Delete this scan?",
-            Content           = $"Permanently remove the scan of \"{ScanRoot}\" ({ScanDate}) from history?\n\nThis cannot be undone.",
-            PrimaryButtonText  = "Delete",
-            CloseButtonText   = "Cancel",
-            DefaultButton     = ContentDialogButton.Close,
-            XamlRoot          = XamlRoot,
-        };
-
-        var result = await dialog.ShowAsync();
-        if (result != ContentDialogResult.Primary) return;
+        var confirmed = await _dialogs.ConfirmAsync(
+            "Delete this scan?",
+            $"Permanently remove scan of \"{ScanRoot}\" ({ScanDate}) from history?\n\nThis cannot be undone.",
+            "Delete");
+        if (!confirmed) return;
 
         await Task.Run(() => _repo.DeleteSessionAsync(_sessionId));
         _nav.NavigateTo(typeof(DashboardPage));
@@ -230,7 +245,7 @@ public sealed partial class ResultsViewModel : ObservableObject
             _fileSortDesc   = true;
         }
         RefreshFileSortHeaders();
-        ApplyFilter();
+        _ = ApplyFilterAsync();
     }
 
     [RelayCommand]
@@ -244,7 +259,7 @@ public sealed partial class ResultsViewModel : ObservableObject
             _folderSortDesc   = true;
         }
         RefreshFolderSortHeaders();
-        ApplyFilter();
+        _ = ApplyFilterAsync();
     }
 
     private void RefreshFileSortHeaders()
@@ -265,31 +280,24 @@ public sealed partial class ResultsViewModel : ObservableObject
     [RelayCommand]
     private async Task DeleteFileAsync(FileEntry file)
     {
-        if (XamlRoot is null) return;
+        var confirmed = await _dialogs.ConfirmAsync(
+            "Send to Recycle Bin?",
+            $"Move \"{file.FileName}\" ({ByteSizeConverter.Format(file.SizeBytes)}) to the Recycle Bin?",
+            "Send to Recycle Bin");
+        if (!confirmed) return;
 
-        var dialog = new ContentDialog
-        {
-            Title             = "Send to Recycle Bin?",
-            Content           = $"Move \"{file.FileName}\" ({ByteSizeConverter.Format(file.SizeBytes)}) to the Recycle Bin?",
-            PrimaryButtonText  = "Send to Recycle Bin",
-            CloseButtonText   = "Cancel",
-            DefaultButton     = ContentDialogButton.Close,
-            XamlRoot          = XamlRoot,
-        };
-
-        var result = await dialog.ShowAsync();
-        if (result != ContentDialogResult.Primary) return;
-
-        var outcome = await Task.Run(() => _deleter.DeleteAsync(
-            new DeletionRequest(file.FullPath, DeletionMethod.RecycleBin, DryRun: false)));
+        var outcome = await Task.Run(() => _resultDeletionService.DeleteAsync(
+            file,
+            DeletionMethod.RecycleBin));
 
         _dispatcherQueue.TryEnqueue(() =>
         {
             if (outcome.Success)
             {
                 LargestFiles.Remove(file);
-                // Prune from the backing list so re-filtering doesn't resurrect it.
-                _allFiles = _allFiles.Where(f => f.FullPath != file.FullPath).ToList();
+                TotalFiles = Math.Max(0, TotalFiles - 1);
+                _loadedFileCount = Math.Max(0, _loadedFileCount - 1);
+                FilterCountLabel = $"Showing {LargestFiles.Count:N0} of {TotalFiles:N0} files";
             }
             // On failure: leave the item in the list; the user can retry or investigate.
         });
@@ -299,14 +307,14 @@ public sealed partial class ResultsViewModel : ObservableObject
 
     /// <summary>
     /// Builds a hierarchical tree of <see cref="FolderTreeNode"/> objects from the
-    /// flat <see cref="_allFolders"/> list. Called after every <see cref="LoadAsync"/>.
+    /// flat folder list. Called after every <see cref="LoadAsync"/>.
     /// </summary>
     private void BuildFolderTree()
     {
         // Build a node for every loaded folder; process shallow paths first so
         // parent entries are available when wiring up children.
         var nodeMap = new Dictionary<string, FolderTreeNode>(StringComparer.OrdinalIgnoreCase);
-        foreach (var folder in _allFolders.OrderBy(f => f.FullPath.Length))
+        foreach (var folder in _treeFolders.OrderBy(f => f.FullPath.Length))
             nodeMap[folder.FullPath] = new FolderTreeNode(folder);
 
         // Wire parent → child relationships.
@@ -337,57 +345,98 @@ public sealed partial class ResultsViewModel : ObservableObject
     // ── Filter + Sort ─────────────────────────────────────────────────────────
 
     [RelayCommand]
-    private void ApplyFilter()
+    private async Task ApplyFilterAsync()
     {
-        var filter = FilterText.Trim();
+        await ReloadFilesAsync(reset: true);
+        await ReloadFoldersAsync(reset: true);
+    }
 
-        // ── Files ──
-        IEnumerable<FileEntry> filteredFiles = _allFiles;
-        if (!string.IsNullOrEmpty(filter))
-            filteredFiles = filteredFiles.Where(f =>
-                f.FullPath.Contains(filter, StringComparison.OrdinalIgnoreCase));
+    [RelayCommand]
+    private async Task FilterByCategoryAsync(CategoryRow row)
+    {
+        SelectedCategoryFilter = row.Category;
+        OnPropertyChanged(nameof(HasCategoryFilter));
+        await ReloadFilesAsync(reset: true);
+    }
 
-        filteredFiles = _fileSortColumn switch
+    [RelayCommand]
+    private async Task ClearCategoryFilterAsync()
+    {
+        SelectedCategoryFilter = string.Empty;
+        OnPropertyChanged(nameof(HasCategoryFilter));
+        await ReloadFilesAsync(reset: true);
+    }
+
+    [RelayCommand]
+    private async Task LoadMoreFilesAsync()
+    {
+        if (!CanLoadMoreFiles) return;
+        await ReloadFilesAsync(reset: false);
+    }
+
+    [RelayCommand]
+    private async Task LoadMoreFoldersAsync()
+    {
+        if (!CanLoadMoreFolders) return;
+        await ReloadFoldersAsync(reset: false);
+    }
+
+    private async Task ReloadFilesAsync(bool reset)
+    {
+        if (_sessionId <= 0) return;
+
+        var offset = reset ? 0 : _loadedFileCount;
+        var page = await _repo.SearchFilesAsync(
+            _sessionId,
+            FilterText.Trim(),
+            SelectedCategoryFilter,
+            _fileSortColumn,
+            _fileSortDesc,
+            offset,
+            FilePageSize);
+
+        if (reset)
         {
-            "Modified" => _fileSortDesc
-                ? filteredFiles.OrderByDescending(f => f.ModifiedUtc)
-                : filteredFiles.OrderBy(f => f.ModifiedUtc),
-            "Type"     => _fileSortDesc
-                ? filteredFiles.OrderByDescending(f => f.Category)
-                : filteredFiles.OrderBy(f => f.Category),
-            _          => _fileSortDesc          // "Size" (default)
-                ? filteredFiles.OrderByDescending(f => f.SizeBytes)
-                : filteredFiles.OrderBy(f => f.SizeBytes),
-        };
+            LargestFiles.Clear();
+            _loadedFileCount = 0;
+        }
 
-        LargestFiles.Clear();
-        foreach (var f in filteredFiles.Take(200))
-            LargestFiles.Add(f);
+        foreach (var file in page)
+            LargestFiles.Add(file);
 
-        // Update filter count label.
-        FilterCountLabel = string.IsNullOrEmpty(filter)
-            ? $"{_allFiles.Count:N0} files"
-            : $"Showing {LargestFiles.Count:N0} of {_allFiles.Count:N0} files";
+        _loadedFileCount += page.Count;
+        TotalFiles = await _repo.CountFilesAsync(_sessionId, FilterText.Trim(), SelectedCategoryFilter);
+        CanLoadMoreFiles = _loadedFileCount < TotalFiles;
+        FilterCountLabel = HasCategoryFilter
+            ? $"Showing {LargestFiles.Count:N0} of {TotalFiles:N0} files in {SelectedCategoryFilter}"
+            : $"Showing {LargestFiles.Count:N0} of {TotalFiles:N0} files";
+    }
 
-        // ── Folders ──
-        IEnumerable<FolderEntry> filteredFolders = _allFolders;
-        if (!string.IsNullOrEmpty(filter))
-            filteredFolders = filteredFolders.Where(f =>
-                f.FullPath.Contains(filter, StringComparison.OrdinalIgnoreCase));
+    private async Task ReloadFoldersAsync(bool reset)
+    {
+        if (_sessionId <= 0) return;
 
-        filteredFolders = _folderSortColumn switch
+        var offset = reset ? 0 : _loadedFolderCount;
+        var page = await _repo.SearchFoldersAsync(
+            _sessionId,
+            FilterText.Trim(),
+            _folderSortColumn,
+            _folderSortDesc,
+            offset,
+            FolderPageSize);
+
+        if (reset)
         {
-            "Files" => _folderSortDesc
-                ? filteredFolders.OrderByDescending(f => f.FileCount)
-                : filteredFolders.OrderBy(f => f.FileCount),
-            _       => _folderSortDesc           // "Size" (default)
-                ? filteredFolders.OrderByDescending(f => f.TotalSizeBytes)
-                : filteredFolders.OrderBy(f => f.TotalSizeBytes),
-        };
+            LargestFolders.Clear();
+            _loadedFolderCount = 0;
+        }
 
-        LargestFolders.Clear();
-        foreach (var f in filteredFolders.Take(100))
-            LargestFolders.Add(f);
+        foreach (var folder in page)
+            LargestFolders.Add(folder);
+
+        _loadedFolderCount += page.Count;
+        TotalFolderMatches = await _repo.CountFoldersAsync(_sessionId, FilterText.Trim());
+        CanLoadMoreFolders = _loadedFolderCount < TotalFolderMatches;
     }
 }
 

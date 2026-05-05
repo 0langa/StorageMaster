@@ -94,6 +94,7 @@ public sealed partial class CleanupViewModel : ObservableObject
     [ObservableProperty] private string      _statusMessage     = "Select a scan session and analyse to see suggestions.";
     [ObservableProperty] private ScanSession? _selectedSession;
     [ObservableProperty] private string      _totalSelectedSize = "0 B";
+    [ObservableProperty] private int         _selectedSuggestionCount;
     [ObservableProperty] private bool        _hasResults;
 
     // ── Execution state ─────────────────────────────────────────────────────
@@ -122,8 +123,11 @@ public sealed partial class CleanupViewModel : ObservableObject
         OnPropertyChanged(nameof(CanAnalyse));
     partial void OnIsLoadingChanged(bool value)   => OnPropertyChanged(nameof(CanAnalyse));
     partial void OnIsExecutingChanged(bool value) => OnPropertyChanged(nameof(CanAnalyse));
+    partial void OnHasResultsChanged(bool value) => OnPropertyChanged(nameof(CanExecuteCleanup));
+    partial void OnSelectedSuggestionCountChanged(int value) => OnPropertyChanged(nameof(CanExecuteCleanup));
 
     public bool CanAnalyse => SelectedSession is not null && !IsLoading && !IsExecuting;
+    public bool CanExecuteCleanup => HasResults && !IsExecuting && SelectedSuggestionCount > 0;
 
     /// <summary>
     /// Computed property for the Large &amp; Old Files slider visibility.
@@ -205,6 +209,7 @@ public sealed partial class CleanupViewModel : ObservableObject
         // ── Files & Storage ───────────────────────────────────────────────────
         var files = MakeGroup("Files & Storage", "");
         AddItem(files, CleanupCategory.LargeOldFiles, "Large & Old Files", "Files above the size threshold not modified within the age threshold.", enabled: false);
+        AddItem(files, CleanupCategory.DuplicateFiles, "Duplicate Files", "Uses the latest duplicate analysis run for this scan session.", enabled: true);
 
         CategoryGroups.Add(winSystem);
         CategoryGroups.Add(browsers);
@@ -478,6 +483,7 @@ public sealed partial class CleanupViewModel : ObservableObject
             .Where(s => s.IsSelected)
             .Sum(s => s.Suggestion.EstimatedBytes);
         TotalSelectedSize = ByteSizeConverter.Format(total);
+        SelectedSuggestionCount = Suggestions.Count(s => s.IsSelected);
     }
 
     private void UnsubscribeAllSuggestions()

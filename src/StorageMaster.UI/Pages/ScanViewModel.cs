@@ -32,10 +32,12 @@ public sealed partial class ScanViewModel : ObservableObject
     [ObservableProperty] private double  _progressValue;
     [ObservableProperty] private string  _errorMessage         = string.Empty;
     [ObservableProperty] private bool    _hasError;
+    [ObservableProperty] private string  _scanPathError       = string.Empty;
     [ObservableProperty] private IReadOnlyList<DriveDetail> _availableDrives = [];
     [ObservableProperty] private bool    _deepScan;
     [ObservableProperty] private bool    _useTurboScanner;
     [ObservableProperty] private bool    _turboScannerAvailable;
+    [ObservableProperty] private bool    _isProgressIndeterminate = true;
 
     /// <summary>True when the process already holds administrator privileges.</summary>
     public bool IsRunningAsAdmin => _admin.IsRunningAsAdmin;
@@ -45,8 +47,24 @@ public sealed partial class ScanViewModel : ObservableObject
     /// the user should be prompted to elevate.
     /// </summary>
     public bool NeedsElevation => DeepScan && !IsRunningAsAdmin;
+    public bool HasScanPathError => !string.IsNullOrWhiteSpace(ScanPathError);
+    public bool CanStartScan => !IsScanning && string.IsNullOrWhiteSpace(ScanPathError);
+    public bool CanBrowse => !IsScanning;
+    public bool CanCancel => IsScanning;
 
     partial void OnDeepScanChanged(bool value) => OnPropertyChanged(nameof(NeedsElevation));
+    partial void OnSelectedPathChanged(string value) => ValidateSelectedPath(value);
+    partial void OnIsScanningChanged(bool value)
+    {
+        OnPropertyChanged(nameof(CanStartScan));
+        OnPropertyChanged(nameof(CanBrowse));
+        OnPropertyChanged(nameof(CanCancel));
+    }
+    partial void OnScanPathErrorChanged(string value)
+    {
+        OnPropertyChanged(nameof(HasScanPathError));
+        OnPropertyChanged(nameof(CanStartScan));
+    }
 
     private long _lastSessionId;
 
@@ -66,18 +84,21 @@ public sealed partial class ScanViewModel : ObservableObject
         _settings     = settings;
     }
 
-    public async Task InitializeAsync(bool autoEnableDeepScan = false)
+    public async Task InitializeAsync(bool autoEnableDeepScan = false, string? preselectedPath = null)
     {
         var settings = await _settings.LoadAsync();
         AvailableDrives        = _drives.GetAvailableDrives();
         ScanComplete           = false;
         HasError               = false;
         ErrorMessage           = string.Empty;
-        SelectedPath           = string.IsNullOrWhiteSpace(settings.DefaultScanPath) ? @"C:\" : settings.DefaultScanPath;
+        SelectedPath           = string.IsNullOrWhiteSpace(preselectedPath)
+            ? (string.IsNullOrWhiteSpace(settings.DefaultScanPath) ? @"C:\" : settings.DefaultScanPath)
+            : preselectedPath;
         UseTurboScanner        = settings.UseTurboScanner;
         TurboScannerAvailable  = StorageMaster.Platform.Windows.TurboFileScanner.IsAvailable;
         if (autoEnableDeepScan)
             DeepScan = true;
+        ValidateSelectedPath(SelectedPath);
     }
 
     [RelayCommand]
@@ -88,6 +109,14 @@ public sealed partial class ScanViewModel : ObservableObject
     {
         if (IsScanning) return;
 
+        ValidateSelectedPath(SelectedPath);
+        if (!CanStartScan)
+        {
+            HasError = true;
+            ErrorMessage = ScanPathError;
+            return;
+        }
+
         IsScanning   = true;
         ScanComplete = false;
         HasError     = false;
@@ -97,6 +126,7 @@ public sealed partial class ScanViewModel : ObservableObject
         BytesScanned   = "0 B";
         ErrorCount     = 0;
         ProgressValue  = 0;
+        IsProgressIndeterminate = true;
         ProgressText   = "Preparing scan...";
         CurrentFile    = SelectedPath;
 
@@ -112,6 +142,7 @@ public sealed partial class ScanViewModel : ObservableObject
             MaxParallelism = Math.Clamp(settings.ScanParallelism, 1, 16),
             DbBatchSize    = 500,
             FollowSymlinks = false,
+            IncludeHiddenFiles = settings.ShowHiddenFiles || DeepScan,
             DeepScan       = DeepScan,
             ExcludedPaths  = DeepScan ? [] : BuildExcludedPaths(settings),
         };
@@ -180,11 +211,62 @@ public sealed partial class ScanViewModel : ObservableObject
             ? "…" + p.CurrentPath[^77..]
             : p.CurrentPath;
         ProgressText   = $"{ByteSizeConverter.Format(p.BytesScanned)} scanned · {p.FilesScanned:N0} files";
+        ProgressValue  = 0;
+        IsProgressIndeterminate = true;
+    }
 
-        // Drive info for progress bar (best-effort).
-        var drive = _drives.GetDrive(SelectedPath);
-        if (drive is { TotalBytes: > 0 })
-            ProgressValue = (double)p.BytesScanned / drive.TotalBytes * 100.0;
+    private void ValidateSelectedPath(string? path)
+    {
+        if (IsScanning)
+            return;
+
+        var candidate = path?.Trim();
+        if (string.IsNullOrWhiteSpace(candidate))
+        {
+            ScanPathError = "Choose a folder or drive to scan.";
+            return;
+        }
+
+        if (!Path.IsPathRooted(candidate))
+        {
+            ScanPathError = "Scan path must be an absolute Windows path.";
+            return;
+        }
+
+        if (!Directory.Exists(candidate))
+        {
+            ScanPathError = "Scan path does not exist or is not currently available.";
+            return;
+        }
+
+        try
+        {
+            var root = Path.GetPathRoot(candidate);
+            if (!string.IsNullOrWhiteSpace(root))
+            {
+                var drive = new DriveInfo(root);
+                if (!drive.IsReady)
+                {
+                    ScanPathError = "Selected drive is not ready.";
+                    return;
+                }
+            }
+
+            var appDataRoot = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "StorageMaster");
+            Directory.CreateDirectory(appDataRoot);
+            var probePath = Path.Combine(appDataRoot, ".write-test");
+            File.WriteAllText(probePath, "ok");
+            File.Delete(probePath);
+        }
+        catch (Exception ex)
+        {
+            ScanPathError = $"Startup preflight failed: {ex.Message}";
+            return;
+        }
+
+        ScanPathError = string.Empty;
     }
 
     private static IReadOnlyList<string> BuildExcludedPaths(AppSettings settings)

@@ -24,4 +24,7 @@ public sealed record CleanupSuggestion
 
     /// <summary>When true, deletion of system-owned paths is involved — label clearly in UI.</summary>
     public bool IsSystemPath { get; init; }
+
+    /// <summary>Optional JSON metadata written to the cleanup audit log.</summary>
+    public string? AuditDataJson { get; init; }
 }

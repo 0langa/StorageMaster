@@ -7,7 +7,7 @@ namespace StorageMaster.Storage.Schema;
 /// </summary>
 internal static class DatabaseSchema
 {
-    internal const int CurrentVersion = 2;
+    internal const int CurrentVersion = 4;
 
     /// <summary>SQL executed once at version 1 creation.</summary>
     internal static readonly string[] V1Statements =
@@ -110,5 +110,90 @@ internal static class DatabaseSchema
         """,
 
         "CREATE INDEX IF NOT EXISTS IX_ScanErrors_SessionId ON ScanErrors (SessionId);",
+    ];
+
+    internal static readonly string[] V3Statements =
+    [
+        """
+        CREATE TABLE IF NOT EXISTS DuplicateRuns (
+            Id               INTEGER PRIMARY KEY AUTOINCREMENT,
+            SessionId        INTEGER NOT NULL REFERENCES ScanSessions(Id) ON DELETE CASCADE,
+            StartedUtc       TEXT    NOT NULL,
+            CompletedUtc     TEXT,
+            Status           TEXT    NOT NULL,
+            ConfigJson       TEXT    NOT NULL,
+            CandidateCount   INTEGER NOT NULL DEFAULT 0,
+            GroupCount       INTEGER NOT NULL DEFAULT 0,
+            ExactBytes       INTEGER NOT NULL DEFAULT 0,
+            ReclaimableBytes INTEGER NOT NULL DEFAULT 0,
+            ErrorCount       INTEGER NOT NULL DEFAULT 0,
+            ErrorMessage     TEXT
+        );
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS DuplicateSignatures (
+            Id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            SessionId    INTEGER NOT NULL REFERENCES ScanSessions(Id) ON DELETE CASCADE,
+            FileEntryId  INTEGER NOT NULL REFERENCES FileEntries(Id) ON DELETE CASCADE,
+            Method       TEXT    NOT NULL,
+            Algorithm    TEXT    NOT NULL,
+            SignatureBlob BLOB,
+            SignatureText TEXT,
+            MetadataJson  TEXT,
+            ComputedUtc   TEXT    NOT NULL,
+            Status        TEXT    NOT NULL,
+            ErrorMessage  TEXT,
+            UNIQUE(FileEntryId, Method, Algorithm)
+        );
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS DuplicateGroups (
+            Id                        INTEGER PRIMARY KEY AUTOINCREMENT,
+            RunId                     INTEGER NOT NULL REFERENCES DuplicateRuns(Id) ON DELETE CASCADE,
+            Method                    TEXT    NOT NULL,
+            Algorithm                 TEXT    NOT NULL,
+            Confidence                REAL    NOT NULL,
+            TotalBytes                INTEGER NOT NULL DEFAULT 0,
+            ReclaimableBytes          INTEGER NOT NULL DEFAULT 0,
+            RepresentativeFileEntryId INTEGER NOT NULL REFERENCES FileEntries(Id) ON DELETE CASCADE
+        );
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS DuplicateGroupMembers (
+            Id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+            GroupId              INTEGER NOT NULL REFERENCES DuplicateGroups(Id) ON DELETE CASCADE,
+            FileEntryId          INTEGER NOT NULL REFERENCES FileEntries(Id) ON DELETE CASCADE,
+            FullPath             TEXT    NOT NULL,
+            FileName             TEXT    NOT NULL,
+            SizeBytes            INTEGER NOT NULL DEFAULT 0,
+            ModifiedUtc          TEXT    NOT NULL,
+            Score                REAL    NOT NULL DEFAULT 0,
+            IsKeeper             INTEGER NOT NULL DEFAULT 0,
+            IsSelected           INTEGER NOT NULL DEFAULT 0,
+            RecommendationReason TEXT    NOT NULL DEFAULT '',
+            ExistsNow            INTEGER NOT NULL DEFAULT 1
+        );
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS DuplicateErrors (
+            Id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            RunId       INTEGER NOT NULL REFERENCES DuplicateRuns(Id) ON DELETE CASCADE,
+            FileEntryId INTEGER REFERENCES FileEntries(Id) ON DELETE CASCADE,
+            Path        TEXT    NOT NULL,
+            ErrorType   TEXT    NOT NULL,
+            Message     TEXT    NOT NULL,
+            OccurredUtc TEXT    NOT NULL
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS IX_FileEntries_Session_Size_Extension ON FileEntries (SessionId, SizeBytes, Extension);",
+        "CREATE INDEX IF NOT EXISTS IX_DuplicateSignatures_File_Method ON DuplicateSignatures (FileEntryId, Method, Algorithm);",
+        "CREATE INDEX IF NOT EXISTS IX_DuplicateGroups_Run_Reclaimable ON DuplicateGroups (RunId, ReclaimableBytes DESC);",
+        "CREATE INDEX IF NOT EXISTS IX_DuplicateGroupMembers_GroupId ON DuplicateGroupMembers (GroupId);",
+        "CREATE INDEX IF NOT EXISTS IX_DuplicateRuns_SessionId ON DuplicateRuns (SessionId, StartedUtc DESC);",
+    ];
+
+    internal static readonly string[] V4Statements =
+    [
+        "ALTER TABLE CleanupLog ADD COLUMN AuditDataJson TEXT;"
     ];
 }

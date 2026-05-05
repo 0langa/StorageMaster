@@ -5,6 +5,7 @@ using Microsoft.UI.Dispatching;
 using StorageMaster.Core.Interfaces;
 using StorageMaster.Core.Models;
 using StorageMaster.UI.Converters;
+using StorageMaster.UI.Infrastructure;
 
 namespace StorageMaster.UI.Pages;
 
@@ -29,6 +30,7 @@ public sealed partial class SmartCleanerViewModel : ObservableObject
 {
     private readonly ISmartCleanerService _service;
     private readonly ISettingsRepository  _settings;
+    private readonly IDialogService       _dialogs;
     private readonly DispatcherQueue      _dispatcherQueue;
 
     // ── State ───────────────────────────────────────────────────────────────
@@ -41,21 +43,27 @@ public sealed partial class SmartCleanerViewModel : ObservableObject
     [ObservableProperty] private string _totalSizeText  = string.Empty;
     [ObservableProperty] private string _freedText      = string.Empty;
     [ObservableProperty] private bool   _useRecycleBin  = true;
+    [ObservableProperty] private int    _selectedGroupCount;
 
-    public bool CanClean => HasResults && !IsScanning && !IsCleaning;
+    public bool CanClean => HasResults && !IsScanning && !IsCleaning && SelectedGroupCount > 0;
 
     partial void OnHasResultsChanged(bool value)  => OnPropertyChanged(nameof(CanClean));
     partial void OnIsScanningChanged(bool value)  => OnPropertyChanged(nameof(CanClean));
     partial void OnIsCleaningChanged(bool value)  => OnPropertyChanged(nameof(CanClean));
+    partial void OnSelectedGroupCountChanged(int value) => OnPropertyChanged(nameof(CanClean));
 
     public ObservableCollection<SmartCleanGroupItem> Groups { get; } = [];
 
     private IReadOnlyList<SmartCleanGroup> _lastGroups = [];
 
-    public SmartCleanerViewModel(ISmartCleanerService service, ISettingsRepository settings)
+    public SmartCleanerViewModel(
+        ISmartCleanerService service,
+        ISettingsRepository settings,
+        IDialogService dialogs)
     {
         _service         = service;
         _settings        = settings;
+        _dialogs         = dialogs;
         _dispatcherQueue = DispatcherQueue.GetForCurrentThread();
     }
 
@@ -90,7 +98,11 @@ public sealed partial class SmartCleanerViewModel : ObservableObject
             _lastGroups = groups;
 
             foreach (var g in groups)
-                Groups.Add(new SmartCleanGroupItem(g));
+            {
+                var item = new SmartCleanGroupItem(g);
+                item.PropertyChanged += OnGroupItemPropertyChanged;
+                Groups.Add(item);
+            }
 
             UpdateTotalSize();
             HasResults = Groups.Count > 0;
@@ -121,6 +133,15 @@ public sealed partial class SmartCleanerViewModel : ObservableObject
 
         if (selected.Count == 0) return;
 
+        var totalBytes = selected.Sum(static group => group.EstimatedBytes);
+        var confirmed = await _dialogs.ConfirmAsync(
+            "Confirm cleanup",
+            $"Remove {selected.Count} junk group(s) and reclaim about {ByteSizeConverter.Format(totalBytes)}?\n\nFiles will be moved using {(UseRecycleBin ? "Recycle Bin" : "permanent deletion")}.",
+            UseRecycleBin ? "Clean selected" : "Delete selected");
+
+        if (!confirmed)
+            return;
+
         IsCleaning  = true;
         CleaningDone = false;
         FreedText   = string.Empty;
@@ -142,6 +163,8 @@ public sealed partial class SmartCleanerViewModel : ObservableObject
             StatusText   = $"Done! Freed {FreedText} of disk space.";
             CleaningDone = true;
             HasResults   = false;
+            SelectedGroupCount = 0;
+            UnsubscribeGroups();
             Groups.Clear();
         }
         catch (Exception ex)
@@ -161,5 +184,18 @@ public sealed partial class SmartCleanerViewModel : ObservableObject
     {
         long total = Groups.Where(g => g.IsSelected).Sum(g => g.Group.EstimatedBytes);
         TotalSizeText = ByteSizeConverter.Format(total);
+        SelectedGroupCount = Groups.Count(g => g.IsSelected);
+    }
+
+    private void OnGroupItemPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(SmartCleanGroupItem.IsSelected))
+            UpdateTotalSize();
+    }
+
+    private void UnsubscribeGroups()
+    {
+        foreach (var group in Groups)
+            group.PropertyChanged -= OnGroupItemPropertyChanged;
     }
 }

@@ -8,4 +8,9 @@ public interface INavigationService
     bool NavigateTo(Type pageType, object? parameter = null);
     bool CanGoBack { get; }
     void GoBack();
+    Type? CurrentPageType { get; }
+    object? CurrentParameter { get; }
+    event EventHandler<NavigationChangedEventArgs>? Navigated;
 }
+
+public sealed record NavigationChangedEventArgs(Type? PageType, object? Parameter);

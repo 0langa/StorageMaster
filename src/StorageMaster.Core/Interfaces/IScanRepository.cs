@@ -18,12 +18,33 @@ public interface IScanRepository
 
     Task<IReadOnlyList<FileEntry>> GetLargestFilesAsync(long sessionId, int topN, CancellationToken ct = default);
     Task<IReadOnlyList<FolderEntry>> GetLargestFoldersAsync(long sessionId, int topN, CancellationToken ct = default);
+    Task<IReadOnlyList<FileEntry>> SearchFilesAsync(
+        long sessionId,
+        string? filter,
+        string? categoryFilter,
+        string sortColumn,
+        bool descending,
+        int offset,
+        int limit,
+        CancellationToken ct = default);
+    Task<long> CountFilesAsync(long sessionId, string? filter, string? categoryFilter, CancellationToken ct = default);
+    Task<IReadOnlyList<FolderEntry>> SearchFoldersAsync(
+        long sessionId,
+        string? filter,
+        string sortColumn,
+        bool descending,
+        int offset,
+        int limit,
+        CancellationToken ct = default);
+    Task<long> CountFoldersAsync(long sessionId, string? filter, CancellationToken ct = default);
 
     /// <summary>Returns file-type category breakdown for a session.</summary>
     Task<IReadOnlyDictionary<FileTypeCategory, (long Count, long Bytes)>> GetCategoryBreakdownAsync(
         long sessionId, CancellationToken ct = default);
 
     Task DeleteSessionAsync(long sessionId, CancellationToken ct = default);
+    Task DeleteFileEntryAsync(long fileId, CancellationToken ct = default);
+    Task MarkSessionStaleAsync(long sessionId, string reason, CancellationToken ct = default);
 
     /// <summary>Returns all folder paths and direct sizes for a session (used by aggregator).</summary>
     Task<IReadOnlyList<FolderEntry>> GetAllFolderPathsForSessionAsync(long sessionId, CancellationToken ct = default);

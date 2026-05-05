@@ -12,6 +12,7 @@
     <Page.Resources>
         <converters:ByteSizeConverter x:Key="ByteSize" />
         <converters:BoolToVisibilityConverter x:Key="BoolVis" />
+        <converters:BoolToVisibilityConverter x:Key="InvBoolVis" Invert="True" />
     </Page.Resources>
 
     <Grid>
@@ -24,6 +25,20 @@
             <StackPanel Spacing="24" MaxWidth="1100">
 
                 <TextBlock Text="Results" Style="{StaticResource TitleLargeTextBlockStyle}" />
+                <InfoBar IsOpen="True"
+                         Severity="Informational"
+                         Title="Scan data changed after cleanup"
+                         Message="{x:Bind ViewModel.SessionNote, Mode=OneWay}"
+                         Visibility="{x:Bind ViewModel.HasSessionNote, Mode=OneWay, Converter={StaticResource BoolVis}}" />
+                <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                        CornerRadius="8" Padding="20"
+                        Visibility="{x:Bind ViewModel.HasSession, Mode=OneWay, Converter={StaticResource InvBoolVis}}">
+                    <StackPanel Spacing="8">
+                        <TextBlock Text="No completed scan selected." Style="{StaticResource BodyStrongTextBlockStyle}" />
+                        <TextBlock Text="Run a scan first, then return here for results, duplicates, and cleanup."
+                                   TextWrapping="Wrap" Opacity="0.7" />
+                    </StackPanel>
+                </Border>
 
                 <!-- Summary -->
                 <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
@@ -74,6 +89,14 @@
                     </Grid>
                     <TextBlock Text="{x:Bind ViewModel.FilterCountLabel, Mode=OneWay}"
                                Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.65"/>
+                    <StackPanel Orientation="Horizontal" Spacing="8"
+                                Visibility="{x:Bind ViewModel.HasCategoryFilter, Mode=OneWay, Converter={StaticResource BoolVis}}">
+                        <TextBlock Text="Category filter active"
+                                   Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.65"/>
+                        <HyperlinkButton Content="Clear category"
+                                         Command="{x:Bind ViewModel.ClearCategoryFilterCommand}"
+                                         Padding="0" />
+                    </StackPanel>
                 </StackPanel>
 
                 <!-- Pivot for tabs -->
@@ -81,165 +104,177 @@
 
                     <!-- Largest Files -->
                     <PivotItem Header="Largest Files">
-                        <ListView ItemsSource="{x:Bind ViewModel.LargestFiles}"
-                                  SelectionMode="None" Margin="0,8,0,0">
-                            <ListView.Header>
-                                <!-- Sortable column headers — click a column name to sort;
-                                     click again to toggle direction. ▼/▲ shows active sort. -->
-                                <Grid ColumnDefinitions="*,130,140,120,36,36" Padding="4,2" Opacity="0.7">
-                                    <TextBlock Grid.Column="0" Text="File" VerticalAlignment="Center" Margin="8,0,0,0"/>
-                                    <Button Grid.Column="1"
-                                            Content="{Binding ViewModel.FileSizeHeader, ElementName=PageRoot}"
-                                            Command="{Binding ViewModel.SortFilesByCommand, ElementName=PageRoot}"
-                                            CommandParameter="Size"
-                                            HorizontalAlignment="Right" VerticalAlignment="Center"
-                                            Background="Transparent" BorderThickness="0" Padding="4,2"
-                                            FontSize="12"/>
-                                    <Button Grid.Column="2"
-                                            Content="{Binding ViewModel.FileModifiedHeader, ElementName=PageRoot}"
-                                            Command="{Binding ViewModel.SortFilesByCommand, ElementName=PageRoot}"
-                                            CommandParameter="Modified"
-                                            HorizontalAlignment="Right" VerticalAlignment="Center"
-                                            Background="Transparent" BorderThickness="0" Padding="4,2"
-                                            FontSize="12"/>
-                                    <Button Grid.Column="3"
-                                            Content="{Binding ViewModel.FileTypeHeader, ElementName=PageRoot}"
-                                            Command="{Binding ViewModel.SortFilesByCommand, ElementName=PageRoot}"
-                                            CommandParameter="Type"
-                                            HorizontalAlignment="Right" VerticalAlignment="Center"
-                                            Background="Transparent" BorderThickness="0" Padding="4,2"
-                                            FontSize="12"/>
-                                </Grid>
-                            </ListView.Header>
-                            <ListView.ItemTemplate>
-                                <DataTemplate>
-                                    <Grid ColumnDefinitions="*,130,140,120,36,36" Padding="0,4">
-                                        <!-- Right-click: copy path, open in Explorer, delete -->
-                                        <Grid.ContextFlyout>
-                                            <MenuFlyout>
-                                                <MenuFlyoutItem Text="Copy full path"
-                                                                Command="{Binding ViewModel.CopyFilePathCommand, ElementName=PageRoot}"
-                                                                CommandParameter="{Binding}">
-                                                    <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE8C8;"/></MenuFlyoutItem.Icon>
-                                                </MenuFlyoutItem>
-                                                <MenuFlyoutItem Text="Open in Explorer"
-                                                                Command="{Binding ViewModel.OpenInExplorerCommand, ElementName=PageRoot}"
-                                                                CommandParameter="{Binding}">
-                                                    <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE8DA;"/></MenuFlyoutItem.Icon>
-                                                </MenuFlyoutItem>
-                                                <MenuFlyoutSeparator/>
-                                                <MenuFlyoutItem Text="Send to Recycle Bin"
-                                                                Command="{Binding ViewModel.DeleteFileCommand, ElementName=PageRoot}"
-                                                                CommandParameter="{Binding}">
-                                                    <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE74D;"/></MenuFlyoutItem.Icon>
-                                                </MenuFlyoutItem>
-                                            </MenuFlyout>
-                                        </Grid.ContextFlyout>
-                                        <StackPanel Grid.Column="0">
-                                            <TextBlock Text="{Binding FileName}" FontWeight="SemiBold"
-                                                       TextTrimming="CharacterEllipsis"/>
-                                            <TextBlock Text="{Binding ParentPath}"
-                                                       Style="{StaticResource CaptionTextBlockStyle}"
-                                                       Opacity="0.6" TextTrimming="CharacterEllipsis"/>
-                                        </StackPanel>
-                                        <TextBlock Grid.Column="1"
-                                                   Text="{Binding SizeBytes, Converter={StaticResource ByteSize}}"
-                                                   HorizontalAlignment="Right" VerticalAlignment="Center"/>
-                                        <TextBlock Grid.Column="2"
-                                                   Text="{Binding ModifiedUtc}"
-                                                   HorizontalAlignment="Right" VerticalAlignment="Center"
-                                                   Style="{StaticResource CaptionTextBlockStyle}"/>
-                                        <TextBlock Grid.Column="3"
-                                                   Text="{Binding Category}"
-                                                   HorizontalAlignment="Right" VerticalAlignment="Center"
-                                                   Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.7"/>
-                                        <Button Grid.Column="4"
-                                                Content="&#xE8DA;"
-                                                FontFamily="Segoe MDL2 Assets"
-                                                Width="32" Height="32" Padding="0"
-                                                ToolTipService.ToolTip="Open containing folder in Explorer"
-                                                Command="{Binding ViewModel.OpenInExplorerCommand, ElementName=PageRoot}"
-                                                CommandParameter="{Binding}"
-                                                VerticalAlignment="Center"/>
-                                        <Button Grid.Column="5"
-                                                Content="&#xE74D;"
-                                                FontFamily="Segoe MDL2 Assets"
-                                                Width="32" Height="32" Padding="0"
-                                                ToolTipService.ToolTip="Send to Recycle Bin"
-                                                Command="{Binding ViewModel.DeleteFileCommand, ElementName=PageRoot}"
-                                                CommandParameter="{Binding}"
-                                                VerticalAlignment="Center"/>
+                        <StackPanel>
+                            <ListView ItemsSource="{x:Bind ViewModel.LargestFiles}"
+                                      SelectionMode="None" Margin="0,8,0,0">
+                                <ListView.Header>
+                                    <!-- Sortable column headers — click a column name to sort;
+                                         click again to toggle direction. ▼/▲ shows active sort. -->
+                                    <Grid ColumnDefinitions="*,130,140,120,36,36" Padding="4,2" Opacity="0.7">
+                                        <TextBlock Grid.Column="0" Text="File" VerticalAlignment="Center" Margin="8,0,0,0"/>
+                                        <Button Grid.Column="1"
+                                                Content="{Binding ViewModel.FileSizeHeader, ElementName=PageRoot}"
+                                                Command="{Binding ViewModel.SortFilesByCommand, ElementName=PageRoot}"
+                                                CommandParameter="Size"
+                                                HorizontalAlignment="Right" VerticalAlignment="Center"
+                                                Background="Transparent" BorderThickness="0" Padding="4,2"
+                                                FontSize="12"/>
+                                        <Button Grid.Column="2"
+                                                Content="{Binding ViewModel.FileModifiedHeader, ElementName=PageRoot}"
+                                                Command="{Binding ViewModel.SortFilesByCommand, ElementName=PageRoot}"
+                                                CommandParameter="Modified"
+                                                HorizontalAlignment="Right" VerticalAlignment="Center"
+                                                Background="Transparent" BorderThickness="0" Padding="4,2"
+                                                FontSize="12"/>
+                                        <Button Grid.Column="3"
+                                                Content="{Binding ViewModel.FileTypeHeader, ElementName=PageRoot}"
+                                                Command="{Binding ViewModel.SortFilesByCommand, ElementName=PageRoot}"
+                                                CommandParameter="Type"
+                                                HorizontalAlignment="Right" VerticalAlignment="Center"
+                                                Background="Transparent" BorderThickness="0" Padding="4,2"
+                                                FontSize="12"/>
                                     </Grid>
-                                </DataTemplate>
-                            </ListView.ItemTemplate>
-                        </ListView>
+                                </ListView.Header>
+                                <ListView.ItemTemplate>
+                                    <DataTemplate>
+                                        <Grid ColumnDefinitions="*,130,140,120,36,36" Padding="0,4">
+                                            <Grid.ContextFlyout>
+                                                <MenuFlyout>
+                                                    <MenuFlyoutItem Text="Copy full path"
+                                                                    Command="{Binding ViewModel.CopyFilePathCommand, ElementName=PageRoot}"
+                                                                    CommandParameter="{Binding}">
+                                                        <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE8C8;"/></MenuFlyoutItem.Icon>
+                                                    </MenuFlyoutItem>
+                                                    <MenuFlyoutItem Text="Open in Explorer"
+                                                                    Command="{Binding ViewModel.OpenInExplorerCommand, ElementName=PageRoot}"
+                                                                    CommandParameter="{Binding}">
+                                                        <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE8DA;"/></MenuFlyoutItem.Icon>
+                                                    </MenuFlyoutItem>
+                                                    <MenuFlyoutSeparator/>
+                                                    <MenuFlyoutItem Text="Send to Recycle Bin"
+                                                                    Command="{Binding ViewModel.DeleteFileCommand, ElementName=PageRoot}"
+                                                                    CommandParameter="{Binding}">
+                                                        <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE74D;"/></MenuFlyoutItem.Icon>
+                                                    </MenuFlyoutItem>
+                                                </MenuFlyout>
+                                            </Grid.ContextFlyout>
+                                            <StackPanel Grid.Column="0">
+                                                <TextBlock Text="{Binding FileName}" FontWeight="SemiBold"
+                                                           TextTrimming="CharacterEllipsis"/>
+                                                <TextBlock Text="{Binding ParentPath}"
+                                                           Style="{StaticResource CaptionTextBlockStyle}"
+                                                           Opacity="0.6" TextTrimming="CharacterEllipsis"/>
+                                            </StackPanel>
+                                            <TextBlock Grid.Column="1"
+                                                       Text="{Binding SizeBytes, Converter={StaticResource ByteSize}}"
+                                                       HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                                            <TextBlock Grid.Column="2"
+                                                       Text="{Binding ModifiedUtc}"
+                                                       HorizontalAlignment="Right" VerticalAlignment="Center"
+                                                       Style="{StaticResource CaptionTextBlockStyle}"/>
+                                            <TextBlock Grid.Column="3"
+                                                       Text="{Binding Category}"
+                                                       HorizontalAlignment="Right" VerticalAlignment="Center"
+                                                       Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.7"/>
+                                            <Button Grid.Column="4"
+                                                    Content="&#xE8DA;"
+                                                    FontFamily="Segoe MDL2 Assets"
+                                                    Width="32" Height="32" Padding="0"
+                                                    ToolTipService.ToolTip="Open containing folder in Explorer"
+                                                    Command="{Binding ViewModel.OpenInExplorerCommand, ElementName=PageRoot}"
+                                                    CommandParameter="{Binding}"
+                                                    VerticalAlignment="Center"/>
+                                            <Button Grid.Column="5"
+                                                    Content="&#xE74D;"
+                                                    FontFamily="Segoe MDL2 Assets"
+                                                    Width="32" Height="32" Padding="0"
+                                                    ToolTipService.ToolTip="Send to Recycle Bin"
+                                                    Command="{Binding ViewModel.DeleteFileCommand, ElementName=PageRoot}"
+                                                    CommandParameter="{Binding}"
+                                                    VerticalAlignment="Center"/>
+                                        </Grid>
+                                    </DataTemplate>
+                                </ListView.ItemTemplate>
+                            </ListView>
+                            <Button Content="Load More Files"
+                                    Margin="0,12,0,0"
+                                    HorizontalAlignment="Left"
+                                    Command="{x:Bind ViewModel.LoadMoreFilesCommand}"
+                                    Visibility="{x:Bind ViewModel.CanLoadMoreFiles, Mode=OneWay, Converter={StaticResource BoolVis}}" />
+                        </StackPanel>
                     </PivotItem>
 
                     <!-- Largest Folders -->
                     <PivotItem Header="Largest Folders">
-                        <ListView ItemsSource="{x:Bind ViewModel.LargestFolders}"
-                                  SelectionMode="None" Margin="0,8,0,0">
-                            <ListView.Header>
-                                <Grid ColumnDefinitions="*,130,100,36" Padding="4,2" Opacity="0.7">
-                                    <TextBlock Grid.Column="0" Text="Folder" VerticalAlignment="Center" Margin="8,0,0,0"/>
-                                    <Button Grid.Column="1"
-                                            Content="{Binding ViewModel.FolderSizeHeader, ElementName=PageRoot}"
-                                            Command="{Binding ViewModel.SortFoldersByCommand, ElementName=PageRoot}"
-                                            CommandParameter="Size"
-                                            HorizontalAlignment="Right" VerticalAlignment="Center"
-                                            Background="Transparent" BorderThickness="0" Padding="4,2"
-                                            FontSize="12"/>
-                                    <Button Grid.Column="2"
-                                            Content="{Binding ViewModel.FolderFilesHeader, ElementName=PageRoot}"
-                                            Command="{Binding ViewModel.SortFoldersByCommand, ElementName=PageRoot}"
-                                            CommandParameter="Files"
-                                            HorizontalAlignment="Right" VerticalAlignment="Center"
-                                            Background="Transparent" BorderThickness="0" Padding="4,2"
-                                            FontSize="12"/>
-                                </Grid>
-                            </ListView.Header>
-                            <ListView.ItemTemplate>
-                                <DataTemplate>
-                                    <Grid ColumnDefinitions="*,130,100,36" Padding="0,4">
-                                        <!-- Right-click: copy path, open in Explorer -->
-                                        <Grid.ContextFlyout>
-                                            <MenuFlyout>
-                                                <MenuFlyoutItem Text="Copy full path"
-                                                                Command="{Binding ViewModel.CopyFolderPathCommand, ElementName=PageRoot}"
-                                                                CommandParameter="{Binding}">
-                                                    <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE8C8;"/></MenuFlyoutItem.Icon>
-                                                </MenuFlyoutItem>
-                                                <MenuFlyoutItem Text="Open in Explorer"
-                                                                Command="{Binding ViewModel.OpenFolderInExplorerCommand, ElementName=PageRoot}"
-                                                                CommandParameter="{Binding}">
-                                                    <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE8DA;"/></MenuFlyoutItem.Icon>
-                                                </MenuFlyoutItem>
-                                            </MenuFlyout>
-                                        </Grid.ContextFlyout>
-                                        <TextBlock Grid.Column="0"
-                                                   Text="{Binding FullPath}"
-                                                   TextTrimming="CharacterEllipsis"
-                                                   VerticalAlignment="Center"/>
-                                        <TextBlock Grid.Column="1"
-                                                   Text="{Binding TotalSizeBytes, Converter={StaticResource ByteSize}}"
-                                                   HorizontalAlignment="Right" VerticalAlignment="Center"
-                                                   FontWeight="SemiBold"/>
-                                        <TextBlock Grid.Column="2"
-                                                   Text="{Binding FileCount}"
-                                                   HorizontalAlignment="Right" VerticalAlignment="Center"
-                                                   Style="{StaticResource CaptionTextBlockStyle}"/>
-                                        <Button Grid.Column="3"
-                                                Content="&#xE8DA;"
-                                                FontFamily="Segoe MDL2 Assets"
-                                                Width="32" Height="32" Padding="0"
-                                                ToolTipService.ToolTip="Open in Explorer"
-                                                Command="{Binding ViewModel.OpenFolderInExplorerCommand, ElementName=PageRoot}"
-                                                CommandParameter="{Binding}"
-                                                VerticalAlignment="Center"/>
+                        <StackPanel>
+                            <ListView ItemsSource="{x:Bind ViewModel.LargestFolders}"
+                                      SelectionMode="None" Margin="0,8,0,0">
+                                <ListView.Header>
+                                    <Grid ColumnDefinitions="*,130,100,36" Padding="4,2" Opacity="0.7">
+                                        <TextBlock Grid.Column="0" Text="Folder" VerticalAlignment="Center" Margin="8,0,0,0"/>
+                                        <Button Grid.Column="1"
+                                                Content="{Binding ViewModel.FolderSizeHeader, ElementName=PageRoot}"
+                                                Command="{Binding ViewModel.SortFoldersByCommand, ElementName=PageRoot}"
+                                                CommandParameter="Size"
+                                                HorizontalAlignment="Right" VerticalAlignment="Center"
+                                                Background="Transparent" BorderThickness="0" Padding="4,2"
+                                                FontSize="12"/>
+                                        <Button Grid.Column="2"
+                                                Content="{Binding ViewModel.FolderFilesHeader, ElementName=PageRoot}"
+                                                Command="{Binding ViewModel.SortFoldersByCommand, ElementName=PageRoot}"
+                                                CommandParameter="Files"
+                                                HorizontalAlignment="Right" VerticalAlignment="Center"
+                                                Background="Transparent" BorderThickness="0" Padding="4,2"
+                                                FontSize="12"/>
                                     </Grid>
-                                </DataTemplate>
-                            </ListView.ItemTemplate>
-                        </ListView>
+                                </ListView.Header>
+                                <ListView.ItemTemplate>
+                                    <DataTemplate>
+                                        <Grid ColumnDefinitions="*,130,100,36" Padding="0,4">
+                                            <Grid.ContextFlyout>
+                                                <MenuFlyout>
+                                                    <MenuFlyoutItem Text="Copy full path"
+                                                                    Command="{Binding ViewModel.CopyFolderPathCommand, ElementName=PageRoot}"
+                                                                    CommandParameter="{Binding}">
+                                                        <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE8C8;"/></MenuFlyoutItem.Icon>
+                                                    </MenuFlyoutItem>
+                                                    <MenuFlyoutItem Text="Open in Explorer"
+                                                                    Command="{Binding ViewModel.OpenFolderInExplorerCommand, ElementName=PageRoot}"
+                                                                    CommandParameter="{Binding}">
+                                                        <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE8DA;"/></MenuFlyoutItem.Icon>
+                                                    </MenuFlyoutItem>
+                                                </MenuFlyout>
+                                            </Grid.ContextFlyout>
+                                            <TextBlock Grid.Column="0"
+                                                       Text="{Binding FullPath}"
+                                                       TextTrimming="CharacterEllipsis"
+                                                       VerticalAlignment="Center"/>
+                                            <TextBlock Grid.Column="1"
+                                                       Text="{Binding TotalSizeBytes, Converter={StaticResource ByteSize}}"
+                                                       HorizontalAlignment="Right" VerticalAlignment="Center"
+                                                       FontWeight="SemiBold"/>
+                                            <TextBlock Grid.Column="2"
+                                                       Text="{Binding FileCount}"
+                                                       HorizontalAlignment="Right" VerticalAlignment="Center"
+                                                       Style="{StaticResource CaptionTextBlockStyle}"/>
+                                            <Button Grid.Column="3"
+                                                    Content="&#xE8DA;"
+                                                    FontFamily="Segoe MDL2 Assets"
+                                                    Width="32" Height="32" Padding="0"
+                                                    ToolTipService.ToolTip="Open in Explorer"
+                                                    Command="{Binding ViewModel.OpenFolderInExplorerCommand, ElementName=PageRoot}"
+                                                    CommandParameter="{Binding}"
+                                                    VerticalAlignment="Center"/>
+                                        </Grid>
+                                    </DataTemplate>
+                                </ListView.ItemTemplate>
+                            </ListView>
+                            <Button Content="Load More Folders"
+                                    Margin="0,12,0,0"
+                                    HorizontalAlignment="Left"
+                                    Command="{x:Bind ViewModel.LoadMoreFoldersCommand}"
+                                    Visibility="{x:Bind ViewModel.CanLoadMoreFolders, Mode=OneWay, Converter={StaticResource BoolVis}}" />
+                        </StackPanel>
                     </PivotItem>
 
                     <!-- File Types -->
@@ -256,7 +291,15 @@
                             <ListView.ItemTemplate>
                                 <DataTemplate>
                                     <Grid ColumnDefinitions="*,120,80" Padding="0,4">
-                                        <TextBlock Grid.Column="0" Text="{Binding Category}" FontWeight="SemiBold"/>
+                                        <Button Grid.Column="0"
+                                                Content="{Binding Category}"
+                                                FontWeight="SemiBold"
+                                                HorizontalAlignment="Left"
+                                                Background="Transparent"
+                                                BorderThickness="0"
+                                                Padding="0"
+                                                Command="{Binding ViewModel.FilterByCategoryCommand, ElementName=PageRoot}"
+                                                CommandParameter="{Binding}" />
                                         <TextBlock Grid.Column="1" Text="{Binding TotalSize}"
                                                    HorizontalAlignment="Right" VerticalAlignment="Center"/>
                                         <TextBlock Grid.Column="2" Text="{Binding FileCount}"

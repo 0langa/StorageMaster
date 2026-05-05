@@ -5,7 +5,9 @@ using Microsoft.Extensions.Logging;
 using Microsoft.UI.Xaml;
 using StorageMaster.Core.Cleanup;
 using StorageMaster.Core.Cleanup.Rules;
+using StorageMaster.Core.Deduplication;
 using StorageMaster.Core.Interfaces;
+using StorageMaster.Core.Models;
 using StorageMaster.Core.Scanner;
 using StorageMaster.Core.SmartCleaner;
 using StorageMaster.Core.Update;
@@ -48,6 +50,7 @@ public partial class App : Application
     {
         _window = Services.GetRequiredService<MainWindow>();
         _window.Activate();
+        _ = ApplyRequestedThemeAsync();
         _ = RunStartupUpdateCheckAsync();
     }
 
@@ -70,6 +73,9 @@ public partial class App : Application
         services.AddSingleton<IScanErrorRepository,  ScanErrorRepository>();
         services.AddSingleton<ICleanupLogRepository, CleanupLogRepository>();
         services.AddSingleton<ISettingsRepository,   SettingsRepository>();
+        services.AddSingleton<DuplicateRepository>();
+        services.AddSingleton<IDuplicateRepository>(sp => sp.GetRequiredService<DuplicateRepository>());
+        services.AddSingleton<IDuplicateCandidateProvider>(sp => sp.GetRequiredService<DuplicateRepository>());
 
         services.AddSingleton(_ =>
             Assembly.GetEntryAssembly()?.GetName().Version
@@ -99,6 +105,7 @@ public partial class App : Application
         services.AddSingleton<IRecycleBinInfoProvider,    RecycleBinInfoProvider>();
         services.AddSingleton<IAdminService,              AdminService>();
         services.AddSingleton<IInstalledProgramProvider,  InstalledProgramProvider>();
+        services.AddSingleton<IFileIdentityProvider, FileIdentityProvider>();
 
         // Managed scanner (primary / fallback)
         services.AddSingleton<FileScanner>(sp => new FileScanner(
@@ -137,14 +144,23 @@ public partial class App : Application
         services.AddSingleton<ICleanupRule>(sp => new PrefetchFilesRule(
             sp.GetRequiredService<IAdminService>()));
         services.AddSingleton<ICleanupRule, MicrosoftStoreLogsRule>();
+        services.AddSingleton<ICleanupRule, DuplicateFilesCleanupRule>();
 
         services.AddSingleton<ICleanupEngine, CleanupEngine>();
+        services.AddSingleton<IScanResultDeletionService, ScanResultDeletionService>();
 
         // Smart Cleaner
         services.AddSingleton<ISmartCleanerService, SmartCleanerService>();
+        services.AddSingleton<IFileContentHasher, FileContentHasher>();
+        services.AddSingleton<IDuplicateSignatureProvider, ExactDuplicateSignatureProvider>();
+        services.AddSingleton<IDuplicateSignatureProvider, NormalizedTextSignatureProvider>();
+        services.AddSingleton<IDuplicateKeeperPolicy, DuplicateKeeperPolicy>();
+        services.AddSingleton<IDuplicateFinderService, DuplicateFinderService>();
+        services.AddSingleton<IDuplicateDeletionService, DuplicateDeletionService>();
 
         // Navigation
         services.AddSingleton<INavigationService, NavigationService>();
+        services.AddSingleton<IDialogService, DialogService>();
 
         // ViewModels
         services.AddTransient<DashboardViewModel>();
@@ -156,6 +172,7 @@ public partial class App : Application
             sp.GetRequiredService<IAdminService>(),
             sp.GetRequiredService<ISettingsRepository>()));
         services.AddTransient<ResultsViewModel>();
+        services.AddTransient<DuplicatesViewModel>();
         services.AddTransient<CleanupViewModel>();
         services.AddTransient<SettingsViewModel>();
         services.AddTransient<SmartCleanerViewModel>();
@@ -192,6 +209,32 @@ public partial class App : Application
         {
             Services.GetRequiredService<ILogger<App>>()
                 .LogDebug(ex, "Silent startup update check failed");
+        }
+    }
+
+    private async Task ApplyRequestedThemeAsync()
+    {
+        try
+        {
+            if (_window?.Content is not FrameworkElement root)
+                return;
+
+            var settings = await Services
+                .GetRequiredService<ISettingsRepository>()
+                .LoadAsync()
+                .ConfigureAwait(true);
+
+            root.RequestedTheme = settings.Theme switch
+            {
+                ThemePreference.Light => ElementTheme.Light,
+                ThemePreference.Dark => ElementTheme.Dark,
+                _ => ElementTheme.Default,
+            };
+        }
+        catch (Exception ex)
+        {
+            Services.GetRequiredService<ILogger<App>>()
+                .LogDebug(ex, "Failed to apply requested theme");
         }
     }
 

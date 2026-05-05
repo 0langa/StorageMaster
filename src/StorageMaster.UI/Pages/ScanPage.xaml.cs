@@ -19,11 +19,20 @@ public sealed partial class ScanPage : Page
     protected override async void OnNavigatedTo(NavigationEventArgs e)
     {
         base.OnNavigatedTo(e);
-        // Don't reinitialise while a scan is running (would reset live progress)
-        // or after it completes (would clear the completion banner and View Results button).
-        // The user must explicitly start a new scan to reset state.
-        if (!ViewModel.IsScanning && !ViewModel.ScanComplete)
-            await ViewModel.InitializeAsync(autoEnableDeepScan: App.StartWithDeepScan);
+        try
+        {
+            // Don't reinitialise while a scan is running (would reset live progress)
+            // or after it completes (would clear the completion banner and View Results button).
+            // The user must explicitly start a new scan to reset state.
+            if (!ViewModel.IsScanning && !ViewModel.ScanComplete)
+                await ViewModel.InitializeAsync(
+                    autoEnableDeepScan: App.StartWithDeepScan,
+                    preselectedPath: e.Parameter as string);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine(ex);
+        }
     }
 
     private async void BrowseButton_Click(object sender, Microsoft.UI.Xaml.RoutedEventArgs e)

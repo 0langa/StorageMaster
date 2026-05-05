@@ -20,7 +20,14 @@ public sealed partial class SettingsPage : Page
     protected override async void OnNavigatedTo(NavigationEventArgs e)
     {
         base.OnNavigatedTo(e);
-        await ViewModel.LoadAsync();
+        try
+        {
+            await ViewModel.LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine(ex);
+        }
     }
 
     private void RemovePath_Click(object sender, RoutedEventArgs e)

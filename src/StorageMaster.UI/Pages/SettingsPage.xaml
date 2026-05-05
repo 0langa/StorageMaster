@@ -59,6 +59,16 @@
                     <StackPanel>
                         <TextBlock Text="Default scan path" Style="{StaticResource CaptionTextBlockStyle}" Margin="0,0,0,4"/>
                         <TextBox Text="{x:Bind ViewModel.DefaultScanPath, Mode=TwoWay}" />
+                        <TextBlock Text="{x:Bind ViewModel.DefaultScanPathError, Mode=OneWay}"
+                                   Foreground="{ThemeResource SystemFillColorCriticalBrush}"
+                                   Visibility="{x:Bind ViewModel.HasDefaultScanPathError, Mode=OneWay, Converter={StaticResource BoolVis}}"
+                                   Style="{StaticResource CaptionTextBlockStyle}"
+                                   TextWrapping="Wrap" />
+                    </StackPanel>
+                    <StackPanel>
+                        <TextBlock Text="Theme" Style="{StaticResource CaptionTextBlockStyle}" Margin="0,0,0,4"/>
+                        <ComboBox ItemsSource="{x:Bind ViewModel.ThemeOptions, Mode=OneWay}"
+                                  SelectedItem="{x:Bind ViewModel.Theme, Mode=TwoWay}" />
                     </StackPanel>
                     <StackPanel>
                         <TextBlock Text="{x:Bind ViewModel.ScanParallelismLabel, Mode=OneWay}"
@@ -72,6 +82,24 @@
                                   IsOn="{x:Bind ViewModel.SkipSystemFolders, Mode=TwoWay}" />
                     <ToggleSwitch Header="Use Turbo Scanner by default (Rust-powered parallel scanner)"
                                   IsOn="{x:Bind ViewModel.UseTurboScanner, Mode=TwoWay}" />
+                </StackPanel>
+            </Border>
+
+            <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    CornerRadius="8" Padding="20">
+                <StackPanel Spacing="14">
+                    <TextBlock Text="Data Retention" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                    <StackPanel>
+                        <TextBlock Text="{x:Bind ViewModel.ScanHistoryRetentionLabel, Mode=OneWay}"
+                                   Style="{StaticResource CaptionTextBlockStyle}" Margin="0,0,0,4"/>
+                        <Slider Minimum="30" Maximum="1825" StepFrequency="30"
+                                Value="{x:Bind ViewModel.ScanHistoryRetentionDays, Mode=TwoWay}" />
+                    </StackPanel>
+                    <Button Content="Delete Scan History Older Than Retention Window"
+                            Command="{x:Bind ViewModel.PurgeOldHistoryCommand}"
+                            IsEnabled="{x:Bind ViewModel.CanPurgeHistory, Mode=OneWay}" />
+                    <TextBlock Text="Installer uninstall now preserves your database and settings in %LOCALAPPDATA%\StorageMaster by default."
+                               Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.7" TextWrapping="Wrap"/>
                 </StackPanel>
             </Border>
 
@@ -104,11 +132,103 @@
                 </StackPanel>
             </Border>
 
+            <!-- Cleanup defaults -->
+            <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    CornerRadius="8" Padding="20">
+                <StackPanel Spacing="14">
+                    <TextBlock Text="Cleanup Defaults" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                    <ToggleSwitch Header="Recycle Bin"
+                                  IsOn="{x:Bind ViewModel.CleanRecycleBin, Mode=TwoWay}" />
+                    <ToggleSwitch Header="Temp files"
+                                  IsOn="{x:Bind ViewModel.CleanTempFiles, Mode=TwoWay}" />
+                    <ToggleSwitch Header="Downloaded installers"
+                                  IsOn="{x:Bind ViewModel.CleanDownloadedInstallers, Mode=TwoWay}" />
+                    <ToggleSwitch Header="Cache folders"
+                                  IsOn="{x:Bind ViewModel.CleanCacheFolders, Mode=TwoWay}" />
+                    <ToggleSwitch Header="Browser cache"
+                                  IsOn="{x:Bind ViewModel.CleanBrowserCache, Mode=TwoWay}" />
+                    <ToggleSwitch Header="Windows Update cache"
+                                  IsOn="{x:Bind ViewModel.CleanWindowsUpdateCache, Mode=TwoWay}" />
+                    <ToggleSwitch Header="Delivery Optimization cache"
+                                  IsOn="{x:Bind ViewModel.CleanDeliveryOptimization, Mode=TwoWay}" />
+                    <ToggleSwitch Header="Windows Error Reporting"
+                                  IsOn="{x:Bind ViewModel.CleanWindowsErrorReports, Mode=TwoWay}" />
+                    <ToggleSwitch Header="Program leftovers"
+                                  IsOn="{x:Bind ViewModel.CleanProgramLeftovers, Mode=TwoWay}" />
+                    <ToggleSwitch Header="Large old files"
+                                  IsOn="{x:Bind ViewModel.CleanLargeOldFiles, Mode=TwoWay}" />
+                    <ToggleSwitch Header="Thumbnail cache"
+                                  IsOn="{x:Bind ViewModel.CleanThumbnailCache, Mode=TwoWay}" />
+                    <ToggleSwitch Header="Icon cache"
+                                  IsOn="{x:Bind ViewModel.CleanIconCache, Mode=TwoWay}" />
+                    <ToggleSwitch Header="Font cache"
+                                  IsOn="{x:Bind ViewModel.CleanFontCache, Mode=TwoWay}" />
+                    <ToggleSwitch Header="DNS cache"
+                                  IsOn="{x:Bind ViewModel.CleanDnsCache, Mode=TwoWay}" />
+                    <ToggleSwitch Header="Prefetch files"
+                                  IsOn="{x:Bind ViewModel.CleanPrefetchFiles, Mode=TwoWay}" />
+                    <ToggleSwitch Header="Microsoft Store logs"
+                                  IsOn="{x:Bind ViewModel.CleanStoreLogs, Mode=TwoWay}" />
+                </StackPanel>
+            </Border>
+
+            <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    CornerRadius="8" Padding="20">
+                <StackPanel Spacing="14">
+                    <TextBlock Text="Duplicate Detection Defaults" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                    <Grid ColumnDefinitions="*,*" ColumnSpacing="12">
+                        <NumberBox Grid.Column="0"
+                                   Header="Minimum size (MB)"
+                                   Minimum="0"
+                                   SpinButtonPlacementMode="Inline"
+                                   Value="{x:Bind ViewModel.DuplicateMinimumSizeMb, Mode=TwoWay}" />
+                        <ComboBox Grid.Column="1"
+                                  Header="Keeper policy"
+                                  ItemsSource="{x:Bind ViewModel.KeeperPolicyOptions, Mode=OneWay}"
+                                  SelectedItem="{x:Bind ViewModel.DuplicateKeeperPolicy, Mode=TwoWay}" />
+                    </Grid>
+                    <ToggleSwitch Header="Enable normalized text review"
+                                  IsOn="{x:Bind ViewModel.DuplicateUseNormalizedText, Mode=TwoWay}" />
+                    <ToggleSwitch Header="Enable image perceptual review"
+                                  IsOn="{x:Bind ViewModel.DuplicateUseImagePHash, Mode=TwoWay}" />
+                    <ToggleSwitch Header="Enable video perceptual review"
+                                  IsOn="{x:Bind ViewModel.DuplicateUseVideoPHash, Mode=TwoWay}" />
+                    <Grid ColumnDefinitions="*,*" ColumnSpacing="12">
+                        <NumberBox Grid.Column="0"
+                                   Header="Image pHash threshold"
+                                   Minimum="2" Maximum="12"
+                                   SpinButtonPlacementMode="Inline"
+                                   Value="{x:Bind ViewModel.DuplicateImagePHashThreshold, Mode=TwoWay}" />
+                        <NumberBox Grid.Column="1"
+                                   Header="Video frame threshold"
+                                   Minimum="2" Maximum="16"
+                                   SpinButtonPlacementMode="Inline"
+                                   Value="{x:Bind ViewModel.DuplicateVideoFrameThreshold, Mode=TwoWay}" />
+                    </Grid>
+                    <NumberBox Header="Max video duration (seconds)"
+                               Minimum="60"
+                               SpinButtonPlacementMode="Inline"
+                               Value="{x:Bind ViewModel.DuplicateMaxVideoDurationSeconds, Mode=TwoWay}" />
+                    <StackPanel>
+                        <TextBlock Text="FFmpeg path (optional)" Style="{StaticResource CaptionTextBlockStyle}" Margin="0,0,0,4"/>
+                        <TextBox Text="{x:Bind ViewModel.FfmpegPath, Mode=TwoWay}" />
+                        <TextBlock Text="{x:Bind ViewModel.FfmpegPathError, Mode=OneWay}"
+                                   Foreground="{ThemeResource SystemFillColorCriticalBrush}"
+                                   Visibility="{x:Bind ViewModel.HasFfmpegPathError, Mode=OneWay, Converter={StaticResource BoolVis}}"
+                                   Style="{StaticResource CaptionTextBlockStyle}"
+                                   TextWrapping="Wrap" />
+                        <TextBlock Text="Exact SHA-256 and normalized text review are active today. Image/video review toggles are stored now and light up automatically once a provider is added."
+                                   Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.65" TextWrapping="Wrap" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
             <!-- Action buttons -->
             <StackPanel Orientation="Horizontal" Spacing="12">
                 <Button Content="Save Settings"
                         Style="{StaticResource AccentButtonStyle}"
-                        Command="{x:Bind ViewModel.SaveCommand}" />
+                        Command="{x:Bind ViewModel.SaveCommand}"
+                        IsEnabled="{x:Bind ViewModel.CanSave, Mode=OneWay}" />
                 <Button Content="Reset to Defaults"
                         Command="{x:Bind ViewModel.ResetToDefaultsCommand}" />
             </StackPanel>

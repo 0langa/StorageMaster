@@ -1,4 +1,14 @@
+using System.Text.Json;
+using System.Text.Json.Serialization;
+
 namespace StorageMaster.Core.Models;
+
+public enum ThemePreference
+{
+    Default,
+    Light,
+    Dark,
+}
 
 /// <summary>Persisted application preferences.</summary>
 public sealed class AppSettings
@@ -18,6 +28,8 @@ public sealed class AppSettings
     public bool   SkipSystemFolders       { get; set; } = true;
     public bool   UseTurboScanner         { get; set; } = false;
     public IList<string> ExcludedPaths    { get; set; } = [];
+    public ThemePreference Theme          { get; set; } = ThemePreference.Default;
+    public int    ScanHistoryRetentionDays { get; set; } = 365;
 
     // ── Cleanup rule toggles (persisted, can be overridden per-session) ─────
     public bool   CleanRecycleBin           { get; set; } = true;
@@ -43,4 +55,19 @@ public sealed class AppSettings
     public bool   CleanDnsCache        { get; set; } = true;
     public bool   CleanPrefetchFiles   { get; set; } = false;  // medium risk, needs elevation, opt-in
     public bool   CleanStoreLogs       { get; set; } = true;
+
+    // ── Deduplication defaults ──────────────────────────────────────────────
+    public int    DuplicateMinimumSizeMb          { get; set; } = 1;
+    public KeeperPolicy DuplicateKeeperPolicy     { get; set; } = KeeperPolicy.Newest;
+    public bool   DuplicateUseNormalizedText      { get; set; } = false;
+    public bool   DuplicateUseImagePHash          { get; set; } = false;
+    public bool   DuplicateUseVideoPHash          { get; set; } = false;
+    public int    DuplicateImagePHashThreshold    { get; set; } = 6;
+    public int    DuplicateVideoFrameThreshold    { get; set; } = 8;
+    public int    DuplicateMaxVideoDurationSeconds { get; set; } = 1800;
+    public string FfmpegPath                      { get; set; } = string.Empty;
+
+    // Preserve forwards-compatible JSON fields on load-modify-save cycles.
+    [JsonExtensionData]
+    public IDictionary<string, JsonElement>? ExtensionData { get; set; }
 }

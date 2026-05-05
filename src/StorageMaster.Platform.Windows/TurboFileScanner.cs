@@ -150,6 +150,7 @@ public sealed class TurboFileScanner : IFileScanner
                         if (rec is null) continue;
 
                         if (!options.DeepScan && IsExcluded(rec.Path, sortedExclusions)) continue;
+                        if (!options.DeepScan && !options.IncludeHiddenFiles && IsHidden(rec.Path)) continue;
 
                         await pipe.Writer.WriteAsync(rec, cancellationToken);
                     }
@@ -395,6 +396,18 @@ public sealed class TurboFileScanner : IFileScanner
                 return true;
         }
         return false;
+    }
+
+    private static bool IsHidden(string path)
+    {
+        try
+        {
+            return (File.GetAttributes(path) & FileAttributes.Hidden) != 0;
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     private sealed class TurboRecord

@@ -176,6 +176,37 @@ public sealed class ScanRepositoryTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task DeleteFileEntry_RemovesOnlySpecifiedRow()
+    {
+        var session = await _repo.CreateSessionAsync(@"C:\");
+        var keep = MakeEntry(session.Id, ".txt", FileTypeCategory.Document, 123);
+        var delete = MakeEntry(session.Id, ".txt", FileTypeCategory.Document, 456);
+        await _repo.InsertFileEntriesAsync([keep, delete]);
+
+        var before = await _repo.GetLargestFilesAsync(session.Id, 10);
+        var deleteId = before.Single(entry => entry.FullPath == delete.FullPath).Id;
+
+        await _repo.DeleteFileEntryAsync(deleteId);
+
+        var after = await _repo.GetLargestFilesAsync(session.Id, 10);
+        after.Should().ContainSingle();
+        after[0].FullPath.Should().Be(keep.FullPath);
+    }
+
+    [Fact]
+    public async Task MarkSessionStale_AppendsReason()
+    {
+        var session = await _repo.CreateSessionAsync(@"C:\");
+        await _repo.MarkSessionStaleAsync(session.Id, "First reason");
+        await _repo.MarkSessionStaleAsync(session.Id, "Second reason");
+
+        var updated = await _repo.GetSessionAsync(session.Id);
+        updated.Should().NotBeNull();
+        updated!.ErrorMessage.Should().Contain("First reason");
+        updated.ErrorMessage.Should().Contain("Second reason");
+    }
+
+    [Fact]
     public async Task GetRecentSessions_ReturnsMostRecentFirst()
     {
         await _repo.CreateSessionAsync(@"C:\first");
@@ -239,6 +270,25 @@ public sealed class ScanRepositoryTests : IAsyncDisposable
         results.Should().HaveCount(5, "topN=5 should return exactly 5 results");
         results[0].SizeBytes.Should().BeGreaterThanOrEqualTo(results[1].SizeBytes,
             "results should be ordered largest-first");
+    }
+
+    [Fact]
+    public async Task SearchFiles_CategoryFilterAndCount_AreApplied()
+    {
+        var session = await _repo.CreateSessionAsync(@"C:\");
+        await _repo.InsertFileEntriesAsync([
+            MakeEntry(session.Id, ".mp4", FileTypeCategory.Video, 2000),
+            MakeEntry(session.Id, ".docx", FileTypeCategory.Document, 1000),
+            MakeEntry(session.Id, ".avi", FileTypeCategory.Video, 1500),
+        ]);
+
+        var results = await _repo.SearchFilesAsync(session.Id, filter: null, categoryFilter: nameof(FileTypeCategory.Video), "Size", descending: true, offset: 0, limit: 20);
+        var count = await _repo.CountFilesAsync(session.Id, filter: null, categoryFilter: nameof(FileTypeCategory.Video));
+
+        count.Should().Be(2);
+        results.Should().HaveCount(2);
+        results.Should().OnlyContain(entry => entry.Category == FileTypeCategory.Video);
+        results[0].SizeBytes.Should().BeGreaterThan(results[1].SizeBytes);
     }
 
     [Fact]

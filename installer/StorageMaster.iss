@@ -1,7 +1,7 @@
 #define AppName "StorageMaster"
 ; AppVersion can be overridden at build time: iscc /DAppVersion=1.2.3 StorageMaster.iss
 #ifndef AppVersion
-  #define AppVersion "1.4.1"
+  #define AppVersion "1.5.2"
 #endif
 #define AppPublisher "StorageMaster"
 #define AppExeName "StorageMaster.UI.exe"
@@ -42,6 +42,4 @@ Name: "{commondesktop}\{#AppName}";  Filename: "{app}\{#AppExeName}"; IconFilena
 Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\prereqs\Install-WindowsAppRuntime.ps1"" -MsixPath ""{app}\prereqs\Microsoft.WindowsAppRuntime.1.6.msix"""; StatusMsg: "Installing Windows App SDK runtime..."; Flags: runhidden waituntilterminated
 Filename: "{app}\{#AppExeName}"; Description: "Launch {#AppName}"; Flags: nowait postinstall skipifsilent
 
-[UninstallDelete]
-; Remove the SQLite database created at runtime
-Type: filesandordirs; Name: "{localappdata}\StorageMaster"
+; User data is preserved on uninstall by default.

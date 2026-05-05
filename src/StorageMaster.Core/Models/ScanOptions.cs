@@ -15,11 +15,11 @@ public sealed class ScanOptions
     public IReadOnlyList<string> ExcludedPaths { get; init; } = DefaultExcludedPaths;
 
     public bool FollowSymlinks { get; init; } = false;
+    public bool IncludeHiddenFiles { get; init; } = false;
 
     /// <summary>
-    /// When true, enumerates hidden and system files/directories that are skipped
-    /// by default (requires administrator privileges for full coverage).
-    /// Clears the default excluded-path list so nothing is skipped.
+    /// When true, attempts protected directories, clears the default exclusion
+    /// list, and records access-denied errors instead of skipping them silently.
     /// </summary>
     public bool DeepScan { get; init; } = false;
 

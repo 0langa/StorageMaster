@@ -17,6 +17,13 @@ public sealed partial class DashboardPage : Page
     protected override async void OnNavigatedTo(NavigationEventArgs e)
     {
         base.OnNavigatedTo(e);
-        await ViewModel.LoadAsync();
+        try
+        {
+            await ViewModel.LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine(ex);
+        }
     }
 }

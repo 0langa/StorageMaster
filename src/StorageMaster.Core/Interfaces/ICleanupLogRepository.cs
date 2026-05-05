@@ -20,4 +20,5 @@ public sealed record CleanupLogEntry
     public required string   Status         { get; init; }
     public required DateTime ExecutedUtc    { get; init; }
     public string?           ErrorMessage   { get; init; }
+    public string?           AuditDataJson  { get; init; }
 }

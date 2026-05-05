@@ -10,14 +10,16 @@
     <NavigationView
         x:Name="NavView"
         PaneDisplayMode="Left"
-        IsBackButtonVisible="Collapsed"
+        IsBackButtonVisible="Visible"
         IsSettingsVisible="True"
+        BackRequested="NavView_BackRequested"
         SelectionChanged="NavView_SelectionChanged">
 
         <NavigationView.MenuItems>
             <NavigationViewItem Tag="Dashboard"    Icon="Home"    Content="Dashboard" />
             <NavigationViewItem Tag="Scan"         Icon="Find"    Content="Scan" />
             <NavigationViewItem Tag="Results"      Icon="List"    Content="Results" />
+            <NavigationViewItem Tag="Duplicates"   Icon="Copy"    Content="Duplicates" />
             <NavigationViewItem Tag="Cleanup"      Icon="Delete"  Content="Cleanup" />
             <NavigationViewItem Tag="SmartCleaner" Content="Smart Cleaner">
                 <NavigationViewItem.Icon>

@@ -17,19 +17,22 @@ public sealed partial class ResultsPage : Page
     protected override async void OnNavigatedTo(NavigationEventArgs e)
     {
         base.OnNavigatedTo(e);
+        try
+        {
+            if (e.Parameter is long sessionId && sessionId > 0)
+                await ViewModel.LoadAsync(sessionId);
+            else
+                await ViewModel.LoadMostRecentAsync();
 
-        // Give the ViewModel the XamlRoot so it can show ContentDialogs (e.g. delete confirm).
-        ViewModel.XamlRoot = XamlRoot;
-
-        if (e.Parameter is long sessionId && sessionId > 0)
-            await ViewModel.LoadAsync(sessionId);
-        else
-            await ViewModel.LoadMostRecentAsync();
-
-        // Populate the TreeView with WinUI-native TreeViewNode objects.
-        // ViewModel.FolderTreeRoots holds POCOs; we map them here so the ViewModel
-        // stays free of WinUI type dependencies.
-        PopulateFolderTreeView();
+            // Populate the TreeView with WinUI-native TreeViewNode objects.
+            // ViewModel.FolderTreeRoots holds POCOs; we map them here so the ViewModel
+            // stays free of WinUI type dependencies.
+            PopulateFolderTreeView();
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine(ex);
+        }
     }
 
     /// <summary>

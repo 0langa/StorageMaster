@@ -266,6 +266,112 @@ public sealed class ScanRepository : IScanRepository
         return list;
     }
 
+    public async Task<IReadOnlyList<FileEntry>> SearchFilesAsync(
+        long sessionId,
+        string? filter,
+        string? categoryFilter,
+        string sortColumn,
+        bool descending,
+        int offset,
+        int limit,
+        CancellationToken ct = default)
+    {
+        var conn = await _db.GetConnectionAsync(ct);
+        using var cmd = conn.CreateCommand();
+        var sort = sortColumn switch
+        {
+            "Modified" => $"ModifiedUtc {(descending ? "DESC" : "ASC")}",
+            "Type" => $"Category {(descending ? "DESC" : "ASC")}, SizeBytes DESC",
+            _ => $"SizeBytes {(descending ? "DESC" : "ASC")}, FullPath ASC",
+        };
+
+        cmd.CommandText = $"""
+            SELECT * FROM FileEntries
+            WHERE SessionId = $sid
+              AND ($filter = '' OR FullPath LIKE '%' || $filter || '%')
+              AND ($category = '' OR Category = $category)
+            ORDER BY {sort}
+            LIMIT $limit OFFSET $offset;
+            """;
+        cmd.Parameters.AddWithValue("$sid", sessionId);
+        cmd.Parameters.AddWithValue("$filter", filter?.Trim() ?? string.Empty);
+        cmd.Parameters.AddWithValue("$category", categoryFilter?.Trim() ?? string.Empty);
+        cmd.Parameters.AddWithValue("$offset", offset);
+        cmd.Parameters.AddWithValue("$limit", limit);
+        using var reader = await cmd.ExecuteReaderAsync(ct);
+        var list = new List<FileEntry>();
+        while (await reader.ReadAsync(ct))
+            list.Add(ReadFileEntry(reader));
+        return list;
+    }
+
+    public async Task<long> CountFilesAsync(long sessionId, string? filter, string? categoryFilter, CancellationToken ct = default)
+    {
+        var conn = await _db.GetConnectionAsync(ct);
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            SELECT COUNT(*)
+            FROM FileEntries
+            WHERE SessionId = $sid
+              AND ($filter = '' OR FullPath LIKE '%' || $filter || '%')
+              AND ($category = '' OR Category = $category);
+            """;
+        cmd.Parameters.AddWithValue("$sid", sessionId);
+        cmd.Parameters.AddWithValue("$filter", filter?.Trim() ?? string.Empty);
+        cmd.Parameters.AddWithValue("$category", categoryFilter?.Trim() ?? string.Empty);
+        return Convert.ToInt64(await cmd.ExecuteScalarAsync(ct));
+    }
+
+    public async Task<IReadOnlyList<FolderEntry>> SearchFoldersAsync(
+        long sessionId,
+        string? filter,
+        string sortColumn,
+        bool descending,
+        int offset,
+        int limit,
+        CancellationToken ct = default)
+    {
+        var conn = await _db.GetConnectionAsync(ct);
+        using var cmd = conn.CreateCommand();
+        var sort = sortColumn switch
+        {
+            "Files" => $"FileCount {(descending ? "DESC" : "ASC")}, TotalSizeBytes DESC",
+            _ => $"TotalSizeBytes {(descending ? "DESC" : "ASC")}, FullPath ASC",
+        };
+
+        cmd.CommandText = $"""
+            SELECT * FROM FolderEntries
+            WHERE SessionId = $sid
+              AND ($filter = '' OR FullPath LIKE '%' || $filter || '%')
+            ORDER BY {sort}
+            LIMIT $limit OFFSET $offset;
+            """;
+        cmd.Parameters.AddWithValue("$sid", sessionId);
+        cmd.Parameters.AddWithValue("$filter", filter?.Trim() ?? string.Empty);
+        cmd.Parameters.AddWithValue("$offset", offset);
+        cmd.Parameters.AddWithValue("$limit", limit);
+        using var reader = await cmd.ExecuteReaderAsync(ct);
+        var list = new List<FolderEntry>();
+        while (await reader.ReadAsync(ct))
+            list.Add(ReadFolderEntry(reader));
+        return list;
+    }
+
+    public async Task<long> CountFoldersAsync(long sessionId, string? filter, CancellationToken ct = default)
+    {
+        var conn = await _db.GetConnectionAsync(ct);
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            SELECT COUNT(*)
+            FROM FolderEntries
+            WHERE SessionId = $sid
+              AND ($filter = '' OR FullPath LIKE '%' || $filter || '%');
+            """;
+        cmd.Parameters.AddWithValue("$sid", sessionId);
+        cmd.Parameters.AddWithValue("$filter", filter?.Trim() ?? string.Empty);
+        return Convert.ToInt64(await cmd.ExecuteScalarAsync(ct));
+    }
+
     public async Task<IReadOnlyDictionary<FileTypeCategory, (long Count, long Bytes)>> GetCategoryBreakdownAsync(
         long sessionId, CancellationToken ct = default)
     {
@@ -298,6 +404,48 @@ public sealed class ScanRepository : IScanRepository
             using var cmd = conn.CreateCommand();
             cmd.CommandText = "DELETE FROM ScanSessions WHERE Id = $id;";
             cmd.Parameters.AddWithValue("$id", sessionId);
+            await cmd.ExecuteNonQueryAsync(ct);
+        }
+        finally
+        {
+            _db.WriteLock.Release();
+        }
+    }
+
+    public async Task DeleteFileEntryAsync(long fileId, CancellationToken ct = default)
+    {
+        await _db.WriteLock.WaitAsync(ct);
+        try
+        {
+            var conn = await _db.GetConnectionAsync(ct);
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = "DELETE FROM FileEntries WHERE Id = $id;";
+            cmd.Parameters.AddWithValue("$id", fileId);
+            await cmd.ExecuteNonQueryAsync(ct);
+        }
+        finally
+        {
+            _db.WriteLock.Release();
+        }
+    }
+
+    public async Task MarkSessionStaleAsync(long sessionId, string reason, CancellationToken ct = default)
+    {
+        await _db.WriteLock.WaitAsync(ct);
+        try
+        {
+            var conn = await _db.GetConnectionAsync(ct);
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = """
+                UPDATE ScanSessions
+                SET ErrorMessage = CASE
+                    WHEN ErrorMessage IS NULL OR ErrorMessage = '' THEN $reason
+                    ELSE ErrorMessage || char(10) || $reason
+                END
+                WHERE Id = $id;
+                """;
+            cmd.Parameters.AddWithValue("$id", sessionId);
+            cmd.Parameters.AddWithValue("$reason", reason);
             await cmd.ExecuteNonQueryAsync(ct);
         }
         finally

@@ -243,7 +243,7 @@
                         <Button Grid.Column="1"
                                 Content="Clean Up Selected…"
                                 Style="{StaticResource AccentButtonStyle}"
-                                IsEnabled="{x:Bind ViewModel.IsExecuting, Mode=OneWay, Converter={StaticResource NotBool}}"
+                                IsEnabled="{x:Bind ViewModel.CanExecuteCleanup, Mode=OneWay}"
                                 Click="ExecuteButton_Click"/>
                     </Grid>
                 </Border>

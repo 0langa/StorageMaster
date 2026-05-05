@@ -19,9 +19,9 @@ public sealed class CleanupLogRepository : ICleanupLogRepository
             using var cmd = conn.CreateCommand();
             cmd.CommandText = """
                 INSERT INTO CleanupLog
-                    (SuggestionId, RuleId, Title, BytesFreed, WasDryRun, Status, ExecutedUtc, ErrorMessage)
+                    (SuggestionId, RuleId, Title, BytesFreed, WasDryRun, Status, ExecutedUtc, ErrorMessage, AuditDataJson)
                 VALUES
-                    ($sid, $rule, $title, $freed, $dry, $status, $executed, $error);
+                    ($sid, $rule, $title, $freed, $dry, $status, $executed, $error, $audit);
                 """;
             cmd.Parameters.AddWithValue("$sid",      result.SuggestionId.ToString());
             cmd.Parameters.AddWithValue("$rule",     suggestion.RuleId);
@@ -31,6 +31,7 @@ public sealed class CleanupLogRepository : ICleanupLogRepository
             cmd.Parameters.AddWithValue("$status",   result.Status.ToString());
             cmd.Parameters.AddWithValue("$executed", result.ExecutedUtc.ToString("O"));
             cmd.Parameters.AddWithValue("$error",    (object?)result.ErrorMessage ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$audit",    (object?)suggestion.AuditDataJson ?? DBNull.Value);
             await cmd.ExecuteNonQueryAsync(ct);
         }
         finally
@@ -63,6 +64,8 @@ public sealed class CleanupLogRepository : ICleanupLogRepository
                 ExecutedUtc  = DateTime.Parse(reader.GetString(reader.GetOrdinal("ExecutedUtc"))),
                 ErrorMessage = reader.IsDBNull(reader.GetOrdinal("ErrorMessage")) ? null
                                : reader.GetString(reader.GetOrdinal("ErrorMessage")),
+                AuditDataJson = reader.IsDBNull(reader.GetOrdinal("AuditDataJson")) ? null
+                               : reader.GetString(reader.GetOrdinal("AuditDataJson")),
             });
         }
         return list;

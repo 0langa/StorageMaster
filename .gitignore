@@ -32,3 +32,6 @@ coverage/
 
 # Publish output
 publish/
+
+#AI stuff
+.claude/

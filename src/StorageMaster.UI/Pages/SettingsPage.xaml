@@ -10,6 +10,8 @@
 
     <Page.Resources>
         <converters:BoolToVisibilityConverter x:Key="BoolVis" />
+        <converters:BoolToVisibilityConverter x:Key="InvBoolVis" Invert="True" />
+        <converters:BoolNegationConverter     x:Key="NotBool" />
     </Page.Resources>
 
     <ScrollViewer Padding="32,24">
@@ -116,12 +118,91 @@
                        Foreground="{ThemeResource SystemFillColorSuccessBrush}"
                        Visibility="{x:Bind ViewModel.HasSavedMessage, Mode=OneWay, Converter={StaticResource BoolVis}}" />
 
+            <!-- ── Updates ────────────────────────────────────────────────── -->
+            <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    CornerRadius="8" Padding="20">
+                <StackPanel Spacing="14">
+                    <TextBlock Text="Updates" Style="{StaticResource BodyStrongTextBlockStyle}" />
+
+                    <!-- Current version + startup check toggle -->
+                    <Grid ColumnDefinitions="*,Auto">
+                        <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                            <TextBlock Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.7">
+                                <Run Text="Current version: "/>
+                                <Run Text="{x:Bind ViewModel.CurrentVersion}" FontWeight="SemiBold"/>
+                            </TextBlock>
+                        </StackPanel>
+                        <ToggleSwitch Grid.Column="1"
+                                      Header="Check on startup"
+                                      IsOn="{x:Bind ViewModel.CheckOnStartup, Mode=TwoWay}"
+                                      OnContent="" OffContent=""
+                                      MinWidth="0" />
+                    </Grid>
+
+                    <ToggleSwitch Header="Include pre-release versions"
+                                  IsOn="{x:Bind ViewModel.IncludePrerelease, Mode=TwoWay}" />
+
+                    <!-- Check button + spinner -->
+                    <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                        <Button Content="Check for Updates"
+                                Command="{x:Bind ViewModel.CheckForUpdatesCommand}"
+                                IsEnabled="{x:Bind ViewModel.CanCheckForUpdates, Mode=OneWay}" />
+                        <ProgressRing IsActive="{x:Bind ViewModel.IsCheckingForUpdates, Mode=OneWay}"
+                                      Width="20" Height="20"
+                                      Visibility="{x:Bind ViewModel.IsCheckingForUpdates, Mode=OneWay, Converter={StaticResource BoolVis}}" />
+                    </StackPanel>
+
+                    <!-- Update available panel -->
+                    <StackPanel Visibility="{x:Bind ViewModel.HasUpdateAvailable, Mode=OneWay, Converter={StaticResource BoolVis}}"
+                                Spacing="10">
+
+                        <Border Background="{ThemeResource SystemFillColorAttentionBackgroundBrush}"
+                                CornerRadius="6" Padding="12,10">
+                            <StackPanel Spacing="6">
+                                <TextBlock Text="{x:Bind ViewModel.UpdateAvailableText, Mode=OneWay}"
+                                           FontWeight="SemiBold" TextWrapping="Wrap" />
+
+                                <!-- Release notes link -->
+                                <HyperlinkButton Content="View release notes on GitHub"
+                                                 NavigateUri="{x:Bind ViewModel.ReleaseNotesUri, Mode=OneWay}"
+                                                 Padding="0" />
+
+                                <!-- Download progress bar (visible while downloading) -->
+                                <ProgressBar Value="{x:Bind ViewModel.DownloadProgress, Mode=OneWay}"
+                                             Maximum="100" Height="6"
+                                             Visibility="{x:Bind ViewModel.IsDownloadingUpdate, Mode=OneWay, Converter={StaticResource BoolVis}}" />
+
+                                <!-- Action row -->
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <Button Content="Download &amp; Install"
+                                            Style="{StaticResource AccentButtonStyle}"
+                                            Command="{x:Bind ViewModel.DownloadAndInstallCommand}"
+                                            IsEnabled="{x:Bind ViewModel.CanDownloadAndInstall, Mode=OneWay}" />
+                                    <Button Content="Cancel"
+                                            Command="{x:Bind ViewModel.CancelDownloadCommand}"
+                                            Visibility="{x:Bind ViewModel.IsDownloadingUpdate, Mode=OneWay, Converter={StaticResource BoolVis}}" />
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+
+                    <!-- Status / error text -->
+                    <TextBlock Text="{x:Bind ViewModel.UpdateStatusMessage, Mode=OneWay}"
+                               Style="{StaticResource CaptionTextBlockStyle}"
+                               Opacity="0.75" TextWrapping="Wrap"
+                               Visibility="{x:Bind ViewModel.HasUpdateStatusMessage, Mode=OneWay, Converter={StaticResource BoolVis}}" />
+                </StackPanel>
+            </Border>
+
             <!-- About -->
             <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                     CornerRadius="8" Padding="20">
                 <StackPanel Spacing="4">
                     <TextBlock Text="StorageMaster" Style="{StaticResource BodyStrongTextBlockStyle}" />
-                    <TextBlock Text="Version 1.4.1" Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.7"/>
+                    <TextBlock Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.7">
+                        <Run Text="Version "/>
+                        <Run Text="{x:Bind ViewModel.CurrentVersion}" />
+                    </TextBlock>
                     <TextBlock Text="Disk usage analyser and cleanup tool for Windows."
                                Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.6" TextWrapping="Wrap"/>
                 </StackPanel>

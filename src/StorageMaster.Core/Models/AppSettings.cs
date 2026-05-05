@@ -32,6 +32,10 @@ public sealed class AppSettings
     public bool   CleanProgramLeftovers     { get; set; } = true;
     public bool   CleanLargeOldFiles        { get; set; } = false;   // off by default — higher risk
 
+    // ── Update preferences ──────────────────────────────────────────────────
+    public bool   CheckOnStartup       { get; set; } = true;
+    public bool   IncludePrerelease    { get; set; } = false;
+
     // ── New cleanup rule toggles ─────────────────────────────────────────────
     public bool   CleanThumbnailCache  { get; set; } = true;
     public bool   CleanIconCache       { get; set; } = true;

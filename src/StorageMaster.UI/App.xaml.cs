@@ -1,3 +1,5 @@
+using System.Net.Http.Headers;
+using System.Reflection;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.UI.Xaml;
@@ -6,6 +8,7 @@ using StorageMaster.Core.Cleanup.Rules;
 using StorageMaster.Core.Interfaces;
 using StorageMaster.Core.Scanner;
 using StorageMaster.Core.SmartCleaner;
+using StorageMaster.Core.Update;
 using StorageMaster.Platform.Windows;
 using StorageMaster.Storage;
 using StorageMaster.Storage.Repositories;
@@ -45,6 +48,7 @@ public partial class App : Application
     {
         _window = Services.GetRequiredService<MainWindow>();
         _window.Activate();
+        _ = RunStartupUpdateCheckAsync();
     }
 
     private static IServiceProvider BuildServices()
@@ -66,6 +70,28 @@ public partial class App : Application
         services.AddSingleton<IScanErrorRepository,  ScanErrorRepository>();
         services.AddSingleton<ICleanupLogRepository, CleanupLogRepository>();
         services.AddSingleton<ISettingsRepository,   SettingsRepository>();
+
+        services.AddSingleton(_ =>
+            Assembly.GetEntryAssembly()?.GetName().Version
+            ?? Assembly.GetExecutingAssembly().GetName().Version
+            ?? new Version(0, 0, 0));
+
+        services.AddSingleton(sp =>
+        {
+            var currentVersion = sp.GetRequiredService<Version>().ToString(3);
+            var client = new HttpClient
+            {
+                Timeout = TimeSpan.FromSeconds(30),
+            };
+            client.DefaultRequestHeaders.UserAgent.Add(
+                new ProductInfoHeaderValue("StorageMaster", currentVersion));
+            client.DefaultRequestHeaders.Accept.ParseAdd("application/vnd.github+json");
+            return client;
+        });
+        services.AddSingleton<IUpdateService>(sp => new GitHubUpdateService(
+            sp.GetRequiredService<HttpClient>(),
+            sp.GetRequiredService<Version>(),
+            sp.GetRequiredService<ILogger<GitHubUpdateService>>()));
 
         // Platform
         services.AddSingleton<IDriveInfoProvider,         DriveInfoProvider>();
@@ -138,6 +164,35 @@ public partial class App : Application
         services.AddSingleton<MainWindow>();
 
         return services.BuildServiceProvider();
+    }
+
+    private static async Task RunStartupUpdateCheckAsync()
+    {
+        try
+        {
+            var settings = await Services
+                .GetRequiredService<ISettingsRepository>()
+                .LoadAsync()
+                .ConfigureAwait(false);
+
+            if (!settings.CheckOnStartup)
+                return;
+
+            await Services
+                .GetRequiredService<IUpdateService>()
+                .CheckAsync(settings.IncludePrerelease)
+                .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            // No startup path in the app currently cancels this task, but keep the
+            // behavior explicit so cancellation never bubbles into the UI thread.
+        }
+        catch (Exception ex)
+        {
+            Services.GetRequiredService<ILogger<App>>()
+                .LogDebug(ex, "Silent startup update check failed");
+        }
     }
 
     private static void OnCurrentDomainUnhandledException(object sender, System.UnhandledExceptionEventArgs e)

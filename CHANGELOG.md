@@ -4,6 +4,12 @@ All notable changes to StorageMaster are documented here.
 
 ---
 
+## [1.9.1] — 2026-05-07 — Startup Fix
+
+- Fixed critical startup crash on 1.9.0: `ms-appx:///Microsoft.UI.Xaml/Themes/themeresources.xaml` XamlParseException caused by missing `Bootstrap.Initialize()` call. With `WindowsAppSDKSelfContained=true` and `DISABLE_XAML_GENERATED_MAIN`, the XAML-generated bootstrap step was absent; now called explicitly before `XamlCheckProcessRequirements()`.
+
+---
+
 ## [1.9.0] — 2026-05-06 — Space Map, Delta Insights, And Hardening
 
 - Added **Space Map**, a new WinUI page with an interactive treemap for completed scans, folder drill-down, breadcrumb context, file/folder filtering, minimum-size filtering, selection details, Explorer/copy actions, and CSV/HTML/PNG export.

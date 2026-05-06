@@ -39,6 +39,12 @@ public static class Program
             return;
         }
 
+        // With WindowsAppSDKSelfContained=true and DISABLE_XAML_GENERATED_MAIN,
+        // the Bootstrap.Initialize() that the XAML-generated Main would call is
+        // absent. Without it, ms-appx:// URI resolution (used by WinUI 3 theme
+        // resources) is never registered, causing XamlParseException on startup.
+        Microsoft.Windows.ApplicationModel.DynamicDependency.Bootstrap.Initialize(0x00010008);
+
         XamlCheckProcessRequirements();
         WinRT.ComWrappersSupport.InitializeComWrappers();
         App.SetServices(ServiceBootstrapper.BuildServices());

@@ -63,49 +63,24 @@ jobs:
           dotnet restore tests/StorageMaster.Tests/StorageMaster.Tests.csproj
           dotnet restore src/StorageMaster.UI/StorageMaster.UI.csproj
 
-      - name: Stage WinAppSDK 1.8 runtime MSIX for installer
+      - name: Stage WinAppSDK 1.8 runtime installer for prereqs
         shell: pwsh
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           New-Item -ItemType Directory -Force -Path "installer\prereqs" | Out-Null
-          Copy-Item "installer\Install-WindowsAppRuntime.ps1" "installer\prereqs\"
 
-          # The redistributable MSIX is not in the microsoft.windowsappsdk NuGet package.
-          # Download it from the Windows App SDK GitHub releases (authenticated to avoid rate limits).
-          $headers = @{
-            Authorization = "Bearer $env:GH_TOKEN"
-            Accept        = "application/vnd.github.v3+json"
+          # Download the official Windows App Runtime 1.8 installer via winget.
+          # The redistributable installer is not shipped inside the NuGet package.
+          winget download "Microsoft.WindowsAppRuntime.1.8" `
+            --download-directory "installer\prereqs" `
+            --accept-source-agreements `
+            --accept-package-agreements
+
+          $exe = Get-ChildItem "installer\prereqs" -Filter "*.exe" | Select-Object -First 1
+          if (-not $exe) { throw "WindowsAppRuntimeInstall.exe not found after winget download." }
+          if ($exe.Name -ne "WindowsAppRuntimeInstall.exe") {
+            Rename-Item $exe.FullName "installer\prereqs\WindowsAppRuntimeInstall.exe" -Force
           }
-          $releases = Invoke-RestMethod `
-            -Uri "https://api.github.com/repos/microsoft/WindowsAppSDK/releases" `
-            -Headers $headers
-
-          # Pick the newest stable 1.8.x release.
-          $release = $releases |
-            Where-Object { -not $_.prerelease -and $_.tag_name -match '1\.8' } |
-            Sort-Object published_at -Descending |
-            Select-Object -First 1
-
-          if (-not $release) { throw "No stable Windows App SDK 1.8.x release found on GitHub." }
-          Write-Host "Using WinAppSDK release: $($release.tag_name)"
-
-          $asset = $release.assets |
-            Where-Object { $_.name -like 'Microsoft.WindowsAppRuntime.Release*.msix' } |
-            Select-Object -First 1
-
-          if (-not $asset) {
-            $names = ($release.assets | ForEach-Object { $_.name }) -join ', '
-            throw "Runtime MSIX not found in release $($release.tag_name). Assets: $names"
-          }
-
-          Write-Host "Downloading: $($asset.name)"
-          Invoke-WebRequest `
-            -Uri $asset.browser_download_url `
-            -Headers $headers `
-            -OutFile "installer\prereqs\Microsoft.WindowsAppRuntime.1.8.msix" `
-            -UseBasicParsing
-          Write-Host "Runtime MSIX staged."
+          Write-Host "Runtime installer staged: $($exe.Name)"
 
       - name: Run tests
         run: dotnet test tests/StorageMaster.Tests/StorageMaster.Tests.csproj --verbosity normal --no-restore

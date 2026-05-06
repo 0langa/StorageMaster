@@ -31,6 +31,6 @@ public static class ScanScopeResolver
         foreach (var path in settings.ExcludedPaths.Where(path => !string.IsNullOrWhiteSpace(path)))
             excluded.Add(path);
 
-        return excluded.ToArray();
+        return ScanOptionValidator.NormalizeExcludedPaths(excluded);
     }
 }

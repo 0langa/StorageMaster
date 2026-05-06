@@ -14,7 +14,7 @@ namespace StorageMaster.Core.Deduplication;
 ///
 /// Algorithm:
 ///   1. Probe duration + metadata via ffprobe.
-///   2. Extract <see cref="FrameSampleCount"/> frames at deterministic timestamps
+///   2. Extract a configured number of frames at deterministic timestamps
 ///      (evenly spaced at 10%, 20%, … 100% of duration).
 ///   3. Compute DCT-64 pHash for each frame using <see cref="ImagePHashStrategy"/>.
 ///   4. Fingerprint = list of <c>FrameSampleCount</c> 64-bit hashes.
@@ -31,7 +31,7 @@ namespace StorageMaster.Core.Deduplication;
 /// </summary>
 public sealed class VideoPHashStrategy : IDuplicateDetectionStrategy
 {
-    public const int FrameSampleCount = 10;
+    public const int DefaultFrameSampleCount = 10;
     public const int FrameHammingThreshold = 10;
     public const double MinMatchingFrameFraction = 0.8;   // 80 % of frames must match
     public const int DefaultMaxDurationSeconds = 3600;  // 1 hour
@@ -77,7 +77,7 @@ public sealed class VideoPHashStrategy : IDuplicateDetectionStrategy
     }
 
     public DuplicateMethod Method => DuplicateMethod.VideoPHash;
-    public string Algorithm => "VIDEO-PHASH-FRAMES10";
+    public string Algorithm => "VIDEO-PHASH-FRAMES";
     public int AlgorithmVersion => 1;
     public bool SupportsAutoSelection => false;
     public double DefaultConfidence => 0.0d;   // computed per-pair
@@ -145,17 +145,18 @@ public sealed class VideoPHashStrategy : IDuplicateDetectionStrategy
                     $"Video duration {duration:F0}s exceeds limit {maxDurationSeconds}s.");
 
             // 2. Extract frames at deterministic timestamps
+            var frameSampleCount = await ResolveFrameSampleCountAsync(ct);
             var timestamps = Enumerable
-                .Range(1, FrameSampleCount)
-                .Select(i => duration * i / FrameSampleCount)
+                .Range(1, frameSampleCount)
+                .Select(i => duration * i / frameSampleCount)
                 .ToArray();
 
-            var frameHashes = new ulong[FrameSampleCount];
+            var frameHashes = new ulong[frameSampleCount];
             var tempDir = Path.Combine(Path.GetTempPath(), $"sm_vphash_{Guid.NewGuid():N}");
             Directory.CreateDirectory(tempDir);
             try
             {
-                for (var fi = 0; fi < FrameSampleCount; fi++)
+                for (var fi = 0; fi < frameSampleCount; fi++)
                 {
                     ct.ThrowIfCancellationRequested();
                     var framePath = Path.Combine(tempDir, $"frame_{fi:D2}.png");
@@ -186,7 +187,7 @@ public sealed class VideoPHashStrategy : IDuplicateDetectionStrategy
             var meta = JsonSerializer.Serialize(new
             {
                 duration,
-                frameCount = FrameSampleCount,
+                frameCount = frameSampleCount,
                 timestamps,
                 frameHashes = frameHashes.Select(static h => h.ToString("X16")).ToArray(),
                 hammingThreshold = FrameHammingThreshold,
@@ -399,7 +400,7 @@ public sealed class VideoPHashStrategy : IDuplicateDetectionStrategy
             SessionId = c.File.SessionId,
             FileEntryId = c.File.Id,
             Method = DuplicateMethod.VideoPHash,
-            Algorithm = "VIDEO-PHASH-FRAMES10",
+            Algorithm = "VIDEO-PHASH-FRAMES",
             AlgorithmVersion = 1,
             ComputedUtc = DateTime.UtcNow,
             Status = "Error",
@@ -439,5 +440,14 @@ public sealed class VideoPHashStrategy : IDuplicateDetectionStrategy
 
         var settings = await _settingsRepository.LoadAsync(ct);
         return Math.Max(60, settings.DuplicateMaxVideoDurationSeconds);
+    }
+
+    private async Task<int> ResolveFrameSampleCountAsync(CancellationToken ct)
+    {
+        if (_settingsRepository is null)
+            return DefaultFrameSampleCount;
+
+        var settings = await _settingsRepository.LoadAsync(ct);
+        return Math.Clamp(settings.DuplicateVideoFrameThreshold, 3, 24);
     }
 }

@@ -41,12 +41,12 @@ public sealed class FileScanner : IFileScanner
         IProgress<ScanProgress> progress,
         CancellationToken cancellationToken = default)
     {
-        ArgumentException.ThrowIfNullOrEmpty(options.RootPath);
+        options = ScanOptionValidator.NormalizeAndValidate(options);
 
         var session = await _repo.CreateSessionAsync(options.RootPath, cancellationToken).ConfigureAwait(false);
         _logger.LogInformation("Scan {SessionId} started at {Root}", session.Id, options.RootPath);
 
-        var state = new ScanState(session.Id, options);
+        var state = new ScanState(session.Id);
 
         // Declared outside try so catch blocks can await it for clean shutdown.
         var progressTimer = new PeriodicTimer(TimeSpan.FromMilliseconds(300));
@@ -141,6 +141,10 @@ public sealed class FileScanner : IFileScanner
             };
             await _repo.UpdateSessionAsync(failed, CancellationToken.None).ConfigureAwait(false);
             throw;
+        }
+        finally
+        {
+            state.Dispose();
         }
     }
 
@@ -255,7 +259,7 @@ public sealed class FileScanner : IFileScanner
             if (state.FileBuffer.Count >= options.DbBatchSize)
                 await FlushFileBufferAsync(state, ct).ConfigureAwait(false);
 
-            if (state.FolderBuffer.Count >= options.DbBatchSize / 5)
+            if (state.FolderBuffer.Count >= Math.Max(1, options.DbBatchSize / 5))
                 await FlushFolderBufferAsync(state, ct).ConfigureAwait(false);
         }
     }
@@ -361,7 +365,7 @@ public sealed class FileScanner : IFileScanner
             Id = 0,
             SessionId = state.SessionId,
             FullPath = dir,
-            FolderName = Path.GetFileName(dir) ?? dir,
+            FolderName = ScanOptionValidator.GetDisplayName(dir),
             DirectSizeBytes = directBytes,
             TotalSizeBytes = directBytes, // ancestor propagation done post-scan
             FileCount = fileCount,
@@ -489,12 +493,11 @@ public sealed class FileScanner : IFileScanner
     }
 
     private static bool IsExcluded(string path, ScanOptions options) =>
-        options.ExcludedPaths.Any(ex =>
-            path.StartsWith(ex, StringComparison.OrdinalIgnoreCase));
+        ScanOptionValidator.IsExcluded(path, options.ExcludedPaths);
 
     // ── Inner state container ──────────────────────────────────────────────
 
-    private sealed class ScanState
+    private sealed class ScanState : IDisposable
     {
         public long SessionId { get; }
 
@@ -528,9 +531,15 @@ public sealed class FileScanner : IFileScanner
         public SemaphoreSlim FileFlushLock { get; } = new(1, 1);
         public SemaphoreSlim FolderFlushLock { get; } = new(1, 1);
 
-        public ScanState(long sessionId, ScanOptions _)
+        public ScanState(long sessionId)
         {
             SessionId = sessionId;
+        }
+
+        public void Dispose()
+        {
+            FileFlushLock.Dispose();
+            FolderFlushLock.Dispose();
         }
     }
 }

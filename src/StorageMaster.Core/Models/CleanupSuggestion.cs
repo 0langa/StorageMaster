@@ -15,6 +15,12 @@ public sealed record CleanupSuggestion
     public required CleanupCategory Category { get; init; }
     public required CleanupRisk Risk { get; init; }
     public required long EstimatedBytes { get; init; }
+    public bool RequiresAdmin { get; init; }
+    public bool SupportsPermanentDelete { get; init; } = true;
+    public bool SupportsQuarantine { get; init; } = true;
+    public bool NeedsServiceStop { get; init; }
+    public double Confidence { get; init; } = 1.0;
+    public string SafetyNotes { get; init; } = "Review the listed paths before execution.";
 
     /// <summary>
     /// Paths that will be deleted or emptied. May be files or directories.

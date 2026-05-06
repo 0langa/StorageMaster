@@ -96,6 +96,55 @@ public sealed class FileScannerTests
     }
 
     [Fact]
+    public async Task ScanAsync_MissingRoot_ThrowsDirectoryNotFound()
+    {
+        var options = new ScanOptions
+        {
+            RootPath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N")),
+        };
+
+        Func<Task> act = () => _scanner.ScanAsync(options, new Progress<ScanProgress>());
+
+        await act.Should().ThrowAsync<DirectoryNotFoundException>();
+    }
+
+    [Fact]
+    public async Task ScanAsync_InvalidParallelism_IsClamped()
+    {
+        var root = CreateTempDir(files: 2, subdirs: 1);
+        try
+        {
+            var session = await _scanner.ScanAsync(
+                new ScanOptions { RootPath = root, MaxParallelism = 0 },
+                new Progress<ScanProgress>());
+
+            session.Status.Should().Be(ScanStatus.Completed);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task ScanAsync_InvalidBatchSize_IsClamped()
+    {
+        var root = CreateTempDir(files: 2, subdirs: 1);
+        try
+        {
+            var session = await _scanner.ScanAsync(
+                new ScanOptions { RootPath = root, DbBatchSize = 0 },
+                new Progress<ScanProgress>());
+
+            session.Status.Should().Be(ScanStatus.Completed);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task ScanAsync_BatchesFileWrites()
     {
         // Create more files than one batch to verify batched writes.
@@ -164,6 +213,96 @@ public sealed class FileScannerTests
         }
         finally
         {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task ScanAsync_ExclusionBoundary_DoesNotSkipPrefixSibling()
+    {
+        var root = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        var excluded = Path.Combine(root, "Installer");
+        var sibling = Path.Combine(root, "InstallerBackup");
+        Directory.CreateDirectory(excluded);
+        Directory.CreateDirectory(sibling);
+        File.WriteAllText(Path.Combine(excluded, "skip.txt"), "skip");
+        File.WriteAllText(Path.Combine(sibling, "keep.txt"), "keep");
+        var inserted = new List<FileEntry>();
+        _repoMock
+            .Setup(r => r.InsertFileEntriesAsync(It.IsAny<IReadOnlyList<FileEntry>>(), It.IsAny<CancellationToken>()))
+            .Callback<IReadOnlyList<FileEntry>, CancellationToken>((entries, _) => inserted.AddRange(entries))
+            .Returns(Task.CompletedTask);
+
+        try
+        {
+            await _scanner.ScanAsync(new ScanOptions
+            {
+                RootPath = root,
+                MaxParallelism = 1,
+                ExcludedPaths = [excluded],
+            }, new Progress<ScanProgress>());
+
+            inserted.Select(static entry => entry.FileName).Should().Contain("keep.txt");
+            inserted.Select(static entry => entry.FileName).Should().NotContain("skip.txt");
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task ScanAsync_HiddenFiles_AreSkippedByDefault()
+    {
+        var root = CreateTempDir(files: 0, subdirs: 0);
+        var hidden = Path.Combine(root, "hidden.txt");
+        File.WriteAllText(hidden, "hidden");
+        File.SetAttributes(hidden, File.GetAttributes(hidden) | FileAttributes.Hidden);
+        var inserted = new List<FileEntry>();
+        _repoMock
+            .Setup(r => r.InsertFileEntriesAsync(It.IsAny<IReadOnlyList<FileEntry>>(), It.IsAny<CancellationToken>()))
+            .Callback<IReadOnlyList<FileEntry>, CancellationToken>((entries, _) => inserted.AddRange(entries))
+            .Returns(Task.CompletedTask);
+
+        try
+        {
+            await _scanner.ScanAsync(
+                new ScanOptions { RootPath = root, IncludeHiddenFiles = false, MaxParallelism = 1 },
+                new Progress<ScanProgress>());
+
+            inserted.Should().BeEmpty();
+        }
+        finally
+        {
+            File.SetAttributes(hidden, FileAttributes.Normal);
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task ScanAsync_HiddenFolders_AreSkippedByDefault()
+    {
+        var root = CreateTempDir(files: 0, subdirs: 0);
+        var hiddenDir = Directory.CreateDirectory(Path.Combine(root, "hidden-dir"));
+        File.WriteAllText(Path.Combine(hiddenDir.FullName, "hidden-child.txt"), "hidden");
+        hiddenDir.Attributes |= FileAttributes.Hidden;
+        var inserted = new List<FileEntry>();
+        _repoMock
+            .Setup(r => r.InsertFileEntriesAsync(It.IsAny<IReadOnlyList<FileEntry>>(), It.IsAny<CancellationToken>()))
+            .Callback<IReadOnlyList<FileEntry>, CancellationToken>((entries, _) => inserted.AddRange(entries))
+            .Returns(Task.CompletedTask);
+
+        try
+        {
+            await _scanner.ScanAsync(
+                new ScanOptions { RootPath = root, IncludeHiddenFiles = false, MaxParallelism = 1 },
+                new Progress<ScanProgress>());
+
+            inserted.Should().BeEmpty();
+        }
+        finally
+        {
+            hiddenDir.Attributes &= ~FileAttributes.Hidden;
             Directory.Delete(root, recursive: true);
         }
     }

@@ -1,7 +1,8 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
-    [string]$MsixPath
+    [string]$MsixPath,
+    [string]$RuntimeMajorMinor = "1.8"
 )
 
 $ErrorActionPreference = "Stop"
@@ -52,7 +53,7 @@ function Get-RequiredVersion {
 }
 
 $requiredVersion = Get-RequiredVersion -PackagePath $MsixPath
-$installedPackage = Get-AppxPackage -Name "Microsoft.WindowsAppRuntime.1.6" -ErrorAction SilentlyContinue |
+$installedPackage = Get-AppxPackage -Name "Microsoft.WindowsAppRuntime.$RuntimeMajorMinor" -ErrorAction SilentlyContinue |
     Where-Object Architecture -eq "X64" |
     Sort-Object Version -Descending |
     Select-Object -First 1

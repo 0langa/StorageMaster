@@ -9,6 +9,7 @@
 
     <NavigationView
         x:Name="NavView"
+        AutomationProperties.Name="StorageMaster navigation"
         PaneDisplayMode="Left"
         IsBackButtonVisible="Visible"
         IsSettingsVisible="True"
@@ -16,14 +17,19 @@
         SelectionChanged="NavView_SelectionChanged">
 
         <NavigationView.MenuItems>
-            <NavigationViewItem Tag="Dashboard"    Icon="Home"    Content="Dashboard" />
-            <NavigationViewItem Tag="Scan"         Icon="Find"    Content="Scan" />
-            <NavigationViewItem Tag="Results"      Icon="List"    Content="Results" />
-            <NavigationViewItem Tag="Duplicates"   Icon="Copy"    Content="Duplicates" />
-            <NavigationViewItem Tag="Cleanup"      Icon="Delete"  Content="Cleanup" />
-            <NavigationViewItem Tag="SmartCleaner" Content="Smart Cleaner">
+            <NavigationViewItem Tag="Dashboard"    Icon="Home"    Content="Dashboard" AutomationProperties.Name="Dashboard" />
+            <NavigationViewItem Tag="Scan"         Icon="Find"    Content="Scan" AutomationProperties.Name="Scan" />
+            <NavigationViewItem Tag="Results"      Icon="List"    Content="Results" AutomationProperties.Name="Results" />
+            <NavigationViewItem Tag="Duplicates"   Icon="Copy"    Content="Duplicates" AutomationProperties.Name="Duplicates" />
+            <NavigationViewItem Tag="Cleanup"      Icon="Delete"  Content="Cleanup" AutomationProperties.Name="Cleanup" />
+            <NavigationViewItem Tag="SmartCleaner" Content="Smart Cleaner" AutomationProperties.Name="Smart Cleaner">
                 <NavigationViewItem.Icon>
                     <FontIcon Glyph="&#xE9E9;" />
+                </NavigationViewItem.Icon>
+            </NavigationViewItem>
+            <NavigationViewItem Tag="SpaceMap" Content="Space Map" AutomationProperties.Name="Space Map">
+                <NavigationViewItem.Icon>
+                    <FontIcon Glyph="&#xE9D2;" />
                 </NavigationViewItem.Icon>
             </NavigationViewItem>
         </NavigationView.MenuItems>

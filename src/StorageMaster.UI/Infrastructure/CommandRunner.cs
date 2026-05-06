@@ -18,6 +18,7 @@ public sealed class CommandRunner(
     IDuplicateRepository duplicateRepository,
     IScheduledTaskService scheduledTaskService,
     ILocalDiagnosticsService diagnostics,
+    Version currentVersion,
     ILogger<CommandRunner> logger) : ICommandRunner
 {
     public async Task<int> RunAsync(
@@ -69,6 +70,13 @@ public sealed class CommandRunner(
     {
         if (args[0].Equals("scan", StringComparison.OrdinalIgnoreCase))
             return await RunScanAsync(args, output, ct);
+
+        if (args[0].Equals("version", StringComparison.OrdinalIgnoreCase) ||
+            args[0].Equals("--version", StringComparison.OrdinalIgnoreCase))
+        {
+            await output.WriteLineAsync($"StorageMaster {currentVersion.ToString(3)}");
+            return 0;
+        }
 
         if (args.Length >= 2 &&
             args[0].Equals("report", StringComparison.OrdinalIgnoreCase) &&
@@ -231,7 +239,7 @@ public sealed class CommandRunner(
         };
         await MaybeWriteJsonAsync(jsonPath, payload, ct);
         await output.WriteLineAsync($"Dedupe run {run.Id}: {summary.GroupCount:N0} groups, {summary.ReclaimableBytes:N0} reclaimable bytes.");
-        return 0;
+        return run.Status == DuplicateRunStatus.Completed ? 0 : 1;
     }
 
     private async Task<int> RunCleanupAnalyzeAsync(string[] args, TextWriter output, CancellationToken ct)
@@ -286,9 +294,18 @@ public sealed class CommandRunner(
             throw new CommandLineException("No cleanup suggestions matched the supplied --rules filter.", 2);
 
         var method = useRecycleBin ? DeletionMethod.RecycleBin : DeletionMethod.Quarantine;
+        if (method == DeletionMethod.Quarantine && selected
+                .SelectMany(static suggestion => suggestion.TargetPaths)
+                .Any(static path => path.StartsWith("::", StringComparison.Ordinal) || Directory.Exists(path)))
+        {
+            throw new CommandLineException(
+                "Cleanup quarantine supports file targets only. Use --recycle-bin for general cleanup directories.",
+                2);
+        }
+
         var results = await cleanupEngine.ExecuteAsync(selected, dryRun: false, method, null, ct);
         await output.WriteLineAsync($"Cleanup executed. {results.Count(static item => item.Status == CleanupResultStatus.Success):N0} succeeded.");
-        return 0;
+        return results.All(static item => item.Status == CleanupResultStatus.Success) ? 0 : 1;
     }
 
     private async Task<int> RunScheduledJobAsync(string[] args, bool headless, TextWriter output, CancellationToken ct)
@@ -331,7 +348,7 @@ public sealed class CommandRunner(
 
     private async Task RunScanJobAsync(ScheduledJobDefinition job, TextWriter output, CancellationToken ct)
     {
-        await RunAsync(["scan", "--path", job.TargetPath], true, output, TextWriter.Null, ct);
+        await RunNestedCommandAsync(["scan", "--path", job.TargetPath], output, ct);
     }
 
     private async Task RunScanAndReportJobAsync(ScheduledJobDefinition job, TextWriter output, CancellationToken ct)
@@ -339,7 +356,7 @@ public sealed class CommandRunner(
         await RunScanJobAsync(job, output, ct);
         var exportDirectory = EnsureExportsDirectory();
         var jsonPath = Path.Combine(exportDirectory, $"scheduled-report-{job.Id}.json");
-        await RunAsync(["report", "last-scan", "--json", jsonPath], true, output, TextWriter.Null, ct);
+        await RunNestedCommandAsync(["report", "last-scan", "--json", jsonPath], output, ct);
     }
 
     private async Task RunCleanupAnalyzeJobAsync(ScheduledJobDefinition job, TextWriter output, CancellationToken ct)
@@ -347,7 +364,7 @@ public sealed class CommandRunner(
         var session = await RunScanForJobAsync(job, ct);
         var exportDirectory = EnsureExportsDirectory();
         var jsonPath = Path.Combine(exportDirectory, $"scheduled-cleanup-{job.Id}.json");
-        await RunAsync(["cleanup", "analyze", "--session", session.Id.ToString(), "--json", jsonPath], true, output, TextWriter.Null, ct);
+        await RunNestedCommandAsync(["cleanup", "analyze", "--session", session.Id.ToString(), "--json", jsonPath], output, ct);
     }
 
     private async Task RunCleanupExecuteJobAsync(ScheduledJobDefinition job, TextWriter output, CancellationToken ct)
@@ -356,12 +373,17 @@ public sealed class CommandRunner(
         var rules = string.IsNullOrWhiteSpace(job.RulesCsv)
             ? "TempFiles,CacheFolders,BrowserCache,WindowsUpdateCache,DeliveryOptimization,WindowsErrorReporting,DownloadedInstallers"
             : job.RulesCsv;
-        await RunAsync(
+        await RunNestedCommandAsync(
             ["cleanup", "execute", "--session", session.Id.ToString(), "--rules", rules, "--recycle-bin", "--confirm"],
-            true,
             output,
-            TextWriter.Null,
             ct);
+    }
+
+    private async Task RunNestedCommandAsync(string[] args, TextWriter output, CancellationToken ct)
+    {
+        var exitCode = await RunAsync(args, true, output, TextWriter.Null, ct);
+        if (exitCode != 0)
+            throw new CommandLineException($"Nested command failed with exit code {exitCode}: {string.Join(' ', args)}", exitCode);
     }
 
     private async Task<ScanSession> RunScanForJobAsync(ScheduledJobDefinition job, CancellationToken ct)
@@ -512,6 +534,7 @@ public sealed class CommandRunner(
               StorageMaster.UI.exe --cli dedupe scan --session <id> --methods exact,text,image,video --min-size <mb> [--extensions ...] [--json <file>]
               StorageMaster.UI.exe --cli cleanup analyze --session <id> [--json <file>]
               StorageMaster.UI.exe --cli cleanup execute --session <id> --rules <csv> --recycle-bin|--quarantine --confirm
+              StorageMaster.UI.exe --cli version
             """);
 }
 

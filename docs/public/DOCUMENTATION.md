@@ -1,7 +1,7 @@
 # StorageMaster — Full Technical Documentation
 
-> **Version:** 1.7.0 | **Date:** 2026-05-06 | **.NET 8 / WinUI 3 / Windows App SDK 1.6**
-> **Note:** Core API sections remain accurate. New v1.7.0 features (CLI interface, tray/background mode, scheduled tasks, low-disk notifications, duplicate previews, quarantine restore, 7 new cleanup rules) are documented in `README.md` and `ARCHITECTURE.md`.
+> **Version:** 1.9.0 | **Date:** 2026-05-06 | **.NET 8 / WinUI 3 / Windows App SDK 1.8**
+> **v1.9 update:** Core scanner APIs now validate and normalize options before scanning; default exclusions derive from the actual Windows folder and use boundary-aware matching. Storage schema v6 adds normalized path indexes and per-session file path uniqueness. Space Map APIs (`ISpaceMapRepository`, `TreemapLayoutService`) power native treemap drill-down and Scan Delta Insights. Directory quarantine is intentionally rejected; file quarantine remains available through duplicate review.
 
 ---
 
@@ -32,7 +32,7 @@
 
 | Requirement | Minimum version | Notes |
 |-------------|----------------|-------|
-| Windows | 10 1809 (build 17763) | Required by Windows App SDK 1.6 |
+| Windows | 10 1809 (build 17763) | Minimum target used by the unpackaged WinUI app |
 | .NET SDK | 8.0.x | `global.json` pins this |
 | Visual Studio | 2022 17.9+ | For building the WinUI 3 UI project |
 | Rust | stable | For building `turbo-scanner.exe` from source |
@@ -127,7 +127,7 @@ Passed programmatically to `IFileScanner.ScanAsync`.
 | `RootPath` | required | Root path to scan |
 | `MaxParallelism` | `4` | Directory workers |
 | `DbBatchSize` | `500` | Flush file entries to DB every N entries |
-| `ExcludedPaths` | `C:\Windows\WinSxS`, `C:\Windows\Installer` | Case-insensitive prefix exclusions |
+| `ExcludedPaths` | Windows `WinSxS` and `Installer` under the actual Windows folder | Case-insensitive, normalized, boundary-aware exclusions |
 | `FollowSymlinks` | `false` | Follow reparse points |
 | `DeepScan` | `false` | When true: empty exclusions, uses max CPU parallelism |
 
@@ -552,7 +552,7 @@ Used by `UninstalledProgramLeftoversRule` to cross-reference AppData folders aga
 - **Deletion Behaviour:** RecycleBin toggle, dry-run default toggle
 - **Cleanup Options:** All 10 rule enable/disable toggles, Downloads full-clear toggle
 - **Large & Old File Thresholds:** Size (MB) and age (days) sliders
-- **About:** App version (1.3.0), description
+- **About:** Current app version from assembly metadata (`1.9.0` for this release), diagnostics export, update settings
 
 **Save behaviour:** All settings written to SQLite on "Save Settings" click.
 

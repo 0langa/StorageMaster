@@ -1,0 +1,211 @@
+<Page
+    x:Class="StorageMaster.UI.Pages.SpaceMapPage"
+    x:Name="PageRoot"
+    AutomationProperties.Name="Space Map page"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:converters="using:StorageMaster.UI.Converters"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d">
+
+    <Page.Resources>
+        <converters:ByteSizeConverter x:Key="ByteSize" />
+        <converters:BoolToVisibilityConverter x:Key="BoolVis" />
+    </Page.Resources>
+
+    <Grid>
+        <ScrollViewer Padding="32,24">
+            <StackPanel Spacing="20" MaxWidth="1180" HorizontalAlignment="Center">
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16">
+                    <StackPanel Grid.Column="0" Spacing="4">
+                        <TextBlock Text="Space Map" Style="{StaticResource TitleLargeTextBlockStyle}" />
+                        <TextBlock Text="Visual disk usage and scan delta insights. Delete actions are intentionally routed through review flows."
+                                   TextWrapping="WrapWholeWords"
+                                   Opacity="0.72" />
+                    </StackPanel>
+                    <ProgressRing Grid.Column="1"
+                                  IsActive="{x:Bind ViewModel.IsLoading, Mode=OneWay}"
+                                  Width="32"
+                                  Height="32"
+                                  Visibility="{x:Bind ViewModel.IsLoading, Mode=OneWay, Converter={StaticResource BoolVis}}" />
+                </Grid>
+
+                <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                        CornerRadius="8"
+                        Padding="16">
+                    <StackPanel Spacing="12">
+                        <Grid ColumnDefinitions="2*,Auto,Auto,Auto" ColumnSpacing="12">
+                            <ComboBox Grid.Column="0"
+                                      Header="Scan"
+                                      ItemsSource="{x:Bind ViewModel.Sessions, Mode=OneWay}"
+                                      SelectedItem="{x:Bind ViewModel.SelectedSession, Mode=TwoWay}"
+                                      DisplayMemberPath="RootPath"
+                                      AutomationProperties.Name="Space Map scan selection" />
+                            <Button Grid.Column="1"
+                                    Content="Folders + files"
+                                    Command="{x:Bind ViewModel.SetFilterCommand}"
+                                    CommandParameter="All" />
+                            <Button Grid.Column="2"
+                                    Content="Folders"
+                                    Command="{x:Bind ViewModel.SetFilterCommand}"
+                                    CommandParameter="Folders" />
+                            <Button Grid.Column="3"
+                                    Content="Files"
+                                    Command="{x:Bind ViewModel.SetFilterCommand}"
+                                    CommandParameter="Files" />
+                        </Grid>
+
+                        <Grid ColumnDefinitions="*,180,Auto,Auto,Auto,Auto" ColumnSpacing="12">
+                            <StackPanel Grid.Column="0" Spacing="4">
+                                <TextBlock Text="{x:Bind ViewModel.CurrentFolderDisplay, Mode=OneWay}"
+                                           FontWeight="SemiBold"
+                                           TextTrimming="CharacterEllipsis" />
+                                <ItemsControl ItemsSource="{x:Bind ViewModel.Breadcrumbs, Mode=OneWay}">
+                                    <ItemsControl.ItemsPanel>
+                                        <ItemsPanelTemplate>
+                                            <ItemsStackPanel Orientation="Horizontal" />
+                                        </ItemsPanelTemplate>
+                                    </ItemsControl.ItemsPanel>
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Text="{Binding}" Margin="0,0,10,0"
+                                                       Style="{StaticResource CaptionTextBlockStyle}"
+                                                       Opacity="0.68" />
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </StackPanel>
+                            <NumberBox Grid.Column="1"
+                                       Header="Min size MB"
+                                       Minimum="0"
+                                       Maximum="102400"
+                                       SmallChange="10"
+                                       LargeChange="100"
+                                       Value="{x:Bind ViewModel.MinimumSizeMb, Mode=TwoWay}"
+                                       AutomationProperties.Name="Minimum size filter in megabytes" />
+                            <Button Grid.Column="2" Content="Up" Command="{x:Bind ViewModel.GoUpCommand}" />
+                            <Button Grid.Column="3" Content="CSV" Command="{x:Bind ViewModel.ExportCsvCommand}" />
+                            <Button Grid.Column="4" Content="HTML" Command="{x:Bind ViewModel.ExportHtmlCommand}" />
+                            <Button Grid.Column="5"
+                                    Content="PNG"
+                                    Click="ExportPng_Click"
+                                    AutomationProperties.Name="Export Space Map as PNG" />
+                        </Grid>
+                    </StackPanel>
+                </Border>
+
+                <Grid ColumnDefinitions="3*,1.1*" ColumnSpacing="16">
+                    <Border Grid.Column="0"
+                            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                            BorderThickness="1"
+                            CornerRadius="8"
+                            Padding="8">
+                        <Canvas x:Name="TreemapCanvas"
+                                Height="560"
+                                MinWidth="720"
+                                SizeChanged="TreemapCanvas_SizeChanged"
+                                AutomationProperties.Name="Interactive disk usage treemap" />
+                    </Border>
+
+                    <Border Grid.Column="1"
+                            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                            CornerRadius="8"
+                            Padding="16">
+                        <StackPanel Spacing="10">
+                            <TextBlock Text="Selection" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                            <TextBlock Text="{x:Bind ViewModel.SelectedNodeDisplayName, Mode=OneWay}"
+                                       TextWrapping="WrapWholeWords"
+                                       FontWeight="SemiBold" />
+                            <TextBlock Text="{x:Bind ViewModel.SelectedNodePath, Mode=OneWay}"
+                                       TextWrapping="WrapWholeWords"
+                                       Style="{StaticResource CaptionTextBlockStyle}"
+                                       Opacity="0.72" />
+                            <TextBlock Text="{x:Bind ViewModel.SelectedNodeSize, Mode=OneWay}" />
+                            <TextBlock Text="{x:Bind ViewModel.SelectedNodePercent, Mode=OneWay}" />
+                            <Button Content="Reveal in Explorer"
+                                    Command="{x:Bind ViewModel.RevealInExplorerCommand}"
+                                    CommandParameter="{x:Bind ViewModel.SelectedNode, Mode=OneWay}"
+                                    IsEnabled="{x:Bind ViewModel.HasSelectedNode, Mode=OneWay}" />
+                            <Button Content="Copy path"
+                                    Command="{x:Bind ViewModel.CopyPathCommand}"
+                                    CommandParameter="{x:Bind ViewModel.SelectedNode, Mode=OneWay}"
+                                    IsEnabled="{x:Bind ViewModel.HasSelectedNode, Mode=OneWay}" />
+                            <Button Content="Send to Cleanup review"
+                                    Command="{x:Bind ViewModel.SendToCleanupReviewCommand}" />
+                            <Button Content="Send to Duplicate review"
+                                    Command="{x:Bind ViewModel.SendToDuplicateReviewCommand}" />
+                            <Button Content="Open in Results"
+                                    Command="{x:Bind ViewModel.OpenInResultsCommand}" />
+                        </StackPanel>
+                    </Border>
+                </Grid>
+
+                <InfoBar IsOpen="True"
+                         Severity="Informational"
+                         Title="Space Map status"
+                         Message="{x:Bind ViewModel.StatusText, Mode=OneWay}" />
+
+                <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                        CornerRadius="8"
+                        Padding="16">
+                    <StackPanel Spacing="14">
+                        <Grid ColumnDefinitions="*,Auto">
+                            <TextBlock Grid.Column="0" Text="Scan Delta Insights" Style="{StaticResource TitleTextBlockStyle}" />
+                            <ProgressRing Grid.Column="1"
+                                          IsActive="{x:Bind ViewModel.IsDeltaLoading, Mode=OneWay}"
+                                          Width="24"
+                                          Height="24"
+                                          Visibility="{x:Bind ViewModel.IsDeltaLoading, Mode=OneWay, Converter={StaticResource BoolVis}}" />
+                        </Grid>
+                        <TextBlock Text="{x:Bind ViewModel.DeltaStatusText, Mode=OneWay}"
+                                   TextWrapping="WrapWholeWords"
+                                   Opacity="0.72" />
+                        <Grid ColumnDefinitions="*,*,*" ColumnSpacing="12">
+                            <StackPanel Grid.Column="0" Spacing="8">
+                                <TextBlock Text="Folders that grew" FontWeight="SemiBold" />
+                                <ListView ItemsSource="{x:Bind ViewModel.GrowingFolders, Mode=OneWay}" MaxHeight="260">
+                                    <ListView.ItemTemplate>
+                                        <DataTemplate>
+                                            <Grid ColumnDefinitions="*,Auto" Padding="0,4">
+                                                <TextBlock Grid.Column="0" Text="{Binding FullPath}" TextTrimming="CharacterEllipsis" />
+                                                <TextBlock Grid.Column="1" Text="{Binding DeltaBytes, Converter={StaticResource ByteSize}}" />
+                                            </Grid>
+                                        </DataTemplate>
+                                    </ListView.ItemTemplate>
+                                </ListView>
+                            </StackPanel>
+                            <StackPanel Grid.Column="1" Spacing="8">
+                                <TextBlock Text="New large files" FontWeight="SemiBold" />
+                                <ListView ItemsSource="{x:Bind ViewModel.NewLargeFiles, Mode=OneWay}" MaxHeight="260">
+                                    <ListView.ItemTemplate>
+                                        <DataTemplate>
+                                            <Grid ColumnDefinitions="*,Auto" Padding="0,4">
+                                                <TextBlock Grid.Column="0" Text="{Binding FullPath}" TextTrimming="CharacterEllipsis" />
+                                                <TextBlock Grid.Column="1" Text="{Binding CurrentBytes, Converter={StaticResource ByteSize}}" />
+                                            </Grid>
+                                        </DataTemplate>
+                                    </ListView.ItemTemplate>
+                                </ListView>
+                            </StackPanel>
+                            <StackPanel Grid.Column="2" Spacing="8">
+                                <TextBlock Text="Removed files" FontWeight="SemiBold" />
+                                <ListView ItemsSource="{x:Bind ViewModel.RemovedFiles, Mode=OneWay}" MaxHeight="260">
+                                    <ListView.ItemTemplate>
+                                        <DataTemplate>
+                                            <Grid ColumnDefinitions="*,Auto" Padding="0,4">
+                                                <TextBlock Grid.Column="0" Text="{Binding FullPath}" TextTrimming="CharacterEllipsis" />
+                                                <TextBlock Grid.Column="1" Text="{Binding PreviousBytes, Converter={StaticResource ByteSize}}" />
+                                            </Grid>
+                                        </DataTemplate>
+                                    </ListView.ItemTemplate>
+                                </ListView>
+                            </StackPanel>
+                        </Grid>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
+</Page>

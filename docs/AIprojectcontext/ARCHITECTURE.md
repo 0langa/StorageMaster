@@ -1,6 +1,6 @@
 # StorageMaster Architecture
 
-Version: 1.7.4. Repository snapshot: `StorageMaster_main.zip`. Stack: .NET 8, WinUI 3, Windows App SDK 1.6.250205002, SQLite, optional Rust `turbo-scanner`.
+Version: 1.9.0. Stack: .NET 8, WinUI 3, Windows App SDK 1.8.260416003, SQLite schema v6, optional Rust `turbo-scanner`.
 
 StorageMaster is a layered Windows disk analyzer/cleanup app. `StorageMaster.Core` is the inward-facing domain layer; UI, storage, and platform projects depend on Core interfaces. Core currently contains pure domain logic plus scanner/cleanup/dedup/update services, but no WinUI, SQLite, Win32, or subprocess hosting.
 
@@ -15,7 +15,7 @@ StorageMaster is a layered Windows disk analyzer/cleanup app. `StorageMaster.Cor
 | `StorageMaster.Tests` | `net8.0-windows10.0.19041.0` | xUnit tests | Core, Storage, Platform |
 | `turbo-scanner` | Rust 2021 | Native JSONL file enumerator using `jwalk` | independent binary |
 
-UI package metadata: version `1.7.4`, `WindowsPackageType=None`, runtime IDs `win-x86;win-x64;win-arm64`, min OS `10.0.17763`. Release pipeline currently publishes `win-x64`.
+Version metadata is centralized in `Directory.Build.props` (`StorageMasterVersion=1.9.0`). UI uses `WindowsPackageType=None`, runtime IDs `win-x86;win-x64;win-arm64`, min OS `10.0.17763`. Release pipeline currently publishes `win-x64`.
 
 ## Runtime startup
 
@@ -31,8 +31,8 @@ UI package metadata: version `1.7.4`, `WindowsPackageType=None`, runtime IDs `wi
 
 | Lifetime | Registrations |
 |---|---|
-| Singleton | `StorageDbContext`, repositories, platform services, `FileScanner`, `TurboFileScanner`, 17 cleanup rules, `CleanupEngine`, Smart Cleaner, duplicate strategies/services, scheduler, notifications, updater, navigation, dialogs, command runner, `MainWindow` |
-| Transient | Dashboard, Results, Duplicates, Cleanup, Settings, SmartCleaner VMs |
+| Singleton | `StorageDbContext`, repositories, `ISpaceMapRepository`, platform services, `FileScanner`, `TurboFileScanner`, 17 cleanup rules, `CleanupEngine`, Smart Cleaner, duplicate strategies/services, scheduler, notifications, updater, navigation, dialogs, command runner, `MainWindow` |
+| Transient | Dashboard, Results, Duplicates, Cleanup, Settings, SmartCleaner, SpaceMap VMs |
 | Singleton VM | `ScanViewModel`, because it owns scan lifetime/cancellation |
 
 `IFileScanner` resolves to managed `FileScanner`; `ScanViewModel` explicitly receives both managed and turbo scanners and chooses based on settings/UI availability.
@@ -50,28 +50,28 @@ Enums present in code:
 | `CleanupCategory` | `RecycleBin`, `TempFiles`, `DownloadedInstallers`, `CacheFolders`, `LargeOldFiles`, `DuplicateFiles`, `LogFiles`, `BrowserCache`, `WindowsUpdateCache`, `ProgramLeftovers`, `DeliveryOptimization`, `WindowsErrorReporting`, `Custom`, `ThumbnailCache`, `IconCache`, `FontCache`, `DnsCache`, `PrefetchFiles`, `StoreLogs` |
 | `CleanupRisk` | `Safe`, `Low`, `Medium`, `High` |
 | `DeletionMethod` | `RecycleBin`, `Permanent`, `Quarantine` |
-| `DuplicateMethod` | `ExactSha256`, `NormalizedText`, `ImagePHash`, `VideoPHash`, `AudioFingerprint` |
+| `DuplicateMethod` | `ExactSha256`, `NormalizedText`, `ImagePHash`, `VideoPHash`; `AudioFingerprint` remains a tolerated legacy enum token with no registered strategy |
 | `KeeperPolicy` | `Newest`, `Oldest`, `ShortestPath`, `LongestPath` |
 | `ScheduledJobKind` | `Scan`, `ScanAndReport`, `CleanupAnalyze`, `CleanupExecuteSafe` |
 | `ScheduledJobFrequency` | `Daily`, `Weekly` |
 | `ThemePreference` | `Default`, `Light`, `Dark` |
 
-`AudioFingerprint` is an enum value only; no strategy is registered for it.
+`DefaultDuplicatesReviewMode` now preselects the duplicate method filter. `DuplicateVideoFrameThreshold` is clamped and used as the video pHash frame sample count. `AudioFingerprint` is not exposed in UI/CLI and has no registered strategy.
 
 ## Managed scan flow
 
 `FileScanner.ScanAsync`:
 
-1. Requires non-empty `ScanOptions.RootPath`, creates a `ScanSession`.
+1. Runs `ScanOptionValidator.NormalizeAndValidate`: root must exist, root/exclusions are canonicalized, `MaxParallelism` and `DbBatchSize` are clamped, default Windows exclusions are derived from `Environment.SpecialFolder.Windows`.
 2. Starts `PeriodicTimer(300 ms)` for `ScanProgress`.
 3. Walks with one BFS producer feeding a bounded `Channel<string>` capacity `1024`.
-4. Starts `MaxParallelism` consumers. The method assumes `MaxParallelism >= 1`; UI/CLI clamp, but the scanner itself does not guard it.
+4. Starts validated `MaxParallelism` consumers.
 5. `ProcessDirectory` emits `FileEntry` and `FolderEntry` records, skips reparse-point subdirectories unless `FollowSymlinks=true`, skips hidden files unless `IncludeHiddenFiles`/`DeepScan`.
 6. Flushes file queue when `FileBuffer.Count >= DbBatchSize`; folder queue when `FolderBuffer.Count >= DbBatchSize / 5`. Flush drains are serialized by per-buffer `SemaphoreSlim`.
 7. Loads all folders, runs `FolderSizeAggregator.Compute`, updates totals, logs buffered scan errors, marks session `Completed`.
-8. On cancellation it flushes current buffers and marks `Cancelled`; on other exception it marks `Failed` then rethrows.
+8. On cancellation it flushes current buffers and marks `Cancelled`; on other exception it marks `Failed` then rethrows. Flush semaphores are disposed after scan shutdown.
 
-`FolderSizeAggregator.Compute` sorts folder paths by descending length and propagates direct bytes to parents. It currently builds `folders.ToDictionary(f => f.FullPath, ...)`; duplicate folder paths will throw, although DB schema makes `(SessionId, FullPath)` unique for folders.
+`FolderSizeAggregator.Compute` normalizes folder paths with an ordinal-ignore-case comparer, sums duplicate/mixed-case rows, skips malformed paths, sorts by descending length, and propagates direct bytes to parents. It handles drive roots and missing parents defensively.
 
 ## Turbo scan flow
 
@@ -83,7 +83,7 @@ When available it starts hidden process:
 turbo-scanner.exe --path <RootPath> --threads <MaxParallelism>
 ```
 
-C# drains stderr to Debug logs, wraps stdout with a 1 MB `StreamReader`, parses JSONL into `TurboRecord`, filters exclusions/hidden records in C#, writes to a bounded `Channel<TurboRecord>` capacity `2000`, and batch-inserts files every `500` and folders every `100`. It accumulates per-parent direct sizes in C# and patches folders before aggregation. Non-zero process exit marks the scan `Failed`; cancellation kills the whole process tree.
+C# validates the same `ScanOptions` as the managed scanner, drains stderr to Debug logs and persisted `ScanError` rows for WARN/ERROR lines, wraps stdout with a 1 MB `StreamReader`, parses JSONL into `TurboRecord`, filters exclusions/hidden records in C# using the same boundary-aware exclusion matcher, writes to a bounded `Channel<TurboRecord>` capacity `2000`, and batch-inserts files every `500` and folders every `100`. It accumulates per-parent direct sizes in C# and patches folders before aggregation. Non-zero process exit marks the scan `Failed`; cancellation kills the whole process tree.
 
 Rust CLI also supports `--min-size` and `--skip-hidden`, but `TurboFileScanner` does not pass those switches; hidden filtering is handled after JSONL read.
 
@@ -121,7 +121,7 @@ Strategies registered in DI:
 | `ExactSha256` | `SHA-256` | 1 | yes | same-size buckets; partial-hash prefilter |
 | `NormalizedText` | `TEXT-NORM-SHA256` | 2 | no | text/source/log extensions; no same-size requirement |
 | `ImagePHash` | `IMAGE-PHASH-DCT64` | 1 | no | image category/extensions; ImageSharp DCT hash |
-| `VideoPHash` | `VIDEO-PHASH-FRAMES10` | 1 | no | video category/extensions; requires ffmpeg + ffprobe |
+| `VideoPHash` | `VIDEO-PHASH-FRAMES` | 1 | no | video category/extensions; requires ffmpeg + ffprobe |
 
 Duplicate signatures cache validity stores algorithm version, source size, source modified UTC, and optional NTFS identity. Duplicate deletion refuses groups without an existing keeper, validates selected member size/mtime before delete/quarantine, logs audit JSON, marks deleted members, and supports quarantine restore.
 
@@ -131,7 +131,7 @@ SQLite DB: `%LOCALAPPDATA%\StorageMaster\storagemaster.db`. `StorageDbContext` o
 
 PRAGMAs: `journal_mode=WAL`, `synchronous=NORMAL`, `foreign_keys=ON`, `temp_store=MEMORY`, `cache_size=-32000`.
 
-Schema `CurrentVersion = 5` with migrations:
+Schema `CurrentVersion = 6` with migrations:
 
 | Version | Adds |
 |---:|---|
@@ -140,8 +140,11 @@ Schema `CurrentVersion = 5` with migrations:
 | 3 | duplicate runs/signatures/groups/members/errors and duplicate indexes |
 | 4 | `CleanupLog.AuditDataJson` |
 | 5 | duplicate signature cache metadata, `QuarantinedFiles`, more duplicate indexes |
+| 6 | normalized path columns/indexes, unique file path protection per session, path search indexes |
 
-Each migration batch and schema-version stamp run in one transaction.
+Each migration batch and schema-version stamp run in one transaction. `ScanRepository.DeleteSessionAsync` runs `PRAGMA optimize` after large session deletes.
+
+`SpaceMapRepository` reads scan data by selected folder using direct-child queries, largest-file-under-folder queries, previous comparable scan lookup, and scan delta queries. It treats moves/renames as removed + added unless a future identity layer proves equivalence.
 
 ## UI pages
 
@@ -153,9 +156,10 @@ Each migration batch and schema-version stamp run in one transaction.
 | Cleanup | `CleanupViewModel` | session-based suggestions, grouped category toggles, dry run, Recycle Bin/permanent execution |
 | Duplicates | `DuplicatesViewModel` | session selection, scope/category/extensions/methods, paged groups/errors, previews, selection, deletion/quarantine/restore, CSV/JSON/HTML export |
 | Smart Cleaner | `SmartCleanerViewModel` | direct junk analysis/cleaning without scan session |
+| Space Map | `SpaceMapViewModel` | selected completed scan treemap, folder drill-down, size/kind filters, selection details, CSV/HTML/PNG export, scan delta insights |
 | Settings | `SettingsViewModel` | deletion, thresholds, scan, theme, retention, excluded paths, cleanup defaults, dedupe defaults, FFmpeg, tray, scheduler, updates, diagnostics |
 
-Current XAML has no `AutomationProperties.*` declarations.
+Main navigation and all primary pages expose page-level automation names. Settings retains field-level automation help text; Space Map has named scan selection, canvas, and export controls. Remaining accessibility work is deeper UI automation coverage, not unlabeled primary navigation.
 
 ## CLI/headless
 
@@ -176,4 +180,4 @@ CI has `ci.yml` for PR/push: restore, `dotnet format --verify-no-changes`, build
 
 ## Current architectural limitations to preserve in docs
 
-No treemap/WebView visualization exists. No Serilog file logger exists; logging is Debug provider plus startup crash log and local diagnostics. `FileTypeCategorizor` is intentionally misspelled in code. `IRecycleBinInfoProvider` is declared in `RecycleBinCleanupRule.cs`, not under `Core/Interfaces`. Installer installs to LocalAppData but still has `PrivilegesRequired=admin`. Publish profile is not self-contained and Inno installs Windows App Runtime only.
+No WebView/D3 visualization exists; Space Map is a native WinUI Canvas treemap with PNG export through `RenderTargetBitmap`. No Serilog file logger exists; logging is Debug provider plus startup crash log and local diagnostics. `FileTypeCategorizor` is intentionally misspelled in code. `IRecycleBinInfoProvider` is declared in `RecycleBinCleanupRule.cs`, not under `Core/Interfaces`. Installer installs to LocalAppData with `PrivilegesRequired=lowest`. Release builds are .NET framework-dependent and Windows App SDK self-contained.

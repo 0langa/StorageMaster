@@ -1,6 +1,6 @@
 # StorageMaster Technical Reference
 
-Version: 1.7.4. This reference matches the deployed repository snapshot.
+Version: 1.9.0. This reference matches the current repository implementation.
 
 ## Build prerequisites
 
@@ -26,7 +26,7 @@ UI publish profile:
 dotnet publish src/StorageMaster.UI/StorageMaster.UI.csproj /p:PublishProfile=win-x64 -c Release /p:UseXamlCompilerExecutable=true
 ```
 
-Publish is framework-dependent: `SelfContained=false`, `WindowsAppSDKSelfContained=false`. Inno installs Windows App Runtime from `prereqs`, but no .NET runtime bootstrapper is defined in the installer script.
+Publish is .NET framework-dependent and Windows App SDK self-contained: `SelfContained=false`, `WindowsAppSDKSelfContained=true`. Inno installs per-user with `PrivilegesRequired=lowest`; no .NET runtime bootstrapper is defined in the installer script. Product version is centralized in `Directory.Build.props`.
 
 ## Data locations
 
@@ -34,7 +34,7 @@ Publish is framework-dependent: `SelfContained=false`, `WindowsAppSDKSelfContain
 |---|---|
 | SQLite DB | `%LOCALAPPDATA%\StorageMaster\storagemaster.db` |
 | Startup crash log | `%LOCALAPPDATA%\StorageMaster\logs\startup-errors.log` |
-| Quarantine | `%LOCALAPPDATA%\StorageMaster\Quarantine\<runId>\...` |
+| Quarantine | `%LOCALAPPDATA%\StorageMaster\Quarantine\<runId>\...` (files only; directory quarantine is rejected) |
 | Exports | `%LOCALAPPDATA%\StorageMaster\exports` |
 | Update downloads | `%TEMP%\StorageMaster\Updates` |
 
@@ -73,9 +73,9 @@ Settings page validation exists for scan path and FFmpeg path. Save also manages
 
 `ScanOptions`: `RootPath` required, `MaxParallelism=4`, `DbBatchSize=500`, `ExcludedPaths=DefaultExcludedPaths`, `FollowSymlinks=false`, `IncludeHiddenFiles=false`, `DeepScan=false`.
 
-Default excluded paths are hardcoded to `C:\Windows\WinSxS` and `C:\Windows\Installer`. `ScanScopeResolver.BuildExcludedPaths(settings, deepScan)` returns empty for deep scan; otherwise includes defaults, Windows/System/SystemX86 when `SkipSystemFolders`, plus custom `ExcludedPaths`.
+Default excluded paths are derived from `Environment.SpecialFolder.Windows` (`WinSxS` and `Installer`). `ScanScopeResolver.BuildExcludedPaths(settings, deepScan)` returns empty for deep scan; otherwise includes normalized defaults, Windows/System/SystemX86 when `SkipSystemFolders`, plus custom `ExcludedPaths`.
 
-Important: `FileScanner` itself does not clamp `MaxParallelism` or `DbBatchSize`; UI/CLI callers clamp parallelism. Direct callers must pass `MaxParallelism >= 1` and positive batch size.
+Important: both managed and Turbo scanners call `ScanOptionValidator.NormalizeAndValidate`. Missing roots fail before a session starts. Invalid `MaxParallelism` and `DbBatchSize` are clamped, and exclusions use boundary-aware matching so `C:\Windows\Installer` does not match `C:\Windows\InstallerBackup`.
 
 ## Scanner APIs
 
@@ -88,6 +88,18 @@ Important: `FileScanner` itself does not clamp `MaxParallelism` or `DbBatchSize`
 ```json
 {"path":"C:\\Users\\Alice\\file.txt","size":12345,"modified_unix":1700000000,"created_unix":1690000000,"is_dir":false}
 ```
+
+## Space Map APIs
+
+`ISpaceMapRepository` supports the v1.9.0 Space Map page:
+
+- `GetSessionRootCandidatesAsync` returns recent completed scans.
+- `GetFolderChildrenWithSizesAsync` returns direct child folders/files for the selected folder with optional kind and minimum-size filters.
+- `GetLargestFilesUnderFolderAsync` returns largest files under a selected folder without loading a whole scan into memory.
+- `GetPreviousComparableSessionAsync` finds the previous completed scan with the same root.
+- `GetScanDeltaAsync` compares current vs previous scan and reports growing folders, shrinking folders, new large files, and removed files. Renames/moves are treated as removed + added.
+
+`TreemapLayoutService` computes native WinUI Canvas rectangles from bounded node lists. Space Map exports CSV/HTML through the VM and PNG through WinUI `RenderTargetBitmap`. Space Map has no direct deletion command; destructive actions route to Cleanup or Duplicates review.
 
 ## Cleanup APIs
 
@@ -116,7 +128,7 @@ Rules must not delete. UI filters by enabled categories after suggestions are em
 
 `IDuplicateFinderService.RunAsync(DuplicateScanOptions, progress, ct)` creates a `DuplicateRun`. Options include session, min size bytes, methods, extensions, categories, included/excluded paths, max/per-drive concurrency, keeper policy, include reparse points, include hidden files.
 
-Method tokens in CLI: `exact`, `text`, `image`, `video`. `DuplicateMethod.AudioFingerprint` exists but has no strategy and will fail validation if requested programmatically.
+Method tokens in CLI: `exact`, `text`, `image`, `video`. `DuplicateMethod.AudioFingerprint` is a tolerated legacy enum token only; it is not exposed by UI/CLI and has no registered strategy.
 
 `IDuplicateRepository` owns run creation/completion, result persistence, paging, cached signatures, candidates, member deletion marking, quarantine records. `IDuplicateDeletionService.DeleteSelectedAsync` validates keeper and selected files before deletion/quarantine. `RestoreFromQuarantineAsync` moves a quarantined file back to original/target path and marks the row restored.
 

@@ -1,8 +1,10 @@
 # StorageMaster — v2.0.0 Development Plan
 
-> **Baseline:** v1.4.1 (2026-04-30)
+> **Baseline:** v1.9.0 (2026-05-06)
 > **Target:** v2.0.0 — feature-rich, fully hardened, production-grade Windows disk utility.
 > **Estimated total effort:** 12–18 weeks (1 developer)
+
+> **v1.9 status:** C1/C2/C3/C4/C5/C6/C7/C8 and H1/H2/H4/H14 are addressed in current code. Storage schema is v6 with normalized path indexes. Space Map and Scan Delta Insights are implemented natively with CSV/HTML/PNG export. Remaining v2 work should focus on STA shell abstraction tests, broad ViewModel/accessibility test coverage, app-local .NET runtime bootstrapper, richer diagnostics/logging, and performance benchmarks.
 
 ---
 
@@ -79,7 +81,7 @@ v1.7.0  Performance & scale          ← DB perf, large scan optimization
   │
 v1.8.0  Accessibility & UX           ← WCAG 2.1 AA, empty/error states
   │
-v1.9.0  Visualization                ← treemap, sunburst, charts
+v1.9.0  Visualization baseline       ← native Space Map treemap + delta insights shipped
   │
 v2.0.0  Power features + polish      ← CLI, scheduling, duplicates, tray, export
 ```
@@ -199,7 +201,7 @@ v2.0.0  Power features + polish      ← CLI, scheduling, duplicates, tray, expo
 
 ---
 
-## Phase 5 — Visualization (v1.9.0)
+## Phase 5 — Visualization (v1.9.0 baseline shipped)
 
 **Goal:** Interactive visual exploration of disk usage.
 
@@ -247,7 +249,7 @@ v2.0.0  Power features + polish      ← CLI, scheduling, duplicates, tray, expo
 | v1.6.0 | 2 — Tests & CI | 3–4 wk | 150+ tests, PR checks, code signing, coverage badge |
 | v1.7.0 | 3 — Performance | 2–3 wk | DB indexes, batch updates, benchmarks, 1M file support |
 | v1.8.0 | 4 — Accessibility | 3–4 wk | WCAG 2.1 AA, keyboard nav, screen reader, loading/empty/error states |
-| v1.9.0 | 5 — Visualization | 4–6 wk | Treemap, sunburst, drive charts, scan history |
+| v1.9.0 | 5 — Visualization | shipped baseline | Native Space Map treemap and scan delta insights |
 | v2.0.0 | 6 — Power features | 6–8 wk | CLI, duplicates, tray, scheduling, export, ARM64, first-run |
 
 **Total to v2.0.0:** ~22–29 weeks of focused engineering.

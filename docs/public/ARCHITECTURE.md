@@ -1,6 +1,7 @@
 # StorageMaster — Architecture Overview
 
-> **Version:** 1.7.0 | **Date:** 2026-05-06 | **Framework:** .NET 8 / WinUI 3 / Windows App SDK 1.6
+> **Version:** 1.9.0 | **Date:** 2026-05-06 | **Framework:** .NET 8 / WinUI 3 / Windows App SDK 1.8
+> **v1.9 update:** StorageMaster now includes a native WinUI Space Map treemap, Scan Delta Insights, schema v6 normalized path indexes, centralized version metadata in `Directory.Build.props`, scanner option validation, safer boundary-aware exclusions, hardened folder aggregation, and deletion hardening for read-only files, bounded size estimates, shell HRESULTs, and directory quarantine rejection.
 
 ---
 
@@ -20,7 +21,7 @@
 12. [Data flows](#12-data-flows)
 13. [Performance design decisions](#13-performance-design-decisions)
 14. [Extension points](#14-extension-points)
-15. [Known limitations (v1.7)](#15-known-limitations-v17)
+15. [Known limitations](#15-known-limitations-v17)
 
 ---
 
@@ -710,7 +711,7 @@ The `CleanupEngine` discovers all `IEnumerable<ICleanupRule>` from DI automatica
 |------|-----------|-------|
 | **Symlink detection** | Path-based dedup only; no NTFS FileId deduplication | Use `FILE_ID_INFO` via `GetFileInformationByHandleEx` in a future version |
 | **Turbo Scanner folders** | Folder `DirectSizeBytes` not populated by jwalk | Mitigated by `FolderSizeAggregator` post-pass |
-| **No treemap** | Flat largest-files/folders list only | WebView2 + D3.js planned for v2.0 |
+| **Visualization scope** | Native Space Map treemap exists with CSV/HTML/PNG export; no WebView2/D3 dependency | Continue with scale polish and richer reports |
 | **Localization** | English only | v2.0 |
 | **Smart Cleaner log** | Smart Cleaner cleanup uses `IFileDeleter` directly; not routed through `CleanupEngine` | Entries still appear in `CleanupLog` via `FileDeleter` logging |
 | **pHash threshold changes** | Image/video pHash similarity thresholds require app restart to take effect (singleton snapshot at startup) | Known trade-off; settings UI notes this |

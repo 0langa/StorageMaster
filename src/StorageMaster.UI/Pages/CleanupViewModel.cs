@@ -19,6 +19,24 @@ public sealed partial class SuggestionItem : ObservableObject
     public string SizeDisplay => ByteSizeConverter.Format(Suggestion.EstimatedBytes);
     public string RiskDisplay => Suggestion.Risk.ToString();
     public string CategoryDisplay => Suggestion.Category.ToString();
+    public string ConfidenceDisplay => $"{Suggestion.Confidence:P0} confidence";
+    public string PolicyDisplay
+    {
+        get
+        {
+            var flags = new List<string>();
+            if (Suggestion.RequiresAdmin)
+                flags.Add("admin");
+            if (!Suggestion.SupportsPermanentDelete)
+                flags.Add("no permanent delete");
+            if (!Suggestion.SupportsQuarantine)
+                flags.Add("no quarantine");
+            if (Suggestion.NeedsServiceStop)
+                flags.Add("service stop");
+
+            return flags.Count == 0 ? "standard policy" : string.Join(", ", flags);
+        }
+    }
 
     public SuggestionItem(CleanupSuggestion suggestion) => Suggestion = suggestion;
 }

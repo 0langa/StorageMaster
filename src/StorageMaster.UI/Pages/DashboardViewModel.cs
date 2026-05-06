@@ -137,5 +137,14 @@ public sealed partial class DashboardViewModel : ObservableObject
     private void GoToSmartCleaner() => _nav.NavigateTo(typeof(SmartCleanerPage));
 
     [RelayCommand]
+    private void GoToSpaceMap()
+    {
+        if (HasLastSession)
+            _nav.NavigateTo(typeof(SpaceMapPage), LastSession!.Id);
+        else
+            _nav.NavigateTo(typeof(SpaceMapPage));
+    }
+
+    [RelayCommand]
     private void GoToSettings() => _nav.NavigateTo(typeof(SettingsPage));
 }

@@ -1,8 +1,8 @@
 # StorageMaster — Codemap
 
-> **Version:** 1.7.0 | **Date:** 2026-05-06
+> **Version:** 1.9.0 | **Date:** 2026-05-06
 > Quick-reference for every file, type, method, and database table in the project.
-> **Note:** Sections describing v1.3–v1.6 internals remain accurate. New v1.7.0 additions (CLI, tray, scheduler, 7 new cleanup rules, duplicate previews, quarantine restore) are documented in `ARCHITECTURE.md` and `README.md`.
+> **Current-state note:** v1.9.0 adds `Directory.Build.props`, `Core/Scanner/ScanOptionValidator.cs`, `Core/SpaceMap/*`, `Core/Interfaces/ISpaceMapRepository.cs`, `Storage/Repositories/SpaceMapRepository.cs`, `UI/Pages/SpaceMapPage.*`, schema v6 normalized path columns/indexes, and expanded scanner/storage/deletion/Space Map tests. Older file-by-file sections below are retained for background; source code is authoritative where details differ.
 
 ---
 
@@ -144,11 +144,11 @@ Controls scan behaviour. Passed to `IFileScanner.ScanAsync`.
 | `RootPath` | `""` | Required: path to scan |
 | `MaxParallelism` | `4` | Concurrent directory workers |
 | `DbBatchSize` | `500` | Flush to DB every N files |
-| `ExcludedPaths` | (see below) | Case-insensitive prefix exclusions |
+| `ExcludedPaths` | (see below) | Case-insensitive boundary-aware exclusions |
 | `FollowSymlinks` | `false` | Follow reparse points |
 | `DeepScan` | `false` | When true, excludes nothing and uses all CPU cores |
 
-`DefaultExcludedPaths`: `C:\Windows\WinSxS`, `C:\Windows\Installer`
+`DefaultExcludedPaths`: derived from `Environment.SpecialFolder.Windows` (`WinSxS`, `Installer`) and normalized by `ScanOptionValidator`.
 
 ---
 
@@ -604,13 +604,13 @@ Singleton. Manages one `SqliteConnection`.
 
 #### `DatabaseSchema` — `Schema/DatabaseSchema.cs`
 
-Internal static class. `CurrentVersion = 1`. Contains `V1Statements` (DDL for all tables + indexes).
+Internal static class. `CurrentVersion = 6`. Migrations add scan errors, duplicate tables/signature cache/quarantine, cleanup audit metadata, and normalized path columns/indexes.
 
 ---
 
 #### `ScanRepository` — `Repositories/ScanRepository.cs`
 
-Implements `IScanRepository`. Includes `GetAllFolderPathsForSessionAsync` and `UpdateFolderTotalsAsync` for the folder aggregation pipeline.
+Implements `IScanRepository`. Includes normalized file path upserts, paged search, folder tree queries, `GetAllFolderPathsForSessionAsync`, `UpdateFolderTotalsAsync`, and `PRAGMA optimize` after session deletion.
 
 ---
 
@@ -641,7 +641,7 @@ Implements `ISettingsRepository`. Uses `System.Text.Json`. Key `"AppSettings"` i
 
 **Target:** `net8.0-windows10.0.19041.0`
 **WindowsPackageType:** `None` (unpackaged)
-**WindowsAppSDKSelfContained:** `false`
+**WindowsAppSDKSelfContained:** `true`
 
 ---
 
@@ -903,8 +903,8 @@ strip     = true
 | Platform.Windows | `Microsoft.Extensions.Logging.Abstractions` | 10.0.0 | Logging |
 | Storage | `Microsoft.Data.Sqlite` | 9.0.4 | SQLite access |
 | Storage | `Microsoft.Extensions.Logging.Abstractions` | 10.0.0 | Logging |
-| UI | `Microsoft.WindowsAppSDK` | 1.6.250205002 | WinUI 3 runtime + XAML compiler |
-| UI | `Microsoft.Windows.SDK.BuildTools` | 10.0.26100.1742 | WinUI 3 build tools |
+| UI | `Microsoft.WindowsAppSDK` | 1.8.260416003 | WinUI 3 runtime + XAML compiler |
+| UI | `Microsoft.Windows.SDK.BuildTools` | 10.0.28000.1839 | WinUI 3 build tools |
 | UI | `CommunityToolkit.Mvvm` | 8.4.0 | MVVM source generators |
 | UI | `Microsoft.Extensions.DependencyInjection` | 10.0.0 | Full DI container |
 | UI | `Microsoft.Extensions.Logging` | 10.0.0 | Logging infrastructure |

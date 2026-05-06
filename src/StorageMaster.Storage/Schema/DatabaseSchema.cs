@@ -7,7 +7,7 @@ namespace StorageMaster.Storage.Schema;
 /// </summary>
 internal static class DatabaseSchema
 {
-    internal const int CurrentVersion = 5;
+    internal const int CurrentVersion = 6;
 
     /// <summary>SQL executed once at version 1 creation.</summary>
     internal static readonly string[] V1Statements =
@@ -229,5 +229,31 @@ internal static class DatabaseSchema
         "CREATE INDEX IF NOT EXISTS IX_DuplicateGroups_Run_Method_Conf ON DuplicateGroups (RunId, Method, Confidence, ReclaimableBytes DESC);",
         "CREATE INDEX IF NOT EXISTS IX_DuplicateErrors_RunId_Type ON DuplicateErrors (RunId, ErrorType);",
         "CREATE INDEX IF NOT EXISTS IX_DuplicateSignatures_Session_Method ON DuplicateSignatures (SessionId, Method, Algorithm, AlgorithmVersion);",
+    ];
+
+    /// <summary>
+    /// V6: normalized path indexes for duplicate-path protection and scalable path lookup.
+    /// Existing duplicate file rows are collapsed before the unique index is created.
+    /// </summary>
+    internal static readonly string[] V6Statements =
+    [
+        "ALTER TABLE FileEntries ADD COLUMN NormalizedFullPath TEXT;",
+        "UPDATE FileEntries SET NormalizedFullPath = upper(FullPath) WHERE NormalizedFullPath IS NULL OR NormalizedFullPath = '';",
+        """
+        DELETE FROM FileEntries
+        WHERE Id NOT IN (
+            SELECT MIN(Id)
+            FROM FileEntries
+            GROUP BY SessionId, NormalizedFullPath
+        );
+        """,
+        "CREATE UNIQUE INDEX IF NOT EXISTS UX_FileEntries_Session_NormalizedFullPath ON FileEntries (SessionId, NormalizedFullPath);",
+        "CREATE INDEX IF NOT EXISTS IX_FileEntries_Session_NormalizedFullPath ON FileEntries (SessionId, NormalizedFullPath);",
+        "CREATE INDEX IF NOT EXISTS IX_FileEntries_Session_PathNoCase ON FileEntries (SessionId, FullPath COLLATE NOCASE);",
+
+        "ALTER TABLE FolderEntries ADD COLUMN NormalizedFullPath TEXT;",
+        "UPDATE FolderEntries SET NormalizedFullPath = upper(FullPath) WHERE NormalizedFullPath IS NULL OR NormalizedFullPath = '';",
+        "CREATE INDEX IF NOT EXISTS IX_FolderEntries_Session_NormalizedFullPath ON FolderEntries (SessionId, NormalizedFullPath);",
+        "CREATE INDEX IF NOT EXISTS IX_FolderEntries_Session_PathNoCase ON FolderEntries (SessionId, FullPath COLLATE NOCASE);",
     ];
 }

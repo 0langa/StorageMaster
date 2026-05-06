@@ -1,6 +1,6 @@
 # StorageMaster Codemap
 
-Version: 1.7.4. Compact source map for the deployed repository. Source code is authoritative.
+Version: 1.9.0. Compact source map for the deployed repository. Source code is authoritative.
 
 ## Root
 
@@ -8,12 +8,13 @@ Version: 1.7.4. Compact source map for the deployed repository. Source code is a
 |---|---|
 | `StorageMaster.sln`, `.slnx` | solution files |
 | `global.json` | .NET SDK 8.0 latest patch |
+| `Directory.Build.props` | centralized product version metadata (`1.9.0`) |
 | `Directory.Build.targets` | forces executable WinUI XAML compiler |
-| `README.md`, `CHANGELOG.md` | public docs; changelog current through 1.7.4 |
+| `README.md`, `CHANGELOG.md` | public docs; changelog current through 1.9.0 |
 | `.github/workflows/ci.yml` | PR/push build/test/format/Rust checks |
 | `.github/workflows/release.yml` | tag release pipeline, optional signing |
-| `installer/StorageMaster.iss` | Inno Setup, `AppVersion=1.7.4`, `PrivilegesRequired=admin`, `DefaultDirName={localappdata}\Programs\StorageMaster` |
-| `turbo-scanner/` | Rust binary crate, package version 1.4.1 |
+| `installer/StorageMaster.iss` | Inno Setup, `AppVersion=1.9.0`, `PrivilegesRequired=lowest`, `DefaultDirName={localappdata}\Programs\StorageMaster` |
+| `turbo-scanner/` | Rust binary crate, package version 1.9.0 |
 
 ## Project files and packages
 
@@ -22,7 +23,7 @@ Version: 1.7.4. Compact source map for the deployed repository. Source code is a
 | `StorageMaster.Core` | `net8.0` | CommunityToolkit.Mvvm 8.4.0, DI.Abstractions 10.0.0, Logging.Abstractions 10.0.0, SixLabors.ImageSharp 3.1.12 |
 | `StorageMaster.Storage` | `net8.0` | Microsoft.Data.Sqlite 9.0.4, Logging.Abstractions 10.0.0 |
 | `StorageMaster.Platform.Windows` | `net8.0-windows10.0.19041.0` | Logging.Abstractions 10.0.0 |
-| `StorageMaster.UI` | `net8.0-windows10.0.19041.0` | WindowsAppSDK 1.6.250205002, SDK BuildTools 10.0.26100.1742, Toolkit.Mvvm, H.NotifyIcon.WinUI 2.3.1, Microsoft.Extensions.* 10.0.0, System.CommandLine 2.0.7 |
+| `StorageMaster.UI` | `net8.0-windows10.0.19041.0` | WindowsAppSDK 1.8.260416003, SDK BuildTools 10.0.28000.1839, Toolkit.Mvvm, H.NotifyIcon.WinUI 2.3.1, Microsoft.Extensions.* 10.0.0, System.CommandLine 2.0.7 |
 | `StorageMaster.Tests` | `net8.0-windows10.0.19041.0` | xUnit 2.9.3, runner 3.1.4, Microsoft.NET.Test.Sdk 17.14.1, Moq 4.20.72, FluentAssertions 7.2.0 |
 
 `System.CommandLine` is referenced, but the current `CommandRunner` uses manual option parsing.
@@ -32,7 +33,7 @@ Version: 1.7.4. Compact source map for the deployed repository. Source code is a
 | Type | Key facts |
 |---|---|
 | `AppSettings` | persisted JSON settings; deletion, thresholds, scan, theme, retention, cleanup toggles, updater, tray/scheduler, dedupe defaults, FFmpeg path, extension data |
-| `ScanOptions` | `RootPath`, `MaxParallelism=4`, `DbBatchSize=500`, default excludes `C:\Windows\WinSxS` and `C:\Windows\Installer`, `FollowSymlinks=false`, `IncludeHiddenFiles=false`, `DeepScan=false` |
+| `ScanOptions` | `RootPath`, `MaxParallelism=4`, `DbBatchSize=500`, environment-aware Windows default excludes, `FollowSymlinks=false`, `IncludeHiddenFiles=false`, `DeepScan=false`; normalized by `ScanOptionValidator` before managed/turbo scans |
 | `FileEntry` | required file snapshot fields; computed `ParentPath` |
 | `FolderEntry` | direct/total bytes, counts, reparse/access denied, computed nullable `ParentPath` |
 | `ScanSession` | root/status/timestamps/totals/access denied/error; computed `Duration` |
@@ -54,6 +55,7 @@ Important defaults in `AppSettings`: `CleanProgramLeftovers=true`, `CleanLargeOl
 |---|---|
 | `IFileScanner` | `FileScanner`, `TurboFileScanner`; scan plus top files/folders streams |
 | `IScanRepository` | `ScanRepository`; sessions, file/folder insert/search/count/paging, category breakdown, folder tree, stale mark, delete file/session |
+| `ISpaceMapRepository` | `SpaceMapRepository`; direct-child treemap queries, largest files under folder, comparable scan lookup, delta queries |
 | `IScanErrorRepository` | `ScanErrorRepository`; log, full read, paged read, count |
 | `ICleanupRule` | 17 rule classes |
 | `ICleanupEngine` | `CleanupEngine`; `ExecuteAsync(suggestions, dryRun, DeletionMethod, progress, ct)` |
@@ -71,8 +73,9 @@ Important defaults in `AppSettings`: `CleanProgramLeftovers=true`, `CleanLargeOl
 |---|---|
 | `FileScanner.cs` | managed parallel BFS scanner; channel capacity 1024; 300 ms progress; queue flush locks; post-scan folder aggregation; cancellation/failure session states |
 | `FileTypeCategorizor.cs` | static extension-to-`FileTypeCategory` map; spelling in code is `Categorizor` |
-| `FolderSizeAggregator.cs` | bottom-up total propagation; duplicate paths throw due `ToDictionary` |
-| `ScanScopeResolver.cs` | builds exclusions from defaults, system folders when `SkipSystemFolders`, and custom settings; returns empty for deep scan |
+| `FolderSizeAggregator.cs` | bottom-up total propagation; normalizes, folds duplicate/mixed-case paths, handles drive roots and malformed paths defensively |
+| `ScanOptionValidator.cs` | validates root existence, canonicalizes paths, clamps scan parallelism/batch sizes, and provides boundary-safe exclusion matching |
+| `ScanScopeResolver.cs` | builds normalized exclusions from defaults, system folders when `SkipSystemFolders`, and custom settings; returns empty for deep scan |
 
 ## `StorageMaster.Core/Cleanup`
 
@@ -134,8 +137,9 @@ Cleanup rules and IDs:
 | File | Purpose |
 |---|---|
 | `StorageDbContext.cs` | single SQLite connection, WAL PRAGMAs, migration lock, write lock, atomic version stamping |
-| `Schema/DatabaseSchema.cs` | schema version 5 DDL/migrations |
-| `Repositories/ScanRepository.cs` | session/file/folder queries, paged results, folder tree, deletion/stale marking |
+| `Schema/DatabaseSchema.cs` | schema version 6 DDL/migrations |
+| `Repositories/ScanRepository.cs` | session/file/folder queries, normalized file path upsert, paged results, folder tree, deletion/stale marking |
+| `Repositories/SpaceMapRepository.cs` | Space Map direct children, largest files under folder, comparable sessions, delta insights |
 | `ScanErrorRepository.cs` | scan error logging/paging/count |
 | `CleanupLogRepository.cs` | audit log |
 | `SettingsRepository.cs` | JSON settings load/save plus current snapshot |
@@ -145,8 +149,8 @@ Cleanup rules and IDs:
 
 | File | Purpose |
 |---|---|
-| `FileDeleter.cs` | dry-run, Recycle Bin batch via `IFileOperation`, permanent delete, quarantine, DNS flush, Recycle Bin empty |
-| `TurboFileScanner.cs` | hidden Rust process host, JSONL parse, fallback to managed scanner |
+| `FileDeleter.cs` | dry-run, Recycle Bin batch via `IFileOperation`, read-only permanent delete, file quarantine only, bounded size estimate, DNS flush, Recycle Bin empty |
+| `TurboFileScanner.cs` | hidden Rust process host, shared scan option validation, JSONL parse, stderr scan errors, fallback to managed scanner |
 | `DriveInfoProvider.cs` | fixed/network/removable drive data |
 | `RecycleBinInfoProvider.cs` | `SHQueryRecycleBin` wrapper |
 | `AdminService.cs` | admin check and `runas` restart with optional `--deep-scan`, then `Environment.Exit(0)` |
@@ -164,21 +168,22 @@ Cleanup rules and IDs:
 |---|---|
 | Startup/DI | `Program.cs`, `App.xaml(.cs)`, `ServiceBootstrapper.cs`, `MainWindow.xaml(.cs)` |
 | Infrastructure | `CommandRunner`, `NavigationService`, `NavigationRoutes`, `DialogService`, `DesktopNotificationService`, `DuplicatePreviewService`, `ScheduledTaskService`, `StartupRegistrationService`, `LocalDiagnosticsService` |
-| Pages/ViewModels | Dashboard, Scan, Results, Duplicates, Cleanup, SmartCleaner, Settings |
+| Pages/ViewModels | Dashboard, Scan, Results, Duplicates, Cleanup, SmartCleaner, SpaceMap, Settings |
 | Converters | `BoolNegation`, `BoolToChevron`, `BoolToVisibility`, `ByteSize`, `FilePathToBitmapImage` |
 
-Navigation tags: `Dashboard`, `Scan`, `Results`, `Duplicates`, `Cleanup`, `SmartCleaner`, `Settings`.
+Navigation tags: `Dashboard`, `Scan`, `Results`, `Duplicates`, `Cleanup`, `SmartCleaner`, `SpaceMap`, `Settings`.
 
 ## UI ViewModel command map
 
 | VM | Commands |
 |---|---|
-| `DashboardViewModel` | go to Scan/Results/Duplicates/Cleanup/SmartCleaner/Settings, scan drive |
+| `DashboardViewModel` | go to Scan/Results/Duplicates/Cleanup/SmartCleaner/SpaceMap/Settings, scan drive |
 | `ScanViewModel` | request elevation, start/cancel scan, view results |
 | `ResultsViewModel` | clear/apply/category filters, sort files/folders, load more files/folders/errors, delete file, delete session |
 | `CleanupViewModel` | analyze, execute cleanup |
 | `DuplicatesViewModel` | run/cancel analysis, page groups/errors, export CSV/JSON/HTML, keeper shortcuts, select/deselect current page, delete selected, restore quarantine, cancel export, open export folder |
 | `SettingsViewModel` | remove excluded path, save/reset, purge old history, export diagnostics, refresh/new/save/delete scheduled job, cancel download |
+| `SpaceMapViewModel` | load sessions, drill folders, filter nodes, export CSV/HTML/PNG, reveal/copy paths, route to cleanup/duplicates/results |
 | `SmartCleanerViewModel` | analyze, clean |
 
 ## `turbo-scanner`

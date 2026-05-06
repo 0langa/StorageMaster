@@ -1,6 +1,6 @@
 # StorageMaster Roadmap
 
-Current deployed repository state: v1.8.0 on 2026-05-06. This roadmap replaces older v1.3-v1.8 planning text with the actual shipped state.
+Current repository state: v1.9.0 on 2026-05-06. This roadmap replaces older speculative planning text with the actual shipped state.
 
 ## Shipped baseline
 
@@ -14,12 +14,13 @@ Current deployed repository state: v1.8.0 on 2026-05-06. This roadmap replaces o
 | 1.7.2 | fixed updater Download & Install button state |
 | 1.7.4 | Results hardening: paged scan errors, lazy folder tree, cached repeat navigation, duplicate filter/export/previews hardening, dashboard/cleanup layout refresh, settings toast cancellation |
 | 1.8.0 | Settings redesign into category-tile hub with modal overlays, accessibility annotations, UI preferences layer, shared styles |
+| 1.9.0 | Space Map native treemap, Scan Delta Insights, scanner validation/exclusion hardening, schema v6 normalized path integrity, folder aggregation hardening, deletion safety fixes |
 
 ## Current feature inventory
 
-Present: WinUI shell; Dashboard/Scan/Results/Duplicates/Cleanup/Smart Cleaner/Settings pages; managed scanner; Turbo scanner host; SQLite schema v5; 17 cleanup rules; Recycle Bin/permanent/quarantine deletion paths; Smart Cleaner; dedupe strategies exact/text/image/video; preview/export/restore UX; CLI/headless commands; tray; low-disk monitor; scheduled jobs via `schtasks.exe`; GitHub release updater; optional signing in release workflow; 113 tests.
+Present: WinUI shell; Dashboard/Scan/Results/Duplicates/Cleanup/Smart Cleaner/Space Map/Settings pages; managed scanner; Turbo scanner host; SQLite schema v6; 17 cleanup rules; Recycle Bin/permanent/delete and file quarantine deletion paths; Smart Cleaner; dedupe strategies exact/text/image/video; preview/export/restore UX; CLI/headless commands; tray; low-disk monitor; scheduled jobs via `schtasks.exe`; GitHub release updater; optional signing in release workflow; 136+ tests.
 
-Not present: treemap/sunburst visualization, WebView2/D3 assets, Serilog rolling logs, ViewModel tests, full accessibility annotations, app-local .NET runtime bootstrapper, dual-arch release assets, complete ARM64 installer flow.
+Not present: WebView2/D3 visualization assets, Serilog rolling logs, broad ViewModel tests, app-local .NET runtime bootstrapper, dual-arch release assets, complete ARM64 installer flow.
 
 ## Next priorities
 
@@ -30,17 +31,15 @@ Not present: treemap/sunburst visualization, WebView2/D3 assets, Serilog rolling
 | 3 | Results/Duplicates/Cleanup performance profiling on million-file sessions | current code has paging/lazy loading but no benchmark suite |
 | 4 | Structured logging + diagnostics package | app uses Debug logger and local diagnostics, not production file logs |
 | 5 | Installer/runtime hardening | per-user install still requests admin; publish is framework-dependent |
-| 6 | Visualization: native charts first, then treemap/sunburst if still needed | currently absent and high effort |
+| 6 | Space Map scale polish: virtualization benchmarks and richer reports | native treemap and PNG screenshot export exist; next work is scale/UX depth |
 | 7 | Test expansion: ViewModels, platform wrappers, CLI, scheduler, updater failure modes | current tests are useful but not UI-heavy |
 
 ## Suggested release plan
 
 | Target | Scope |
 |---|---|
-| 1.8.0 | Settings redesign + accessibility for Settings + UI explanations for every setting/action/category |
-| 1.8.1 | accessibility for remaining pages, Results/Duplicates scale hardening, benchmark project |
-| 1.9.0 | diagnostics/logging, installer/runtime cleanup, optional ARM64 release support |
-| 2.0.0 | visualization, first-run experience, broader export/reporting, polish pass |
+| 1.9.x | accessibility for remaining pages, Results/Duplicates/Space Map scale hardening, benchmark project |
+| 2.0.0 | diagnostics/logging, installer/runtime cleanup, first-run experience, broader export/reporting, optional ARM64 release support |
 
 ## Implementation rules for future agents
 

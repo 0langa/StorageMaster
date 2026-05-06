@@ -66,6 +66,8 @@ public sealed class TurboFileScanner : IFileScanner
         IProgress<ScanProgress> progress,
         CancellationToken cancellationToken = default)
     {
+        options = ScanOptionValidator.NormalizeAndValidate(options);
+
         if (!IsAvailable)
         {
             _logger.LogWarning("turbo-scanner.exe not found at {Path}; falling back to managed scanner",
@@ -92,9 +94,8 @@ public sealed class TurboFileScanner : IFileScanner
         process.Start();
 
         // Pre-compute the exclusion list once so the producer hot-loop does no allocation per record.
-        var sortedExclusions = options.ExcludedPaths
-            .OrderBy(p => p, StringComparer.OrdinalIgnoreCase)
-            .ToArray();
+        var sortedExclusions = options.ExcludedPaths.ToArray();
+        var stderrErrors = new List<ScanError>();
 
         try
         {
@@ -104,7 +105,25 @@ public sealed class TurboFileScanner : IFileScanner
                 try
                 {
                     while (await process.StandardError.ReadLineAsync(CancellationToken.None) is { } line)
+                    {
                         _logger.LogDebug("[turbo-scanner] {Line}", line);
+                        if (line.StartsWith("WARN:", StringComparison.OrdinalIgnoreCase) ||
+                            line.StartsWith("ERROR:", StringComparison.OrdinalIgnoreCase))
+                        {
+                            lock (stderrErrors)
+                            {
+                                stderrErrors.Add(new ScanError
+                                {
+                                    Id = 0,
+                                    SessionId = session.Id,
+                                    Path = options.RootPath,
+                                    ErrorType = "TurboScanner",
+                                    Message = line,
+                                    OccurredAt = DateTime.UtcNow,
+                                });
+                            }
+                        }
+                    }
                 }
                 catch (OperationCanceledException) { /* process killed */ }
                 catch (ObjectDisposedException) { /* process disposed */ }
@@ -180,7 +199,7 @@ public sealed class TurboFileScanner : IFileScanner
                             Id = 0,
                             SessionId = session.Id,
                             FullPath = rec.Path,
-                            FolderName = Path.GetFileName(rec.Path) ?? rec.Path,
+                            FolderName = ScanOptionValidator.GetDisplayName(rec.Path),
                             DirectSizeBytes = 0,
                             TotalSizeBytes = 0,
                             FileCount = 0,
@@ -298,7 +317,12 @@ public sealed class TurboFileScanner : IFileScanner
 
             if (_errorRepo is not null)
             {
-                // No errors list from Rust (errors go to stderr only); nothing to log here.
+                List<ScanError> errors;
+                lock (stderrErrors)
+                    errors = [.. stderrErrors];
+
+                if (errors.Count > 0)
+                    await _errorRepo.LogErrorsAsync(session.Id, errors, CancellationToken.None);
             }
 
             var completed = session with
@@ -317,7 +341,7 @@ public sealed class TurboFileScanner : IFileScanner
                 FilesScanned = fileCount,
                 FoldersScanned = folderCount,
                 BytesScanned = totalBytes,
-                ErrorCount = 0,
+                ErrorCount = stderrErrors.Count,
                 IsComplete = true,
             });
 
@@ -392,7 +416,7 @@ public sealed class TurboFileScanner : IFileScanner
     {
         foreach (var ex in sortedExclusions)
         {
-            if (path.StartsWith(ex, StringComparison.OrdinalIgnoreCase))
+            if (ScanOptionValidator.IsPathEqualOrUnder(path, ex))
                 return true;
         }
         return false;

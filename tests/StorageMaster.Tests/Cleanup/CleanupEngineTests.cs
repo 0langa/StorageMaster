@@ -143,6 +143,44 @@ public sealed class CleanupEngineTests
     }
 
     [Fact]
+    public async Task ExecuteAsync_HighRiskPermanentDelete_IsBlockedByEnginePolicy()
+    {
+        var suggestion = MakeSuggestion("rule.high", "High risk", [@"C:\Temp\danger.tmp"]) with
+        {
+            Risk = CleanupRisk.High,
+        };
+        var engine = BuildEngine([]);
+
+        var results = await engine.ExecuteAsync([suggestion], dryRun: false, DeletionMethod.Permanent);
+
+        results.Should().ContainSingle();
+        results[0].Status.Should().Be(CleanupResultStatus.Failed);
+        results[0].ErrorMessage.Should().Contain("High-risk");
+        _deleter.Verify(d => d.DeleteManyAsync(
+            It.IsAny<IReadOnlyList<DeletionRequest>>(),
+            It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_UnsupportedQuarantine_IsBlockedByEnginePolicy()
+    {
+        var suggestion = MakeSuggestion("rule.no-quarantine", "No quarantine", [@"C:\Temp\file.tmp"]) with
+        {
+            SupportsQuarantine = false,
+        };
+        var engine = BuildEngine([]);
+
+        var results = await engine.ExecuteAsync([suggestion], dryRun: false, DeletionMethod.Quarantine);
+
+        results.Should().ContainSingle();
+        results[0].Status.Should().Be(CleanupResultStatus.Failed);
+        results[0].ErrorMessage.Should().Contain("does not support quarantine");
+        _deleter.Verify(d => d.DeleteManyAsync(
+            It.IsAny<IReadOnlyList<DeletionRequest>>(),
+            It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
     public async Task ExecuteAsync_LogsEachResultToAuditLog()
     {
         SetupDeleterSuccess();

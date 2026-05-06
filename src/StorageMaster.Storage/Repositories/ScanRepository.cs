@@ -1,6 +1,7 @@
 using Microsoft.Data.Sqlite;
 using StorageMaster.Core.Interfaces;
 using StorageMaster.Core.Models;
+using StorageMaster.Core.Scanner;
 
 namespace StorageMaster.Storage.Repositories;
 
@@ -121,10 +122,22 @@ public sealed class ScanRepository : IScanRepository
             cmd.CommandText = """
                 INSERT INTO FileEntries
                     (SessionId, FullPath, FileName, Extension, SizeBytes,
-                     CreatedUtc, ModifiedUtc, AccessedUtc, Attributes, Category, IsReparsePoint)
+                     CreatedUtc, ModifiedUtc, AccessedUtc, Attributes, Category, IsReparsePoint,
+                     NormalizedFullPath)
                 VALUES
                     ($sid, $path, $name, $ext, $size,
-                     $created, $modified, $accessed, $attrs, $cat, $reparse);
+                     $created, $modified, $accessed, $attrs, $cat, $reparse,
+                     $normalized)
+                ON CONFLICT(SessionId, NormalizedFullPath) DO UPDATE SET
+                    FileName       = excluded.FileName,
+                    Extension      = excluded.Extension,
+                    SizeBytes      = excluded.SizeBytes,
+                    CreatedUtc     = excluded.CreatedUtc,
+                    ModifiedUtc    = excluded.ModifiedUtc,
+                    AccessedUtc    = excluded.AccessedUtc,
+                    Attributes     = excluded.Attributes,
+                    Category       = excluded.Category,
+                    IsReparsePoint = excluded.IsReparsePoint;
                 """;
 
             var pSid = cmd.Parameters.Add("$sid", SqliteType.Integer);
@@ -138,6 +151,7 @@ public sealed class ScanRepository : IScanRepository
             var pAttrs = cmd.Parameters.Add("$attrs", SqliteType.Integer);
             var pCat = cmd.Parameters.Add("$cat", SqliteType.Text);
             var pReparse = cmd.Parameters.Add("$reparse", SqliteType.Integer);
+            var pNormalized = cmd.Parameters.Add("$normalized", SqliteType.Text);
 
             foreach (var e in entries)
             {
@@ -152,6 +166,7 @@ public sealed class ScanRepository : IScanRepository
                 pAttrs.Value = (int)e.Attributes;
                 pCat.Value = e.Category.ToString();
                 pReparse.Value = e.IsReparsePoint ? 1 : 0;
+                pNormalized.Value = NormalizeForStorage(e.FullPath);
                 await cmd.ExecuteNonQueryAsync(ct);
             }
 
@@ -182,14 +197,20 @@ public sealed class ScanRepository : IScanRepository
             cmd.CommandText = """
                 INSERT INTO FolderEntries
                     (SessionId, FullPath, FolderName, DirectSizeBytes, TotalSizeBytes,
-                     FileCount, SubFolderCount, IsReparsePoint, WasAccessDenied)
+                     FileCount, SubFolderCount, IsReparsePoint, WasAccessDenied,
+                     NormalizedFullPath)
                 VALUES
                     ($sid, $path, $name, $direct, $total,
-                     $files, $subs, $reparse, $denied)
+                     $files, $subs, $reparse, $denied,
+                     $normalized)
                 ON CONFLICT(SessionId, FullPath) DO UPDATE SET
                     DirectSizeBytes = DirectSizeBytes + excluded.DirectSizeBytes,
                     TotalSizeBytes  = TotalSizeBytes  + excluded.TotalSizeBytes,
-                    FileCount       = FileCount       + excluded.FileCount;
+                    FileCount       = FileCount       + excluded.FileCount,
+                    SubFolderCount  = excluded.SubFolderCount,
+                    IsReparsePoint  = excluded.IsReparsePoint,
+                    WasAccessDenied = WasAccessDenied OR excluded.WasAccessDenied,
+                    NormalizedFullPath = excluded.NormalizedFullPath;
                 """;
 
             var pSid = cmd.Parameters.Add("$sid", SqliteType.Integer);
@@ -201,6 +222,7 @@ public sealed class ScanRepository : IScanRepository
             var pSubs = cmd.Parameters.Add("$subs", SqliteType.Integer);
             var pReparse = cmd.Parameters.Add("$reparse", SqliteType.Integer);
             var pDenied = cmd.Parameters.Add("$denied", SqliteType.Integer);
+            var pNormalized = cmd.Parameters.Add("$normalized", SqliteType.Text);
 
             foreach (var e in entries)
             {
@@ -213,6 +235,7 @@ public sealed class ScanRepository : IScanRepository
                 pSubs.Value = e.SubFolderCount;
                 pReparse.Value = e.IsReparsePoint ? 1 : 0;
                 pDenied.Value = e.WasAccessDenied ? 1 : 0;
+                pNormalized.Value = NormalizeForStorage(e.FullPath);
                 await cmd.ExecuteNonQueryAsync(ct);
             }
 
@@ -405,6 +428,10 @@ public sealed class ScanRepository : IScanRepository
             cmd.CommandText = "DELETE FROM ScanSessions WHERE Id = $id;";
             cmd.Parameters.AddWithValue("$id", sessionId);
             await cmd.ExecuteNonQueryAsync(ct);
+
+            using var optimize = conn.CreateCommand();
+            optimize.CommandText = "PRAGMA optimize;";
+            await optimize.ExecuteNonQueryAsync(ct);
         }
         finally
         {
@@ -607,7 +634,9 @@ public sealed class ScanRepository : IScanRepository
         StartedUtc = DateTime.Parse(r.GetString(r.GetOrdinal("StartedUtc"))),
         CompletedUtc = r.IsDBNull(r.GetOrdinal("CompletedUtc")) ? null
                             : DateTime.Parse(r.GetString(r.GetOrdinal("CompletedUtc"))),
-        Status = Enum.Parse<ScanStatus>(r.GetString(r.GetOrdinal("Status"))),
+        Status = Enum.TryParse<ScanStatus>(r.GetString(r.GetOrdinal("Status")), ignoreCase: true, out var status)
+            ? status
+            : ScanStatus.Failed,
         TotalSizeBytes = r.GetInt64(r.GetOrdinal("TotalSizeBytes")),
         TotalFiles = r.GetInt64(r.GetOrdinal("TotalFiles")),
         TotalFolders = r.GetInt64(r.GetOrdinal("TotalFolders")),
@@ -646,4 +675,16 @@ public sealed class ScanRepository : IScanRepository
         IsReparsePoint = r.GetInt32(r.GetOrdinal("IsReparsePoint")) == 1,
         WasAccessDenied = r.GetInt32(r.GetOrdinal("WasAccessDenied")) == 1,
     };
+
+    private static string NormalizeForStorage(string path)
+    {
+        try
+        {
+            return ScanOptionValidator.NormalizePathForStorage(path);
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            return path.Trim().ToUpperInvariant();
+        }
+    }
 }

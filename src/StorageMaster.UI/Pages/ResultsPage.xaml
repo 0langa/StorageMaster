@@ -1,6 +1,7 @@
 <Page
     x:Class="StorageMaster.UI.Pages.ResultsPage"
     x:Name="PageRoot"
+    AutomationProperties.Name="Results page"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:converters="using:StorageMaster.UI.Converters"

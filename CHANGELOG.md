@@ -4,6 +4,23 @@ All notable changes to StorageMaster are documented here.
 
 ---
 
+## [1.9.0] — 2026-05-06 — Space Map, Delta Insights, And Hardening
+
+- Added **Space Map**, a new WinUI page with an interactive treemap for completed scans, folder drill-down, breadcrumb context, file/folder filtering, minimum-size filtering, selection details, Explorer/copy actions, and CSV/HTML/PNG export.
+- Added **Scan Delta Insights** to compare a completed scan with the previous completed scan of the same root, surfacing growing folders, new large files, and removed files.
+- Added `ISpaceMapRepository`, `SpaceMapRepository`, treemap layout models, and core layout tests so the visualization queries scan data by selected folder instead of loading the entire scan into memory.
+- Added SQLite schema v6 with normalized path columns/indexes, duplicate file path upsert protection per scan session, tolerant scan status parsing, and `PRAGMA optimize` after session deletes.
+- Hardened scanner option validation: root existence checks, canonical root paths, parallelism and DB batch clamping, environment-aware default Windows exclusions, and boundary-safe exclusion matching.
+- Hardened folder aggregation to tolerate duplicate and mixed-case Windows paths, drive roots, malformed paths, and missing parents.
+- Hardened Turbo Scanner option parity for normalized options, boundary-safe exclusions, and persisted stderr warning/error records as scan errors.
+- Hardened deletion behavior: bounded cancellable size estimation, read-only permanent delete handling, shell Recycle Bin HRESULT propagation, disposed parallel delete semaphore, and explicit directory-quarantine rejection.
+- Added cleanup policy metadata on suggestions and engine-level blocking for high-risk permanent delete and unsupported quarantine modes.
+- Upgraded the UI to Windows App SDK `1.8.260416003`, switched release builds to app-local Windows App SDK deployment, and changed the Inno installer to per-user privilege mode.
+- Packaging now includes `turbo-scanner.exe` and copies `ffmpeg.exe`/`ffprobe.exe` from `installer\ffmpeg` or a shared PATH folder when available.
+- Wired duplicate review defaults and video frame-count settings into runtime behavior, and changed duplicate JSON/HTML exports to stream pages instead of materializing all groups.
+- Centralized product version metadata in `Directory.Build.props` and updated app, installer, manifest, Rust crate, docs, and release references to `1.9.0`.
+- Expanded automated tests from 113 to 136 tests covering scanner validation, hidden handling, exclusion boundaries, schema v6, normalized duplicate paths, Space Map/delta repository logic, treemap layout, and deletion hardening.
+
 ## [1.8.0] — 2026-05-06 — Settings Redesign And Accessibility
 
 - Redesigned Settings page into a category-tile hub with 9 categories: General & Appearance, Scanning & Performance, Cleanup & Safety, Duplicates & Matching, Results & History, Scheduling & Automation, Background/Tray & Notifications, Updates & Security, Advanced Diagnostics & About.

@@ -1,6 +1,6 @@
 # StorageMaster    [![Release](https://github.com/0langa/StorageMaster/actions/workflows/release.yml/badge.svg?event=release)](https://github.com/0langa/StorageMaster/actions/workflows/release.yml)
 
-> **Current version:** 1.7.4 — Windows disk analyzer, junk cleaner, and storage health tool.
+> **Current version:** 1.9.0 — Windows disk analyzer, junk cleaner, visual space map, and storage health tool.
 
 A Windows disk analyzer and storage cleaner built with **C# / .NET 8 / WinUI 3**, with an optional native Rust scan engine for maximum throughput on multi-core systems.
 
@@ -22,6 +22,8 @@ A Windows disk analyzer and storage cleaner built with **C# / .NET 8 / WinUI 3**
 | **Duplicate analysis** | Pluggable dedupe engine with exact SHA-256, normalized-text review, image pHash, optional video pHash (auto-detects bundled or PATH FFmpeg), quarantine/recycle deletion, and audit trail |
 | **Duplicate previews** | Inline previews for image and video groups; first-difference highlight for text duplicates |
 | **Results visualization** | Largest files, largest folders, file-type breakdown, error log, category filters, and paged loading |
+| **Visual Space Map** | Interactive treemap for completed scans, with folder drill-down, category colors, size filters, CSV/HTML/PNG export, and safe review-only actions |
+| **Scan Delta Insights** | Compare a scan to the previous scan of the same root to find growing folders, new large files, and removed files |
 | **Folder size aggregation** | Bottom-up propagation gives accurate folder totals |
 | **CLI / headless mode** | Full-featured command-line interface for scripting and automation |
 | **System tray** | Minimize to tray; tray menu for common actions; balloon notifications |
@@ -64,6 +66,7 @@ StorageMaster/
 | **Cleanup** | Session-based cleanup with per-category toggles and dry-run |
 | **Duplicates** | Scope by folders/categories/extensions, run exact or fuzzy methods, review previews, delete/quarantine selected copies, restore quarantined files |
 | **Smart Cleaner** | Direct one-click scan → review → clean, no session needed |
+| **Space Map** | Interactive treemap and scan delta comparison for completed scans |
 | **Settings** | All user preferences, scanner options, cleanup thresholds, scheduler, tray, and app update controls |
 
 ---
@@ -119,17 +122,10 @@ dotnet test tests/StorageMaster.Tests/StorageMaster.Tests.csproj
 
 ### WinUI desktop application
 
-Build the UI project with MSBuild (plain `dotnet build` does not drive the XAML compiler for WinUI 3):
+Build the UI project with `dotnet build`; `Directory.Build.targets` enables the executable WinUI XAML compiler path used by CI:
 
 ```powershell
-$msbuild = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" `
-  -latest -products * -requires Microsoft.Component.MSBuild `
-  -find "MSBuild\**\Bin\MSBuild.exe" | Select-Object -First 1
-
-& $msbuild src\StorageMaster.UI\StorageMaster.UI.csproj `
-  /t:Clean,Build /restore `
-  /p:Configuration=Release /p:Platform=x64 /p:RuntimeIdentifier=win-x64 `
-  /m:1 /nr:false
+dotnet build StorageMaster.sln -c Release
 ```
 
 ### Build the Turbo Scanner (Rust)
@@ -153,10 +149,10 @@ Copy-Item turbo-scanner\target\x86_64-pc-windows-msvc\release\turbo-scanner.exe 
 
 # 3. Build the installer
 iscc installer\StorageMaster.iss
-# Output: artifacts/installer/StorageMaster-1.7.4-win-x64-Setup.exe
+# Output: artifacts/installer/StorageMaster-1.9.0-win-x64-Setup.exe
 ```
 
-Optional: place `ffmpeg.exe` and `ffprobe.exe` in `installer\ffmpeg\` before packaging. Release builds copy them into `tools\ffmpeg\` beside the app so video pHash works out of the box.
+Optional: place `ffmpeg.exe` and `ffprobe.exe` in `installer\ffmpeg\` before packaging. If that folder is absent, release builds also look for both tools together on PATH and copy them into `tools\ffmpeg\` beside the app so video pHash works out of the box.
 
 The automated release pipeline (`release.yml`) runs all three steps on every `v*.*.*` git tag and attaches the installer to a GitHub Release.
 

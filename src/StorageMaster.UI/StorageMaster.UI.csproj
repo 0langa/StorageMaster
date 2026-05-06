@@ -15,19 +15,13 @@
     <Platforms>x86;x64;arm64</Platforms>
     <RuntimeIdentifiers>win-x86;win-x64;win-arm64</RuntimeIdentifiers>
     <DefineConstants>$(DefineConstants);DISABLE_XAML_GENERATED_MAIN</DefineConstants>
-    <!-- Version -->
-    <Version>1.8.0</Version>
-    <AssemblyVersion>1.8.0.0</AssemblyVersion>
-    <FileVersion>1.8.0.0</FileVersion>
-    <Company>StorageMaster</Company>
-    <Product>StorageMaster</Product>
-    <Copyright>Copyright © 2025</Copyright>
+    <!-- Version comes from Directory.Build.props. -->
     <!-- Unpackaged deployment — no MSIX required -->
     <WindowsPackageType>None</WindowsPackageType>
     <!-- Avoid legacy Appx/MRT packaging tasks that are not needed for an unpackaged desktop build. -->
     <EnableCoreMrtTooling>false</EnableCoreMrtTooling>
-    <!-- Use the supported framework-dependent desktop flow and install the Windows App SDK runtime via setup. -->
-    <WindowsAppSDKSelfContained>false</WindowsAppSDKSelfContained>
+    <!-- Ship Windows App SDK 1.8 files with the app so the per-user installer does not need elevation. -->
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
     <SelfContained>false</SelfContained>
   </PropertyGroup>
 
@@ -46,8 +40,8 @@
 
   <ItemGroup>
     <!-- Windows App SDK — includes WinUI 3 and the XAML compiler targets -->
-    <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.6.250205002" />
-    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.1742" />
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.260416003" />
+    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.28000.1839" />
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.0" />
     <PackageReference Include="H.NotifyIcon.WinUI" Version="2.3.1" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.0" />

@@ -1,4 +1,5 @@
 using FluentAssertions;
+using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging.Abstractions;
 using StorageMaster.Core.Models;
 using StorageMaster.Storage;
@@ -58,6 +59,57 @@ public sealed class ScanRepositoryTests : IAsyncDisposable
         results[0].FileName.Should().Be("large.iso");
         results[0].SizeBytes.Should().Be(4_000_000_000L);
         results[0].Category.Should().Be(FileTypeCategory.Archive);
+    }
+
+    [Fact]
+    public async Task SchemaVersion_IsCurrentV6()
+    {
+        var conn = await _ctx.GetConnectionAsync();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT MAX(Version) FROM SchemaVersion;";
+
+        var version = Convert.ToInt32(await cmd.ExecuteScalarAsync());
+
+        version.Should().Be(6);
+    }
+
+    [Fact]
+    public async Task InsertFileEntries_DuplicateNormalizedPath_UpsertsSingleRow()
+    {
+        var session = await _repo.CreateSessionAsync(@"C:\");
+        var first = MakeEntry(session.Id, ".txt", FileTypeCategory.Document, 100) with
+        {
+            FullPath = @"C:\Temp\Report.txt",
+            FileName = "Report.txt",
+        };
+        var second = first with
+        {
+            FullPath = @"c:\temp\REPORT.txt",
+            FileName = "REPORT.txt",
+            SizeBytes = 250,
+        };
+
+        await _repo.InsertFileEntriesAsync([first, second]);
+
+        var results = await _repo.GetLargestFilesAsync(session.Id, topN: 10);
+        results.Should().ContainSingle();
+        results[0].SizeBytes.Should().Be(250);
+    }
+
+    [Fact]
+    public async Task GetSession_CorruptFutureStatus_IsTolerant()
+    {
+        var session = await _repo.CreateSessionAsync(@"C:\");
+        var conn = await _ctx.GetConnectionAsync();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "UPDATE ScanSessions SET Status = 'FutureStatus' WHERE Id = $id;";
+        cmd.Parameters.AddWithValue("$id", session.Id);
+        await cmd.ExecuteNonQueryAsync();
+
+        var loaded = await _repo.GetSessionAsync(session.Id);
+
+        loaded.Should().NotBeNull();
+        loaded!.Status.Should().Be(ScanStatus.Failed);
     }
 
     [Fact]

@@ -160,6 +160,50 @@ public sealed class FolderSizeAggregatorTests
         result[@"D:\isolated"].Should().Be(42_000);
     }
 
+    [Fact]
+    public void Compute_DuplicatePaths_AggregatesInsteadOfThrowing()
+    {
+        var folders = new[]
+        {
+            MakeFolder(@"C:\Root", 10),
+            MakeFolder(@"C:\Root", 15),
+            MakeFolder(@"C:\Root\Child", 25),
+        };
+
+        var result = FolderSizeAggregator.Compute(folders);
+
+        result[@"C:\Root"].Should().Be(50);
+    }
+
+    [Fact]
+    public void Compute_MixedCasePaths_AggregatesWithWindowsComparer()
+    {
+        var folders = new[]
+        {
+            MakeFolder(@"C:\Root", 10),
+            MakeFolder(@"c:\root", 15),
+            MakeFolder(@"C:\Root\Child", 25),
+        };
+
+        var result = FolderSizeAggregator.Compute(folders);
+
+        result[@"C:\Root"].Should().Be(50);
+    }
+
+    [Fact]
+    public void Compute_DriveRoot_ReceivesDirectChildTotal()
+    {
+        var folders = new[]
+        {
+            MakeFolder(@"C:\", 10),
+            MakeFolder(@"C:\Child", 25),
+        };
+
+        var result = FolderSizeAggregator.Compute(folders);
+
+        result[@"C:\"].Should().Be(35);
+    }
+
     private static FolderEntry MakeFolder(string path, long directBytes) => new()
     {
         Id = 0,

@@ -43,10 +43,11 @@ public sealed class FileDeleter : IFileDeleter
         CancellationToken cancellationToken = default)
     {
         await Task.Yield();
+        cancellationToken.ThrowIfCancellationRequested();
 
         if (request.DryRun)
         {
-            long est = EstimateSize(request.Path);
+            long est = EstimateSize(request.Path, cancellationToken);
             _logger.LogInformation("[DryRun] Would delete {Path} (~{Size} B)", request.Path, est);
             return new DeletionOutcome(request.Path, true, est);
         }
@@ -59,10 +60,10 @@ public sealed class FileDeleter : IFileDeleter
 
         try
         {
-            long size = EstimateSize(request.Path);
+            long size = EstimateSize(request.Path, cancellationToken);
 
             if (request.Method == DeletionMethod.Quarantine)
-                return await QuarantineAsync(request, size);
+                return await QuarantineAsync(request, size, cancellationToken);
 
             if (request.Method == DeletionMethod.RecycleBin)
                 RecyclePathsViaIFileOperation([request.Path]);
@@ -70,6 +71,10 @@ public sealed class FileDeleter : IFileDeleter
                 DeletePermanently(request.Path);
             _logger.LogInformation("Deleted {Path} ({Size} B)", request.Path, size);
             return new DeletionOutcome(request.Path, true, size);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
         }
         catch (Exception ex)
         {
@@ -115,7 +120,7 @@ public sealed class FileDeleter : IFileDeleter
         // Measure sizes before deletion (best-effort, parallel for speed)
         var sizes = await Task.Run(() =>
             requests.AsParallel().AsOrdered()
-                    .Select(r => EstimateSize(r.Path))
+                    .Select(r => EstimateSize(r.Path, cancellationToken))
                     .ToList(), cancellationToken);
 
         var paths = requests.Select(r => r.Path).ToList();
@@ -149,7 +154,7 @@ public sealed class FileDeleter : IFileDeleter
         IReadOnlyList<DeletionRequest> requests,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
-        var semaphore = new SemaphoreSlim(MaxConcurrency);
+        using var semaphore = new SemaphoreSlim(MaxConcurrency);
         var channel = System.Threading.Channels.Channel.CreateUnbounded<DeletionOutcome>();
 
         var producer = Task.Run(async () =>
@@ -243,6 +248,7 @@ public sealed class FileDeleter : IFileDeleter
         }
         else
         {
+            ClearReadOnly(path);
             File.Delete(path);
         }
     }
@@ -262,9 +268,27 @@ public sealed class FileDeleter : IFileDeleter
         }
 
         foreach (var file in Directory.EnumerateFiles(dir))
+        {
+            ClearReadOnly(file);
             File.Delete(file);
+        }
 
+        ClearReadOnly(dir);
         Directory.Delete(dir, recursive: false);
+    }
+
+    private static void ClearReadOnly(string path)
+    {
+        try
+        {
+            var attrs = File.GetAttributes(path);
+            if ((attrs & FileAttributes.ReadOnly) != 0)
+                File.SetAttributes(path, attrs & ~FileAttributes.ReadOnly);
+        }
+        catch
+        {
+            // Best-effort. The subsequent delete will return the actionable error.
+        }
     }
 
     private static bool IsReparsePoint(string path)
@@ -282,8 +306,18 @@ public sealed class FileDeleter : IFileDeleter
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "StorageMaster", "Quarantine");
 
-    private async Task<DeletionOutcome> QuarantineAsync(DeletionRequest request, long size)
+    private async Task<DeletionOutcome> QuarantineAsync(
+        DeletionRequest request,
+        long size,
+        CancellationToken cancellationToken)
     {
+        if (Directory.Exists(request.Path))
+        {
+            const string message = "Directory quarantine is not supported; route folders through cleanup review or use Recycle Bin.";
+            _logger.LogWarning("Blocked directory quarantine for {Path}", request.Path);
+            return new DeletionOutcome(request.Path, false, 0, message);
+        }
+
         var runId = request.QuarantineRunId ?? 0;
         var relative = MakeRelativeQuarantinePath(request.Path);
         var destination = Path.Combine(QuarantineRoot, runId.ToString(), relative);
@@ -299,9 +333,14 @@ public sealed class FileDeleter : IFileDeleter
                 dest = destination + $".{counter++}";
 
             await Task.Yield();
+            cancellationToken.ThrowIfCancellationRequested();
             File.Move(request.Path, dest);
             _logger.LogInformation("Quarantined {Source} → {Dest}", request.Path, dest);
             return new DeletionOutcome(request.Path, true, size, QuarantinePath: dest);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
         }
         catch (Exception ex)
         {
@@ -349,15 +388,20 @@ public sealed class FileDeleter : IFileDeleter
             {
                 cbSize = Marshal.SizeOf<Shell32Interop.SHQUERYRBINFO>()
             };
-            Shell32Interop.SHQueryRecycleBin(null, ref query);
+            var queryHr = Shell32Interop.SHQueryRecycleBin(null, ref query);
+            if (queryHr < 0)
+                Marshal.ThrowExceptionForHR(queryHr);
             long freed = query.i64Size;
 
             // NoProgressUI intentionally omitted — showing the shell's progress
             // dialog avoids the AV heuristic pattern of silent Recycle Bin emptying.
-            Shell32Interop.SHEmptyRecycleBin(
+            var emptyHr = Shell32Interop.SHEmptyRecycleBin(
                 IntPtr.Zero, null,
                 Shell32Interop.EmptyRecycleBinFlags.NoConfirmation |
                 Shell32Interop.EmptyRecycleBinFlags.NoSound);
+            var signedHr = unchecked((int)emptyHr);
+            if (signedHr < 0)
+                Marshal.ThrowExceptionForHR(signedHr);
 
             _logger.LogInformation("Recycle Bin emptied. Freed {Size} B", freed);
             return new DeletionOutcome("::RecycleBin::", true, freed);
@@ -369,15 +413,79 @@ public sealed class FileDeleter : IFileDeleter
         }
     }
 
-    private static long EstimateSize(string path)
+    internal static long EstimateSize(string path, CancellationToken cancellationToken = default)
     {
+        const int maxEntries = 100_000;
+        var visited = 0;
+        long total = 0;
+
         try
         {
-            if (File.Exists(path)) return new FileInfo(path).Length;
-            if (Directory.Exists(path)) return new DirectoryInfo(path)
-                .EnumerateFiles("*", SearchOption.AllDirectories).Sum(f => f.Length);
+            cancellationToken.ThrowIfCancellationRequested();
+
+            if (File.Exists(path))
+                return new FileInfo(path).Length;
+
+            if (!Directory.Exists(path))
+                return 0;
+
+            var stack = new Stack<string>();
+            stack.Push(path);
+
+            while (stack.Count > 0 && visited < maxEntries)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var dir = stack.Pop();
+                if (IsReparsePoint(dir))
+                    continue;
+
+                IEnumerable<string> files;
+                try
+                {
+                    files = Directory.EnumerateFiles(dir);
+                }
+                catch
+                {
+                    continue;
+                }
+
+                foreach (var file in files)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    if (visited++ >= maxEntries)
+                        return total;
+                    if (IsReparsePoint(file))
+                        continue;
+                    try { total += new FileInfo(file).Length; }
+                    catch { /* best-effort */ }
+                }
+
+                IEnumerable<string> dirs;
+                try
+                {
+                    dirs = Directory.EnumerateDirectories(dir);
+                }
+                catch
+                {
+                    continue;
+                }
+
+                foreach (var subDir in dirs)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    if (visited++ >= maxEntries)
+                        return total;
+                    if (!IsReparsePoint(subDir))
+                        stack.Push(subDir);
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
         }
         catch { /* best-effort */ }
-        return 0;
+
+        return total;
     }
 }

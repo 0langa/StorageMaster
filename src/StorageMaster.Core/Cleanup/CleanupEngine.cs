@@ -78,6 +78,24 @@ public sealed class CleanupEngine : ICleanupEngine
         DeletionMethod deletionMethod,
         CancellationToken ct)
     {
+        if (!dryRun)
+        {
+            var policyFailure = ValidateDeletionPolicy(suggestion, deletionMethod);
+            if (policyFailure is not null)
+            {
+                return new CleanupResult
+                {
+                    SuggestionId = suggestion.Id,
+                    Status = CleanupResultStatus.Failed,
+                    BytesFreed = 0,
+                    ExecutedUtc = DateTime.UtcNow,
+                    WasDryRun = false,
+                    FailedPaths = suggestion.TargetPaths,
+                    ErrorMessage = policyFailure,
+                };
+            }
+        }
+
         long totalFreed = 0;
         var failedPaths = new List<string>();
         string? firstError = null;
@@ -119,5 +137,22 @@ public sealed class CleanupEngine : ICleanupEngine
             FailedPaths = failedPaths,
             ErrorMessage = firstError,
         };
+    }
+
+    private static string? ValidateDeletionPolicy(CleanupSuggestion suggestion, DeletionMethod deletionMethod)
+    {
+        if (deletionMethod == DeletionMethod.Permanent &&
+            suggestion.Risk == CleanupRisk.High)
+        {
+            return "High-risk cleanup suggestion cannot be permanent-deleted from the generic cleanup engine. Use Recycle Bin or dry run.";
+        }
+
+        if (deletionMethod == DeletionMethod.Permanent && !suggestion.SupportsPermanentDelete)
+            return "Cleanup suggestion does not support permanent delete.";
+
+        if (deletionMethod == DeletionMethod.Quarantine && !suggestion.SupportsQuarantine)
+            return "Cleanup suggestion does not support quarantine.";
+
+        return null;
     }
 }

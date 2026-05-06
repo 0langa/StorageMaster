@@ -1,0 +1,12 @@
+<Project>
+  <PropertyGroup>
+    <StorageMasterVersion>1.9.0</StorageMasterVersion>
+    <Version>$(StorageMasterVersion)</Version>
+    <AssemblyVersion>$(StorageMasterVersion).0</AssemblyVersion>
+    <FileVersion>$(StorageMasterVersion).0</FileVersion>
+    <InformationalVersion>$(StorageMasterVersion)</InformationalVersion>
+    <Company>StorageMaster</Company>
+    <Product>StorageMaster</Product>
+    <Copyright>Copyright © 2026</Copyright>
+  </PropertyGroup>
+</Project>

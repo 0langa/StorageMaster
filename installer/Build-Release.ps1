@@ -2,7 +2,8 @@
 param(
     [string]$Configuration = "Release",
     [string]$Platform = "x64",
-    [string]$RuntimeIdentifier = "win-x64"
+    [string]$RuntimeIdentifier = "win-x64",
+    [switch]$RequireFfmpegBundle
 )
 
 $ErrorActionPreference = "Stop"
@@ -14,8 +15,8 @@ $buildOutputDir = Join-Path $repoRoot "src\StorageMaster.UI\bin\$Platform\$Confi
 $publishDir = Join-Path $repoRoot "artifacts\publish\win-x64"
 $installerScript = Join-Path $repoRoot "installer\StorageMaster.iss"
 $installerOutputDir = Join-Path $repoRoot "artifacts\installer"
-$windowsAppSdkPackageRoot = Join-Path $env:USERPROFILE ".nuget\packages\microsoft.windowsappsdk"
 $ffmpegBundleSource = Join-Path $repoRoot "installer\ffmpeg"
+$turboScannerSource = Join-Path $repoRoot "turbo-scanner\target\release\turbo-scanner.exe"
 
 function Resolve-MSBuild {
     $vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
@@ -43,18 +44,6 @@ function Resolve-ISCC {
     return $candidate
 }
 
-function Get-WindowsAppSdkVersion {
-    [xml]$projectXml = Get-Content -Path $uiProject
-    $packageReference = $projectXml.SelectNodes("//PackageReference[@Include='Microsoft.WindowsAppSDK']") |
-        Select-Object -First 1
-
-    if (-not $packageReference) {
-        throw "Microsoft.WindowsAppSDK package reference was not found in $uiProject"
-    }
-
-    return $packageReference.GetAttribute("Version")
-}
-
 function Invoke-Step {
     param(
         [Parameter(Mandatory = $true)]
@@ -79,30 +68,68 @@ function Copy-OptionalFfmpegBundle {
         [string]$PublishDirectory
     )
 
-    if (-not (Test-Path $SourceDirectory)) {
-        Write-Host "Optional FFmpeg bundle not found at $SourceDirectory"
+    $resolvedSource = $SourceDirectory
+    if (-not (Test-Path $resolvedSource)) {
+        $ffmpegCommand = Get-Command "ffmpeg.exe" -ErrorAction SilentlyContinue
+        $ffprobeCommand = Get-Command "ffprobe.exe" -ErrorAction SilentlyContinue
+        if ($ffmpegCommand -and $ffprobeCommand) {
+            $ffmpegDirectory = Split-Path -Parent $ffmpegCommand.Source
+            if ([string]::Equals($ffmpegDirectory, (Split-Path -Parent $ffprobeCommand.Source), [StringComparison]::OrdinalIgnoreCase)) {
+                $resolvedSource = $ffmpegDirectory
+            }
+        }
+    }
+
+    if (-not (Test-Path $resolvedSource)) {
+        $message = "FFmpeg bundle not found at $SourceDirectory and ffmpeg.exe/ffprobe.exe were not found together on PATH."
+        if ($RequireFfmpegBundle) {
+            throw $message
+        }
+
+        Write-Host $message
         return
     }
 
-    $ffmpegExe = Join-Path $SourceDirectory "ffmpeg.exe"
-    $ffprobeExe = Join-Path $SourceDirectory "ffprobe.exe"
+    $ffmpegExe = Join-Path $resolvedSource "ffmpeg.exe"
+    $ffprobeExe = Join-Path $resolvedSource "ffprobe.exe"
     if (-not (Test-Path $ffmpegExe) -or -not (Test-Path $ffprobeExe)) {
-        throw "installer\\ffmpeg must contain both ffmpeg.exe and ffprobe.exe."
+        $message = "FFmpeg source must contain both ffmpeg.exe and ffprobe.exe: $resolvedSource"
+        if ($RequireFfmpegBundle) {
+            throw $message
+        }
+
+        Write-Host $message
+        return
     }
 
     $targetDirectory = Join-Path $PublishDirectory "tools\ffmpeg"
     New-Item -ItemType Directory -Force -Path $targetDirectory | Out-Null
-    Copy-Item -Path (Join-Path $SourceDirectory "*") -Destination $targetDirectory -Recurse -Force
+    Copy-Item -LiteralPath $ffmpegExe -Destination $targetDirectory -Force
+    Copy-Item -LiteralPath $ffprobeExe -Destination $targetDirectory -Force
     Write-Host "Bundled FFmpeg copied to $targetDirectory"
+}
+
+function Copy-OptionalTurboScanner {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$SourcePath,
+        [Parameter(Mandatory = $true)]
+        [string]$PublishDirectory
+    )
+
+    if (-not (Test-Path $SourcePath)) {
+        Write-Host "Turbo scanner binary not found at $SourcePath. Run cargo build --release in turbo-scanner to include it."
+        return
+    }
+
+    Copy-Item -LiteralPath $SourcePath -Destination (Join-Path $PublishDirectory "turbo-scanner.exe") -Force
+    Write-Host "Turbo scanner copied to $PublishDirectory"
 }
 
 New-Item -ItemType Directory -Force -Path $publishDir, $installerOutputDir | Out-Null
 
 $msbuild = Resolve-MSBuild
 $iscc = Resolve-ISCC
-$windowsAppSdkVersion = Get-WindowsAppSdkVersion
-$windowsAppRuntimePackage = Join-Path $windowsAppSdkPackageRoot "$windowsAppSdkVersion\tools\MSIX\win10-x64\Microsoft.WindowsAppRuntime.1.6.msix"
-$windowsAppRuntimeInstaller = Join-Path $repoRoot "installer\Install-WindowsAppRuntime.ps1"
 
 Invoke-Step -FilePath $msbuild -Arguments @(
     $uiProject,
@@ -111,6 +138,7 @@ Invoke-Step -FilePath $msbuild -Arguments @(
     "/p:Configuration=$Configuration",
     "/p:Platform=$Platform",
     "/p:RuntimeIdentifier=$RuntimeIdentifier",
+    "/p:UseXamlCompilerExecutable=false",
     "/m:1",
     "/nr:false"
 )
@@ -122,6 +150,7 @@ Invoke-Step -FilePath $msbuild -Arguments @(
     "/p:Configuration=$Configuration",
     "/p:Platform=$Platform",
     "/p:RuntimeIdentifier=$RuntimeIdentifier",
+    "/p:UseXamlCompilerExecutable=false",
     "/m:1",
     "/nr:false"
 )
@@ -130,22 +159,10 @@ if (-not (Test-Path $buildOutputDir)) {
     throw "Build output directory was not produced: $buildOutputDir"
 }
 
-if (-not (Test-Path $windowsAppRuntimePackage)) {
-    throw "Windows App SDK runtime package was not found: $windowsAppRuntimePackage"
-}
-
-if (-not (Test-Path $windowsAppRuntimeInstaller)) {
-    throw "Windows App SDK runtime installer script was not found: $windowsAppRuntimeInstaller"
-}
-
 Get-ChildItem -LiteralPath $publishDir -Force -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force
 Copy-Item -Path (Join-Path $buildOutputDir "*") -Destination $publishDir -Recurse -Force
-
-$prereqDir = Join-Path $publishDir "prereqs"
-New-Item -ItemType Directory -Force -Path $prereqDir | Out-Null
-Copy-Item -LiteralPath $windowsAppRuntimePackage -Destination (Join-Path $prereqDir "Microsoft.WindowsAppRuntime.1.6.msix") -Force
-Copy-Item -LiteralPath $windowsAppRuntimeInstaller -Destination (Join-Path $prereqDir "Install-WindowsAppRuntime.ps1") -Force
 Copy-OptionalFfmpegBundle -SourceDirectory $ffmpegBundleSource -PublishDirectory $publishDir
+Copy-OptionalTurboScanner -SourcePath $turboScannerSource -PublishDirectory $publishDir
 
 Invoke-Step -FilePath $iscc -Arguments @($installerScript)
 

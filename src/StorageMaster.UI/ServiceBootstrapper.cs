@@ -33,6 +33,7 @@ internal static class ServiceBootstrapper
             new StorageDbContext(dbPath, sp.GetRequiredService<ILogger<StorageDbContext>>()));
 
         services.AddSingleton<IScanRepository, ScanRepository>();
+        services.AddSingleton<ISpaceMapRepository, SpaceMapRepository>();
         services.AddSingleton<IScanErrorRepository, ScanErrorRepository>();
         services.AddSingleton<ICleanupLogRepository, CleanupLogRepository>();
         services.AddSingleton<SettingsRepository>();
@@ -165,6 +166,7 @@ internal static class ServiceBootstrapper
         services.AddTransient<CleanupViewModel>();
         services.AddTransient<SettingsViewModel>();
         services.AddTransient<SmartCleanerViewModel>();
+        services.AddTransient<SpaceMapViewModel>();
 
         services.AddSingleton<MainWindow>();
 

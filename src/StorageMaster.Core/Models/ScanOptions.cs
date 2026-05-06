@@ -11,7 +11,7 @@ public sealed class ScanOptions
     /// <summary>Flush file entries to the database every N files to bound memory use.</summary>
     public int DbBatchSize { get; init; } = 500;
 
-    /// <summary>Paths to skip entirely (case-insensitive prefix match).</summary>
+    /// <summary>Paths to skip entirely. Matching is boundary-aware and case-insensitive.</summary>
     public IReadOnlyList<string> ExcludedPaths { get; init; } = DefaultExcludedPaths;
 
     public bool FollowSymlinks { get; init; } = false;
@@ -23,9 +23,18 @@ public sealed class ScanOptions
     /// </summary>
     public bool DeepScan { get; init; } = false;
 
-    public static readonly IReadOnlyList<string> DefaultExcludedPaths =
-    [
-        @"C:\Windows\WinSxS",
-        @"C:\Windows\Installer",
-    ];
+    public static IReadOnlyList<string> DefaultExcludedPaths => BuildDefaultExcludedPaths();
+
+    private static IReadOnlyList<string> BuildDefaultExcludedPaths()
+    {
+        var windowsDir = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
+        if (string.IsNullOrWhiteSpace(windowsDir))
+            return [];
+
+        return
+        [
+            Path.Combine(windowsDir, "WinSxS"),
+            Path.Combine(windowsDir, "Installer"),
+        ];
+    }
 }

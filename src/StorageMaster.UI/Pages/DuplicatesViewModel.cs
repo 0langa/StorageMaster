@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.Diagnostics;
+using System.Text.Json;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using StorageMaster.Core.Interfaces;
@@ -415,6 +416,10 @@ public sealed partial class DuplicatesViewModel : ObservableObject
             UseQuarantine = false;
             IncludeHiddenFiles = settings.ShowHiddenFiles;
             IncludeReparsePoints = false;
+            SelectedMethodFilter = MethodFilterOptions.FirstOrDefault(option =>
+                string.Equals(option.Label, settings.DefaultDuplicatesReviewMode, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(option.Method?.ToString(), settings.DefaultDuplicatesReviewMode, StringComparison.OrdinalIgnoreCase))
+                ?? MethodFilterOptions.FirstOrDefault();
 
             Sessions.Clear();
             var sessions = await _scanRepository.GetRecentSessionsAsync(50);
@@ -626,37 +631,50 @@ public sealed partial class DuplicatesViewModel : ObservableObject
             return;
         await RunExportAsync("json", async (filePath, ct) =>
         {
-            var groups = await _duplicateRepository.GetGroupsForRunAsync(LatestRun.Id, ct);
-            var groupPayload = new List<object>(groups.Count);
-            foreach (var group in groups)
+            await using var stream = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.Read);
+            using var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = true });
+
+            writer.WriteStartObject();
+            writer.WritePropertyName("run");
+            JsonSerializer.Serialize(writer, LatestRun);
+            writer.WritePropertyName("summary");
+            JsonSerializer.Serialize(writer, _runSummary);
+            writer.WritePropertyName("settings");
+            JsonSerializer.Serialize(writer, await _settingsRepository.LoadAsync(ct));
+
+            writer.WritePropertyName("groups");
+            writer.WriteStartArray();
+            var page = 1;
+            while (true)
             {
                 ct.ThrowIfCancellationRequested();
-                var members = await _duplicateRepository.GetDuplicateGroupMembersAsync(group.Id, ct);
-                groupPayload.Add(new
+                var groups = await _duplicateRepository.GetDuplicateGroupsPageAsync(
+                    LatestRun.Id, page, GroupPageSize, null, DuplicateGroupSortBy.ReclaimableBytesDesc, ct);
+                if (groups.Count == 0)
+                    break;
+
+                foreach (var group in groups)
                 {
-                    group.Id,
-                    Method = group.Method.ToString(),
-                    group.Confidence,
-                    group.TotalBytes,
-                    group.ReclaimableBytes,
-                    Members = members,
-                });
+                    var members = await _duplicateRepository.GetDuplicateGroupMembersAsync(group.Id, ct);
+                    writer.WriteStartObject();
+                    writer.WriteNumber("id", group.Id);
+                    writer.WriteString("method", group.Method.ToString());
+                    writer.WriteNumber("confidence", group.Confidence);
+                    writer.WriteNumber("totalBytes", group.TotalBytes);
+                    writer.WriteNumber("reclaimableBytes", group.ReclaimableBytes);
+                    writer.WritePropertyName("members");
+                    JsonSerializer.Serialize(writer, members);
+                    writer.WriteEndObject();
+                }
+
+                page++;
+                ExportStatusText = $"Exporting JSON page {page - 1:N0}…";
+                await writer.FlushAsync(ct);
             }
 
-            var payload = new
-            {
-                run = LatestRun,
-                summary = _runSummary,
-                settings = await _settingsRepository.LoadAsync(ct),
-                errors = await _duplicateRepository.GetErrorsForRunAsync(LatestRun.Id, ct),
-                quarantined = await _duplicateRepository.GetQuarantinedFilesAsync(LatestRun.Id, ct),
-                groups = groupPayload,
-            };
-
-            await File.WriteAllTextAsync(filePath, System.Text.Json.JsonSerializer.Serialize(payload, new System.Text.Json.JsonSerializerOptions
-            {
-                WriteIndented = true,
-            }), ct);
+            writer.WriteEndArray();
+            writer.WriteEndObject();
+            await writer.FlushAsync(ct);
         });
     }
 
@@ -667,44 +685,47 @@ public sealed partial class DuplicatesViewModel : ObservableObject
             return;
         await RunExportAsync("html", async (filePath, ct) =>
         {
-            var groups = await _duplicateRepository.GetGroupsForRunAsync(LatestRun.Id, ct);
-            var lines = new List<string>
-            {
-                "<!doctype html>",
-                "<html><head><meta charset=\"utf-8\"><title>StorageMaster Duplicate Report</title>",
-                "<style>body{font-family:Segoe UI,Arial,sans-serif;padding:24px;}table{border-collapse:collapse;width:100%;}th,td{border:1px solid #ddd;padding:8px;}th{background:#f3f3f3;text-align:left;}tr:nth-child(even){background:#fafafa}</style>",
-                "</head><body>",
-                $"<h1>StorageMaster Duplicate Report (Run {LatestRun.Id})</h1>",
-                $"<p>Generated {DateTime.Now:G}. Groups: {_runSummary.GroupCount:N0}, Reclaimable: {ByteSizeConverter.Format(_runSummary.ReclaimableBytes)}</p>",
-                "<table><thead><tr><th>Group</th><th>Method</th><th>Confidence</th><th>Reclaimable</th><th>Keeper</th><th>Duplicate</th></tr></thead><tbody>",
-            };
+            await using var stream = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.Read);
+            await using var writer = new StreamWriter(stream);
+            await writer.WriteLineAsync("<!doctype html>");
+            await writer.WriteLineAsync("<html><head><meta charset=\"utf-8\"><title>StorageMaster Duplicate Report</title>");
+            await writer.WriteLineAsync("<style>body{font-family:Segoe UI,Arial,sans-serif;padding:24px;}table{border-collapse:collapse;width:100%;}th,td{border:1px solid #ddd;padding:8px;}th{background:#f3f3f3;text-align:left;}tr:nth-child(even){background:#fafafa}</style>");
+            await writer.WriteLineAsync("</head><body>");
+            await writer.WriteLineAsync($"<h1>StorageMaster Duplicate Report (Run {LatestRun.Id})</h1>");
+            await writer.WriteLineAsync($"<p>Generated {DateTime.Now:G}. Groups: {_runSummary.GroupCount:N0}, Reclaimable: {ByteSizeConverter.Format(_runSummary.ReclaimableBytes)}</p>");
+            await writer.WriteLineAsync("<table><thead><tr><th>Group</th><th>Method</th><th>Confidence</th><th>Reclaimable</th><th>Keeper</th><th>Duplicate</th></tr></thead><tbody>");
 
-            foreach (var group in groups)
+            var page = 1;
+            while (true)
             {
                 ct.ThrowIfCancellationRequested();
-                var members = await _duplicateRepository.GetDuplicateGroupMembersAsync(group.Id, ct);
-                var preview = await _previewService.BuildPreviewAsync(group.Method, members, ct);
-                var keeper = members.FirstOrDefault(static m => m.IsKeeper)?.FullPath ?? string.Empty;
-                foreach (var member in members.Where(static m => !m.IsKeeper))
+                var groups = await _duplicateRepository.GetDuplicateGroupsPageAsync(
+                    LatestRun.Id, page, GroupPageSize, null, DuplicateGroupSortBy.ReclaimableBytesDesc, ct);
+                if (groups.Count == 0)
+                    break;
+
+                foreach (var group in groups)
                 {
-                    var previewPath = preview.Items.FirstOrDefault(item =>
-                        string.Equals(item.Path, member.FullPath, StringComparison.OrdinalIgnoreCase))?.PreviewPath;
-                    var previewHtml = !string.IsNullOrWhiteSpace(previewPath) && File.Exists(previewPath)
-                        ? $"<img src=\"{new Uri(previewPath).AbsoluteUri}\" alt=\"preview\" style=\"max-width:180px;max-height:120px;display:block;margin-bottom:6px;\" />"
-                        : string.Empty;
-                    lines.Add("<tr>" +
-                              $"<td>{EscapeHtml(group.Id.ToString())}</td>" +
-                              $"<td>{EscapeHtml(group.Method.ToString())}</td>" +
-                              $"<td>{EscapeHtml($"{group.Confidence:P0}")}</td>" +
-                              $"<td>{EscapeHtml(ByteSizeConverter.Format(group.ReclaimableBytes))}</td>" +
-                              $"<td>{EscapeHtml(keeper)}</td>" +
-                              $"<td>{previewHtml}{EscapeHtml(member.FullPath)}</td>" +
-                              "</tr>");
+                    var members = await _duplicateRepository.GetDuplicateGroupMembersAsync(group.Id, ct);
+                    var keeper = members.FirstOrDefault(static m => m.IsKeeper)?.FullPath ?? string.Empty;
+                    foreach (var member in members.Where(static m => !m.IsKeeper))
+                    {
+                        await writer.WriteLineAsync("<tr>" +
+                                                    $"<td>{EscapeHtml(group.Id.ToString())}</td>" +
+                                                    $"<td>{EscapeHtml(group.Method.ToString())}</td>" +
+                                                    $"<td>{EscapeHtml($"{group.Confidence:P0}")}</td>" +
+                                                    $"<td>{EscapeHtml(ByteSizeConverter.Format(group.ReclaimableBytes))}</td>" +
+                                                    $"<td>{EscapeHtml(keeper)}</td>" +
+                                                    $"<td>{EscapeHtml(member.FullPath)}</td>" +
+                                                    "</tr>");
+                    }
                 }
+
+                page++;
+                ExportStatusText = $"Exporting HTML page {page - 1:N0}…";
             }
 
-            lines.Add("</tbody></table></body></html>");
-            await File.WriteAllLinesAsync(filePath, lines, ct);
+            await writer.WriteLineAsync("</tbody></table></body></html>");
         });
     }
 

@@ -1,29 +1,29 @@
 # StorageMaster v2 Plan
 
-Source of truth: deployed v1.7.4 repository snapshot. This is a forward plan from the actual code, not the older speculative audit.
+Source of truth: current v1.9.0 repository snapshot. This is a forward plan from the actual code, not older speculative audit.
 
 ## Current strengths to preserve
 
-Layering is mostly clean; Core contains contracts and domain services, Storage/Platform/UI depend inward. SQLite migrations are additive and version-stamped atomically. WAL and batched inserts are in place. Managed scanner and Turbo scanner share the same persisted model. Results and Duplicates already use paging/lazy loading in important paths. Deletion is centralized behind `IFileDeleter`. Duplicate deletion has keeper validation, size/mtime revalidation, audit JSON, quarantine, and restore. CI exists for .NET/Rust and release signing is optional.
+Layering is mostly clean; Core contains contracts and domain services, Storage/Platform/UI depend inward. SQLite migrations are additive and version-stamped atomically through schema v6. WAL, normalized path indexes, and batched inserts are in place. Managed scanner and Turbo scanner share validated scan options and the same persisted model. Results, Duplicates, and Space Map use paging/lazy or bounded queries in important paths. Deletion is centralized behind `IFileDeleter`. Duplicate deletion has keeper validation, size/mtime revalidation, audit JSON, file quarantine, and restore. CI exists for .NET/Rust and release signing is optional.
 
 ## Remaining correctness/hardening work
 
 | ID | Finding in current code | Fix |
 |---|---|---|
-| H-01 | `ScanOptions.MaxParallelism` and `DbBatchSize` are not guarded inside `FileScanner`; direct callers can hang/throw with invalid values | validate in `ScanAsync`: root exists, `MaxParallelism>=1`, `DbBatchSize>=1`; add tests |
-| H-02 | `FolderSizeAggregator.Compute` uses `ToDictionary`; duplicate `FullPath` throws | group by path case-insensitively and sum/choose direct bytes deterministically |
-| H-03 | `FileDeleter.EmptyRecycleBin` ignores `SHQueryRecycleBin` and `SHEmptyRecycleBin` return values | check HRESULT/return, throw/return failed `DeletionOutcome` on error |
+| H-01 | Done in v1.9.0: `ScanOptionValidator` validates root, normalizes paths, clamps `MaxParallelism`/`DbBatchSize` for managed and Turbo scanners | Continue wiring validation messages into UI/CLI surfaces |
+| H-02 | Done in v1.9.0: `FolderSizeAggregator.Compute` groups paths case-insensitively and sums duplicates | Add million-folder benchmark coverage |
+| H-03 | Done in v1.9.0: `FileDeleter.EmptyRecycleBin` checks shell HRESULTs | Add shell abstraction tests around simulated HRESULTs |
 | H-04 | `IFileOperation` calls have no explicit STA-thread boundary | run shell COM recycle operations on an STA helper thread or document/verify COM apartment safety |
-| H-05 | `FileDeleter.EstimateSize` recursively traverses directories without timeout/item cap | add bounded estimator with cancellation, max entries, symlink skip, and best-effort partial result |
-| H-06 | `ParallelDeleteAsync` creates `SemaphoreSlim` without disposal | wrap in `using`/`await using` compatible pattern |
+| H-05 | Done in v1.9.0: size estimation is bounded, cancellable, and reparse-point safe | Surface partial-estimate metadata if needed |
+| H-06 | Done in v1.9.0: `ParallelDeleteAsync` disposes its `SemaphoreSlim` | No follow-up |
 | H-07 | `AdminService.RestartAsAdmin` calls `Environment.Exit(0)` immediately | add app shutdown service or explicit flush path before exit |
-| H-08 | default excluded paths hardcode `C:\` | derive Windows drive from `Environment.SpecialFolder.Windows` |
+| H-08 | Done in v1.9.0: default excluded paths derive from `Environment.SpecialFolder.Windows` and use boundary-safe matching | No follow-up |
 | H-09 | `IRecycleBinInfoProvider` is declared inside `RecycleBinCleanupRule.cs` | move to `Core/Interfaces` and keep namespace stable |
 | H-10 | browser cache discovery is duplicated in cleanup rule and Smart Cleaner | extract shared path service |
 | H-11 | bare catches remain in filesystem helpers | keep best-effort behavior but avoid swallowing fatal exceptions; log where useful |
-| H-12 | `FileEntries` has no uniqueness on `(SessionId, FullPath)` | add migration/index or document duplicate-path semantics |
-| H-13 | status fields are unrestricted TEXT | add application-level validation now; CHECK constraints only if migration can be safe |
-| H-14 | no VACUUM/optimize after large session deletes | add `PRAGMA optimize`; consider manual vacuum prompt/maintenance path |
+| H-12 | Done in v1.9.0: schema v6 adds `NormalizedFullPath` and unique file path protection per session | Consider path identity columns in future |
+| H-13 | Partly done in v1.9.0: scan status parsing is tolerant | Extend tolerant parsing to every status enum field |
+| H-14 | Done in v1.9.0: session delete runs `PRAGMA optimize` | Consider manual vacuum prompt/maintenance path |
 | H-15 | installer uses LocalAppData install path but still requests admin | remove admin where possible or justify with prereq/runtime install path |
 | H-16 | publish is framework-dependent and installer only installs Windows App Runtime | add .NET Desktop Runtime detection/bootstrapper or self-contained publish decision |
 
@@ -44,7 +44,7 @@ First measure with a benchmark project and a large synthetic dataset. Preserve p
 
 ## Deduplication v2 plan
 
-Keep existing strategy interface. Add method availability display and per-method settings that actually flow into strategy constructors/options without app restart. Treat `AudioFingerprint` as unsupported until implemented or remove it. Add strategy tests for image/video availability, cache invalidation, file-changed races, and threshold behavior. Improve duplicate cleanup rule so the Cleanup page clearly distinguishes previous dedupe findings from a fresh dedupe run.
+Keep existing strategy interface. Method availability display exists; default review mode and video frame sampling settings flow into runtime behavior. Treat `AudioFingerprint` as unsupported legacy enum data unless a future strategy is added. Add deeper strategy tests for image/video availability, cache invalidation, file-changed races, and threshold behavior. Improve duplicate cleanup rule so the Cleanup page clearly distinguishes previous dedupe findings from a fresh dedupe run.
 
 ## Safety policy
 

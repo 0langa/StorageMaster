@@ -1,7 +1,7 @@
 # StorageMaster — Development Roadmap
 
-> **Current release:** v1.7.0 (2026-05-06) — CLI/headless mode, system tray, low-disk notifications, Windows Task Scheduler integration, 17 cleanup rules (7 new), duplicate preview strip, quarantine restore UI.
-> **Previous baseline:** v1.6.1 — parallel scanning, Rust Turbo Scanner, Smart Cleaner, admin elevation, duplicate analysis (exact SHA-256 / normalized text / image pHash / video pHash), results actions, 60+ tests, CI/CD, Inno Setup installer.
+> **Current release:** v1.9.0 (2026-05-06) — Space Map native treemap, Scan Delta Insights, schema v6 normalized path integrity, scanner/deletion/folder aggregation hardening, centralized version metadata, and 136 tests.
+> **Previous baseline:** v1.8.0 — Settings redesign, accessibility annotations in Settings, UI preference layer, shared styles.
 
 ---
 

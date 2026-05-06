@@ -14,9 +14,9 @@ public sealed class C7_JunctionSafeDeleteTests
     public void DeletePermanently_Junction_RemovesLinkOnly_DoesNotDeleteTarget()
     {
         // Skip on environments where junction creation fails (e.g. non-admin CI).
-        var root   = Path.Combine(Path.GetTempPath(), $"c7_{Guid.NewGuid():N}");
+        var root = Path.Combine(Path.GetTempPath(), $"c7_{Guid.NewGuid():N}");
         var target = Path.Combine(root, "target");
-        var link   = Path.Combine(root, "junction");
+        var link = Path.Combine(root, "junction");
         Directory.CreateDirectory(target);
         File.WriteAllText(Path.Combine(target, "precious.txt"), "do not delete");
 
@@ -56,10 +56,10 @@ public sealed class C7_JunctionSafeDeleteTests
     [Fact]
     public void DeletePermanently_DirContainingJunction_RemovesLinkButKeepsTarget()
     {
-        var root      = Path.Combine(Path.GetTempPath(), $"c7b_{Guid.NewGuid():N}");
-        var target    = Path.Combine(root, "target");
+        var root = Path.Combine(Path.GetTempPath(), $"c7b_{Guid.NewGuid():N}");
+        var target = Path.Combine(root, "target");
         var container = Path.Combine(root, "container");
-        var link      = Path.Combine(container, "junction_inside");
+        var link = Path.Combine(container, "junction_inside");
         Directory.CreateDirectory(target);
         Directory.CreateDirectory(container);
         File.WriteAllText(Path.Combine(target, "keep.txt"), "keep me");
@@ -118,9 +118,9 @@ public sealed class C7_JunctionSafeDeleteTests
             var psi = new System.Diagnostics.ProcessStartInfo("cmd.exe", $"/c mklink /J \"{junction}\" \"{target}\"")
             {
                 UseShellExecute = false,
-                CreateNoWindow  = true,
+                CreateNoWindow = true,
                 RedirectStandardOutput = true,
-                RedirectStandardError  = true,
+                RedirectStandardError = true,
             };
             using var proc = System.Diagnostics.Process.Start(psi)!;
             proc.WaitForExit(5000);

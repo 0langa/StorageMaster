@@ -23,15 +23,15 @@ public sealed class CleanupLogRepository : ICleanupLogRepository
                 VALUES
                     ($sid, $rule, $title, $freed, $dry, $status, $executed, $error, $audit);
                 """;
-            cmd.Parameters.AddWithValue("$sid",      result.SuggestionId.ToString());
-            cmd.Parameters.AddWithValue("$rule",     suggestion.RuleId);
-            cmd.Parameters.AddWithValue("$title",    suggestion.Title);
-            cmd.Parameters.AddWithValue("$freed",    result.BytesFreed);
-            cmd.Parameters.AddWithValue("$dry",      result.WasDryRun ? 1 : 0);
-            cmd.Parameters.AddWithValue("$status",   result.Status.ToString());
+            cmd.Parameters.AddWithValue("$sid", result.SuggestionId.ToString());
+            cmd.Parameters.AddWithValue("$rule", suggestion.RuleId);
+            cmd.Parameters.AddWithValue("$title", suggestion.Title);
+            cmd.Parameters.AddWithValue("$freed", result.BytesFreed);
+            cmd.Parameters.AddWithValue("$dry", result.WasDryRun ? 1 : 0);
+            cmd.Parameters.AddWithValue("$status", result.Status.ToString());
             cmd.Parameters.AddWithValue("$executed", result.ExecutedUtc.ToString("O"));
-            cmd.Parameters.AddWithValue("$error",    (object?)result.ErrorMessage ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("$audit",    (object?)suggestion.AuditDataJson ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$error", (object?)result.ErrorMessage ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$audit", (object?)suggestion.AuditDataJson ?? DBNull.Value);
             await cmd.ExecuteNonQueryAsync(ct);
         }
         finally
@@ -54,14 +54,14 @@ public sealed class CleanupLogRepository : ICleanupLogRepository
         {
             list.Add(new CleanupLogEntry
             {
-                Id           = reader.GetInt64(reader.GetOrdinal("Id")),
+                Id = reader.GetInt64(reader.GetOrdinal("Id")),
                 SuggestionId = Guid.Parse(reader.GetString(reader.GetOrdinal("SuggestionId"))),
-                RuleId       = reader.GetString(reader.GetOrdinal("RuleId")),
-                Title        = reader.GetString(reader.GetOrdinal("Title")),
-                BytesFreed   = reader.GetInt64(reader.GetOrdinal("BytesFreed")),
-                WasDryRun    = reader.GetInt32(reader.GetOrdinal("WasDryRun")) == 1,
-                Status       = reader.GetString(reader.GetOrdinal("Status")),
-                ExecutedUtc  = DateTime.Parse(reader.GetString(reader.GetOrdinal("ExecutedUtc"))),
+                RuleId = reader.GetString(reader.GetOrdinal("RuleId")),
+                Title = reader.GetString(reader.GetOrdinal("Title")),
+                BytesFreed = reader.GetInt64(reader.GetOrdinal("BytesFreed")),
+                WasDryRun = reader.GetInt32(reader.GetOrdinal("WasDryRun")) == 1,
+                Status = reader.GetString(reader.GetOrdinal("Status")),
+                ExecutedUtc = DateTime.Parse(reader.GetString(reader.GetOrdinal("ExecutedUtc"))),
                 ErrorMessage = reader.IsDBNull(reader.GetOrdinal("ErrorMessage")) ? null
                                : reader.GetString(reader.GetOrdinal("ErrorMessage")),
                 AuditDataJson = reader.IsDBNull(reader.GetOrdinal("AuditDataJson")) ? null

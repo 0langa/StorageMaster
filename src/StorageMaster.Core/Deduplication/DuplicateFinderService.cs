@@ -25,20 +25,20 @@ namespace StorageMaster.Core.Deduplication;
 /// discarded from the active run.
 /// </summary>
 public sealed class DuplicateFinderService(
-    IDuplicateRepository         repository,
-    IDuplicateCandidateProvider  candidateProvider,
-    IFileContentHasher           hasher,
+    IDuplicateRepository repository,
+    IDuplicateCandidateProvider candidateProvider,
+    IFileContentHasher hasher,
     IEnumerable<IDuplicateDetectionStrategy> strategies,
-    IDuplicateKeeperPolicy       keeperPolicy,
+    IDuplicateKeeperPolicy keeperPolicy,
     ILogger<DuplicateFinderService> logger) : IDuplicateFinderService
 {
     private readonly IReadOnlyDictionary<DuplicateMethod, IDuplicateDetectionStrategy> _strategyMap =
         strategies.ToDictionary(s => s.Method);
 
     public async Task<DuplicateRun> RunAsync(
-        DuplicateScanOptions                options,
+        DuplicateScanOptions options,
         IProgress<DuplicateDetectionProgress>? progress = null,
-        CancellationToken                   ct = default)
+        CancellationToken ct = default)
     {
         // ── P0.3: Validate methods before expensive work ───────────────────
         var missing = options.Methods
@@ -67,10 +67,10 @@ public sealed class DuplicateFinderService(
         }
 
         var run = await repository.CreateRunAsync(options, ct);
-        var allSignatures  = new ConcurrentBag<DuplicateSignature>();
-        var allErrors      = new ConcurrentBag<DuplicateError>();
-        var allGroupPairs  = new List<(DuplicateGroup Group, List<DuplicateGroupMember> Members)>();
-        var nextOrdinal    = new long[] { 1L };  // boxed to avoid ref-in-async restriction
+        var allSignatures = new ConcurrentBag<DuplicateSignature>();
+        var allErrors = new ConcurrentBag<DuplicateError>();
+        var allGroupPairs = new List<(DuplicateGroup Group, List<DuplicateGroupMember> Members)>();
+        var nextOrdinal = new long[] { 1L };  // boxed to avoid ref-in-async restriction
 
         try
         {
@@ -87,7 +87,7 @@ public sealed class DuplicateFinderService(
                     nextOrdinal, ct);
             }
 
-            var groupRecords  = allGroupPairs.Select(static p => p.Group).ToList();
+            var groupRecords = allGroupPairs.Select(static p => p.Group).ToList();
             var memberRecords = allGroupPairs.SelectMany(static p => p.Members).ToList();
 
             await repository.SaveResultsAsync(
@@ -133,18 +133,18 @@ public sealed class DuplicateFinderService(
     // ── Per-strategy phase ────────────────────────────────────────────────────
 
     private async Task RunStrategyPhaseAsync(
-        DuplicateRun                           run,
-        DuplicateScanOptions                   options,
-        IDuplicateDetectionStrategy            strategy,
+        DuplicateRun run,
+        DuplicateScanOptions options,
+        IDuplicateDetectionStrategy strategy,
         IProgress<DuplicateDetectionProgress>? progress,
-        ConcurrentBag<DuplicateSignature>      allSignatures,
-        ConcurrentBag<DuplicateError>          allErrors,
+        ConcurrentBag<DuplicateSignature> allSignatures,
+        ConcurrentBag<DuplicateError> allErrors,
         List<(DuplicateGroup, List<DuplicateGroupMember>)> allGroupPairs,
-        long[]                                 nextOrdinal,   // [0] = next group ordinal
-        CancellationToken                      ct)
+        long[] nextOrdinal,   // [0] = next group ordinal
+        CancellationToken ct)
     {
         // 1. Candidates
-        var query      = strategy.BuildCandidateQuery(options);
+        var query = strategy.BuildCandidateQuery(options);
         var candidates = await candidateProvider.GetCandidatesAsync(query, ct);
         if (candidates.Count == 0) return;
 
@@ -155,8 +155,8 @@ public sealed class DuplicateFinderService(
         var perDriveSemaphores = new ConcurrentDictionary<string, SemaphoreSlim>(StringComparer.OrdinalIgnoreCase);
 
         // 3. Determine which candidates need fresh signatures
-        var needsSig   = new List<DuplicateCandidate>(candidates.Count);
-        var sigsByKey  = new ConcurrentDictionary<string, ConcurrentBag<DuplicateCandidate>>(StringComparer.Ordinal);
+        var needsSig = new List<DuplicateCandidate>(candidates.Count);
+        var sigsByKey = new ConcurrentDictionary<string, ConcurrentBag<DuplicateCandidate>>(StringComparer.Ordinal);
         var groupsFound = new int[] { 0 };  // boxed counter — passed to async helpers
 
         foreach (var c in candidates)
@@ -216,17 +216,17 @@ public sealed class DuplicateFinderService(
     // ── Partial-hash pre-filter (ExactSha256) ─────────────────────────────────
 
     private async Task RunWithPartialHashPreFilterAsync(
-        DuplicateRun                           run,
-        DuplicateScanOptions                   options,
-        IDuplicateDetectionStrategy            strategy,
+        DuplicateRun run,
+        DuplicateScanOptions options,
+        IDuplicateDetectionStrategy strategy,
         IProgress<DuplicateDetectionProgress>? progress,
-        IReadOnlyList<DuplicateCandidate>      candidates,
-        ConcurrentBag<DuplicateSignature>      allSignatures,
-        ConcurrentBag<DuplicateError>          allErrors,
+        IReadOnlyList<DuplicateCandidate> candidates,
+        ConcurrentBag<DuplicateSignature> allSignatures,
+        ConcurrentBag<DuplicateError> allErrors,
         ConcurrentDictionary<string, ConcurrentBag<DuplicateCandidate>> sigsByKey,
-        int[]                                  groupsFound,   // [0] = count
+        int[] groupsFound,   // [0] = count
         ConcurrentDictionary<string, SemaphoreSlim> perDriveSemaphores,
-        CancellationToken                      ct)
+        CancellationToken ct)
     {
         // Group candidates by size — the SQL already filters to multi-occurrence
         // sizes, but we bucket in memory here to drive partial-hash clustering.
@@ -320,23 +320,23 @@ public sealed class DuplicateFinderService(
     // ── Parallel signature computation ────────────────────────────────────────
 
     private async Task ComputeSignaturesAsync(
-        DuplicateRun                           run,
-        DuplicateScanOptions                   options,
-        IDuplicateDetectionStrategy            strategy,
+        DuplicateRun run,
+        DuplicateScanOptions options,
+        IDuplicateDetectionStrategy strategy,
         IProgress<DuplicateDetectionProgress>? progress,
-        IReadOnlyList<DuplicateCandidate>      candidates,
-        int                                    phaseTotal,
-        ConcurrentBag<DuplicateSignature>      allSignatures,
-        ConcurrentBag<DuplicateError>          allErrors,
+        IReadOnlyList<DuplicateCandidate> candidates,
+        int phaseTotal,
+        ConcurrentBag<DuplicateSignature> allSignatures,
+        ConcurrentBag<DuplicateError> allErrors,
         ConcurrentDictionary<string, ConcurrentBag<DuplicateCandidate>> sigsByKey,
-        int[]                                  groupsFound,
+        int[] groupsFound,
         ConcurrentDictionary<string, SemaphoreSlim> perDriveSemaphores,
-        CancellationToken                      ct)
+        CancellationToken ct)
     {
         var processed = 0;
         await Parallel.ForEachAsync(candidates, new ParallelOptions
         {
-            CancellationToken      = ct,
+            CancellationToken = ct,
             MaxDegreeOfParallelism = Math.Max(1, options.MaxConcurrency),
         }, async (c, token) =>
         {
@@ -366,15 +366,15 @@ public sealed class DuplicateFinderService(
             var cur = Interlocked.Increment(ref processed);
             progress?.Report(new DuplicateDetectionProgress
             {
-                RunId       = run.Id,
-                Phase       = strategy.DisplayName,
-                Method      = strategy.Method,
-                Processed   = cur,
-                Total       = Math.Max(phaseTotal, 1),
+                RunId = run.Id,
+                Phase = strategy.DisplayName,
+                Method = strategy.Method,
+                Processed = cur,
+                Total = Math.Max(phaseTotal, 1),
                 CurrentPath = c.File.FullPath,
                 GroupsFound = groupsFound[0],
-                Errors      = allErrors.Count,
-                CanCancel   = true,
+                Errors = allErrors.Count,
+                CanCancel = true,
             });
         });
     }
@@ -382,41 +382,41 @@ public sealed class DuplicateFinderService(
     // ── Group creation ────────────────────────────────────────────────────────
 
     private static (DuplicateGroup, List<DuplicateGroupMember>) CreateGroup(
-        IDuplicateKeeperPolicy              keeperPolicy,
-        long                               runId,
-        long[]                             nextOrdinal,
-        IDuplicateDetectionStrategy        strategy,
-        DuplicateStrategyMatch             match,
-        KeeperPolicy                       policy)
+        IDuplicateKeeperPolicy keeperPolicy,
+        long runId,
+        long[] nextOrdinal,
+        IDuplicateDetectionStrategy strategy,
+        DuplicateStrategyMatch match,
+        KeeperPolicy policy)
     {
-        var keeper      = keeperPolicy.ChooseKeeper(match.Candidates, policy);
-        var totalBytes  = match.Candidates.Sum(static c => c.File.SizeBytes);
+        var keeper = keeperPolicy.ChooseKeeper(match.Candidates, policy);
+        var totalBytes = match.Candidates.Sum(static c => c.File.SizeBytes);
         var reclaimable = totalBytes - keeper.File.SizeBytes;
-        var groupId     = Interlocked.Increment(ref nextOrdinal[0]) - 1;
+        var groupId = Interlocked.Increment(ref nextOrdinal[0]) - 1;
 
         var groupRecord = new DuplicateGroup
         {
-            Id                        = groupId,
-            RunId                     = runId,
-            Method                    = strategy.Method,
-            Algorithm                 = strategy.Algorithm,
-            Confidence                = match.Confidence,
-            TotalBytes                = totalBytes,
-            ReclaimableBytes          = reclaimable,
+            Id = groupId,
+            RunId = runId,
+            Method = strategy.Method,
+            Algorithm = strategy.Algorithm,
+            Confidence = match.Confidence,
+            TotalBytes = totalBytes,
+            ReclaimableBytes = reclaimable,
             RepresentativeFileEntryId = keeper.File.Id,
         };
 
         var members = match.Candidates
             .Select(c => new DuplicateGroupMember
             {
-                Id       = 0,
-                GroupId  = groupId,
+                Id = 0,
+                GroupId = groupId,
                 FileEntryId = c.File.Id,
                 FullPath = c.File.FullPath,
                 FileName = c.File.FileName,
                 SizeBytes = c.File.SizeBytes,
                 ModifiedUtc = c.File.ModifiedUtc,
-                Score    = match.Confidence,
+                Score = match.Confidence,
                 IsKeeper = c.File.Id == keeper.File.Id,
                 IsSelected = strategy.SupportsAutoSelection && c.File.Id != keeper.File.Id,
                 RecommendationReason = c.File.Id == keeper.File.Id
@@ -436,13 +436,14 @@ public sealed class DuplicateFinderService(
     private static bool IsCacheValid(DuplicateSignature cached, FileEntry current, int currentAlgorithmVersion) =>
         cached.Status == "Ready" &&
         cached.AlgorithmVersion == currentAlgorithmVersion &&
-        cached.SourceSizeBytes  == current.SizeBytes &&
+        cached.SourceSizeBytes == current.SizeBytes &&
         cached.SourceModifiedUtc == current.ModifiedUtc;
 
     private static DuplicateError MakeError(long runId, DuplicateCandidate c, string type, string msg) =>
         new()
         {
-            Id = 0, RunId = runId,
+            Id = 0,
+            RunId = runId,
             FileEntryId = c.File.Id,
             Path = c.File.FullPath,
             ErrorType = type,

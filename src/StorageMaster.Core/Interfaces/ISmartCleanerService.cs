@@ -14,7 +14,7 @@ public interface ISmartCleanerService
     /// </summary>
     Task<IReadOnlyList<SmartCleanGroup>> AnalyzeAsync(
         IProgress<string>? progress = null,
-        CancellationToken  cancellationToken = default);
+        CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Deletes the paths in the supplied groups using the specified method.
@@ -22,16 +22,16 @@ public interface ISmartCleanerService
     /// </summary>
     Task<long> CleanAsync(
         IReadOnlyList<SmartCleanGroup> groups,
-        DeletionMethod                 method,
-        IProgress<string>?             progress          = null,
-        CancellationToken              cancellationToken = default);
+        DeletionMethod method,
+        IProgress<string>? progress = null,
+        CancellationToken cancellationToken = default);
 }
 
 /// <summary>A category of junk found by the Smart Cleaner.</summary>
 public sealed record SmartCleanGroup(
-    string                  Category,
-    string                  Description,
-    string                  IconGlyph,
-    long                    EstimatedBytes,
-    IReadOnlyList<string>   Paths,
-    bool                    IsSelected = true);
+    string Category,
+    string Description,
+    string IconGlyph,
+    long EstimatedBytes,
+    IReadOnlyList<string> Paths,
+    bool IsSelected = true);

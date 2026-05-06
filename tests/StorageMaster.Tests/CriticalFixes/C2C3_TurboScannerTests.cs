@@ -43,9 +43,9 @@ public sealed class C2C3_TurboScannerTests
     {
         // When turbo-scanner.exe is unavailable, TurboFileScanner delegates to
         // the managed FileScanner. Cancellation must propagate correctly.
-        var root    = CreateTempDir(files: 2);
+        var root = CreateTempDir(files: 2);
         var managed = new FileScanner(_repoMock.Object, NullLogger<FileScanner>.Instance);
-        var turbo   = new TurboFileScanner(
+        var turbo = new TurboFileScanner(
             _repoMock.Object,
             NullLogger<TurboFileScanner>.Instance,
             managed);
@@ -72,9 +72,9 @@ public sealed class C2C3_TurboScannerTests
     [Fact]
     public async Task FallbackScanner_Completes_WhenBinaryMissing()
     {
-        var root    = CreateTempDir(files: 3);
+        var root = CreateTempDir(files: 3);
         var managed = new FileScanner(_repoMock.Object, NullLogger<FileScanner>.Instance);
-        var turbo   = new TurboFileScanner(
+        var turbo = new TurboFileScanner(
             _repoMock.Object,
             NullLogger<TurboFileScanner>.Instance,
             managed);

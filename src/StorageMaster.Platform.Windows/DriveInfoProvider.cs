@@ -26,13 +26,13 @@ public sealed class DriveInfoProvider : IDriveInfoProvider
     }
 
     private static DriveDetail ToDriveDetail(DriveInfo d) => new(
-        Name:        d.Name,
+        Name: d.Name,
         VolumeLabel: TrySafe(() => d.VolumeLabel) ?? string.Empty,
-        DriveFormat: TrySafe(() => d.DriveFormat)  ?? string.Empty,
-        TotalBytes:  TrySafe(() => d.TotalSize)    ?? 0,
-        FreeBytes:   TrySafe(() => d.TotalFreeSpace) ?? 0,
-        UsedBytes:   TrySafe(() => d.TotalSize - d.TotalFreeSpace) ?? 0,
-        IsReady:     d.IsReady);
+        DriveFormat: TrySafe(() => d.DriveFormat) ?? string.Empty,
+        TotalBytes: TrySafe(() => d.TotalSize) ?? 0,
+        FreeBytes: TrySafe(() => d.TotalFreeSpace) ?? 0,
+        UsedBytes: TrySafe(() => d.TotalSize - d.TotalFreeSpace) ?? 0,
+        IsReady: d.IsReady);
 
     private static T? TrySafe<T>(Func<T> fn) where T : struct
     {

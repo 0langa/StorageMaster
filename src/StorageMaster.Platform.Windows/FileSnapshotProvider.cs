@@ -16,7 +16,7 @@ namespace StorageMaster.Platform.Windows;
 public sealed class FileSnapshotProvider : IFileSnapshotProvider
 {
     public async ValueTask<FileSnapshot?> TakeSnapshotAsync(
-        string            path,
+        string path,
         CancellationToken ct = default)
     {
         await Task.Yield();
@@ -56,7 +56,7 @@ public sealed class FileSnapshotProvider : IFileSnapshotProvider
 
     [DllImport("kernel32.dll", SetLastError = true)]
     private static extern bool GetFileInformationByHandle(
-        SafeFileHandle           hFile,
+        SafeFileHandle hFile,
         out BY_HANDLE_FILE_INFORMATION lpFileInformation);
 
     [StructLayout(LayoutKind.Sequential)]
@@ -65,15 +65,15 @@ public sealed class FileSnapshotProvider : IFileSnapshotProvider
     [StructLayout(LayoutKind.Sequential)]
     private struct BY_HANDLE_FILE_INFORMATION
     {
-        public uint     FileAttributes;
+        public uint FileAttributes;
         public FILETIME CreationTime;
         public FILETIME LastAccessTime;
         public FILETIME LastWriteTime;
-        public uint     VolumeSerialNumber;
-        public uint     FileSizeHigh;
-        public uint     FileSizeLow;
-        public uint     NumberOfLinks;
-        public uint     FileIndexHigh;
-        public uint     FileIndexLow;
+        public uint VolumeSerialNumber;
+        public uint FileSizeHigh;
+        public uint FileSizeLow;
+        public uint NumberOfLinks;
+        public uint FileIndexHigh;
+        public uint FileIndexLow;
     }
 }

@@ -13,7 +13,7 @@ public sealed class RecycleBinCleanupRule : ICleanupRule
 {
     private readonly IRecycleBinInfoProvider _recycleBin;
 
-    public string RuleId      => "core.recycle-bin";
+    public string RuleId => "core.recycle-bin";
     public string DisplayName => "Recycle Bin";
     public CleanupCategory Category => CleanupCategory.RecycleBin;
 
@@ -21,8 +21,8 @@ public sealed class RecycleBinCleanupRule : ICleanupRule
 
 #pragma warning disable CS1998 // Iterator with no awaits — acceptable for this synchronous rule.
     public async IAsyncEnumerable<CleanupSuggestion> AnalyzeAsync(
-        long              sessionId,
-        AppSettings       settings,
+        long sessionId,
+        AppSettings settings,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         var info = _recycleBin.GetRecycleBinInfo();
@@ -30,17 +30,17 @@ public sealed class RecycleBinCleanupRule : ICleanupRule
 
         yield return new CleanupSuggestion
         {
-            Id             = Guid.NewGuid(),
-            RuleId         = RuleId,
-            Title          = $"Recycle Bin ({info.ItemCount:N0} items)",
-            Description    = $"Recycle Bin currently holds {FormatBytes(info.SizeBytes)} across {info.ItemCount:N0} items. " +
+            Id = Guid.NewGuid(),
+            RuleId = RuleId,
+            Title = $"Recycle Bin ({info.ItemCount:N0} items)",
+            Description = $"Recycle Bin currently holds {FormatBytes(info.SizeBytes)} across {info.ItemCount:N0} items. " +
                              "Emptying it is safe and permanent.",
-            Category       = Category,
-            Risk           = CleanupRisk.Safe,
+            Category = Category,
+            Risk = CleanupRisk.Safe,
             EstimatedBytes = info.SizeBytes,
             // Sentinel value — the deleter recognises this and calls SHEmptyRecycleBin.
-            TargetPaths    = ["::RecycleBin::"],
-            IsSystemPath   = false,
+            TargetPaths = ["::RecycleBin::"],
+            IsSystemPath = false,
         };
     }
 #pragma warning restore CS1998
@@ -51,7 +51,7 @@ public sealed class RecycleBinCleanupRule : ICleanupRule
             >= 1L << 30 => $"{bytes / (1L << 30):F1} GB",
             >= 1L << 20 => $"{bytes / (1L << 20):F1} MB",
             >= 1L << 10 => $"{bytes / (1L << 10):F1} KB",
-            _           => $"{bytes} B",
+            _ => $"{bytes} B",
         };
 }
 

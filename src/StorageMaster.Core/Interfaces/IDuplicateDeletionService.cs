@@ -11,17 +11,17 @@ public interface IDuplicateDeletionService
     /// Returns total bytes freed/moved.
     /// </summary>
     Task<long> DeleteSelectedAsync(
-        DuplicateGroup                   group,
+        DuplicateGroup group,
         IReadOnlyList<DuplicateGroupMember> members,
-        DeletionMethod                   method,
-        CancellationToken                ct = default);
+        DeletionMethod method,
+        CancellationToken ct = default);
 
     /// <summary>
     /// Restores a previously quarantined file back to its original path
     /// (or to <paramref name="targetPath"/> if supplied).
     /// </summary>
     Task RestoreFromQuarantineAsync(
-        long              quarantineId,
-        string?           targetPath    = null,
-        CancellationToken ct            = default);
+        long quarantineId,
+        string? targetPath = null,
+        CancellationToken ct = default);
 }

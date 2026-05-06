@@ -11,7 +11,7 @@ namespace StorageMaster.Core.Cleanup.Rules;
 /// </summary>
 public sealed class DeliveryOptimizationRule : ICleanupRule
 {
-    public string RuleId      => "core.delivery-optimization";
+    public string RuleId => "core.delivery-optimization";
     public string DisplayName => "Delivery Optimization Cache";
     public CleanupCategory Category => CleanupCategory.DeliveryOptimization;
 
@@ -26,14 +26,14 @@ public sealed class DeliveryOptimizationRule : ICleanupRule
     ];
 
     public async IAsyncEnumerable<CleanupSuggestion> AnalyzeAsync(
-        long              sessionId,
-        AppSettings       settings,
+        long sessionId,
+        AppSettings settings,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         await Task.Yield();
 
         long totalBytes = 0;
-        var  paths      = new List<string>();
+        var paths = new List<string>();
 
         foreach (var dir in CandidatePaths.Distinct(StringComparer.OrdinalIgnoreCase))
         {
@@ -56,17 +56,17 @@ public sealed class DeliveryOptimizationRule : ICleanupRule
 
         yield return new CleanupSuggestion
         {
-            Id             = Guid.NewGuid(),
-            RuleId         = RuleId,
-            Title          = $"Delivery Optimization cache ({FormatBytes(totalBytes)})",
-            Description    = "Windows stores downloaded update content here to share with other " +
+            Id = Guid.NewGuid(),
+            RuleId = RuleId,
+            Title = $"Delivery Optimization cache ({FormatBytes(totalBytes)})",
+            Description = "Windows stores downloaded update content here to share with other " +
                              "devices. Deleting it does not affect your installed updates; Windows " +
                              "will rebuild the cache over time as needed.",
-            Category       = Category,
-            Risk           = CleanupRisk.Low,
+            Category = Category,
+            Risk = CleanupRisk.Low,
             EstimatedBytes = totalBytes,
-            TargetPaths    = paths,
-            IsSystemPath   = true,
+            TargetPaths = paths,
+            IsSystemPath = true,
         };
     }
 
@@ -75,6 +75,6 @@ public sealed class DeliveryOptimizationRule : ICleanupRule
         >= 1L << 30 => $"{b / (1L << 30):F1} GB",
         >= 1L << 20 => $"{b / (1L << 20):F1} MB",
         >= 1L << 10 => $"{b / (1L << 10):F1} KB",
-        _           => $"{b} B",
+        _ => $"{b} B",
     };
 }

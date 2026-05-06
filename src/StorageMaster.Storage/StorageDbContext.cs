@@ -64,19 +64,19 @@ public sealed class StorageDbContext : IAsyncDisposable
         var builder = new SqliteConnectionStringBuilder
         {
             DataSource = _dbPath,
-            Mode       = SqliteOpenMode.ReadWriteCreate,
-            Cache      = SqliteCacheMode.Private,
+            Mode = SqliteOpenMode.ReadWriteCreate,
+            Cache = SqliteCacheMode.Private,
         };
 
         var conn = new SqliteConnection(builder.ToString());
         await conn.OpenAsync(ct);
 
         // WAL mode: readers never block writers; essential for scan + UI concurrency.
-        await ExecuteAsync(conn, "PRAGMA journal_mode=WAL;",          ct);
-        await ExecuteAsync(conn, "PRAGMA synchronous=NORMAL;",        ct);
-        await ExecuteAsync(conn, "PRAGMA foreign_keys=ON;",           ct);
-        await ExecuteAsync(conn, "PRAGMA temp_store=MEMORY;",         ct);
-        await ExecuteAsync(conn, "PRAGMA cache_size=-32000;",         ct); // 32 MB page cache
+        await ExecuteAsync(conn, "PRAGMA journal_mode=WAL;", ct);
+        await ExecuteAsync(conn, "PRAGMA synchronous=NORMAL;", ct);
+        await ExecuteAsync(conn, "PRAGMA foreign_keys=ON;", ct);
+        await ExecuteAsync(conn, "PRAGMA temp_store=MEMORY;", ct);
+        await ExecuteAsync(conn, "PRAGMA cache_size=-32000;", ct); // 32 MB page cache
 
         _logger.LogInformation("Database opened: {Path}", _dbPath);
         return conn;
@@ -131,8 +131,8 @@ public sealed class StorageDbContext : IAsyncDisposable
     /// </summary>
     private static async Task ApplyMigrationAsync(
         SqliteConnection conn,
-        string[]         statements,
-        int              version,
+        string[] statements,
+        int version,
         CancellationToken ct)
     {
         using var tx = await conn.BeginTransactionAsync(ct);

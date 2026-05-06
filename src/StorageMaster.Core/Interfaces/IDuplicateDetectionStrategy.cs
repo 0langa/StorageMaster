@@ -67,7 +67,7 @@ public interface IDuplicateDetectionStrategy
     /// </summary>
     Task<DuplicateSignature> ComputeSignatureAsync(
         DuplicateCandidate candidate,
-        CancellationToken  ct = default);
+        CancellationToken ct = default);
 
     /// <summary>
     /// Given a dictionary of (signature-key → candidates), return the groups

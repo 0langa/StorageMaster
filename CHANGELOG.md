@@ -4,6 +4,16 @@ All notable changes to StorageMaster are documented here.
 
 ---
 
+## [1.7.4] — 2026-05-06 — Results Hardening And UX Polish
+
+- Fixed the broken duplicate candidate category filter so image/video/document filters use real stored category values.
+- Reworked Results loading to avoid rebuilding the full folder tree and full error list on every navigation.
+- Added paged scan error loading, lazy folder-tree expansion, and cached repeat navigation for large sessions.
+- Hardened duplicate review with debounced filters, cancellable preview/export work, explicit current-page selection semantics, and cached quarantine data.
+- Promoted the executable WinUI XAML compiler path so `dotnet build` works again locally and in CI.
+- Refreshed dashboard and cleanup layouts for clearer next steps and better full-width behavior.
+- Replaced racing `Task.Delay` settings toasts with cancellable status messaging.
+
 ## [1.7.2] — 2026-05-06 — Updater Button Fix
 
 ### Fixed

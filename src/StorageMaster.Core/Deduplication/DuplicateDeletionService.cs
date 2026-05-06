@@ -14,15 +14,15 @@ namespace StorageMaster.Core.Deduplication;
 ///   5. Quarantine restore: moves file back to original (or alternate) path.
 /// </summary>
 public sealed class DuplicateDeletionService(
-    IFileDeleter             deleter,
-    ICleanupLogRepository    cleanupLogRepository,
-    IDuplicateRepository     duplicateRepository) : IDuplicateDeletionService
+    IFileDeleter deleter,
+    ICleanupLogRepository cleanupLogRepository,
+    IDuplicateRepository duplicateRepository) : IDuplicateDeletionService
 {
     public async Task<long> DeleteSelectedAsync(
-        DuplicateGroup                   group,
+        DuplicateGroup group,
         IReadOnlyList<DuplicateGroupMember> members,
-        DeletionMethod                   method,
-        CancellationToken                ct = default)
+        DeletionMethod method,
+        CancellationToken ct = default)
     {
         // ── Safety: refuse when keeper is absent ──────────────────────────
         var keeper = members.FirstOrDefault(static m => m.IsKeeper);
@@ -87,9 +87,9 @@ public sealed class DuplicateDeletionService(
     }
 
     public async Task RestoreFromQuarantineAsync(
-        long              quarantineId,
-        string?           targetPath    = null,
-        CancellationToken ct            = default)
+        long quarantineId,
+        string? targetPath = null,
+        CancellationToken ct = default)
     {
         var record = await duplicateRepository.GetQuarantinedFileAsync(quarantineId, ct)
             ?? throw new InvalidOperationException($"Quarantine record {quarantineId} was not found.");
@@ -125,51 +125,51 @@ public sealed class DuplicateDeletionService(
     }
 
     private async Task LogAuditAsync(
-        DuplicateGroup       group,
+        DuplicateGroup group,
         DuplicateGroupMember member,
         DuplicateGroupMember keeper,
-        DeletionMethod       method,
-        DeletionOutcome      outcome,
-        CancellationToken    ct)
+        DeletionMethod method,
+        DeletionOutcome outcome,
+        CancellationToken ct)
     {
         var suggestion = new CleanupSuggestion
         {
-            Id          = Guid.NewGuid(),
-            RuleId      = $"duplicates.{group.Method}".ToLowerInvariant(),
-            Title       = $"Duplicate file: {member.FileName}",
+            Id = Guid.NewGuid(),
+            RuleId = $"duplicates.{group.Method}".ToLowerInvariant(),
+            Title = $"Duplicate file: {member.FileName}",
             Description = $"Duplicate file selected from group {group.Id} via {method}.",
-            Category    = CleanupCategory.DuplicateFiles,
-            Risk        = CleanupRisk.Low,
+            Category = CleanupCategory.DuplicateFiles,
+            Risk = CleanupRisk.Low,
             EstimatedBytes = member.SizeBytes,
             TargetPaths = [member.FullPath],
             IsSystemPath = false,
             AuditDataJson = JsonSerializer.Serialize(new
             {
-                DuplicateGroupId   = group.Id,
+                DuplicateGroupId = group.Id,
                 group.RunId,
-                DuplicateMethod    = group.Method.ToString(),
+                DuplicateMethod = group.Method.ToString(),
                 group.Confidence,
-                KeeperFileEntryId  = keeper.FileEntryId,
-                KeeperPath         = keeper.FullPath,
+                KeeperFileEntryId = keeper.FileEntryId,
+                KeeperPath = keeper.FullPath,
                 DeletedFileEntryId = member.FileEntryId,
                 member.FullPath,
                 member.SizeBytes,
                 member.ModifiedUtc,
-                DeletionMethod     = method.ToString(),
+                DeletionMethod = method.ToString(),
                 outcome.Success,
                 outcome.BytesFreed,
                 outcome.Error,
-                QuarantinePath     = outcome.QuarantinePath,
+                QuarantinePath = outcome.QuarantinePath,
             }),
         };
 
         var result = new CleanupResult
         {
             SuggestionId = suggestion.Id,
-            Status       = CleanupResultStatus.Success,
-            BytesFreed   = outcome.BytesFreed,
-            ExecutedUtc  = DateTime.UtcNow,
-            WasDryRun    = false,
+            Status = CleanupResultStatus.Success,
+            BytesFreed = outcome.BytesFreed,
+            ExecutedUtc = DateTime.UtcNow,
+            WasDryRun = false,
         };
 
         await cleanupLogRepository.LogResultAsync(result, suggestion, ct);

@@ -23,8 +23,8 @@ public sealed class C4_WriteLockTests : IAsyncDisposable
     public C4_WriteLockTests()
     {
         _dbPath = Path.Combine(Path.GetTempPath(), $"test_c4_{Guid.NewGuid():N}.db");
-        _ctx    = new StorageDbContext(_dbPath, NullLogger<StorageDbContext>.Instance);
-        _repo   = new ScanRepository(_ctx);
+        _ctx = new StorageDbContext(_dbPath, NullLogger<StorageDbContext>.Instance);
+        _repo = new ScanRepository(_ctx);
     }
 
     [Fact]
@@ -43,9 +43,9 @@ public sealed class C4_WriteLockTests : IAsyncDisposable
                 var session = await _repo.CreateSessionAsync($"C:\\path{capture}");
                 var updated = session with
                 {
-                    Status        = ScanStatus.Completed,
-                    CompletedUtc  = DateTime.UtcNow,
-                    TotalFiles    = capture,
+                    Status = ScanStatus.Completed,
+                    CompletedUtc = DateTime.UtcNow,
+                    TotalFiles = capture,
                     TotalSizeBytes = capture * 1024L,
                 };
                 await _repo.UpdateSessionAsync(updated);

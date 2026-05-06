@@ -8,6 +8,22 @@
                 <!-- Provides Fluent Design control styles for WinUI 3 -->
                 <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
             </ResourceDictionary.MergedDictionaries>
+            <Thickness x:Key="PageCardPadding">20</Thickness>
+            <CornerRadius x:Key="PageCardCornerRadius">10</CornerRadius>
+            <Style x:Key="SectionCardStyle" TargetType="Border">
+                <Setter Property="Background" Value="{ThemeResource CardBackgroundFillColorDefaultBrush}" />
+                <Setter Property="CornerRadius" Value="{StaticResource PageCardCornerRadius}" />
+                <Setter Property="Padding" Value="{StaticResource PageCardPadding}" />
+            </Style>
+            <Style x:Key="SectionHeaderTextStyle" TargetType="TextBlock">
+                <Setter Property="Style" Value="{StaticResource BodyStrongTextBlockStyle}" />
+                <Setter Property="TextWrapping" Value="WrapWholeWords" />
+            </Style>
+            <Style x:Key="HelperTextStyle" TargetType="TextBlock">
+                <Setter Property="Style" Value="{StaticResource CaptionTextBlockStyle}" />
+                <Setter Property="Opacity" Value="0.72" />
+                <Setter Property="TextWrapping" Value="WrapWholeWords" />
+            </Style>
         </ResourceDictionary>
     </Application.Resources>
 </Application>

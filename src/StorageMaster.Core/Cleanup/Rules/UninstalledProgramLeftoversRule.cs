@@ -22,7 +22,7 @@ public sealed class UninstalledProgramLeftoversRule : ICleanupRule
 {
     private readonly IInstalledProgramProvider _programProvider;
 
-    public string RuleId      => "core.program-leftovers";
+    public string RuleId => "core.program-leftovers";
     public string DisplayName => "Uninstalled Program Leftovers";
     public CleanupCategory Category => CleanupCategory.ProgramLeftovers;
 
@@ -40,8 +40,8 @@ public sealed class UninstalledProgramLeftoversRule : ICleanupRule
         => _programProvider = programProvider;
 
     public async IAsyncEnumerable<CleanupSuggestion> AnalyzeAsync(
-        long              sessionId,
-        AppSettings       settings,
+        long sessionId,
+        AppSettings settings,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         await Task.Yield();
@@ -50,8 +50,8 @@ public sealed class UninstalledProgramLeftoversRule : ICleanupRule
         var installed = _programProvider.GetInstalledPrograms();
         var knownTokens = BuildKnownTokens(installed);
 
-        var local      = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        var roaming    = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+        var local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        var roaming = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
         var commonData = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
 
         var cutoff = DateTime.UtcNow.AddDays(-90);
@@ -107,17 +107,17 @@ public sealed class UninstalledProgramLeftoversRule : ICleanupRule
 
         yield return new CleanupSuggestion
         {
-            Id             = Guid.NewGuid(),
-            RuleId         = RuleId,
-            Title          = $"Uninstalled program leftovers ({candidates.Count} folder(s))",
-            Description    = $"AppData folders that appear to belong to programs no longer installed, " +
+            Id = Guid.NewGuid(),
+            RuleId = RuleId,
+            Title = $"Uninstalled program leftovers ({candidates.Count} folder(s))",
+            Description = $"AppData folders that appear to belong to programs no longer installed, " +
                              $"unmodified for over 90 days. Review carefully before deleting. " +
                              $"Estimated savings: {FormatBytes(totalBytes)}.",
-            Category       = Category,
-            Risk           = CleanupRisk.Medium,
+            Category = Category,
+            Risk = CleanupRisk.Medium,
             EstimatedBytes = totalBytes,
-            TargetPaths    = candidates.Select(c => c.path).ToList(),
-            IsSystemPath   = false,
+            TargetPaths = candidates.Select(c => c.path).ToList(),
+            IsSystemPath = false,
         };
     }
 
@@ -167,6 +167,6 @@ public sealed class UninstalledProgramLeftoversRule : ICleanupRule
         >= 1L << 30 => $"{b / (1L << 30):F1} GB",
         >= 1L << 20 => $"{b / (1L << 20):F1} MB",
         >= 1L << 10 => $"{b / (1L << 10):F1} KB",
-        _           => $"{b} B",
+        _ => $"{b} B",
     };
 }

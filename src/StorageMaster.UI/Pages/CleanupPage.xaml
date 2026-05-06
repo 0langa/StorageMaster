@@ -16,7 +16,7 @@
     </Page.Resources>
 
     <ScrollViewer Padding="32,24">
-        <StackPanel Spacing="20" MaxWidth="960">
+        <StackPanel Spacing="20" MaxWidth="1040" HorizontalAlignment="Center">
 
             <TextBlock Text="Cleanup" Style="{StaticResource TitleLargeTextBlockStyle}" />
 
@@ -25,6 +25,10 @@
                     CornerRadius="8" Padding="20">
                 <StackPanel Spacing="12">
                     <TextBlock Text="Select scan session" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                    <TextBlock Text="Cleanup uses a completed scan so recommendations stay explainable and reversible by default."
+                               Style="{StaticResource CaptionTextBlockStyle}"
+                               Opacity="0.72"
+                               TextWrapping="Wrap" />
                     <ComboBox ItemsSource="{x:Bind ViewModel.RecentSessions}"
                               SelectedItem="{x:Bind ViewModel.SelectedSession, Mode=TwoWay}"
                               HorizontalAlignment="Stretch">
@@ -50,6 +54,10 @@
                     CornerRadius="8" Padding="20">
                 <StackPanel Spacing="14">
                     <TextBlock Text="Cleanup Options" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                    <TextBlock Text="Leave risky categories off unless you understand the side effects. Dry run stays available before any deletion."
+                               Style="{StaticResource CaptionTextBlockStyle}"
+                               Opacity="0.72"
+                               TextWrapping="Wrap" />
 
                     <!-- Deletion mode row -->
                     <Grid ColumnDefinitions="*,*" ColumnSpacing="20">
@@ -199,29 +207,38 @@
                         <DataTemplate x:DataType="local:SuggestionItem">
                             <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                                     CornerRadius="8" Padding="16,12">
-                                <Grid ColumnDefinitions="Auto,*,120,80,80">
-                                    <CheckBox Grid.Column="0"
+                                <Grid RowSpacing="8" ColumnSpacing="12">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
+                                    </Grid.RowDefinitions>
+                                    <CheckBox Grid.Column="0" Grid.RowSpan="2"
                                               IsChecked="{Binding IsSelected, Mode=TwoWay}"
-                                              VerticalAlignment="Center" Margin="0,0,12,0"/>
-                                    <StackPanel Grid.Column="1">
+                                              VerticalAlignment="Top" Margin="0,2,0,0"/>
+                                    <StackPanel Grid.Column="1" Grid.Row="0">
                                         <TextBlock Text="{x:Bind Suggestion.Title}" FontWeight="SemiBold"
-                                                   TextTrimming="CharacterEllipsis"/>
+                                                   TextWrapping="Wrap"/>
                                         <TextBlock Text="{x:Bind Suggestion.Description}"
                                                    Style="{StaticResource CaptionTextBlockStyle}"
                                                    Opacity="0.7" TextWrapping="Wrap" MaxLines="2"/>
                                     </StackPanel>
-                                    <TextBlock Grid.Column="2" Text="{x:Bind SizeDisplay}"
-                                               HorizontalAlignment="Right" VerticalAlignment="Center"
+                                    <TextBlock Grid.Column="2" Grid.Row="0" Text="{x:Bind SizeDisplay}"
+                                               HorizontalAlignment="Right" VerticalAlignment="Top"
                                                FontWeight="SemiBold"/>
-                                    <TextBlock Grid.Column="3" Text="{x:Bind CategoryDisplay}"
-                                               HorizontalAlignment="Center" VerticalAlignment="Center"
-                                               Style="{StaticResource CaptionTextBlockStyle}"/>
-                                    <Border Grid.Column="4" CornerRadius="4" Padding="6,2"
-                                            VerticalAlignment="Center">
+                                    <StackPanel Grid.Column="1" Grid.Row="1" Orientation="Horizontal" Spacing="12">
+                                        <TextBlock Text="{x:Bind CategoryDisplay}"
+                                                   Style="{StaticResource CaptionTextBlockStyle}"/>
+                                        <Border CornerRadius="4" Padding="6,2">
                                         <TextBlock Text="{x:Bind RiskDisplay}"
                                                    Style="{StaticResource CaptionTextBlockStyle}"
                                                    HorizontalAlignment="Center"/>
-                                    </Border>
+                                        </Border>
+                                    </StackPanel>
                                 </Grid>
                             </Border>
                         </DataTemplate>
@@ -232,7 +249,7 @@
                 <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                         CornerRadius="8" Padding="16,12">
                     <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-                        <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="16">
+                        <StackPanel Grid.Column="0" Spacing="8">
                             <TextBlock VerticalAlignment="Center">
                                 <Run Text="Selected: "/>
                                 <Run Text="{x:Bind ViewModel.TotalSelectedSize, Mode=OneWay}" FontWeight="SemiBold"/>

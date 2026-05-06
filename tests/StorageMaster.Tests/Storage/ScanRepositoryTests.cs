@@ -19,8 +19,8 @@ public sealed class ScanRepositoryTests : IAsyncDisposable
     public ScanRepositoryTests()
     {
         _dbPath = Path.Combine(Path.GetTempPath(), $"test_{Guid.NewGuid():N}.db");
-        _ctx    = new StorageDbContext(_dbPath, NullLogger<StorageDbContext>.Instance);
-        _repo   = new ScanRepository(_ctx);
+        _ctx = new StorageDbContext(_dbPath, NullLogger<StorageDbContext>.Instance);
+        _repo = new ScanRepository(_ctx);
     }
 
     [Fact]
@@ -36,19 +36,19 @@ public sealed class ScanRepositoryTests : IAsyncDisposable
     public async Task InsertAndQueryFileEntries_RoundTrip()
     {
         var session = await _repo.CreateSessionAsync(@"C:\");
-        var entry   = new FileEntry
+        var entry = new FileEntry
         {
-            Id           = 0,
-            SessionId    = session.Id,
-            FullPath     = @"C:\test\large.iso",
-            FileName     = "large.iso",
-            Extension    = ".iso",
-            SizeBytes    = 4_000_000_000L,
-            CreatedUtc   = DateTime.UtcNow.AddDays(-10),
-            ModifiedUtc  = DateTime.UtcNow.AddDays(-5),
-            AccessedUtc  = DateTime.UtcNow,
-            Attributes   = FileAttributes.Normal,
-            Category     = FileTypeCategory.Archive,
+            Id = 0,
+            SessionId = session.Id,
+            FullPath = @"C:\test\large.iso",
+            FileName = "large.iso",
+            Extension = ".iso",
+            SizeBytes = 4_000_000_000L,
+            CreatedUtc = DateTime.UtcNow.AddDays(-10),
+            ModifiedUtc = DateTime.UtcNow.AddDays(-5),
+            AccessedUtc = DateTime.UtcNow,
+            Attributes = FileAttributes.Normal,
+            Category = FileTypeCategory.Archive,
         };
 
         await _repo.InsertFileEntriesAsync([entry]);
@@ -63,12 +63,12 @@ public sealed class ScanRepositoryTests : IAsyncDisposable
     [Fact]
     public async Task UpdateSession_PersistsChanges()
     {
-        var session   = await _repo.CreateSessionAsync(@"C:\");
+        var session = await _repo.CreateSessionAsync(@"C:\");
         var completed = session with
         {
-            Status        = ScanStatus.Completed,
-            CompletedUtc  = DateTime.UtcNow,
-            TotalFiles    = 12345,
+            Status = ScanStatus.Completed,
+            CompletedUtc = DateTime.UtcNow,
+            TotalFiles = 12345,
             TotalSizeBytes = 5_000_000_000L,
         };
 
@@ -103,15 +103,15 @@ public sealed class ScanRepositoryTests : IAsyncDisposable
         var session = await _repo.CreateSessionAsync(@"C:\");
         var folder = new FolderEntry
         {
-            Id              = 0,
-            SessionId       = session.Id,
-            FullPath        = @"C:\TestFolder",
-            FolderName      = "TestFolder",
+            Id = 0,
+            SessionId = session.Id,
+            FullPath = @"C:\TestFolder",
+            FolderName = "TestFolder",
             DirectSizeBytes = 1000,
-            TotalSizeBytes  = 1000,
-            FileCount       = 5,
-            SubFolderCount  = 0,
-            IsReparsePoint  = false,
+            TotalSizeBytes = 1000,
+            FileCount = 5,
+            SubFolderCount = 0,
+            IsReparsePoint = false,
             WasAccessDenied = false,
         };
 
@@ -140,6 +140,26 @@ public sealed class ScanRepositoryTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task FolderTreeQueries_ReturnRootsAndDirectChildrenOnly()
+    {
+        var session = await _repo.CreateSessionAsync(@"C:\Root");
+        await _repo.UpsertFolderEntriesAsync([
+            MakeFolderEntry(session.Id, @"C:\Root", 5000),
+            MakeFolderEntry(session.Id, @"C:\Root\A", 3000),
+            MakeFolderEntry(session.Id, @"C:\Root\A\Nested", 1000),
+            MakeFolderEntry(session.Id, @"C:\Root\B", 2000),
+        ]);
+
+        var roots = await _repo.GetFolderTreeRootsAsync(session.Id);
+        var children = await _repo.GetFolderChildrenAsync(session.Id, @"C:\Root");
+        var childCount = await _repo.CountFolderChildrenAsync(session.Id, @"C:\Root");
+
+        roots.Select(static f => f.FullPath).Should().Contain(@"C:\Root");
+        children.Select(static f => f.FullPath).Should().BeEquivalentTo([@"C:\Root\A", @"C:\Root\B"]);
+        childCount.Should().Be(2);
+    }
+
+    [Fact]
     public async Task UpdateFolderTotals_SetsTotalSizeBytes()
     {
         var session = await _repo.CreateSessionAsync(@"C:\");
@@ -150,7 +170,7 @@ public sealed class ScanRepositoryTests : IAsyncDisposable
 
         var totals = new Dictionary<string, long>
         {
-            [@"C:\Root"]       = 800,
+            [@"C:\Root"] = 800,
             [@"C:\Root\Child"] = 300,
         };
         await _repo.UpdateFolderTotalsAsync(session.Id, totals);
@@ -231,9 +251,9 @@ public sealed class ScanRepositoryTests : IAsyncDisposable
 
         await _repo.UpdateFolderTotalsAsync(session.Id, new Dictionary<string, long>
         {
-            [@"C:\Small"]  =  100,
-            [@"C:\Large"]  = 9000,
-            [@"C:\Mid"]    = 5000,
+            [@"C:\Small"] = 100,
+            [@"C:\Large"] = 9000,
+            [@"C:\Mid"] = 5000,
         });
 
         var results = await _repo.GetLargestFoldersAsync(session.Id, topN: 10);
@@ -312,30 +332,30 @@ public sealed class ScanRepositoryTests : IAsyncDisposable
 
     private static FolderEntry MakeFolderEntry(long sessionId, string path, long directBytes) => new()
     {
-        Id              = 0,
-        SessionId       = sessionId,
-        FullPath        = path,
-        FolderName      = Path.GetFileName(path) ?? path,
+        Id = 0,
+        SessionId = sessionId,
+        FullPath = path,
+        FolderName = Path.GetFileName(path) ?? path,
         DirectSizeBytes = directBytes,
-        TotalSizeBytes  = directBytes,
-        FileCount       = 1,
-        SubFolderCount  = 0,
-        IsReparsePoint  = false,
+        TotalSizeBytes = directBytes,
+        FileCount = 1,
+        SubFolderCount = 0,
+        IsReparsePoint = false,
         WasAccessDenied = false,
     };
 
     private static FileEntry MakeEntry(long sessionId, string ext, FileTypeCategory cat, long size) => new()
     {
-        Id           = 0,
-        SessionId    = sessionId,
-        FullPath     = $@"C:\test\file{Guid.NewGuid():N}{ext}",
-        FileName     = $"file{ext}",
-        Extension    = ext,
-        SizeBytes    = size,
-        CreatedUtc   = DateTime.UtcNow,
-        ModifiedUtc  = DateTime.UtcNow,
-        AccessedUtc  = DateTime.UtcNow,
-        Attributes   = FileAttributes.Normal,
-        Category     = cat,
+        Id = 0,
+        SessionId = sessionId,
+        FullPath = $@"C:\test\file{Guid.NewGuid():N}{ext}",
+        FileName = $"file{ext}",
+        Extension = ext,
+        SizeBytes = size,
+        CreatedUtc = DateTime.UtcNow,
+        ModifiedUtc = DateTime.UtcNow,
+        AccessedUtc = DateTime.UtcNow,
+        Attributes = FileAttributes.Normal,
+        Category = cat,
     };
 }

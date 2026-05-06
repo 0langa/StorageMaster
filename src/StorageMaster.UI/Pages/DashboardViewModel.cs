@@ -1,3 +1,4 @@
+using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using StorageMaster.Core.Interfaces;
@@ -9,55 +10,98 @@ namespace StorageMaster.UI.Pages;
 
 public sealed partial class DashboardViewModel : ObservableObject
 {
-    private readonly IScanRepository    _repo;
+    private readonly IScanRepository _repo;
     private readonly IDriveInfoProvider _drives;
     private readonly INavigationService _nav;
 
-    [ObservableProperty] private ScanSession?   _lastSession;
-    [ObservableProperty] private string         _totalScannedSize = "—";
-    [ObservableProperty] private long            _totalFiles;
-    [ObservableProperty] private string          _statusMessage    = "No scan yet. Start a scan to analyse your disk.";
-    [ObservableProperty] private bool            _hasLastSession;
+    [ObservableProperty] private ScanSession? _lastSession;
+    [ObservableProperty] private string _totalScannedSize = "—";
+    [ObservableProperty] private long _totalFiles;
+    [ObservableProperty] private string _statusMessage = "No scan yet. Start a scan to analyse your disk.";
+    [ObservableProperty] private bool _hasLastSession;
     [ObservableProperty] private IReadOnlyList<DriveDetail> _drives2 = [];
+    [ObservableProperty] private string _heroTitle = "Storage overview";
+    [ObservableProperty] private string _heroSubtitle = "Pick a quick action to start scanning, cleanup, or duplicate review.";
+    [ObservableProperty] private string _recommendedActionText = "Run a scan";
+    [ObservableProperty] private string _latestScanSummary = "No scan history yet.";
+    [ObservableProperty] private string _driveHealthSummary = string.Empty;
+
+    public ObservableCollection<string> Recommendations { get; } = [];
 
     public bool HasDrives => Drives2.Count > 0;
     public bool IsFirstRun => !HasLastSession;
+    public bool HasRecommendations => Recommendations.Count > 0;
 
     public DashboardViewModel(
-        IScanRepository    repo,
+        IScanRepository repo,
         IDriveInfoProvider drives,
         INavigationService nav)
     {
-        _repo   = repo;
+        _repo = repo;
         _drives = drives;
-        _nav    = nav;
+        _nav = nav;
     }
 
     public async Task LoadAsync()
     {
         Drives2 = _drives.GetAvailableDrives();
         OnPropertyChanged(nameof(HasDrives));
+        Recommendations.Clear();
 
         var sessions = await _repo.GetRecentSessionsAsync(count: 1);
+        var lowSpaceDrives = Drives2.Where(static d => d.IsReady && d.TotalBytes > 0)
+            .Select(static drive => new
+            {
+                Drive = drive,
+                FreePercent = (int)Math.Round((double)drive.FreeBytes / drive.TotalBytes * 100d),
+            })
+            .Where(static x => x.FreePercent <= 15)
+            .ToList();
+
+        DriveHealthSummary = lowSpaceDrives.Count == 0
+            ? "No drives are currently under the low-space threshold."
+            : $"{lowSpaceDrives.Count:N0} drive(s) are running low on free space.";
+
         if (sessions.Count > 0)
         {
-            LastSession      = sessions[0];
-            TotalFiles       = LastSession.TotalFiles;
+            LastSession = sessions[0];
+            TotalFiles = LastSession.TotalFiles;
             TotalScannedSize = ByteSizeConverter.Format(LastSession.TotalSizeBytes);
-            HasLastSession   = true;
-            StatusMessage    = LastSession.Status == ScanStatus.Completed
+            HasLastSession = true;
+            LatestScanSummary = LastSession.Status == ScanStatus.Completed
+                ? $"Last completed scan: {LastSession.RootPath} on {LastSession.CompletedUtc:g}"
+                : $"Last scan status: {LastSession.Status}";
+            StatusMessage = LastSession.Status == ScanStatus.Completed
                 ? $"Last scan of {LastSession.RootPath} completed {LastSession.CompletedUtc:g}"
                 : $"Last scan status: {LastSession.Status}";
+            HeroTitle = "Storage ready";
+            HeroSubtitle = "Jump back into the latest scan, duplicates, or cleanup without waiting for a cold load.";
+            RecommendedActionText = lowSpaceDrives.Count > 0 ? "Run Cleanup" : "Open latest Results";
+
+            if (LastSession.CompletedUtc is null || LastSession.CompletedUtc < DateTime.UtcNow.AddDays(-14))
+                Recommendations.Add("Run a fresh scan. The latest scan is stale.");
+            if (lowSpaceDrives.Count > 0)
+                Recommendations.Add(DriveHealthSummary);
+            Recommendations.Add("Review duplicates before deleting anything large or old.");
         }
         else
         {
             HasLastSession = false;
+            HeroTitle = "First run";
+            HeroSubtitle = "Start with a scan, then StorageMaster can guide cleanup and duplicate review safely.";
+            RecommendedActionText = "Start a scan";
+            LatestScanSummary = "No completed scan history yet.";
             StatusMessage = HasDrives
                 ? "No completed scan yet. Start with a drive below or open a custom path."
                 : "No drives detected. Connect storage, then start a scan.";
+            if (HasDrives)
+                Recommendations.Add("Run a first scan so results, duplicate review, and cleanup can use real data.");
+            if (lowSpaceDrives.Count > 0)
+                Recommendations.Add(DriveHealthSummary);
         }
 
         OnPropertyChanged(nameof(IsFirstRun));
+        OnPropertyChanged(nameof(HasRecommendations));
     }
 
     [RelayCommand]
@@ -79,4 +123,19 @@ public sealed partial class DashboardViewModel : ObservableObject
         if (HasLastSession)
             _nav.NavigateTo(typeof(DuplicatesPage), LastSession!.Id);
     }
+
+    [RelayCommand]
+    private void GoToCleanup()
+    {
+        if (HasLastSession)
+            _nav.NavigateTo(typeof(CleanupPage), LastSession!.Id);
+        else
+            _nav.NavigateTo(typeof(ScanPage));
+    }
+
+    [RelayCommand]
+    private void GoToSmartCleaner() => _nav.NavigateTo(typeof(SmartCleanerPage));
+
+    [RelayCommand]
+    private void GoToSettings() => _nav.NavigateTo(typeof(SettingsPage));
 }

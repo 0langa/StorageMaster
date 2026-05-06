@@ -13,7 +13,7 @@ public sealed class LargeOldFilesCleanupRule : ICleanupRule
 {
     private readonly IScanRepository _repo;
 
-    public string RuleId      => "core.large-old-files";
+    public string RuleId => "core.large-old-files";
     public string DisplayName => "Large Old Files";
     public CleanupCategory Category => CleanupCategory.LargeOldFiles;
 
@@ -28,12 +28,12 @@ public sealed class LargeOldFilesCleanupRule : ICleanupRule
     public LargeOldFilesCleanupRule(IScanRepository repo) => _repo = repo;
 
     public async IAsyncEnumerable<CleanupSuggestion> AnalyzeAsync(
-        long              sessionId,
-        AppSettings       settings,
+        long sessionId,
+        AppSettings settings,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         long thresholdBytes = (long)settings.LargeFileSizeMb * 1024 * 1024;
-        var  cutoff         = DateTime.UtcNow.AddDays(-settings.OldFileAgeDays);
+        var cutoff = DateTime.UtcNow.AddDays(-settings.OldFileAgeDays);
 
         // Fetch a generous top-N; we filter by age below.
         var candidates = await _repo.GetLargestFilesAsync(sessionId, topN: 1000, cancellationToken);
@@ -53,16 +53,16 @@ public sealed class LargeOldFilesCleanupRule : ICleanupRule
 
             yield return new CleanupSuggestion
             {
-                Id             = Guid.NewGuid(),
-                RuleId         = RuleId,
-                Title          = $"Large old file: {file.FileName}",
-                Description    = $"{FormatBytes(file.SizeBytes)}, last modified {file.ModifiedUtc:yyyy-MM-dd}. " +
+                Id = Guid.NewGuid(),
+                RuleId = RuleId,
+                Title = $"Large old file: {file.FileName}",
+                Description = $"{FormatBytes(file.SizeBytes)}, last modified {file.ModifiedUtc:yyyy-MM-dd}. " +
                                  $"Path: {file.FullPath}",
-                Category       = Category,
-                Risk           = CleanupRisk.Medium,
+                Category = Category,
+                Risk = CleanupRisk.Medium,
                 EstimatedBytes = file.SizeBytes,
-                TargetPaths    = [file.FullPath],
-                IsSystemPath   = false,
+                TargetPaths = [file.FullPath],
+                IsSystemPath = false,
             };
         }
     }
@@ -78,6 +78,6 @@ public sealed class LargeOldFilesCleanupRule : ICleanupRule
             >= 1L << 30 => $"{bytes / (1L << 30):F1} GB",
             >= 1L << 20 => $"{bytes / (1L << 20):F1} MB",
             >= 1L << 10 => $"{bytes / (1L << 10):F1} KB",
-            _           => $"{bytes} B",
+            _ => $"{bytes} B",
         };
 }

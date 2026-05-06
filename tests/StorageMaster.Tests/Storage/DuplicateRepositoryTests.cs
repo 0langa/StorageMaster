@@ -76,6 +76,29 @@ public sealed class DuplicateRepositoryTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task GetCandidatesAsync_CategoryFilter_UsesRealCategoryValues()
+    {
+        var session = await _scanRepository.CreateSessionAsync(@"C:\scope");
+        await _scanRepository.InsertFileEntriesAsync([
+            MakeEntry(session.Id, @"C:\scope\a.jpg", 100, FileTypeCategory.Image),
+            MakeEntry(session.Id, @"C:\scope\b.mp4", 200, FileTypeCategory.Video),
+            MakeEntry(session.Id, @"C:\scope\c.txt", 50, FileTypeCategory.Document),
+        ]);
+
+        var candidates = await _repo.GetCandidatesAsync(new DuplicateCandidateQuery
+        {
+            SessionId = session.Id,
+            MinimumSizeBytes = 0,
+            RequireSameSizeBucket = false,
+            Categories = [FileTypeCategory.Image, FileTypeCategory.Video],
+        });
+
+        candidates.Select(static c => c.File.Category)
+            .Should()
+            .BeEquivalentTo([FileTypeCategory.Image, FileTypeCategory.Video]);
+    }
+
+    [Fact]
     public async Task SaveResultsAsync_UpsertsExistingSignature()
     {
         var session = await _scanRepository.CreateSessionAsync(@"C:\scope");
@@ -240,20 +263,20 @@ public sealed class DuplicateRepositoryTests : IAsyncDisposable
         long size,
         FileTypeCategory category,
         FileAttributes attributes = FileAttributes.Normal) => new()
-    {
-        Id = 0,
-        SessionId = sessionId,
-        FullPath = path,
-        FileName = Path.GetFileName(path),
-        Extension = Path.GetExtension(path),
-        SizeBytes = size,
-        CreatedUtc = DateTime.UtcNow,
-        ModifiedUtc = DateTime.UtcNow,
-        AccessedUtc = DateTime.UtcNow,
-        Attributes = attributes,
-        Category = category,
-        IsReparsePoint = false,
-    };
+        {
+            Id = 0,
+            SessionId = sessionId,
+            FullPath = path,
+            FileName = Path.GetFileName(path),
+            Extension = Path.GetExtension(path),
+            SizeBytes = size,
+            CreatedUtc = DateTime.UtcNow,
+            ModifiedUtc = DateTime.UtcNow,
+            AccessedUtc = DateTime.UtcNow,
+            Attributes = attributes,
+            Category = category,
+            IsReparsePoint = false,
+        };
 
     private static DuplicateSignature MakeSignature(FileEntry file, string hash, int revision) => new()
     {

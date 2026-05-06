@@ -31,15 +31,15 @@ public sealed class FileScanner : IFileScanner
 
     public FileScanner(IScanRepository repo, ILogger<FileScanner> logger, IScanErrorRepository? errorRepo = null)
     {
-        _repo      = repo;
-        _logger    = logger;
+        _repo = repo;
+        _logger = logger;
         _errorRepo = errorRepo;
     }
 
     public async Task<ScanSession> ScanAsync(
-        ScanOptions             options,
+        ScanOptions options,
         IProgress<ScanProgress> progress,
-        CancellationToken       cancellationToken = default)
+        CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrEmpty(options.RootPath);
 
@@ -50,7 +50,7 @@ public sealed class FileScanner : IFileScanner
 
         // Declared outside try so catch blocks can await it for clean shutdown.
         var progressTimer = new PeriodicTimer(TimeSpan.FromMilliseconds(300));
-        var progressTask  = ReportProgressLoopAsync(progressTimer, state, progress, cancellationToken);
+        var progressTask = ReportProgressLoopAsync(progressTimer, state, progress, cancellationToken);
 
         try
         {
@@ -93,10 +93,10 @@ public sealed class FileScanner : IFileScanner
 
             var completed = session with
             {
-                Status        = ScanStatus.Completed,
-                CompletedUtc  = DateTime.UtcNow,
-                TotalFiles    = state.FileCount,
-                TotalFolders  = state.FolderCount,
+                Status = ScanStatus.Completed,
+                CompletedUtc = DateTime.UtcNow,
+                TotalFiles = state.FileCount,
+                TotalFolders = state.FolderCount,
                 TotalSizeBytes = state.TotalBytes,
                 AccessDeniedCount = state.AccessDeniedCount,
             };
@@ -118,9 +118,9 @@ public sealed class FileScanner : IFileScanner
 
             var cancelled = session with
             {
-                Status       = ScanStatus.Cancelled,
+                Status = ScanStatus.Cancelled,
                 CompletedUtc = DateTime.UtcNow,
-                TotalFiles   = state.FileCount,
+                TotalFiles = state.FileCount,
                 TotalFolders = state.FolderCount,
                 TotalSizeBytes = state.TotalBytes,
             };
@@ -135,7 +135,7 @@ public sealed class FileScanner : IFileScanner
             _logger.LogError(ex, "Scan {SessionId} failed", session.Id);
             var failed = session with
             {
-                Status       = ScanStatus.Failed,
+                Status = ScanStatus.Failed,
                 CompletedUtc = DateTime.UtcNow,
                 ErrorMessage = ex.Message,
             };
@@ -147,16 +147,16 @@ public sealed class FileScanner : IFileScanner
     // ── Directory traversal ────────────────────────────────────────────────
 
     private async Task ScanDirectoryTreeAsync(
-        string            rootPath,
-        ScanOptions       options,
-        ScanState         state,
+        string rootPath,
+        ScanOptions options,
+        ScanState state,
         CancellationToken ct)
     {
         // Channel provides backpressure: producers (directory enumerators) can't
         // enqueue infinitely ahead of consumers (I/O flushing).
         var channel = Channel.CreateBounded<string>(new BoundedChannelOptions(1024)
         {
-            FullMode     = BoundedChannelFullMode.Wait,
+            FullMode = BoundedChannelFullMode.Wait,
             SingleWriter = false,
             SingleReader = false,
         });
@@ -175,11 +175,11 @@ public sealed class FileScanner : IFileScanner
     }
 
     private async Task ProduceDirectoriesAsync(
-        string             root,
-        ScanOptions        options,
-        ScanState          state,
+        string root,
+        ScanOptions options,
+        ScanState state,
         ChannelWriter<string> writer,
-        CancellationToken  ct)
+        CancellationToken ct)
     {
         var queue = new Queue<string>();
         queue.Enqueue(root);
@@ -242,10 +242,10 @@ public sealed class FileScanner : IFileScanner
     }
 
     private async Task ConsumeDirectoriesAsync(
-        ScanOptions          options,
-        ScanState            state,
+        ScanOptions options,
+        ScanState state,
         ChannelReader<string> reader,
-        CancellationToken    ct)
+        CancellationToken ct)
     {
         await foreach (var dir in reader.ReadAllAsync(ct).ConfigureAwait(false))
         {
@@ -262,10 +262,10 @@ public sealed class FileScanner : IFileScanner
 
     private void ProcessDirectory(string dir, ScanOptions options, ScanState state)
     {
-        long directBytes   = 0;
-        int  fileCount     = 0;
-        int  subDirCount   = 0;
-        bool accessDenied  = false;
+        long directBytes = 0;
+        int fileCount = 0;
+        int subDirCount = 0;
+        bool accessDenied = false;
 
         // Deep scan: enumerate hidden and system files that .NET skips by default.
         var fileEnumOptions = options.DeepScan
@@ -288,17 +288,17 @@ public sealed class FileScanner : IFileScanner
 
                     var entry = new FileEntry
                     {
-                        Id           = 0, // assigned by DB
-                        SessionId    = state.SessionId,
-                        FullPath     = filePath,
-                        FileName     = info.Name,
-                        Extension    = info.Extension,
-                        SizeBytes    = info.Length,
-                        CreatedUtc   = info.CreationTimeUtc,
-                        ModifiedUtc  = info.LastWriteTimeUtc,
-                        AccessedUtc  = info.LastAccessTimeUtc,
-                        Attributes   = info.Attributes,
-                        Category     = FileTypeCategorizor.Categorize(info.Extension),
+                        Id = 0, // assigned by DB
+                        SessionId = state.SessionId,
+                        FullPath = filePath,
+                        FileName = info.Name,
+                        Extension = info.Extension,
+                        SizeBytes = info.Length,
+                        CreatedUtc = info.CreationTimeUtc,
+                        ModifiedUtc = info.LastWriteTimeUtc,
+                        AccessedUtc = info.LastAccessTimeUtc,
+                        Attributes = info.Attributes,
+                        Category = FileTypeCategorizor.Categorize(info.Extension),
                         IsReparsePoint = info.Attributes.HasFlag(FileAttributes.ReparsePoint),
                     };
 
@@ -322,8 +322,11 @@ public sealed class FileScanner : IFileScanner
             accessDenied = true;
             state.ErrorBuffer.Enqueue(new ScanError
             {
-                Id = 0, SessionId = state.SessionId, Path = dir,
-                ErrorType = "UnauthorizedAccess", Message = ex.Message,
+                Id = 0,
+                SessionId = state.SessionId,
+                Path = dir,
+                ErrorType = "UnauthorizedAccess",
+                Message = ex.Message,
                 OccurredAt = DateTime.UtcNow,
             });
         }
@@ -340,8 +343,11 @@ public sealed class FileScanner : IFileScanner
 
             state.ErrorBuffer.Enqueue(new ScanError
             {
-                Id = 0, SessionId = state.SessionId, Path = dir,
-                ErrorType = ex.GetType().Name, Message = ex.Message,
+                Id = 0,
+                SessionId = state.SessionId,
+                Path = dir,
+                ErrorType = ex.GetType().Name,
+                Message = ex.Message,
                 OccurredAt = DateTime.UtcNow,
             });
         }
@@ -352,15 +358,15 @@ public sealed class FileScanner : IFileScanner
 
         var folderEntry = new FolderEntry
         {
-            Id              = 0,
-            SessionId       = state.SessionId,
-            FullPath        = dir,
-            FolderName      = Path.GetFileName(dir) ?? dir,
+            Id = 0,
+            SessionId = state.SessionId,
+            FullPath = dir,
+            FolderName = Path.GetFileName(dir) ?? dir,
             DirectSizeBytes = directBytes,
-            TotalSizeBytes  = directBytes, // ancestor propagation done post-scan
-            FileCount       = fileCount,
-            SubFolderCount  = subDirCount,
-            IsReparsePoint  = IsReparsePoint(dir),
+            TotalSizeBytes = directBytes, // ancestor propagation done post-scan
+            FileCount = fileCount,
+            SubFolderCount = subDirCount,
+            IsReparsePoint = IsReparsePoint(dir),
             WasAccessDenied = accessDenied,
         };
 
@@ -421,7 +427,7 @@ public sealed class FileScanner : IFileScanner
 
     public async IAsyncEnumerable<FileEntry> GetLargestFilesAsync(
         long sessionId,
-        int  topN,
+        int topN,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         var results = await _repo.GetLargestFilesAsync(sessionId, topN, cancellationToken);
@@ -434,7 +440,7 @@ public sealed class FileScanner : IFileScanner
 
     public async IAsyncEnumerable<FolderEntry> GetLargestFoldersAsync(
         long sessionId,
-        int  topN,
+        int topN,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         var results = await _repo.GetLargestFoldersAsync(sessionId, topN, cancellationToken);
@@ -448,10 +454,10 @@ public sealed class FileScanner : IFileScanner
     // ── Progress ──────────────────────────────────────────────────────────
 
     private static async Task ReportProgressLoopAsync(
-        PeriodicTimer          timer,
-        ScanState              state,
+        PeriodicTimer timer,
+        ScanState state,
         IProgress<ScanProgress> progress,
-        CancellationToken      ct)
+        CancellationToken ct)
     {
         try
         {
@@ -463,12 +469,12 @@ public sealed class FileScanner : IFileScanner
 
     private static ScanProgress BuildProgress(ScanState state, bool complete) => new()
     {
-        CurrentPath    = state.LastScannedPath,
-        FilesScanned   = Interlocked.Read(ref state._fileCount),
+        CurrentPath = state.LastScannedPath,
+        FilesScanned = Interlocked.Read(ref state._fileCount),
         FoldersScanned = Interlocked.Read(ref state._folderCount),
-        BytesScanned   = Interlocked.Read(ref state._totalBytes),
-        ErrorCount     = (int)Interlocked.Read(ref state._accessDeniedCount),
-        IsComplete     = complete,
+        BytesScanned = Interlocked.Read(ref state._totalBytes),
+        ErrorCount = (int)Interlocked.Read(ref state._accessDeniedCount),
+        IsComplete = complete,
     };
 
     // ── Helpers ───────────────────────────────────────────────────────────
@@ -499,9 +505,9 @@ public sealed class FileScanner : IFileScanner
         public long _totalBytes;
         public long _accessDeniedCount;
 
-        public long FileCount        => Interlocked.Read(ref _fileCount);
-        public long FolderCount      => Interlocked.Read(ref _folderCount);
-        public long TotalBytes       => Interlocked.Read(ref _totalBytes);
+        public long FileCount => Interlocked.Read(ref _fileCount);
+        public long FolderCount => Interlocked.Read(ref _folderCount);
+        public long TotalBytes => Interlocked.Read(ref _totalBytes);
         public long AccessDeniedCount => Interlocked.Read(ref _accessDeniedCount);
 
         // volatile so readers always see the latest value without a lock.
@@ -514,12 +520,12 @@ public sealed class FileScanner : IFileScanner
 
         // ConcurrentQueue is the right structure here: many producers (worker
         // tasks), serialised flush via per-buffer SemaphoreSlim.
-        public ConcurrentQueue<FileEntry>   FileBuffer   { get; } = new();
+        public ConcurrentQueue<FileEntry> FileBuffer { get; } = new();
         public ConcurrentQueue<FolderEntry> FolderBuffer { get; } = new();
-        public ConcurrentQueue<ScanError>   ErrorBuffer  { get; } = new();
+        public ConcurrentQueue<ScanError> ErrorBuffer { get; } = new();
 
         // Serialise buffer drains so concurrent consumers never double-drain.
-        public SemaphoreSlim FileFlushLock   { get; } = new(1, 1);
+        public SemaphoreSlim FileFlushLock { get; } = new(1, 1);
         public SemaphoreSlim FolderFlushLock { get; } = new(1, 1);
 
         public ScanState(long sessionId, ScanOptions _)

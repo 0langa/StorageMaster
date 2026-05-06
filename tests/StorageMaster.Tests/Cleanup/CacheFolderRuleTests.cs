@@ -75,7 +75,7 @@ public sealed class CacheFolderRuleTests
     public async Task AnalyzeAsync_MultipleKnownCaches_OneSuggestionEach()
     {
         var chromePath = Path.Combine(_localAppData, @"Google\Chrome\User Data\Default\Cache");
-        var edgePath   = Path.Combine(_localAppData, @"Microsoft\Edge\User Data\Default\Cache");
+        var edgePath = Path.Combine(_localAppData, @"Microsoft\Edge\User Data\Default\Cache");
 
         _repoMock
             .Setup(r => r.GetLargestFoldersAsync(1, It.IsAny<int>(), It.IsAny<CancellationToken>()))
@@ -93,15 +93,15 @@ public sealed class CacheFolderRuleTests
 
     private static FolderEntry MakeFolder(string path, long totalBytes) => new()
     {
-        Id              = 1,
-        SessionId       = 1,
-        FullPath        = path,
-        FolderName      = Path.GetFileName(path) ?? path,
+        Id = 1,
+        SessionId = 1,
+        FullPath = path,
+        FolderName = Path.GetFileName(path) ?? path,
         DirectSizeBytes = totalBytes,
-        TotalSizeBytes  = totalBytes,
-        FileCount       = 100,
-        SubFolderCount  = 2,
-        IsReparsePoint  = false,
+        TotalSizeBytes = totalBytes,
+        FileCount = 100,
+        SubFolderCount = 2,
+        IsReparsePoint = false,
         WasAccessDenied = false,
     };
 }

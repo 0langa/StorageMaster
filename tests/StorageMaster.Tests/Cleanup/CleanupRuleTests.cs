@@ -121,17 +121,17 @@ public sealed class LargeOldFilesRuleTests
 
     private static FileEntry MakeFile(string path, long sizeBytes, int modifiedDaysAgo) => new()
     {
-        Id           = 1,
-        SessionId    = 1,
-        FullPath     = path,
-        FileName     = Path.GetFileName(path),
-        Extension    = Path.GetExtension(path),
-        SizeBytes    = sizeBytes,
-        CreatedUtc   = DateTime.UtcNow.AddDays(-modifiedDaysAgo - 1),
-        ModifiedUtc  = DateTime.UtcNow.AddDays(-modifiedDaysAgo),
-        AccessedUtc  = DateTime.UtcNow,
-        Attributes   = FileAttributes.Normal,
-        Category     = FileTypeCategory.Unknown,
+        Id = 1,
+        SessionId = 1,
+        FullPath = path,
+        FileName = Path.GetFileName(path),
+        Extension = Path.GetExtension(path),
+        SizeBytes = sizeBytes,
+        CreatedUtc = DateTime.UtcNow.AddDays(-modifiedDaysAgo - 1),
+        ModifiedUtc = DateTime.UtcNow.AddDays(-modifiedDaysAgo),
+        AccessedUtc = DateTime.UtcNow,
+        Attributes = FileAttributes.Normal,
+        Category = FileTypeCategory.Unknown,
     };
 }
 
@@ -163,17 +163,17 @@ public sealed class TempFilesRuleTests
 
     private static FileEntry MakeFile(string path, long sizeBytes) => new()
     {
-        Id           = 1,
-        SessionId    = 1,
-        FullPath     = path,
-        FileName     = Path.GetFileName(path),
-        Extension    = Path.GetExtension(path),
-        SizeBytes    = sizeBytes,
-        CreatedUtc   = DateTime.UtcNow,
-        ModifiedUtc  = DateTime.UtcNow,
-        AccessedUtc  = DateTime.UtcNow,
-        Attributes   = FileAttributes.Normal,
-        Category     = FileTypeCategory.Temporary,
+        Id = 1,
+        SessionId = 1,
+        FullPath = path,
+        FileName = Path.GetFileName(path),
+        Extension = Path.GetExtension(path),
+        SizeBytes = sizeBytes,
+        CreatedUtc = DateTime.UtcNow,
+        ModifiedUtc = DateTime.UtcNow,
+        AccessedUtc = DateTime.UtcNow,
+        Attributes = FileAttributes.Normal,
+        Category = FileTypeCategory.Temporary,
     };
 }
 

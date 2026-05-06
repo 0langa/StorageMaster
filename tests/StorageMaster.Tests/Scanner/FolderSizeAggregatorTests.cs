@@ -50,8 +50,8 @@ public sealed class FolderSizeAggregatorTests
         var result = FolderSizeAggregator.Compute(folders);
 
         result[@"C:\a\b\c"].Should().Be(300);
-        result[@"C:\a\b"].Should().Be(500,  "b has its 200 plus c's 300");
-        result[@"C:\a"].Should().Be(600,    "a has its 100 plus b's total 500");
+        result[@"C:\a\b"].Should().Be(500, "b has its 200 plus c's 300");
+        result[@"C:\a"].Should().Be(600, "a has its 100 plus b's total 500");
     }
 
     [Fact]
@@ -124,9 +124,9 @@ public sealed class FolderSizeAggregatorTests
         var result = FolderSizeAggregator.Compute(folders);
 
         result[@"C:\a\b\c\d"].Should().Be(40);
-        result[@"C:\a\b\c"].Should().Be(70,   "c=30 + d=40");
-        result[@"C:\a\b"].Should().Be(90,     "b=20 + c_total=70");
-        result[@"C:\a"].Should().Be(100,      "a=10 + b_total=90");
+        result[@"C:\a\b\c"].Should().Be(70, "c=30 + d=40");
+        result[@"C:\a\b"].Should().Be(90, "b=20 + c_total=70");
+        result[@"C:\a"].Should().Be(100, "a=10 + b_total=90");
     }
 
     [Fact]
@@ -146,9 +146,9 @@ public sealed class FolderSizeAggregatorTests
 
         var result = FolderSizeAggregator.Compute(folders);
 
-        result[@"C:\r\a"].Should().Be(600,   "a=100 + x=200 + y=300");
-        result[@"C:\r\b"].Should().Be(1500,  "b=400 + x=500 + y=600");
-        result[@"C:\r"].Should().Be(2101,    "r=1 + a_total=600 + b_total=1500");
+        result[@"C:\r\a"].Should().Be(600, "a=100 + x=200 + y=300");
+        result[@"C:\r\b"].Should().Be(1500, "b=400 + x=500 + y=600");
+        result[@"C:\r"].Should().Be(2101, "r=1 + a_total=600 + b_total=1500");
     }
 
     [Fact]
@@ -162,15 +162,15 @@ public sealed class FolderSizeAggregatorTests
 
     private static FolderEntry MakeFolder(string path, long directBytes) => new()
     {
-        Id              = 0,
-        SessionId       = 1,
-        FullPath        = path,
-        FolderName      = Path.GetFileName(path) ?? path,
+        Id = 0,
+        SessionId = 1,
+        FullPath = path,
+        FolderName = Path.GetFileName(path) ?? path,
         DirectSizeBytes = directBytes,
-        TotalSizeBytes  = directBytes,
-        FileCount       = 1,
-        SubFolderCount  = 0,
-        IsReparsePoint  = false,
+        TotalSizeBytes = directBytes,
+        FileCount = 1,
+        SubFolderCount = 0,
+        IsReparsePoint = false,
         WasAccessDenied = false,
     };
 }

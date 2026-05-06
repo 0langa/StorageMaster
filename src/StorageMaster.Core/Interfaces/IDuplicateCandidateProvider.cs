@@ -17,5 +17,5 @@ public interface IDuplicateCandidateProvider
     /// </summary>
     Task<IReadOnlyList<DuplicateCandidate>> GetCandidatesAsync(
         DuplicateCandidateQuery query,
-        CancellationToken       ct = default);
+        CancellationToken ct = default);
 }

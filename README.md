@@ -1,6 +1,6 @@
 # StorageMaster    [![Release](https://github.com/0langa/StorageMaster/actions/workflows/release.yml/badge.svg?event=release)](https://github.com/0langa/StorageMaster/actions/workflows/release.yml)
 
-> **Current version:** 1.7.2 — Windows disk analyzer, junk cleaner, and storage health tool.
+> **Current version:** 1.7.4 — Windows disk analyzer, junk cleaner, and storage health tool.
 
 A Windows disk analyzer and storage cleaner built with **C# / .NET 8 / WinUI 3**, with an optional native Rust scan engine for maximum throughput on multi-core systems.
 
@@ -153,7 +153,7 @@ Copy-Item turbo-scanner\target\x86_64-pc-windows-msvc\release\turbo-scanner.exe 
 
 # 3. Build the installer
 iscc installer\StorageMaster.iss
-# Output: artifacts/installer/StorageMaster-1.7.2-win-x64-Setup.exe
+# Output: artifacts/installer/StorageMaster-1.7.4-win-x64-Setup.exe
 ```
 
 Optional: place `ffmpeg.exe` and `ffprobe.exe` in `installer\ffmpeg\` before packaging. Release builds copy them into `tools\ffmpeg\` beside the app so video pHash works out of the box.

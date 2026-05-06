@@ -25,30 +25,30 @@ namespace StorageMaster.Core.Update;
 /// </summary>
 public sealed class GitHubUpdateService : IUpdateService
 {
-    private const string ApiBase         = "https://api.github.com";
-    private const string OwnerRepo       = "0langa/StorageMaster";
+    private const string ApiBase = "https://api.github.com";
+    private const string OwnerRepo = "0langa/StorageMaster";
     private const string AssetNameFormat = "StorageMaster-{0}-win-x64-Setup.exe";
 
-    private readonly HttpClient                    _http;
-    private readonly Version                       _currentVersion;
-    private readonly ILogger<GitHubUpdateService>  _logger;
-    private readonly ISettingsRepository           _settingsRepository;
-    private readonly IInstallerTrustVerifier       _installerTrustVerifier;
+    private readonly HttpClient _http;
+    private readonly Version _currentVersion;
+    private readonly ILogger<GitHubUpdateService> _logger;
+    private readonly ISettingsRepository _settingsRepository;
+    private readonly IInstallerTrustVerifier _installerTrustVerifier;
 
     /// <inheritdoc/>
     public UpdateInfo? LastCheckResult { get; private set; }
     public UpdateFailureKind? LastFailureKind { get; private set; }
 
     public GitHubUpdateService(
-        HttpClient                   http,
-        Version                      currentVersion,
+        HttpClient http,
+        Version currentVersion,
         ILogger<GitHubUpdateService> logger,
-        ISettingsRepository          settingsRepository,
-        IInstallerTrustVerifier      installerTrustVerifier)
+        ISettingsRepository settingsRepository,
+        IInstallerTrustVerifier installerTrustVerifier)
     {
-        _http           = http;
+        _http = http;
         _currentVersion = currentVersion;
-        _logger         = logger;
+        _logger = logger;
         _settingsRepository = settingsRepository;
         _installerTrustVerifier = installerTrustVerifier;
     }
@@ -57,8 +57,8 @@ public sealed class GitHubUpdateService : IUpdateService
 
     /// <inheritdoc/>
     public async Task<UpdateInfo?> CheckAsync(
-        bool              includePrerelease = false,
-        CancellationToken ct               = default)
+        bool includePrerelease = false,
+        CancellationToken ct = default)
     {
         LastCheckResult = null;
         LastFailureKind = null;
@@ -88,8 +88,8 @@ public sealed class GitHubUpdateService : IUpdateService
             return null;
         }
 
-        UpdateInfo? bestUpdate    = null;
-        var         bestSemver    = default(SemanticVersion?);
+        UpdateInfo? bestUpdate = null;
+        var bestSemver = default(SemanticVersion?);
         foreach (var release in releases)
         {
             if (release.Draft)
@@ -120,9 +120,9 @@ public sealed class GitHubUpdateService : IUpdateService
 
     /// <inheritdoc/>
     public async Task<string> DownloadAsync(
-        UpdateInfo         info,
+        UpdateInfo info,
         IProgress<double>? progress = null,
-        CancellationToken  ct       = default)
+        CancellationToken ct = default)
     {
         LastFailureKind = null;
 
@@ -171,9 +171,9 @@ public sealed class GitHubUpdateService : IUpdateService
                 FileMode.Create, FileAccess.Write, FileShare.None,
                 bufferSize: 81920, useAsync: true))
             {
-                var buffer     = new byte[81920];
+                var buffer = new byte[81920];
                 long bytesRead = 0;
-                int  read;
+                int read;
 
                 while ((read = await src.ReadAsync(buffer, ct).ConfigureAwait(false)) > 0)
                 {
@@ -256,7 +256,7 @@ public sealed class GitHubUpdateService : IUpdateService
             var psi = new ProcessStartInfo(installerPath)
             {
                 UseShellExecute = true,
-                Verb            = "runas",   // elevation prompt (UAC)
+                Verb = "runas",   // elevation prompt (UAC)
             };
             var proc = Process.Start(psi);
             if (proc is null)
@@ -313,9 +313,9 @@ public sealed class GitHubUpdateService : IUpdateService
     }
 
     private bool TryCreateUpdateInfo(
-        GitHubRelease            release,
-        out UpdateInfo?          info,
-        out SemanticVersion      releaseVersion)
+        GitHubRelease release,
+        out UpdateInfo? info,
+        out SemanticVersion releaseVersion)
     {
         info = null;
         releaseVersion = default;
@@ -358,15 +358,15 @@ public sealed class GitHubUpdateService : IUpdateService
 
         info = new UpdateInfo
         {
-            Version      = releaseVersion.ToVersion(),
-            TagName      = release.TagName,
+            Version = releaseVersion.ToVersion(),
+            TagName = release.TagName,
             ReleaseNotes = release.Body ?? string.Empty,
-            AssetName    = asset.Name!,
-            DownloadUrl  = asset.BrowserDownloadUrl,
-            ReleaseUrl   = release.HtmlUrl ?? $"https://github.com/{OwnerRepo}/releases/tag/{release.TagName}",
+            AssetName = asset.Name!,
+            DownloadUrl = asset.BrowserDownloadUrl,
+            ReleaseUrl = release.HtmlUrl ?? $"https://github.com/{OwnerRepo}/releases/tag/{release.TagName}",
             Sha256Digest = NormalizeDigest(asset.Digest),
             IsPrerelease = release.Prerelease,
-            PublishedAt  = release.PublishedAt ?? DateTimeOffset.MinValue,
+            PublishedAt = release.PublishedAt ?? DateTimeOffset.MinValue,
         };
 
         return true;
@@ -375,18 +375,18 @@ public sealed class GitHubUpdateService : IUpdateService
     // ── GitHub API response DTOs ──────────────────────────────────────────────
 
     private sealed record GitHubRelease(
-        [property: JsonPropertyName("tag_name")]     string?          TagName,
-        [property: JsonPropertyName("html_url")]     string?          HtmlUrl,
-        [property: JsonPropertyName("prerelease")]   bool             Prerelease,
-        [property: JsonPropertyName("draft")]        bool             Draft,
-        [property: JsonPropertyName("body")]         string?          Body,
-        [property: JsonPropertyName("published_at")] DateTimeOffset?  PublishedAt,
-        [property: JsonPropertyName("assets")]       GitHubAsset[]?   Assets);
+        [property: JsonPropertyName("tag_name")] string? TagName,
+        [property: JsonPropertyName("html_url")] string? HtmlUrl,
+        [property: JsonPropertyName("prerelease")] bool Prerelease,
+        [property: JsonPropertyName("draft")] bool Draft,
+        [property: JsonPropertyName("body")] string? Body,
+        [property: JsonPropertyName("published_at")] DateTimeOffset? PublishedAt,
+        [property: JsonPropertyName("assets")] GitHubAsset[]? Assets);
 
     private sealed record GitHubAsset(
-        [property: JsonPropertyName("name")]                 string? Name,
+        [property: JsonPropertyName("name")] string? Name,
         [property: JsonPropertyName("browser_download_url")] string? BrowserDownloadUrl,
-        [property: JsonPropertyName("digest")]               string? Digest);
+        [property: JsonPropertyName("digest")] string? Digest);
 
     private async Task VerifyInstallerTrustAsync(string installerPath, CancellationToken ct)
     {

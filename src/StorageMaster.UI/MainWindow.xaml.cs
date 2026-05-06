@@ -75,18 +75,18 @@ public sealed partial class MainWindow : Window
 
     private void SetWindowIconWin32(string iconPath)
     {
-        const uint  IMAGE_ICON      = 1;
-        const uint  LR_LOADFROMFILE = 0x0010;
-        const uint  WM_SETICON      = 0x0080;
-        const nint  ICON_SMALL      = 0;
-        const nint  ICON_BIG        = 1;
+        const uint IMAGE_ICON = 1;
+        const uint LR_LOADFROMFILE = 0x0010;
+        const uint WM_SETICON = 0x0080;
+        const nint ICON_SMALL = 0;
+        const nint ICON_BIG = 1;
 
-        var hwnd   = WinRT.Interop.WindowNative.GetWindowHandle(this);
+        var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
         var hSmall = LoadImage(IntPtr.Zero, iconPath, IMAGE_ICON, 16, 16, LR_LOADFROMFILE);
-        var hBig   = LoadImage(IntPtr.Zero, iconPath, IMAGE_ICON, 32, 32, LR_LOADFROMFILE);
+        var hBig = LoadImage(IntPtr.Zero, iconPath, IMAGE_ICON, 32, 32, LR_LOADFROMFILE);
 
         if (hSmall != IntPtr.Zero) SendMessage(hwnd, WM_SETICON, (IntPtr)ICON_SMALL, hSmall);
-        if (hBig   != IntPtr.Zero) SendMessage(hwnd, WM_SETICON, (IntPtr)ICON_BIG,   hBig);
+        if (hBig != IntPtr.Zero) SendMessage(hwnd, WM_SETICON, (IntPtr)ICON_BIG, hBig);
     }
 
     /// <summary>Asks the Windows shell to invalidate its icon cache for this exe,
@@ -95,15 +95,15 @@ public sealed partial class MainWindow : Window
     {
         try
         {
-            const uint SHCNE_UPDATEITEM   = 0x00002000;
-            const uint SHCNF_PATHW        = 0x0005;   // wide-char path
-            const uint SHCNF_FLUSHNOWAIT  = 0x2000;
+            const uint SHCNE_UPDATEITEM = 0x00002000;
+            const uint SHCNF_PATHW = 0x0005;   // wide-char path
+            const uint SHCNF_FLUSHNOWAIT = 0x2000;
 
             var exePath = System.Diagnostics.Process.GetCurrentProcess().MainModule?.FileName;
             if (exePath is null) return;
 
             var ptr = Marshal.StringToHGlobalUni(exePath);
-            try   { SHChangeNotify(SHCNE_UPDATEITEM, SHCNF_PATHW | SHCNF_FLUSHNOWAIT, ptr, IntPtr.Zero); }
+            try { SHChangeNotify(SHCNE_UPDATEITEM, SHCNF_PATHW | SHCNF_FLUSHNOWAIT, ptr, IntPtr.Zero); }
             finally { Marshal.FreeHGlobal(ptr); }
         }
         catch { /* best-effort; never crash on startup for an icon */ }
@@ -122,10 +122,10 @@ public sealed partial class MainWindow : Window
             // AppWindow.Resize / Move also use — no manual DPI conversion needed.
             var area = DisplayArea.GetFromWindowId(AppWindow.Id, DisplayAreaFallback.Primary).WorkArea;
 
-            int w = (int)Math.Clamp(area.Width  * 0.85, 1200, 1800);
-            int h = (int)Math.Clamp(area.Height * 0.85,  750, 1100);
+            int w = (int)Math.Clamp(area.Width * 0.85, 1200, 1800);
+            int h = (int)Math.Clamp(area.Height * 0.85, 750, 1100);
 
-            int x = area.X + (area.Width  - w) / 2;
+            int x = area.X + (area.Width - w) / 2;
             int y = area.Y + (area.Height - h) / 2;
 
             AppWindow.MoveAndResize(new Windows.Graphics.RectInt32(x, y, w, h));

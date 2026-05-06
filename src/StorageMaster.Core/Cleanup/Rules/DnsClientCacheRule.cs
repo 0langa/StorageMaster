@@ -17,13 +17,13 @@ namespace StorageMaster.Core.Cleanup.Rules;
 /// </summary>
 public sealed class DnsClientCacheRule : ICleanupRule
 {
-    public string RuleId      => "core.dns-cache";
+    public string RuleId => "core.dns-cache";
     public string DisplayName => "DNS Client Cache";
     public CleanupCategory Category => CleanupCategory.DnsCache;
 
     public async IAsyncEnumerable<CleanupSuggestion> AnalyzeAsync(
-        long              sessionId,
-        AppSettings       settings,
+        long sessionId,
+        AppSettings settings,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         await Task.Yield();
@@ -32,16 +32,16 @@ public sealed class DnsClientCacheRule : ICleanupRule
         // No disk space freed — the sentinel triggers ipconfig /flushdns.
         yield return new CleanupSuggestion
         {
-            Id             = Guid.NewGuid(),
-            RuleId         = RuleId,
-            Title          = "DNS client cache",
-            Description    = "Flushes the Windows DNS resolver cache (runs ipconfig /flushdns). " +
+            Id = Guid.NewGuid(),
+            RuleId = RuleId,
+            Title = "DNS client cache",
+            Description = "Flushes the Windows DNS resolver cache (runs ipconfig /flushdns). " +
                              "Removes stale domain resolution entries. No disk space freed.",
-            Category       = Category,
-            Risk           = CleanupRisk.Low,
+            Category = Category,
+            Risk = CleanupRisk.Low,
             EstimatedBytes = 0,
-            TargetPaths    = ["::DnsFlush::"],
-            IsSystemPath   = false,
+            TargetPaths = ["::DnsFlush::"],
+            IsSystemPath = false,
         };
     }
 }

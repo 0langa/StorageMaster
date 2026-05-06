@@ -11,26 +11,26 @@ namespace StorageMaster.Core.Cleanup;
 /// </summary>
 public sealed class CleanupEngine : ICleanupEngine
 {
-    private readonly IEnumerable<ICleanupRule>  _rules;
-    private readonly IFileDeleter               _deleter;
-    private readonly ICleanupLogRepository      _log;
-    private readonly ILogger<CleanupEngine>     _logger;
+    private readonly IEnumerable<ICleanupRule> _rules;
+    private readonly IFileDeleter _deleter;
+    private readonly ICleanupLogRepository _log;
+    private readonly ILogger<CleanupEngine> _logger;
 
     public CleanupEngine(
         IEnumerable<ICleanupRule> rules,
-        IFileDeleter              deleter,
-        ICleanupLogRepository     log,
-        ILogger<CleanupEngine>    logger)
+        IFileDeleter deleter,
+        ICleanupLogRepository log,
+        ILogger<CleanupEngine> logger)
     {
-        _rules   = rules;
+        _rules = rules;
         _deleter = deleter;
-        _log     = log;
-        _logger  = logger;
+        _log = log;
+        _logger = logger;
     }
 
     public async IAsyncEnumerable<CleanupSuggestion> GetSuggestionsAsync(
-        long              sessionId,
-        AppSettings       settings,
+        long sessionId,
+        AppSettings settings,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         foreach (var rule in _rules)
@@ -45,10 +45,10 @@ public sealed class CleanupEngine : ICleanupEngine
 
     public async Task<IReadOnlyList<CleanupResult>> ExecuteAsync(
         IReadOnlyList<CleanupSuggestion> suggestions,
-        bool                           dryRun,
-        DeletionMethod                 deletionMethod,
-        IProgress<CleanupProgress>?    progress          = null,
-        CancellationToken              cancellationToken = default)
+        bool dryRun,
+        DeletionMethod deletionMethod,
+        IProgress<CleanupProgress>? progress = null,
+        CancellationToken cancellationToken = default)
     {
         var results = new List<CleanupResult>(suggestions.Count);
 
@@ -74,16 +74,16 @@ public sealed class CleanupEngine : ICleanupEngine
 
     private async Task<CleanupResult> ExecuteSuggestionAsync(
         CleanupSuggestion suggestion,
-        bool              dryRun,
-        DeletionMethod    deletionMethod,
+        bool dryRun,
+        DeletionMethod deletionMethod,
         CancellationToken ct)
     {
-        long totalFreed     = 0;
-        var  failedPaths    = new List<string>();
-        string? firstError  = null;
+        long totalFreed = 0;
+        var failedPaths = new List<string>();
+        string? firstError = null;
 
         var requests = suggestion.TargetPaths.Select(path => new DeletionRequest(
-            Path:   path,
+            Path: path,
             Method: deletionMethod,
             DryRun: dryRun)).ToList();
 
@@ -104,19 +104,19 @@ public sealed class CleanupEngine : ICleanupEngine
         var status = failedPaths.Count switch
         {
             0 when requests.Count > 0 => CleanupResultStatus.Success,
-            _ when totalFreed > 0     => CleanupResultStatus.PartialSuccess,
+            _ when totalFreed > 0 => CleanupResultStatus.PartialSuccess,
             _ when requests.Count > 0 => CleanupResultStatus.Failed,
-            _                         => CleanupResultStatus.Skipped,
+            _ => CleanupResultStatus.Skipped,
         };
 
         return new CleanupResult
         {
             SuggestionId = suggestion.Id,
-            Status       = status,
-            BytesFreed   = totalFreed,
-            ExecutedUtc  = DateTime.UtcNow,
-            WasDryRun    = dryRun,
-            FailedPaths  = failedPaths,
+            Status = status,
+            BytesFreed = totalFreed,
+            ExecutedUtc = DateTime.UtcNow,
+            WasDryRun = dryRun,
+            FailedPaths = failedPaths,
             ErrorMessage = firstError,
         };
     }

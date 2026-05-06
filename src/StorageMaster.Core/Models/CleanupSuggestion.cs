@@ -8,13 +8,13 @@ public enum CleanupRisk { Safe, Low, Medium, High }
 /// </summary>
 public sealed record CleanupSuggestion
 {
-    public required Guid   Id            { get; init; }
-    public required string RuleId        { get; init; }
-    public required string Title         { get; init; }
-    public required string Description   { get; init; }
+    public required Guid Id { get; init; }
+    public required string RuleId { get; init; }
+    public required string Title { get; init; }
+    public required string Description { get; init; }
     public required CleanupCategory Category { get; init; }
-    public required CleanupRisk Risk     { get; init; }
-    public required long   EstimatedBytes { get; init; }
+    public required CleanupRisk Risk { get; init; }
+    public required long EstimatedBytes { get; init; }
 
     /// <summary>
     /// Paths that will be deleted or emptied. May be files or directories.

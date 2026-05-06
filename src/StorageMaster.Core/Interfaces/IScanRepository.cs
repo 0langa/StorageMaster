@@ -5,7 +5,7 @@ namespace StorageMaster.Core.Interfaces;
 /// <summary>Persistence contract for scan sessions and their file/folder data.</summary>
 public interface IScanRepository
 {
-    Task<ScanSession>  CreateSessionAsync(string rootPath, CancellationToken ct = default);
+    Task<ScanSession> CreateSessionAsync(string rootPath, CancellationToken ct = default);
     Task<ScanSession?> GetSessionAsync(long sessionId, CancellationToken ct = default);
     Task<IReadOnlyList<ScanSession>> GetRecentSessionsAsync(int count = 10, CancellationToken ct = default);
     Task UpdateSessionAsync(ScanSession session, CancellationToken ct = default);
@@ -48,6 +48,10 @@ public interface IScanRepository
 
     /// <summary>Returns all folder paths and direct sizes for a session (used by aggregator).</summary>
     Task<IReadOnlyList<FolderEntry>> GetAllFolderPathsForSessionAsync(long sessionId, CancellationToken ct = default);
+
+    Task<IReadOnlyList<FolderEntry>> GetFolderTreeRootsAsync(long sessionId, CancellationToken ct = default);
+    Task<IReadOnlyList<FolderEntry>> GetFolderChildrenAsync(long sessionId, string parentPath, CancellationToken ct = default);
+    Task<int> CountFolderChildrenAsync(long sessionId, string parentPath, CancellationToken ct = default);
 
     /// <summary>Batch-updates TotalSizeBytes for every folder path in the dictionary.</summary>
     Task UpdateFolderTotalsAsync(long sessionId, IReadOnlyDictionary<string, long> pathToTotal, CancellationToken ct = default);

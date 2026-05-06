@@ -39,9 +39,9 @@ public interface IUpdateService
     /// </summary>
     /// <param name="progress">Receives values in [0, 100].</param>
     Task<string> DownloadAsync(
-        UpdateInfo          info,
-        IProgress<double>?  progress = null,
-        CancellationToken   ct       = default);
+        UpdateInfo info,
+        IProgress<double>? progress = null,
+        CancellationToken ct = default);
 
     /// <summary>
     /// Launches the installer at <paramref name="installerPath"/> elevated

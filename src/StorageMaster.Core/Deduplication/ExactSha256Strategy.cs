@@ -12,29 +12,29 @@ namespace StorageMaster.Core.Deduplication;
 /// must have identical raw sizes).
 /// </summary>
 public sealed class ExactSha256Strategy(
-    IFileContentHasher     hasher,
-    IFileSnapshotProvider  snapshotProvider) : IDuplicateDetectionStrategy
+    IFileContentHasher hasher,
+    IFileSnapshotProvider snapshotProvider) : IDuplicateDetectionStrategy
 {
-    public DuplicateMethod Method           => DuplicateMethod.ExactSha256;
-    public string          Algorithm        => "SHA-256";
-    public int             AlgorithmVersion => 1;
-    public bool            SupportsAutoSelection     => true;
-    public bool            UsePartialHashPreFilter   => true;
-    public double          DefaultConfidence => 1.0d;
-    public string          DisplayName      => "Exact SHA-256";
+    public DuplicateMethod Method => DuplicateMethod.ExactSha256;
+    public string Algorithm => "SHA-256";
+    public int AlgorithmVersion => 1;
+    public bool SupportsAutoSelection => true;
+    public bool UsePartialHashPreFilter => true;
+    public double DefaultConfidence => 1.0d;
+    public string DisplayName => "Exact SHA-256";
 
     public DuplicateCandidateQuery BuildCandidateQuery(DuplicateScanOptions options) =>
         new()
         {
-            SessionId            = options.SessionId,
-            MinimumSizeBytes     = options.MinimumSizeBytes,
+            SessionId = options.SessionId,
+            MinimumSizeBytes = options.MinimumSizeBytes,
             RequireSameSizeBucket = true,           // exact only — safe optimisation
-            Extensions           = options.IncludeExtensions,
-            Categories           = options.IncludeCategories,
-            IncludedPaths        = options.IncludedPaths,
-            ExcludedPaths        = options.ExcludedPaths,
+            Extensions = options.IncludeExtensions,
+            Categories = options.IncludeCategories,
+            IncludedPaths = options.IncludedPaths,
+            ExcludedPaths = options.ExcludedPaths,
             IncludeReparsePoints = options.IncludeReparsePoints,
-            IncludeHiddenFiles   = options.IncludeHiddenFiles,
+            IncludeHiddenFiles = options.IncludeHiddenFiles,
         };
 
     /// <summary>
@@ -44,7 +44,7 @@ public sealed class ExactSha256Strategy(
     /// </summary>
     public async Task<DuplicateSignature> ComputeSignatureAsync(
         DuplicateCandidate candidate,
-        CancellationToken  ct = default)
+        CancellationToken ct = default)
     {
         var before = await snapshotProvider.TakeSnapshotAsync(candidate.File.FullPath, ct);
         if (before is null)
@@ -61,17 +61,17 @@ public sealed class ExactSha256Strategy(
 
             return new DuplicateSignature
             {
-                Id                 = 0,
-                SessionId          = candidate.File.SessionId,
-                FileEntryId        = candidate.File.Id,
-                Method             = Method,
-                Algorithm          = Algorithm,
-                AlgorithmVersion   = AlgorithmVersion,
-                SignatureText      = hash,
-                ComputedUtc        = DateTime.UtcNow,
-                Status             = "Ready",
-                SourceSizeBytes    = before.SizeBytes,
-                SourceModifiedUtc  = before.LastWriteUtc,
+                Id = 0,
+                SessionId = candidate.File.SessionId,
+                FileEntryId = candidate.File.Id,
+                Method = Method,
+                Algorithm = Algorithm,
+                AlgorithmVersion = AlgorithmVersion,
+                SignatureText = hash,
+                ComputedUtc = DateTime.UtcNow,
+                Status = "Ready",
+                SourceSizeBytes = before.SizeBytes,
+                SourceModifiedUtc = before.LastWriteUtc,
                 SourceFileIdentity = before.Identity is { } id
                     ? $"{id.VolumeSerial}:{id.FileIndex}"
                     : null,
@@ -120,11 +120,11 @@ public sealed class ExactSha256Strategy(
     /// </summary>
     public async Task<ConcurrentDictionary<string, ConcurrentBag<DuplicateCandidate>>>
         BuildPartialHashGroupsAsync(
-            IReadOnlyList<DuplicateCandidate>  candidates,
-            int                               maxConcurrency,
-            ConcurrentBag<DuplicateError>     errors,
-            long                              runId,
-            CancellationToken                 ct)
+            IReadOnlyList<DuplicateCandidate> candidates,
+            int maxConcurrency,
+            ConcurrentBag<DuplicateError> errors,
+            long runId,
+            CancellationToken ct)
     {
         var partialGroups = new ConcurrentDictionary<string, ConcurrentBag<DuplicateCandidate>>(StringComparer.Ordinal);
         await Parallel.ForEachAsync(candidates, new ParallelOptions
@@ -142,10 +142,12 @@ public sealed class ExactSha256Strategy(
             {
                 errors.Add(new DuplicateError
                 {
-                    Id = 0, RunId = runId,
+                    Id = 0,
+                    RunId = runId,
                     FileEntryId = candidate.File.Id,
                     Path = candidate.File.FullPath,
-                    ErrorType = "PartialHash", Message = ex.Message,
+                    ErrorType = "PartialHash",
+                    Message = ex.Message,
                     OccurredUtc = DateTime.UtcNow,
                 });
             }
@@ -156,8 +158,11 @@ public sealed class ExactSha256Strategy(
     private DuplicateSignature ErrorSignature(DuplicateCandidate c, string errorType, string message) =>
         new()
         {
-            Id = 0, SessionId = c.File.SessionId, FileEntryId = c.File.Id,
-            Method = Method, Algorithm = Algorithm,
+            Id = 0,
+            SessionId = c.File.SessionId,
+            FileEntryId = c.File.Id,
+            Method = Method,
+            Algorithm = Algorithm,
             AlgorithmVersion = AlgorithmVersion,
             ComputedUtc = DateTime.UtcNow,
             Status = "Error",

@@ -33,9 +33,9 @@ namespace StorageMaster.Platform.Windows;
 /// </summary>
 public sealed class TurboFileScanner : IFileScanner
 {
-    private readonly IScanRepository    _repo;
+    private readonly IScanRepository _repo;
     private readonly IScanErrorRepository? _errorRepo;
-    private readonly IFileScanner       _fallback;
+    private readonly IFileScanner _fallback;
     private readonly ILogger<TurboFileScanner> _logger;
 
     private static readonly string BinaryPath = Path.Combine(
@@ -47,14 +47,14 @@ public sealed class TurboFileScanner : IFileScanner
     };
 
     public TurboFileScanner(
-        IScanRepository              repo,
-        ILogger<TurboFileScanner>    logger,
-        IFileScanner                 fallback,
-        IScanErrorRepository?        errorRepo = null)
+        IScanRepository repo,
+        ILogger<TurboFileScanner> logger,
+        IFileScanner fallback,
+        IScanErrorRepository? errorRepo = null)
     {
-        _repo      = repo;
-        _logger    = logger;
-        _fallback  = fallback;
+        _repo = repo;
+        _logger = logger;
+        _fallback = fallback;
         _errorRepo = errorRepo;
     }
 
@@ -62,9 +62,9 @@ public sealed class TurboFileScanner : IFileScanner
     public static bool IsAvailable => File.Exists(BinaryPath);
 
     public async Task<ScanSession> ScanAsync(
-        ScanOptions             options,
+        ScanOptions options,
         IProgress<ScanProgress> progress,
-        CancellationToken       cancellationToken = default)
+        CancellationToken cancellationToken = default)
     {
         if (!IsAvailable)
         {
@@ -79,11 +79,11 @@ public sealed class TurboFileScanner : IFileScanner
 
         var psi = new ProcessStartInfo(BinaryPath)
         {
-            ArgumentList        = { "--path", options.RootPath, "--threads", options.MaxParallelism.ToString() },
+            ArgumentList = { "--path", options.RootPath, "--threads", options.MaxParallelism.ToString() },
             RedirectStandardOutput = true,
-            RedirectStandardError  = true,
-            UseShellExecute     = false,
-            CreateNoWindow      = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
             // Disable the default StreamReader wrapping — we create our own with a 1 MB buffer below.
             StandardOutputEncoding = Encoding.UTF8,
         };
@@ -107,7 +107,7 @@ public sealed class TurboFileScanner : IFileScanner
                         _logger.LogDebug("[turbo-scanner] {Line}", line);
                 }
                 catch (OperationCanceledException) { /* process killed */ }
-                catch (ObjectDisposedException)    { /* process disposed */ }
+                catch (ObjectDisposedException) { /* process disposed */ }
             }, CancellationToken.None);
 
             // ── Channel: decouples stdout reading from DB inserts ─────────────
@@ -118,13 +118,13 @@ public sealed class TurboFileScanner : IFileScanner
             {
                 SingleWriter = true,
                 SingleReader = true,
-                FullMode     = BoundedChannelFullMode.Wait,
+                FullMode = BoundedChannelFullMode.Wait,
             });
 
-            long fileCount   = 0;
+            long fileCount = 0;
             long folderCount = 0;
-            long totalBytes  = 0;
-            string lastPath  = string.Empty;
+            long totalBytes = 0;
+            string lastPath = string.Empty;
 
             // ── Producer: read stdout at full speed, never awaits DB ──────────
             var producer = Task.Run(async () =>
@@ -162,10 +162,10 @@ public sealed class TurboFileScanner : IFileScanner
             }, cancellationToken);
 
             // ── Consumer: batch + DB insert — runs concurrently with producer ─
-            var fileBuffer   = new List<FileEntry>(500);
+            var fileBuffer = new List<FileEntry>(500);
             var folderBuffer = new List<FolderEntry>(100);
-            var parentSizes  = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
-            var stopwatch    = Stopwatch.StartNew();
+            var parentSizes = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
+            var stopwatch = Stopwatch.StartNew();
 
             var consumer = Task.Run(async () =>
             {
@@ -177,15 +177,15 @@ public sealed class TurboFileScanner : IFileScanner
                     {
                         var fe = new FolderEntry
                         {
-                            Id              = 0,
-                            SessionId       = session.Id,
-                            FullPath        = rec.Path,
-                            FolderName      = Path.GetFileName(rec.Path) ?? rec.Path,
+                            Id = 0,
+                            SessionId = session.Id,
+                            FullPath = rec.Path,
+                            FolderName = Path.GetFileName(rec.Path) ?? rec.Path,
                             DirectSizeBytes = 0,
-                            TotalSizeBytes  = 0,
-                            FileCount       = 0,
-                            SubFolderCount  = 0,
-                            IsReparsePoint  = false,
+                            TotalSizeBytes = 0,
+                            FileCount = 0,
+                            SubFolderCount = 0,
+                            IsReparsePoint = false,
                             WasAccessDenied = false,
                         };
                         folderBuffer.Add(fe);
@@ -193,29 +193,29 @@ public sealed class TurboFileScanner : IFileScanner
 
                         if (folderBuffer.Count >= 100)
                         {
-                            await _repo.UpsertFolderEntriesAsync([..folderBuffer], cancellationToken);
+                            await _repo.UpsertFolderEntriesAsync([.. folderBuffer], cancellationToken);
                             folderBuffer.Clear();
                         }
                     }
                     else
                     {
-                        var ext       = Path.GetExtension(rec.Path);
-                        var modUtc    = DateTimeOffset.FromUnixTimeSeconds(rec.ModifiedUnix).UtcDateTime;
+                        var ext = Path.GetExtension(rec.Path);
+                        var modUtc = DateTimeOffset.FromUnixTimeSeconds(rec.ModifiedUnix).UtcDateTime;
                         var createUtc = DateTimeOffset.FromUnixTimeSeconds(rec.CreatedUnix).UtcDateTime;
 
                         var fe = new FileEntry
                         {
-                            Id             = 0,
-                            SessionId      = session.Id,
-                            FullPath       = rec.Path,
-                            FileName       = Path.GetFileName(rec.Path),
-                            Extension      = ext,
-                            SizeBytes      = (long)rec.Size,
-                            CreatedUtc     = createUtc,
-                            ModifiedUtc    = modUtc,
-                            AccessedUtc    = modUtc,
-                            Attributes     = FileAttributes.Normal,
-                            Category       = FileTypeCategorizor.Categorize(ext),
+                            Id = 0,
+                            SessionId = session.Id,
+                            FullPath = rec.Path,
+                            FileName = Path.GetFileName(rec.Path),
+                            Extension = ext,
+                            SizeBytes = (long)rec.Size,
+                            CreatedUtc = createUtc,
+                            ModifiedUtc = modUtc,
+                            AccessedUtc = modUtc,
+                            Attributes = FileAttributes.Normal,
+                            Category = FileTypeCategorizor.Categorize(ext),
                             IsReparsePoint = false,
                         };
                         fileBuffer.Add(fe);
@@ -228,7 +228,7 @@ public sealed class TurboFileScanner : IFileScanner
 
                         if (fileBuffer.Count >= 500)
                         {
-                            await _repo.InsertFileEntriesAsync([..fileBuffer], cancellationToken);
+                            await _repo.InsertFileEntriesAsync([.. fileBuffer], cancellationToken);
                             fileBuffer.Clear();
                         }
                     }
@@ -239,19 +239,19 @@ public sealed class TurboFileScanner : IFileScanner
                         stopwatch.Restart();
                         progress.Report(new ScanProgress
                         {
-                            CurrentPath    = lastPath,
-                            FilesScanned   = fileCount,
+                            CurrentPath = lastPath,
+                            FilesScanned = fileCount,
                             FoldersScanned = folderCount,
-                            BytesScanned   = totalBytes,
-                            ErrorCount     = 0,
-                            IsComplete     = false,
+                            BytesScanned = totalBytes,
+                            ErrorCount = 0,
+                            IsComplete = false,
                         });
                     }
                 }
 
                 // Flush remaining buffers after the channel is drained.
-                if (fileBuffer.Count   > 0) await _repo.InsertFileEntriesAsync([..fileBuffer], cancellationToken);
-                if (folderBuffer.Count > 0) await _repo.UpsertFolderEntriesAsync([..folderBuffer], cancellationToken);
+                if (fileBuffer.Count > 0) await _repo.InsertFileEntriesAsync([.. fileBuffer], cancellationToken);
+                if (folderBuffer.Count > 0) await _repo.UpsertFolderEntriesAsync([.. folderBuffer], cancellationToken);
 
             }, cancellationToken);
 
@@ -267,11 +267,11 @@ public sealed class TurboFileScanner : IFileScanner
 
                 var failed = session with
                 {
-                    Status         = ScanStatus.Failed,
-                    CompletedUtc   = DateTime.UtcNow,
-                    ErrorMessage   = $"turbo-scanner.exe exited with code {process.ExitCode}",
-                    TotalFiles     = fileCount,
-                    TotalFolders   = folderCount,
+                    Status = ScanStatus.Failed,
+                    CompletedUtc = DateTime.UtcNow,
+                    ErrorMessage = $"turbo-scanner.exe exited with code {process.ExitCode}",
+                    TotalFiles = fileCount,
+                    TotalFolders = folderCount,
                     TotalSizeBytes = totalBytes,
                 };
                 await _repo.UpdateSessionAsync(failed, CancellationToken.None);
@@ -281,12 +281,12 @@ public sealed class TurboFileScanner : IFileScanner
             // Post-scan: aggregate folder totals bottom-up.
             progress.Report(new ScanProgress
             {
-                CurrentPath    = "Finalizing: computing folder sizes…",
-                FilesScanned   = fileCount,
+                CurrentPath = "Finalizing: computing folder sizes…",
+                FilesScanned = fileCount,
                 FoldersScanned = folderCount,
-                BytesScanned   = totalBytes,
-                ErrorCount     = 0,
-                IsComplete     = false,
+                BytesScanned = totalBytes,
+                ErrorCount = 0,
+                IsComplete = false,
             });
 
             var allFolders = await _repo.GetAllFolderPathsForSessionAsync(session.Id, cancellationToken);
@@ -303,22 +303,22 @@ public sealed class TurboFileScanner : IFileScanner
 
             var completed = session with
             {
-                Status         = ScanStatus.Completed,
-                CompletedUtc   = DateTime.UtcNow,
-                TotalFiles     = fileCount,
-                TotalFolders   = folderCount,
+                Status = ScanStatus.Completed,
+                CompletedUtc = DateTime.UtcNow,
+                TotalFiles = fileCount,
+                TotalFolders = folderCount,
                 TotalSizeBytes = totalBytes,
             };
             await _repo.UpdateSessionAsync(completed, cancellationToken);
 
             progress.Report(new ScanProgress
             {
-                CurrentPath    = lastPath,
-                FilesScanned   = fileCount,
+                CurrentPath = lastPath,
+                FilesScanned = fileCount,
                 FoldersScanned = folderCount,
-                BytesScanned   = totalBytes,
-                ErrorCount     = 0,
-                IsComplete     = true,
+                BytesScanned = totalBytes,
+                ErrorCount = 0,
+                IsComplete = true,
             });
 
             _logger.LogInformation("Turbo scan {Id} complete. Files={F} Size={S}", session.Id, fileCount, totalBytes);
@@ -330,7 +330,7 @@ public sealed class TurboFileScanner : IFileScanner
 
             var cancelled = session with
             {
-                Status       = ScanStatus.Cancelled,
+                Status = ScanStatus.Cancelled,
                 CompletedUtc = DateTime.UtcNow,
             };
             await _repo.UpdateSessionAsync(cancelled, CancellationToken.None);
@@ -344,7 +344,7 @@ public sealed class TurboFileScanner : IFileScanner
             _logger.LogError(ex, "Turbo scan {Id} failed", session.Id);
             var failed = session with
             {
-                Status       = ScanStatus.Failed,
+                Status = ScanStatus.Failed,
                 CompletedUtc = DateTime.UtcNow,
                 ErrorMessage = ex.Message,
             };
@@ -412,10 +412,10 @@ public sealed class TurboFileScanner : IFileScanner
 
     private sealed class TurboRecord
     {
-        [JsonPropertyName("path")]          public string Path          { get; set; } = string.Empty;
-        [JsonPropertyName("size")]          public ulong  Size          { get; set; }
-        [JsonPropertyName("modified_unix")] public long   ModifiedUnix  { get; set; }
-        [JsonPropertyName("created_unix")]  public long   CreatedUnix   { get; set; }
-        [JsonPropertyName("is_dir")]        public bool   IsDir         { get; set; }
+        [JsonPropertyName("path")] public string Path { get; set; } = string.Empty;
+        [JsonPropertyName("size")] public ulong Size { get; set; }
+        [JsonPropertyName("modified_unix")] public long ModifiedUnix { get; set; }
+        [JsonPropertyName("created_unix")] public long CreatedUnix { get; set; }
+        [JsonPropertyName("is_dir")] public bool IsDir { get; set; }
     }
 }

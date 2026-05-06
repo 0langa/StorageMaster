@@ -24,10 +24,10 @@ public sealed class AdminService : IAdminService
 
         Process.Start(new ProcessStartInfo
         {
-            FileName        = exePath,
-            Arguments       = args,
+            FileName = exePath,
+            Arguments = args,
             UseShellExecute = true,
-            Verb            = "runas",
+            Verb = "runas",
         });
 
         // Terminate this instance after handing off to the elevated process.

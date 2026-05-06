@@ -13,7 +13,7 @@ public sealed class CacheFolderCleanupRule : ICleanupRule
 {
     private readonly IScanRepository _repo;
 
-    public string RuleId      => "core.cache-folders";
+    public string RuleId => "core.cache-folders";
     public string DisplayName => "Application Caches";
     public CleanupCategory Category => CleanupCategory.CacheFolders;
 
@@ -37,8 +37,8 @@ public sealed class CacheFolderCleanupRule : ICleanupRule
     public CacheFolderCleanupRule(IScanRepository repo) => _repo = repo;
 
     public async IAsyncEnumerable<CleanupSuggestion> AnalyzeAsync(
-        long              sessionId,
-        AppSettings       settings,
+        long sessionId,
+        AppSettings settings,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
@@ -63,16 +63,16 @@ public sealed class CacheFolderCleanupRule : ICleanupRule
 
             yield return new CleanupSuggestion
             {
-                Id             = Guid.NewGuid(),
-                RuleId         = RuleId,
-                Title          = $"{name} ({FormatBytes(folder.TotalSizeBytes)})",
-                Description    = $"Cache folder at {fullPath}. " +
+                Id = Guid.NewGuid(),
+                RuleId = RuleId,
+                Title = $"{name} ({FormatBytes(folder.TotalSizeBytes)})",
+                Description = $"Cache folder at {fullPath}. " +
                                  $"Contains {folder.FileCount:N0} files totalling {FormatBytes(folder.TotalSizeBytes)}.",
-                Category       = Category,
-                Risk           = risk,
+                Category = Category,
+                Risk = risk,
                 EstimatedBytes = folder.TotalSizeBytes,
-                TargetPaths    = [fullPath],
-                IsSystemPath   = false,
+                TargetPaths = [fullPath],
+                IsSystemPath = false,
             };
         }
     }
@@ -83,6 +83,6 @@ public sealed class CacheFolderCleanupRule : ICleanupRule
             >= 1L << 30 => $"{bytes / (1L << 30):F1} GB",
             >= 1L << 20 => $"{bytes / (1L << 20):F1} MB",
             >= 1L << 10 => $"{bytes / (1L << 10):F1} KB",
-            _           => $"{bytes} B",
+            _ => $"{bytes} B",
         };
 }

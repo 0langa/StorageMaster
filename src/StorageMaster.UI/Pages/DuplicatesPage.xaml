@@ -42,11 +42,11 @@
             </CommandBar.Content>
             <CommandBar.SecondaryCommands>
                 <AppBarButton Icon="SelectAll"
-                              Label="Select safe exact"
-                              Command="{x:Bind ViewModel.SelectSafeExactDuplicatesCommand}" />
+                              Label="Select safe exact (page)"
+                              Command="{x:Bind ViewModel.SelectSafeExactDuplicatesOnPageCommand}" />
                 <AppBarButton Icon="ClearSelection"
-                              Label="Deselect all"
-                              Command="{x:Bind ViewModel.DeselectAllCommand}" />
+                              Label="Deselect page"
+                              Command="{x:Bind ViewModel.DeselectCurrentPageCommand}" />
                 <AppBarSeparator />
                 <AppBarButton Icon="Save"
                               Label="Export CSV"
@@ -57,6 +57,14 @@
                 <AppBarButton Icon="Document"
                               Label="Export HTML"
                               Command="{x:Bind ViewModel.ExportHtmlCommand}" />
+                <AppBarButton Icon="Cancel"
+                              Label="Cancel export"
+                              Command="{x:Bind ViewModel.CancelExportCommand}"
+                              IsEnabled="{x:Bind ViewModel.CanCancelExport, Mode=OneWay}" />
+                <AppBarButton Icon="OpenFile"
+                              Label="Open export folder"
+                              Command="{x:Bind ViewModel.OpenExportFolderCommand}"
+                              IsEnabled="{x:Bind ViewModel.CanOpenExportFolder, Mode=OneWay}" />
             </CommandBar.SecondaryCommands>
         </CommandBar>
 
@@ -215,6 +223,7 @@
                                TextWrapping="WrapWholeWords"
                                Opacity="0.85" />
                     <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8">
+                        <TextBlock Text="{x:Bind ViewModel.ExportStatusText, Mode=OneWay}" />
                         <TextBlock Text="{x:Bind ViewModel.ProgressPhase, Mode=OneWay}" />
                         <TextBlock Text="{x:Bind ViewModel.ProgressText, Mode=OneWay}" />
                     </StackPanel>

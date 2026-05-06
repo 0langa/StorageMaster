@@ -10,15 +10,15 @@ namespace StorageMaster.Core.Models;
 /// <param name="LastWriteUtc">Last-write timestamp in UTC.</param>
 /// <param name="Attributes">Raw file attributes.</param>
 public sealed record FileSnapshot(
-    string       Path,
+    string Path,
     FileIdentity? Identity,
-    long         SizeBytes,
-    DateTime     LastWriteUtc,
+    long SizeBytes,
+    DateTime LastWriteUtc,
     FileAttributes Attributes)
 {
     /// <summary>Returns true when all stable attributes still match <paramref name="other"/>.</summary>
     public bool IsIdenticalTo(FileSnapshot other) =>
-        SizeBytes    == other.SizeBytes &&
+        SizeBytes == other.SizeBytes &&
         LastWriteUtc == other.LastWriteUtc &&
         (Identity is null || other.Identity is null || Identity == other.Identity);
 }

@@ -13,7 +13,7 @@ public sealed class TempFilesCleanupRule : ICleanupRule
 {
     private readonly IScanRepository _repo;
 
-    public string RuleId      => "core.temp-files";
+    public string RuleId => "core.temp-files";
     public string DisplayName => "Temporary Files";
     public CleanupCategory Category => CleanupCategory.TempFiles;
 
@@ -31,8 +31,8 @@ public sealed class TempFilesCleanupRule : ICleanupRule
     public TempFilesCleanupRule(IScanRepository repo) => _repo = repo;
 
     public async IAsyncEnumerable<CleanupSuggestion> AnalyzeAsync(
-        long              sessionId,
-        AppSettings       settings,
+        long sessionId,
+        AppSettings settings,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         var files = await _repo.GetLargestFilesAsync(sessionId, topN: 50_000, cancellationToken);
@@ -49,20 +49,20 @@ public sealed class TempFilesCleanupRule : ICleanupRule
         if (targets.Count == 0) yield break;
 
         long totalBytes = targets.Sum(f => f.SizeBytes);
-        var  paths      = targets.Select(f => f.FullPath).ToList();
+        var paths = targets.Select(f => f.FullPath).ToList();
 
         yield return new CleanupSuggestion
         {
-            Id             = Guid.NewGuid(),
-            RuleId         = RuleId,
-            Title          = $"Temporary files ({targets.Count:N0} files)",
-            Description    = $"Files in Windows temp folders and files with temporary extensions. " +
+            Id = Guid.NewGuid(),
+            RuleId = RuleId,
+            Title = $"Temporary files ({targets.Count:N0} files)",
+            Description = $"Files in Windows temp folders and files with temporary extensions. " +
                              $"Estimated savings: {FormatBytes(totalBytes)}.",
-            Category       = Category,
-            Risk           = CleanupRisk.Low,
+            Category = Category,
+            Risk = CleanupRisk.Low,
             EstimatedBytes = totalBytes,
-            TargetPaths    = paths,
-            IsSystemPath   = false,
+            TargetPaths = paths,
+            IsSystemPath = false,
         };
     }
 
@@ -84,6 +84,6 @@ public sealed class TempFilesCleanupRule : ICleanupRule
             >= 1L << 30 => $"{bytes / (1L << 30):F1} GB",
             >= 1L << 20 => $"{bytes / (1L << 20):F1} MB",
             >= 1L << 10 => $"{bytes / (1L << 10):F1} KB",
-            _           => $"{bytes} B",
+            _ => $"{bytes} B",
         };
 }

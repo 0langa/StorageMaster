@@ -44,8 +44,15 @@ public sealed class FfmpegToolResolverTests : IDisposable
 
         var configuredPath = string.Empty;
         var repo = new Mock<ISettingsRepository>();
+        var snapshot = new Mock<ISettingsSnapshotProvider>();
         repo.Setup(x => x.LoadAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(() => new AppSettings
+            {
+                FfmpegPath = configuredPath,
+                DuplicateMaxVideoDurationSeconds = 1800,
+            });
+        snapshot.SetupGet(x => x.Current)
+            .Returns(() => new AppSettings
             {
                 FfmpegPath = configuredPath,
                 DuplicateMaxVideoDurationSeconds = 1800,
@@ -53,6 +60,7 @@ public sealed class FfmpegToolResolverTests : IDisposable
 
         var strategy = new VideoPHashStrategy(
             repo.Object,
+            snapshot.Object,
             appBaseDirectory: Path.Combine(_tempDir, "empty-app"));
 
         strategy.IsAvailable.Should().BeFalse();

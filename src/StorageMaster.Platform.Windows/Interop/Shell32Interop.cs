@@ -55,14 +55,14 @@ internal static partial class Shell32Interop
     internal enum EmptyRecycleBinFlags : uint
     {
         NoConfirmation = 0x00000001,
-        NoProgressUI  = 0x00000002,
-        NoSound       = 0x00000004,
+        NoProgressUI = 0x00000002,
+        NoSound = 0x00000004,
     }
 
     [StructLayout(LayoutKind.Sequential)]
     internal struct SHQUERYRBINFO
     {
-        public int  cbSize;
+        public int cbSize;
         public long i64Size;
         public long i64NumItems;
     }

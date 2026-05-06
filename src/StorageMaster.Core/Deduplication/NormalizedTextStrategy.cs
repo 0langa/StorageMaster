@@ -45,32 +45,32 @@ public sealed class NormalizedTextStrategy : IDuplicateDetectionStrategy
             : new HashSet<string>(DefaultExtensions, StringComparer.OrdinalIgnoreCase);
     }
 
-    public DuplicateMethod Method           => DuplicateMethod.NormalizedText;
-    public string          Algorithm        => "TEXT-NORM-SHA256";
-    public int             AlgorithmVersion => 2; // v2: extended extension list
-    public bool            SupportsAutoSelection => false; // always review
-    public double          DefaultConfidence => 0.8d;
-    public string          DisplayName      => "Normalized text";
+    public DuplicateMethod Method => DuplicateMethod.NormalizedText;
+    public string Algorithm => "TEXT-NORM-SHA256";
+    public int AlgorithmVersion => 2; // v2: extended extension list
+    public bool SupportsAutoSelection => false; // always review
+    public double DefaultConfidence => 0.8d;
+    public string DisplayName => "Normalized text";
 
     public DuplicateCandidateQuery BuildCandidateQuery(DuplicateScanOptions options) =>
         new()
         {
-            SessionId            = options.SessionId,
-            MinimumSizeBytes     = options.MinimumSizeBytes,
+            SessionId = options.SessionId,
+            MinimumSizeBytes = options.MinimumSizeBytes,
             RequireSameSizeBucket = false,  // P0.1 fix: do NOT require same raw size
-            Extensions           = options.IncludeExtensions.Count > 0
+            Extensions = options.IncludeExtensions.Count > 0
                 ? options.IncludeExtensions
                 : _supportedExtensions.ToList(),
-            Categories           = options.IncludeCategories,
-            IncludedPaths        = options.IncludedPaths,
-            ExcludedPaths        = options.ExcludedPaths,
+            Categories = options.IncludeCategories,
+            IncludedPaths = options.IncludedPaths,
+            ExcludedPaths = options.ExcludedPaths,
             IncludeReparsePoints = options.IncludeReparsePoints,
-            IncludeHiddenFiles   = options.IncludeHiddenFiles,
+            IncludeHiddenFiles = options.IncludeHiddenFiles,
         };
 
     public async Task<DuplicateSignature> ComputeSignatureAsync(
         DuplicateCandidate candidate,
-        CancellationToken  ct = default)
+        CancellationToken ct = default)
     {
         if (!_supportedExtensions.Contains(candidate.File.Extension))
             return ErrorSignature(candidate, "UnsupportedExtension",
@@ -118,17 +118,17 @@ public sealed class NormalizedTextStrategy : IDuplicateDetectionStrategy
 
             return new DuplicateSignature
             {
-                Id               = 0,
-                SessionId        = candidate.File.SessionId,
-                FileEntryId      = candidate.File.Id,
-                Method           = Method,
-                Algorithm        = Algorithm,
+                Id = 0,
+                SessionId = candidate.File.SessionId,
+                FileEntryId = candidate.File.Id,
+                Method = Method,
+                Algorithm = Algorithm,
                 AlgorithmVersion = AlgorithmVersion,
-                SignatureText    = hash,
-                MetadataJson     = $"{{\"normalizedBytes\":{normalized.Length}}}",
-                ComputedUtc      = DateTime.UtcNow,
-                Status           = "Ready",
-                SourceSizeBytes  = before?.SizeBytes ?? candidate.File.SizeBytes,
+                SignatureText = hash,
+                MetadataJson = $"{{\"normalizedBytes\":{normalized.Length}}}",
+                ComputedUtc = DateTime.UtcNow,
+                Status = "Ready",
+                SourceSizeBytes = before?.SizeBytes ?? candidate.File.SizeBytes,
                 SourceModifiedUtc = before?.LastWriteUtc ?? candidate.File.ModifiedUtc,
                 SourceFileIdentity = before?.Identity is { } id
                     ? $"{id.VolumeSerial}:{id.FileIndex}"
@@ -174,7 +174,9 @@ public sealed class NormalizedTextStrategy : IDuplicateDetectionStrategy
     private static DuplicateSignature ErrorSignature(DuplicateCandidate c, string errorType, string message) =>
         new()
         {
-            Id = 0, SessionId = c.File.SessionId, FileEntryId = c.File.Id,
+            Id = 0,
+            SessionId = c.File.SessionId,
+            FileEntryId = c.File.Id,
             Method = DuplicateMethod.NormalizedText,
             Algorithm = "TEXT-NORM-SHA256",
             AlgorithmVersion = 2,

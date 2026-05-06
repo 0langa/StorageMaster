@@ -30,16 +30,16 @@ public sealed class ScanRepository : IScanRepository
                 VALUES ($root, $started, 'Running');
                 SELECT last_insert_rowid();
                 """;
-            cmd.Parameters.AddWithValue("$root",    rootPath);
+            cmd.Parameters.AddWithValue("$root", rootPath);
             cmd.Parameters.AddWithValue("$started", DateTime.UtcNow.ToString("O"));
             var id = Convert.ToInt64(await cmd.ExecuteScalarAsync(ct));
 
             return new ScanSession
             {
-                Id        = id,
-                RootPath  = rootPath,
+                Id = id,
+                RootPath = rootPath,
                 StartedUtc = DateTime.UtcNow,
-                Status    = ScanStatus.Running,
+                Status = ScanStatus.Running,
             };
         }
         finally
@@ -90,13 +90,13 @@ public sealed class ScanRepository : IScanRepository
                 WHERE Id = $id;
                 """;
             cmd.Parameters.AddWithValue("$completed", (object?)session.CompletedUtc?.ToString("O") ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("$status",    session.Status.ToString());
-            cmd.Parameters.AddWithValue("$size",      session.TotalSizeBytes);
-            cmd.Parameters.AddWithValue("$files",     session.TotalFiles);
-            cmd.Parameters.AddWithValue("$folders",   session.TotalFolders);
-            cmd.Parameters.AddWithValue("$denied",    session.AccessDeniedCount);
-            cmd.Parameters.AddWithValue("$error",     (object?)session.ErrorMessage ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("$id",        session.Id);
+            cmd.Parameters.AddWithValue("$status", session.Status.ToString());
+            cmd.Parameters.AddWithValue("$size", session.TotalSizeBytes);
+            cmd.Parameters.AddWithValue("$files", session.TotalFiles);
+            cmd.Parameters.AddWithValue("$folders", session.TotalFolders);
+            cmd.Parameters.AddWithValue("$denied", session.AccessDeniedCount);
+            cmd.Parameters.AddWithValue("$error", (object?)session.ErrorMessage ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$id", session.Id);
             await cmd.ExecuteNonQueryAsync(ct);
         }
         finally
@@ -115,7 +115,7 @@ public sealed class ScanRepository : IScanRepository
         try
         {
             var conn = await _db.GetConnectionAsync(ct);
-            using var tx  = await conn.BeginTransactionAsync(ct);
+            using var tx = await conn.BeginTransactionAsync(ct);
             using var cmd = conn.CreateCommand();
             cmd.Transaction = (SqliteTransaction)tx;
             cmd.CommandText = """
@@ -127,30 +127,30 @@ public sealed class ScanRepository : IScanRepository
                      $created, $modified, $accessed, $attrs, $cat, $reparse);
                 """;
 
-            var pSid     = cmd.Parameters.Add("$sid",     SqliteType.Integer);
-            var pPath    = cmd.Parameters.Add("$path",    SqliteType.Text);
-            var pName    = cmd.Parameters.Add("$name",    SqliteType.Text);
-            var pExt     = cmd.Parameters.Add("$ext",     SqliteType.Text);
-            var pSize    = cmd.Parameters.Add("$size",    SqliteType.Integer);
+            var pSid = cmd.Parameters.Add("$sid", SqliteType.Integer);
+            var pPath = cmd.Parameters.Add("$path", SqliteType.Text);
+            var pName = cmd.Parameters.Add("$name", SqliteType.Text);
+            var pExt = cmd.Parameters.Add("$ext", SqliteType.Text);
+            var pSize = cmd.Parameters.Add("$size", SqliteType.Integer);
             var pCreated = cmd.Parameters.Add("$created", SqliteType.Text);
-            var pMod     = cmd.Parameters.Add("$modified",SqliteType.Text);
-            var pAccess  = cmd.Parameters.Add("$accessed",SqliteType.Text);
-            var pAttrs   = cmd.Parameters.Add("$attrs",   SqliteType.Integer);
-            var pCat     = cmd.Parameters.Add("$cat",     SqliteType.Text);
+            var pMod = cmd.Parameters.Add("$modified", SqliteType.Text);
+            var pAccess = cmd.Parameters.Add("$accessed", SqliteType.Text);
+            var pAttrs = cmd.Parameters.Add("$attrs", SqliteType.Integer);
+            var pCat = cmd.Parameters.Add("$cat", SqliteType.Text);
             var pReparse = cmd.Parameters.Add("$reparse", SqliteType.Integer);
 
             foreach (var e in entries)
             {
-                pSid.Value     = e.SessionId;
-                pPath.Value    = e.FullPath;
-                pName.Value    = e.FileName;
-                pExt.Value     = e.Extension;
-                pSize.Value    = e.SizeBytes;
+                pSid.Value = e.SessionId;
+                pPath.Value = e.FullPath;
+                pName.Value = e.FileName;
+                pExt.Value = e.Extension;
+                pSize.Value = e.SizeBytes;
                 pCreated.Value = e.CreatedUtc.ToString("O");
-                pMod.Value     = e.ModifiedUtc.ToString("O");
-                pAccess.Value  = e.AccessedUtc.ToString("O");
-                pAttrs.Value   = (int)e.Attributes;
-                pCat.Value     = e.Category.ToString();
+                pMod.Value = e.ModifiedUtc.ToString("O");
+                pAccess.Value = e.AccessedUtc.ToString("O");
+                pAttrs.Value = (int)e.Attributes;
+                pCat.Value = e.Category.ToString();
                 pReparse.Value = e.IsReparsePoint ? 1 : 0;
                 await cmd.ExecuteNonQueryAsync(ct);
             }
@@ -173,7 +173,7 @@ public sealed class ScanRepository : IScanRepository
         try
         {
             var conn = await _db.GetConnectionAsync(ct);
-            using var tx  = await conn.BeginTransactionAsync(ct);
+            using var tx = await conn.BeginTransactionAsync(ct);
             using var cmd = conn.CreateCommand();
             cmd.Transaction = (SqliteTransaction)tx;
 
@@ -192,27 +192,27 @@ public sealed class ScanRepository : IScanRepository
                     FileCount       = FileCount       + excluded.FileCount;
                 """;
 
-            var pSid     = cmd.Parameters.Add("$sid",    SqliteType.Integer);
-            var pPath    = cmd.Parameters.Add("$path",   SqliteType.Text);
-            var pName    = cmd.Parameters.Add("$name",   SqliteType.Text);
-            var pDirect  = cmd.Parameters.Add("$direct", SqliteType.Integer);
-            var pTotal   = cmd.Parameters.Add("$total",  SqliteType.Integer);
-            var pFiles   = cmd.Parameters.Add("$files",  SqliteType.Integer);
-            var pSubs    = cmd.Parameters.Add("$subs",   SqliteType.Integer);
-            var pReparse = cmd.Parameters.Add("$reparse",SqliteType.Integer);
-            var pDenied  = cmd.Parameters.Add("$denied", SqliteType.Integer);
+            var pSid = cmd.Parameters.Add("$sid", SqliteType.Integer);
+            var pPath = cmd.Parameters.Add("$path", SqliteType.Text);
+            var pName = cmd.Parameters.Add("$name", SqliteType.Text);
+            var pDirect = cmd.Parameters.Add("$direct", SqliteType.Integer);
+            var pTotal = cmd.Parameters.Add("$total", SqliteType.Integer);
+            var pFiles = cmd.Parameters.Add("$files", SqliteType.Integer);
+            var pSubs = cmd.Parameters.Add("$subs", SqliteType.Integer);
+            var pReparse = cmd.Parameters.Add("$reparse", SqliteType.Integer);
+            var pDenied = cmd.Parameters.Add("$denied", SqliteType.Integer);
 
             foreach (var e in entries)
             {
-                pSid.Value     = e.SessionId;
-                pPath.Value    = e.FullPath;
-                pName.Value    = e.FolderName;
-                pDirect.Value  = e.DirectSizeBytes;
-                pTotal.Value   = e.TotalSizeBytes;
-                pFiles.Value   = e.FileCount;
-                pSubs.Value    = e.SubFolderCount;
+                pSid.Value = e.SessionId;
+                pPath.Value = e.FullPath;
+                pName.Value = e.FolderName;
+                pDirect.Value = e.DirectSizeBytes;
+                pTotal.Value = e.TotalSizeBytes;
+                pFiles.Value = e.FileCount;
+                pSubs.Value = e.SubFolderCount;
                 pReparse.Value = e.IsReparsePoint ? 1 : 0;
-                pDenied.Value  = e.WasAccessDenied ? 1 : 0;
+                pDenied.Value = e.WasAccessDenied ? 1 : 0;
                 await cmd.ExecuteNonQueryAsync(ct);
             }
 
@@ -238,7 +238,7 @@ public sealed class ScanRepository : IScanRepository
             LIMIT $n;
             """;
         cmd.Parameters.AddWithValue("$sid", sessionId);
-        cmd.Parameters.AddWithValue("$n",   topN);
+        cmd.Parameters.AddWithValue("$n", topN);
         using var reader = await cmd.ExecuteReaderAsync(ct);
         var list = new List<FileEntry>();
         while (await reader.ReadAsync(ct))
@@ -258,7 +258,7 @@ public sealed class ScanRepository : IScanRepository
             LIMIT $n;
             """;
         cmd.Parameters.AddWithValue("$sid", sessionId);
-        cmd.Parameters.AddWithValue("$n",   topN);
+        cmd.Parameters.AddWithValue("$n", topN);
         using var reader = await cmd.ExecuteReaderAsync(ct);
         var list = new List<FolderEntry>();
         while (await reader.ReadAsync(ct))
@@ -473,6 +473,85 @@ public sealed class ScanRepository : IScanRepository
         return list;
     }
 
+    public async Task<IReadOnlyList<FolderEntry>> GetFolderTreeRootsAsync(
+        long sessionId,
+        CancellationToken ct = default)
+    {
+        var conn = await _db.GetConnectionAsync(ct);
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            SELECT f.*
+            FROM FolderEntries f
+            WHERE f.SessionId = $sid
+              AND (
+                    f.FullPath = (SELECT RootPath FROM ScanSessions WHERE Id = $sid)
+                    OR NOT EXISTS (
+                        SELECT 1
+                        FROM FolderEntries parent
+                        WHERE parent.SessionId = f.SessionId
+                          AND parent.FullPath = substr(
+                              f.FullPath,
+                              1,
+                              length(f.FullPath) - length(f.FolderName) - 1)
+                    )
+                  )
+            ORDER BY f.TotalSizeBytes DESC, f.FullPath ASC;
+            """;
+        cmd.Parameters.AddWithValue("$sid", sessionId);
+        using var reader = await cmd.ExecuteReaderAsync(ct);
+        var list = new List<FolderEntry>();
+        while (await reader.ReadAsync(ct))
+            list.Add(ReadFolderEntry(reader));
+        return list;
+    }
+
+    public async Task<IReadOnlyList<FolderEntry>> GetFolderChildrenAsync(
+        long sessionId,
+        string parentPath,
+        CancellationToken ct = default)
+    {
+        var conn = await _db.GetConnectionAsync(ct);
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            SELECT *
+            FROM FolderEntries
+            WHERE SessionId = $sid
+              AND FullPath LIKE $prefix || '%'
+              AND FullPath <> $parent
+              AND instr(substr(FullPath, length($parent) + 2), '\') = 0
+            ORDER BY TotalSizeBytes DESC, FullPath ASC;
+            """;
+        cmd.Parameters.AddWithValue("$sid", sessionId);
+        cmd.Parameters.AddWithValue("$parent", parentPath);
+        cmd.Parameters.AddWithValue("$prefix", parentPath + "\\");
+        using var reader = await cmd.ExecuteReaderAsync(ct);
+        var list = new List<FolderEntry>();
+        while (await reader.ReadAsync(ct))
+            list.Add(ReadFolderEntry(reader));
+        return list;
+    }
+
+    public async Task<int> CountFolderChildrenAsync(
+        long sessionId,
+        string parentPath,
+        CancellationToken ct = default)
+    {
+        var conn = await _db.GetConnectionAsync(ct);
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            SELECT COUNT(*)
+            FROM FolderEntries
+            WHERE SessionId = $sid
+              AND FullPath LIKE $prefix || '%'
+              AND FullPath <> $parent
+              AND instr(substr(FullPath, length($parent) + 2), '\') = 0;
+            """;
+        cmd.Parameters.AddWithValue("$sid", sessionId);
+        cmd.Parameters.AddWithValue("$parent", parentPath);
+        cmd.Parameters.AddWithValue("$prefix", parentPath + "\\");
+        return Convert.ToInt32(await cmd.ExecuteScalarAsync(ct));
+    }
+
     public async Task UpdateFolderTotalsAsync(
         long sessionId,
         IReadOnlyDictionary<string, long> pathToTotal,
@@ -491,7 +570,7 @@ public sealed class ScanRepository : IScanRepository
             await _db.WriteLock.WaitAsync(ct);
             try
             {
-                using var tx  = await conn.BeginTransactionAsync(ct);
+                using var tx = await conn.BeginTransactionAsync(ct);
                 using var cmd = conn.CreateCommand();
                 cmd.Transaction = (SqliteTransaction)tx;
                 cmd.CommandText = """
@@ -500,13 +579,13 @@ public sealed class ScanRepository : IScanRepository
                     WHERE SessionId = $sid AND FullPath = $path;
                     """;
                 var pTotal = cmd.Parameters.Add("$total", SqliteType.Integer);
-                var pSid   = cmd.Parameters.Add("$sid",   SqliteType.Integer);
-                var pPath  = cmd.Parameters.Add("$path",  SqliteType.Text);
+                var pSid = cmd.Parameters.Add("$sid", SqliteType.Integer);
+                var pPath = cmd.Parameters.Add("$path", SqliteType.Text);
                 pSid.Value = sessionId;
 
                 foreach (var (path, total) in batch)
                 {
-                    pPath.Value  = path;
+                    pPath.Value = path;
                     pTotal.Value = total;
                     await cmd.ExecuteNonQueryAsync(ct);
                 }
@@ -523,48 +602,48 @@ public sealed class ScanRepository : IScanRepository
 
     private static ScanSession ReadSession(SqliteDataReader r) => new()
     {
-        Id                = r.GetInt64(r.GetOrdinal("Id")),
-        RootPath          = r.GetString(r.GetOrdinal("RootPath")),
-        StartedUtc        = DateTime.Parse(r.GetString(r.GetOrdinal("StartedUtc"))),
-        CompletedUtc      = r.IsDBNull(r.GetOrdinal("CompletedUtc")) ? null
+        Id = r.GetInt64(r.GetOrdinal("Id")),
+        RootPath = r.GetString(r.GetOrdinal("RootPath")),
+        StartedUtc = DateTime.Parse(r.GetString(r.GetOrdinal("StartedUtc"))),
+        CompletedUtc = r.IsDBNull(r.GetOrdinal("CompletedUtc")) ? null
                             : DateTime.Parse(r.GetString(r.GetOrdinal("CompletedUtc"))),
-        Status            = Enum.Parse<ScanStatus>(r.GetString(r.GetOrdinal("Status"))),
-        TotalSizeBytes    = r.GetInt64(r.GetOrdinal("TotalSizeBytes")),
-        TotalFiles        = r.GetInt64(r.GetOrdinal("TotalFiles")),
-        TotalFolders      = r.GetInt64(r.GetOrdinal("TotalFolders")),
+        Status = Enum.Parse<ScanStatus>(r.GetString(r.GetOrdinal("Status"))),
+        TotalSizeBytes = r.GetInt64(r.GetOrdinal("TotalSizeBytes")),
+        TotalFiles = r.GetInt64(r.GetOrdinal("TotalFiles")),
+        TotalFolders = r.GetInt64(r.GetOrdinal("TotalFolders")),
         AccessDeniedCount = r.GetInt64(r.GetOrdinal("AccessDeniedCount")),
-        ErrorMessage      = r.IsDBNull(r.GetOrdinal("ErrorMessage")) ? null
+        ErrorMessage = r.IsDBNull(r.GetOrdinal("ErrorMessage")) ? null
                             : r.GetString(r.GetOrdinal("ErrorMessage")),
     };
 
     private static FileEntry ReadFileEntry(SqliteDataReader r) => new()
     {
-        Id             = r.GetInt64(r.GetOrdinal("Id")),
-        SessionId      = r.GetInt64(r.GetOrdinal("SessionId")),
-        FullPath       = r.GetString(r.GetOrdinal("FullPath")),
-        FileName       = r.GetString(r.GetOrdinal("FileName")),
-        Extension      = r.GetString(r.GetOrdinal("Extension")),
-        SizeBytes      = r.GetInt64(r.GetOrdinal("SizeBytes")),
-        CreatedUtc     = DateTime.Parse(r.GetString(r.GetOrdinal("CreatedUtc"))),
-        ModifiedUtc    = DateTime.Parse(r.GetString(r.GetOrdinal("ModifiedUtc"))),
-        AccessedUtc    = DateTime.Parse(r.GetString(r.GetOrdinal("AccessedUtc"))),
-        Attributes     = (FileAttributes)r.GetInt32(r.GetOrdinal("Attributes")),
-        Category       = Enum.TryParse<FileTypeCategory>(r.GetString(r.GetOrdinal("Category")), out var cat)
+        Id = r.GetInt64(r.GetOrdinal("Id")),
+        SessionId = r.GetInt64(r.GetOrdinal("SessionId")),
+        FullPath = r.GetString(r.GetOrdinal("FullPath")),
+        FileName = r.GetString(r.GetOrdinal("FileName")),
+        Extension = r.GetString(r.GetOrdinal("Extension")),
+        SizeBytes = r.GetInt64(r.GetOrdinal("SizeBytes")),
+        CreatedUtc = DateTime.Parse(r.GetString(r.GetOrdinal("CreatedUtc"))),
+        ModifiedUtc = DateTime.Parse(r.GetString(r.GetOrdinal("ModifiedUtc"))),
+        AccessedUtc = DateTime.Parse(r.GetString(r.GetOrdinal("AccessedUtc"))),
+        Attributes = (FileAttributes)r.GetInt32(r.GetOrdinal("Attributes")),
+        Category = Enum.TryParse<FileTypeCategory>(r.GetString(r.GetOrdinal("Category")), out var cat)
                          ? cat : FileTypeCategory.Unknown,
         IsReparsePoint = r.GetInt32(r.GetOrdinal("IsReparsePoint")) == 1,
     };
 
     private static FolderEntry ReadFolderEntry(SqliteDataReader r) => new()
     {
-        Id              = r.GetInt64(r.GetOrdinal("Id")),
-        SessionId       = r.GetInt64(r.GetOrdinal("SessionId")),
-        FullPath        = r.GetString(r.GetOrdinal("FullPath")),
-        FolderName      = r.GetString(r.GetOrdinal("FolderName")),
+        Id = r.GetInt64(r.GetOrdinal("Id")),
+        SessionId = r.GetInt64(r.GetOrdinal("SessionId")),
+        FullPath = r.GetString(r.GetOrdinal("FullPath")),
+        FolderName = r.GetString(r.GetOrdinal("FolderName")),
         DirectSizeBytes = r.GetInt64(r.GetOrdinal("DirectSizeBytes")),
-        TotalSizeBytes  = r.GetInt64(r.GetOrdinal("TotalSizeBytes")),
-        FileCount       = r.GetInt32(r.GetOrdinal("FileCount")),
-        SubFolderCount  = r.GetInt32(r.GetOrdinal("SubFolderCount")),
-        IsReparsePoint  = r.GetInt32(r.GetOrdinal("IsReparsePoint")) == 1,
+        TotalSizeBytes = r.GetInt64(r.GetOrdinal("TotalSizeBytes")),
+        FileCount = r.GetInt32(r.GetOrdinal("FileCount")),
+        SubFolderCount = r.GetInt32(r.GetOrdinal("SubFolderCount")),
+        IsReparsePoint = r.GetInt32(r.GetOrdinal("IsReparsePoint")) == 1,
         WasAccessDenied = r.GetInt32(r.GetOrdinal("WasAccessDenied")) == 1,
     };
 }

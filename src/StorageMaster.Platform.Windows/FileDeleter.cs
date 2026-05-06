@@ -39,7 +39,7 @@ public sealed class FileDeleter : IFileDeleter
     // ── Public interface ────────────────────────────────────────────────────
 
     public async Task<DeletionOutcome> DeleteAsync(
-        DeletionRequest   request,
+        DeletionRequest request,
         CancellationToken cancellationToken = default)
     {
         await Task.Yield();
@@ -90,7 +90,7 @@ public sealed class FileDeleter : IFileDeleter
                                                           && r.Method == DeletionMethod.RecycleBin
                                                           && r.Path != "::RecycleBin::"
                                                           && r.Path != "::DnsFlush::");
-                                                          // Quarantine is per-file; falls through to normal path
+        // Quarantine is per-file; falls through to normal path
         if (allRecycleBin && requests.Count > 1)
         {
             await foreach (var o in BatchRecycleBinAsync(requests, cancellationToken))
@@ -150,7 +150,7 @@ public sealed class FileDeleter : IFileDeleter
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         var semaphore = new SemaphoreSlim(MaxConcurrency);
-        var channel   = System.Threading.Channels.Channel.CreateUnbounded<DeletionOutcome>();
+        var channel = System.Threading.Channels.Channel.CreateUnbounded<DeletionOutcome>();
 
         var producer = Task.Run(async () =>
         {
@@ -164,7 +164,7 @@ public sealed class FileDeleter : IFileDeleter
                 }
                 finally { semaphore.Release(); }
             });
-            try   { await Task.WhenAll(tasks); }
+            try { await Task.WhenAll(tasks); }
             finally { channel.Writer.Complete(); }
         }, cancellationToken);
 
@@ -189,7 +189,7 @@ public sealed class FileDeleter : IFileDeleter
         try
         {
             fo.SetOperationFlags(
-                FileOperationInterop.FOF_ALLOWUNDO      |   // send to Recycle Bin
+                FileOperationInterop.FOF_ALLOWUNDO |   // send to Recycle Bin
                 FileOperationInterop.FOF_NOCONFIRMATION |   // no "are you sure?" dialog
                 FileOperationInterop.FOF_NOERRORUI);        // suppress shell error dialogs
 
@@ -284,8 +284,8 @@ public sealed class FileDeleter : IFileDeleter
 
     private async Task<DeletionOutcome> QuarantineAsync(DeletionRequest request, long size)
     {
-        var runId       = request.QuarantineRunId ?? 0;
-        var relative    = MakeRelativeQuarantinePath(request.Path);
+        var runId = request.QuarantineRunId ?? 0;
+        var relative = MakeRelativeQuarantinePath(request.Path);
         var destination = Path.Combine(QuarantineRoot, runId.ToString(), relative);
 
         try
@@ -325,8 +325,8 @@ public sealed class FileDeleter : IFileDeleter
         {
             var psi = new ProcessStartInfo("ipconfig", "/flushdns")
             {
-                UseShellExecute        = false,
-                CreateNoWindow         = true,
+                UseShellExecute = false,
+                CreateNoWindow = true,
                 RedirectStandardOutput = true,
             };
             using var proc = Process.Start(psi)!;
@@ -373,7 +373,7 @@ public sealed class FileDeleter : IFileDeleter
     {
         try
         {
-            if (File.Exists(path))      return new FileInfo(path).Length;
+            if (File.Exists(path)) return new FileInfo(path).Length;
             if (Directory.Exists(path)) return new DirectoryInfo(path)
                 .EnumerateFiles("*", SearchOption.AllDirectories).Sum(f => f.Length);
         }

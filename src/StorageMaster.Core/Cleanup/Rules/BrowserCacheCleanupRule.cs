@@ -13,13 +13,13 @@ namespace StorageMaster.Core.Cleanup.Rules;
 /// </summary>
 public sealed class BrowserCacheCleanupRule : ICleanupRule
 {
-    public string RuleId      => "core.browser-cache";
+    public string RuleId => "core.browser-cache";
     public string DisplayName => "Browser Cache";
     public CleanupCategory Category => CleanupCategory.BrowserCache;
 
     private static IEnumerable<string> GetCandidatePaths()
     {
-        var local  = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        var local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
         var roaming = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
 
         // Chrome — one cache dir per profile
@@ -30,11 +30,11 @@ public sealed class BrowserCacheCleanupRule : ICleanupRule
             foreach (var profile in Directory.EnumerateDirectories(chromeBase))
             {
                 var cache = Path.Combine(profile, "Cache");
-                if (Directory.Exists(cache))     yield return cache;
+                if (Directory.Exists(cache)) yield return cache;
                 var codeCache = Path.Combine(profile, "Code Cache");
                 if (Directory.Exists(codeCache)) yield return codeCache;
                 var gpuCache = Path.Combine(profile, "GPUCache");
-                if (Directory.Exists(gpuCache))  yield return gpuCache;
+                if (Directory.Exists(gpuCache)) yield return gpuCache;
             }
         }
 
@@ -45,11 +45,11 @@ public sealed class BrowserCacheCleanupRule : ICleanupRule
             foreach (var profile in Directory.EnumerateDirectories(edgeBase))
             {
                 var cache = Path.Combine(profile, "Cache");
-                if (Directory.Exists(cache))     yield return cache;
+                if (Directory.Exists(cache)) yield return cache;
                 var codeCache = Path.Combine(profile, "Code Cache");
                 if (Directory.Exists(codeCache)) yield return codeCache;
                 var gpuCache = Path.Combine(profile, "GPUCache");
-                if (Directory.Exists(gpuCache))  yield return gpuCache;
+                if (Directory.Exists(gpuCache)) yield return gpuCache;
             }
         }
 
@@ -92,15 +92,15 @@ public sealed class BrowserCacheCleanupRule : ICleanupRule
     }
 
     public async IAsyncEnumerable<CleanupSuggestion> AnalyzeAsync(
-        long              sessionId,
-        AppSettings       settings,
+        long sessionId,
+        AppSettings settings,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         await Task.Yield();
 
         long totalBytes = 0;
-        int  dirCount   = 0;
-        var  paths      = new List<string>();
+        int dirCount = 0;
+        var paths = new List<string>();
 
         foreach (var dir in GetCandidatePaths())
         {
@@ -122,17 +122,17 @@ public sealed class BrowserCacheCleanupRule : ICleanupRule
 
         yield return new CleanupSuggestion
         {
-            Id             = Guid.NewGuid(),
-            RuleId         = RuleId,
-            Title          = $"Browser cache ({dirCount} cache folder(s))",
-            Description    = "Cached web content from Chrome, Edge, Firefox, Brave, and Opera. " +
+            Id = Guid.NewGuid(),
+            RuleId = RuleId,
+            Title = $"Browser cache ({dirCount} cache folder(s))",
+            Description = "Cached web content from Chrome, Edge, Firefox, Brave, and Opera. " +
                              "Pages will load slightly slower after first visit until the cache " +
                              $"rebuilds. Estimated savings: {FormatBytes(totalBytes)}.",
-            Category       = Category,
-            Risk           = CleanupRisk.Low,
+            Category = Category,
+            Risk = CleanupRisk.Low,
             EstimatedBytes = totalBytes,
-            TargetPaths    = paths,
-            IsSystemPath   = false,
+            TargetPaths = paths,
+            IsSystemPath = false,
         };
     }
 
@@ -141,6 +141,6 @@ public sealed class BrowserCacheCleanupRule : ICleanupRule
         >= 1L << 30 => $"{b / (1L << 30):F1} GB",
         >= 1L << 20 => $"{b / (1L << 20):F1} MB",
         >= 1L << 10 => $"{b / (1L << 10):F1} KB",
-        _           => $"{b} B",
+        _ => $"{b} B",
     };
 }

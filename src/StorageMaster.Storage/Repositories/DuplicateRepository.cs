@@ -130,19 +130,19 @@ public sealed class DuplicateRepository(StorageDbContext db) : IDuplicateReposit
                         SourceModifiedUtc = excluded.SourceModifiedUtc,
                         SourceFileIdentity = excluded.SourceFileIdentity;
                     """;
-                cmd.Parameters.AddWithValue("$sid",      signature.SessionId);
-                cmd.Parameters.AddWithValue("$file",     signature.FileEntryId);
-                cmd.Parameters.AddWithValue("$method",   signature.Method.ToString());
+                cmd.Parameters.AddWithValue("$sid", signature.SessionId);
+                cmd.Parameters.AddWithValue("$file", signature.FileEntryId);
+                cmd.Parameters.AddWithValue("$method", signature.Method.ToString());
                 cmd.Parameters.AddWithValue("$algorithm", signature.Algorithm);
-                cmd.Parameters.AddWithValue("$algVer",   signature.AlgorithmVersion);
-                cmd.Parameters.AddWithValue("$blob",     (object?)signature.SignatureBlob ?? DBNull.Value);
-                cmd.Parameters.AddWithValue("$text",     (object?)signature.SignatureText ?? DBNull.Value);
-                cmd.Parameters.AddWithValue("$meta",     (object?)signature.MetadataJson ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("$algVer", signature.AlgorithmVersion);
+                cmd.Parameters.AddWithValue("$blob", (object?)signature.SignatureBlob ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("$text", (object?)signature.SignatureText ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("$meta", (object?)signature.MetadataJson ?? DBNull.Value);
                 cmd.Parameters.AddWithValue("$computed", signature.ComputedUtc.ToString("O"));
-                cmd.Parameters.AddWithValue("$status",   signature.Status);
-                cmd.Parameters.AddWithValue("$error",    (object?)signature.ErrorMessage ?? DBNull.Value);
-                cmd.Parameters.AddWithValue("$srcSize",  signature.SourceSizeBytes);
-                cmd.Parameters.AddWithValue("$srcMod",   signature.SourceModifiedUtc == default
+                cmd.Parameters.AddWithValue("$status", signature.Status);
+                cmd.Parameters.AddWithValue("$error", (object?)signature.ErrorMessage ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("$srcSize", signature.SourceSizeBytes);
+                cmd.Parameters.AddWithValue("$srcMod", signature.SourceModifiedUtc == default
                                                             ? (object)DBNull.Value
                                                             : signature.SourceModifiedUtc.ToString("O"));
                 cmd.Parameters.AddWithValue("$srcIdent", (object?)signature.SourceFileIdentity ?? DBNull.Value);
@@ -424,14 +424,14 @@ public sealed class DuplicateRepository(StorageDbContext db) : IDuplicateReposit
         while (await reader.ReadAsync(ct))
             list.Add(new DuplicateError
             {
-                Id          = reader.GetInt64(reader.GetOrdinal("Id")),
-                RunId       = reader.GetInt64(reader.GetOrdinal("RunId")),
+                Id = reader.GetInt64(reader.GetOrdinal("Id")),
+                RunId = reader.GetInt64(reader.GetOrdinal("RunId")),
                 FileEntryId = reader.IsDBNull(reader.GetOrdinal("FileEntryId"))
                                 ? null
                                 : reader.GetInt64(reader.GetOrdinal("FileEntryId")),
-                Path        = reader.GetString(reader.GetOrdinal("Path")),
-                ErrorType   = reader.GetString(reader.GetOrdinal("ErrorType")),
-                Message     = reader.GetString(reader.GetOrdinal("Message")),
+                Path = reader.GetString(reader.GetOrdinal("Path")),
+                ErrorType = reader.GetString(reader.GetOrdinal("ErrorType")),
+                Message = reader.GetString(reader.GetOrdinal("Message")),
                 OccurredUtc = DateTime.Parse(reader.GetString(reader.GetOrdinal("OccurredUtc"))),
             });
         return list;
@@ -535,7 +535,7 @@ public sealed class DuplicateRepository(StorageDbContext db) : IDuplicateReposit
 
     public async Task<IReadOnlyList<DuplicateCandidate>> GetCandidatesAsync(
         DuplicateCandidateQuery query,
-        CancellationToken       ct = default)
+        CancellationToken ct = default)
     {
         var conn = await _db.GetConnectionAsync(ct);
         using var cmd = conn.CreateCommand();
@@ -545,10 +545,12 @@ public sealed class DuplicateRepository(StorageDbContext db) : IDuplicateReposit
             ? string.Join(',', query.Extensions.Select(e => e.Trim().ToLowerInvariant()))
             : string.Empty;
 
-        // Category filter: map enum list to quoted strings for SQL IN clause
-        var catFilter = query.Categories.Count > 0
-            ? string.Join(',', query.Categories.Select(c => $"'{c}'"))
-            : string.Empty;
+        var categoryParameters = new List<string>();
+        for (var i = 0; i < query.Categories.Count; i++)
+            categoryParameters.Add($"$cat{i}");
+        var categoryFilterSql = categoryParameters.Count == 0
+            ? string.Empty
+            : $"AND Category IN ({string.Join(", ", categoryParameters)})";
 
         // Excluded paths: NOT LIKE '$path%' for each entry
         var excluded = query.ExcludedPaths
@@ -593,23 +595,21 @@ public sealed class DuplicateRepository(StorageDbContext db) : IDuplicateReposit
                     $extFilter = ''
                     OR instr(',' || $extFilter || ',', ',' || lower(Extension) || ',') > 0
                   )
-              AND (
-                    $catFilter = ''
-                    OR instr(',' || $catFilter || ',', ',' || Category || ',') > 0
-                  )
+              {categoryFilterSql}
               {includedSql}
               {sizeBucketSql}
               {excludedSql}
             ORDER BY SizeBytes DESC, FullPath ASC;
             """;
 
-        cmd.Parameters.AddWithValue("$sid",          query.SessionId);
-        cmd.Parameters.AddWithValue("$minSize",      query.MinimumSizeBytes);
+        cmd.Parameters.AddWithValue("$sid", query.SessionId);
+        cmd.Parameters.AddWithValue("$minSize", query.MinimumSizeBytes);
         cmd.Parameters.AddWithValue("$allowReparse", query.IncludeReparsePoints ? 1 : 0);
         cmd.Parameters.AddWithValue("$includeHidden", query.IncludeHiddenFiles ? 1 : 0);
         cmd.Parameters.AddWithValue("$hiddenMask", (int)(FileAttributes.Hidden | FileAttributes.System));
-        cmd.Parameters.AddWithValue("$extFilter",    extFilter);
-        cmd.Parameters.AddWithValue("$catFilter",    catFilter);
+        cmd.Parameters.AddWithValue("$extFilter", extFilter);
+        for (var i = 0; i < query.Categories.Count; i++)
+            cmd.Parameters.AddWithValue($"$cat{i}", query.Categories[i].ToString());
         for (var i = 0; i < included.Length; i++)
             cmd.Parameters.AddWithValue($"$incl{i}", included[i]);
         for (var i = 0; i < excluded.Length; i++)
@@ -640,14 +640,14 @@ public sealed class DuplicateRepository(StorageDbContext db) : IDuplicateReposit
         while (await reader.ReadAsync(ct))
             list.Add(new DuplicateError
             {
-                Id          = reader.GetInt64(reader.GetOrdinal("Id")),
-                RunId       = reader.GetInt64(reader.GetOrdinal("RunId")),
+                Id = reader.GetInt64(reader.GetOrdinal("Id")),
+                RunId = reader.GetInt64(reader.GetOrdinal("RunId")),
                 FileEntryId = reader.IsDBNull(reader.GetOrdinal("FileEntryId"))
                                 ? null
                                 : reader.GetInt64(reader.GetOrdinal("FileEntryId")),
-                Path        = reader.GetString(reader.GetOrdinal("Path")),
-                ErrorType   = reader.GetString(reader.GetOrdinal("ErrorType")),
-                Message     = reader.GetString(reader.GetOrdinal("Message")),
+                Path = reader.GetString(reader.GetOrdinal("Path")),
+                ErrorType = reader.GetString(reader.GetOrdinal("ErrorType")),
+                Message = reader.GetString(reader.GetOrdinal("Message")),
                 OccurredUtc = DateTime.Parse(reader.GetString(reader.GetOrdinal("OccurredUtc"))),
             });
         return list;
@@ -656,10 +656,10 @@ public sealed class DuplicateRepository(StorageDbContext db) : IDuplicateReposit
     // ── IDuplicateRepository — signature cache ────────────────────────────────
 
     public async Task<IReadOnlyList<DuplicateSignature>> GetCachedSignaturesAsync(
-        long              sessionId,
-        DuplicateMethod   method,
-        string            algorithm,
-        int               algorithmVersion,
+        long sessionId,
+        DuplicateMethod method,
+        string algorithm,
+        int algorithmVersion,
         CancellationToken ct = default)
     {
         var conn = await _db.GetConnectionAsync(ct);
@@ -672,10 +672,10 @@ public sealed class DuplicateRepository(StorageDbContext db) : IDuplicateReposit
               AND AlgorithmVersion = $algVer
               AND Status           = 'Ready';
             """;
-        cmd.Parameters.AddWithValue("$sid",      sessionId);
-        cmd.Parameters.AddWithValue("$method",   method.ToString());
+        cmd.Parameters.AddWithValue("$sid", sessionId);
+        cmd.Parameters.AddWithValue("$method", method.ToString());
         cmd.Parameters.AddWithValue("$algorithm", algorithm);
-        cmd.Parameters.AddWithValue("$algVer",   algorithmVersion);
+        cmd.Parameters.AddWithValue("$algVer", algorithmVersion);
 
         using var reader = await cmd.ExecuteReaderAsync(ct);
         var list = new List<DuplicateSignature>();
@@ -687,10 +687,10 @@ public sealed class DuplicateRepository(StorageDbContext db) : IDuplicateReposit
     // ── IDuplicateRepository — quarantine ─────────────────────────────────────
 
     public async Task<QuarantinedFile> RecordQuarantineAsync(
-        long              memberId,
-        long              runId,
-        string            originalPath,
-        string            quarantinePath,
+        long memberId,
+        long runId,
+        string originalPath,
+        string quarantinePath,
         CancellationToken ct = default)
     {
         await _db.WriteLock.WaitAsync(ct);
@@ -707,18 +707,18 @@ public sealed class DuplicateRepository(StorageDbContext db) : IDuplicateReposit
                 """;
             var now = DateTime.UtcNow;
             cmd.Parameters.AddWithValue("$member", memberId);
-            cmd.Parameters.AddWithValue("$run",    runId);
-            cmd.Parameters.AddWithValue("$orig",   originalPath);
-            cmd.Parameters.AddWithValue("$qpath",  quarantinePath);
-            cmd.Parameters.AddWithValue("$qutc",   now.ToString("O"));
+            cmd.Parameters.AddWithValue("$run", runId);
+            cmd.Parameters.AddWithValue("$orig", originalPath);
+            cmd.Parameters.AddWithValue("$qpath", quarantinePath);
+            cmd.Parameters.AddWithValue("$qutc", now.ToString("O"));
             var id = Convert.ToInt64(await cmd.ExecuteScalarAsync(ct));
 
             return new QuarantinedFile
             {
-                Id             = id,
-                MemberId       = memberId,
-                RunId          = runId,
-                OriginalPath   = originalPath,
+                Id = id,
+                MemberId = memberId,
+                RunId = runId,
+                OriginalPath = originalPath,
                 QuarantinePath = quarantinePath,
                 QuarantinedUtc = now,
             };
@@ -764,8 +764,8 @@ public sealed class DuplicateRepository(StorageDbContext db) : IDuplicateReposit
     }
 
     public async Task MarkRestoredAsync(
-        long              quarantineId,
-        string            restoredPath,
+        long quarantineId,
+        string restoredPath,
         CancellationToken ct = default)
     {
         await _db.WriteLock.WaitAsync(ct);
@@ -779,9 +779,9 @@ public sealed class DuplicateRepository(StorageDbContext db) : IDuplicateReposit
                     RestoredPath = $path
                 WHERE Id = $id;
                 """;
-            cmd.Parameters.AddWithValue("$utc",  DateTime.UtcNow.ToString("O"));
+            cmd.Parameters.AddWithValue("$utc", DateTime.UtcNow.ToString("O"));
             cmd.Parameters.AddWithValue("$path", restoredPath);
-            cmd.Parameters.AddWithValue("$id",   quarantineId);
+            cmd.Parameters.AddWithValue("$id", quarantineId);
             await cmd.ExecuteNonQueryAsync(ct);
         }
         finally
@@ -794,20 +794,20 @@ public sealed class DuplicateRepository(StorageDbContext db) : IDuplicateReposit
 
     private static DuplicateSignature ReadSignature(SqliteDataReader r) => new()
     {
-        Id              = r.GetInt64(r.GetOrdinal("Id")),
-        SessionId       = r.GetInt64(r.GetOrdinal("SessionId")),
-        FileEntryId     = r.GetInt64(r.GetOrdinal("FileEntryId")),
-        Method          = Enum.Parse<DuplicateMethod>(r.GetString(r.GetOrdinal("Method"))),
-        Algorithm       = r.GetString(r.GetOrdinal("Algorithm")),
+        Id = r.GetInt64(r.GetOrdinal("Id")),
+        SessionId = r.GetInt64(r.GetOrdinal("SessionId")),
+        FileEntryId = r.GetInt64(r.GetOrdinal("FileEntryId")),
+        Method = Enum.Parse<DuplicateMethod>(r.GetString(r.GetOrdinal("Method"))),
+        Algorithm = r.GetString(r.GetOrdinal("Algorithm")),
         AlgorithmVersion = r.GetInt32(r.GetOrdinal("AlgorithmVersion")),
-        SignatureBlob   = r.IsDBNull(r.GetOrdinal("SignatureBlob")) ? null : (byte[])r.GetValue(r.GetOrdinal("SignatureBlob")),
-        SignatureText   = r.IsDBNull(r.GetOrdinal("SignatureText")) ? null : r.GetString(r.GetOrdinal("SignatureText")),
-        MetadataJson    = r.IsDBNull(r.GetOrdinal("MetadataJson"))  ? null : r.GetString(r.GetOrdinal("MetadataJson")),
-        ComputedUtc     = DateTime.Parse(r.GetString(r.GetOrdinal("ComputedUtc"))),
-        Status          = r.GetString(r.GetOrdinal("Status")),
-        ErrorMessage    = r.IsDBNull(r.GetOrdinal("ErrorMessage"))  ? null : r.GetString(r.GetOrdinal("ErrorMessage")),
-        SourceSizeBytes    = r.GetInt64(r.GetOrdinal("SourceSizeBytes")),
-        SourceModifiedUtc  = r.IsDBNull(r.GetOrdinal("SourceModifiedUtc")) || r.GetString(r.GetOrdinal("SourceModifiedUtc")) == ""
+        SignatureBlob = r.IsDBNull(r.GetOrdinal("SignatureBlob")) ? null : (byte[])r.GetValue(r.GetOrdinal("SignatureBlob")),
+        SignatureText = r.IsDBNull(r.GetOrdinal("SignatureText")) ? null : r.GetString(r.GetOrdinal("SignatureText")),
+        MetadataJson = r.IsDBNull(r.GetOrdinal("MetadataJson")) ? null : r.GetString(r.GetOrdinal("MetadataJson")),
+        ComputedUtc = DateTime.Parse(r.GetString(r.GetOrdinal("ComputedUtc"))),
+        Status = r.GetString(r.GetOrdinal("Status")),
+        ErrorMessage = r.IsDBNull(r.GetOrdinal("ErrorMessage")) ? null : r.GetString(r.GetOrdinal("ErrorMessage")),
+        SourceSizeBytes = r.GetInt64(r.GetOrdinal("SourceSizeBytes")),
+        SourceModifiedUtc = r.IsDBNull(r.GetOrdinal("SourceModifiedUtc")) || r.GetString(r.GetOrdinal("SourceModifiedUtc")) == ""
                              ? default
                              : DateTime.Parse(r.GetString(r.GetOrdinal("SourceModifiedUtc"))),
         SourceFileIdentity = r.IsDBNull(r.GetOrdinal("SourceFileIdentity")) ? null : r.GetString(r.GetOrdinal("SourceFileIdentity")),
@@ -815,14 +815,14 @@ public sealed class DuplicateRepository(StorageDbContext db) : IDuplicateReposit
 
     private static QuarantinedFile ReadQuarantinedFile(SqliteDataReader r) => new()
     {
-        Id             = r.GetInt64(r.GetOrdinal("Id")),
-        MemberId       = r.GetInt64(r.GetOrdinal("MemberId")),
-        RunId          = r.GetInt64(r.GetOrdinal("RunId")),
-        OriginalPath   = r.GetString(r.GetOrdinal("OriginalPath")),
+        Id = r.GetInt64(r.GetOrdinal("Id")),
+        MemberId = r.GetInt64(r.GetOrdinal("MemberId")),
+        RunId = r.GetInt64(r.GetOrdinal("RunId")),
+        OriginalPath = r.GetString(r.GetOrdinal("OriginalPath")),
         QuarantinePath = r.GetString(r.GetOrdinal("QuarantinePath")),
         QuarantinedUtc = DateTime.Parse(r.GetString(r.GetOrdinal("QuarantinedUtc"))),
-        RestoredUtc    = r.IsDBNull(r.GetOrdinal("RestoredUtc"))  ? null : DateTime.Parse(r.GetString(r.GetOrdinal("RestoredUtc"))),
-        RestoredPath   = r.IsDBNull(r.GetOrdinal("RestoredPath")) ? null : r.GetString(r.GetOrdinal("RestoredPath")),
+        RestoredUtc = r.IsDBNull(r.GetOrdinal("RestoredUtc")) ? null : DateTime.Parse(r.GetString(r.GetOrdinal("RestoredUtc"))),
+        RestoredPath = r.IsDBNull(r.GetOrdinal("RestoredPath")) ? null : r.GetString(r.GetOrdinal("RestoredPath")),
     };
 
     private static DuplicateRun ReadRun(SqliteDataReader reader) => new()

@@ -17,35 +17,35 @@ namespace StorageMaster.Core.SmartCleaner;
 /// </summary>
 public sealed class SmartCleanerService : ISmartCleanerService
 {
-    private readonly IFileDeleter              _deleter;
-    private readonly ICleanupLogRepository     _log;
+    private readonly IFileDeleter _deleter;
+    private readonly ICleanupLogRepository _log;
     private readonly ILogger<SmartCleanerService> _logger;
 
     public SmartCleanerService(
-        IFileDeleter              deleter,
-        ICleanupLogRepository     log,
+        IFileDeleter deleter,
+        ICleanupLogRepository log,
         ILogger<SmartCleanerService> logger)
     {
         _deleter = deleter;
-        _log     = log;
-        _logger  = logger;
+        _log = log;
+        _logger = logger;
     }
 
     // Maps Smart Cleaner category strings to the shared CleanupCategory enum so that
     // CleanupLog entries are consistent with those produced by the rule-based engine.
     private static CleanupCategory MapCategory(string category) => category switch
     {
-        "Temporary Files"              => CleanupCategory.TempFiles,
-        "Browser Cache"                => CleanupCategory.BrowserCache,
-        "Windows Update Cache"         => CleanupCategory.WindowsUpdateCache,
-        "Error Reports & Crash Dumps"  => CleanupCategory.WindowsErrorReporting,
-        "Delivery Optimization Cache"  => CleanupCategory.DeliveryOptimization,
-        _                              => CleanupCategory.CacheFolders,
+        "Temporary Files" => CleanupCategory.TempFiles,
+        "Browser Cache" => CleanupCategory.BrowserCache,
+        "Windows Update Cache" => CleanupCategory.WindowsUpdateCache,
+        "Error Reports & Crash Dumps" => CleanupCategory.WindowsErrorReporting,
+        "Delivery Optimization Cache" => CleanupCategory.DeliveryOptimization,
+        _ => CleanupCategory.CacheFolders,
     };
 
     public async Task<IReadOnlyList<SmartCleanGroup>> AnalyzeAsync(
-        IProgress<string>? progress  = null,
-        CancellationToken  ct        = default)
+        IProgress<string>? progress = null,
+        CancellationToken ct = default)
     {
         var groups = new List<SmartCleanGroup>();
 
@@ -60,7 +60,7 @@ public sealed class SmartCleanerService : ISmartCleanerService
                 Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Temp"),
             }.Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
 
-            var tempFiles  = new List<string>();
+            var tempFiles = new List<string>();
             long tempBytes = 0;
             foreach (var root in tempRoots)
             {
@@ -181,9 +181,9 @@ public sealed class SmartCleanerService : ISmartCleanerService
 
     public async Task<long> CleanAsync(
         IReadOnlyList<SmartCleanGroup> groups,
-        DeletionMethod                 method,
-        IProgress<string>?             progress = null,
-        CancellationToken              ct       = default)
+        DeletionMethod method,
+        IProgress<string>? progress = null,
+        CancellationToken ct = default)
     {
         long totalFreed = 0;
 
@@ -196,8 +196,8 @@ public sealed class SmartCleanerService : ISmartCleanerService
                 .Select(p => new DeletionRequest(p, method, DryRun: false))
                 .ToList();
 
-            long groupFreed   = 0;
-            var  failedPaths  = new List<string>();
+            long groupFreed = 0;
+            var failedPaths = new List<string>();
             string? firstError = null;
 
             await foreach (var outcome in _deleter.DeleteManyAsync(requests, ct))
@@ -226,30 +226,30 @@ public sealed class SmartCleanerService : ISmartCleanerService
 
             var syntheticSuggestion = new CleanupSuggestion
             {
-                Id             = suggestionId,
-                RuleId         = $"smart-cleaner.{group.Category.Replace(" ", "-").Replace("&", "").ToLowerInvariant().Trim('-')}",
-                Title          = group.Category,
-                Description    = group.Description,
-                Category       = MapCategory(group.Category),
-                Risk           = CleanupRisk.Low,
+                Id = suggestionId,
+                RuleId = $"smart-cleaner.{group.Category.Replace(" ", "-").Replace("&", "").ToLowerInvariant().Trim('-')}",
+                Title = group.Category,
+                Description = group.Description,
+                Category = MapCategory(group.Category),
+                Risk = CleanupRisk.Low,
                 EstimatedBytes = group.EstimatedBytes,
-                TargetPaths    = group.Paths,
+                TargetPaths = group.Paths,
             };
 
             var syntheticResult = new CleanupResult
             {
                 SuggestionId = suggestionId,
-                Status       = failedPaths.Count == 0 && requests.Count > 0
+                Status = failedPaths.Count == 0 && requests.Count > 0
                                ? CleanupResultStatus.Success
                                : groupFreed > 0
                                  ? CleanupResultStatus.PartialSuccess
                                  : requests.Count > 0
                                    ? CleanupResultStatus.Failed
                                    : CleanupResultStatus.Skipped,
-                BytesFreed   = groupFreed,
-                ExecutedUtc  = DateTime.UtcNow,
-                WasDryRun    = false,
-                FailedPaths  = failedPaths,
+                BytesFreed = groupFreed,
+                ExecutedUtc = DateTime.UtcNow,
+                WasDryRun = false,
+                FailedPaths = failedPaths,
                 ErrorMessage = firstError,
             };
 
@@ -291,7 +291,7 @@ public sealed class SmartCleanerService : ISmartCleanerService
     private static List<string> GetBrowserCachePaths()
     {
         var paths = new List<string>();
-        var local  = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        var local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
         var roaming = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
 
         AddBrowserCacheDirs(Path.Combine(local, "Google", "Chrome", "User Data"), paths);

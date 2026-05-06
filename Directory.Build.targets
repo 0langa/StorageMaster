@@ -1,18 +1,10 @@
 <Project>
   <!--
-    LOCAL BUILD WORKAROUND — do not remove.
-
-    XamlCompiler.exe (net472, 32-bit) exits with code 1 silently on this
-    developer machine. Switching to the managed in-process CompileXaml task
-    (net6.0) works around that.
-
-    CI overrides this back to UseXamlCompilerExecutable=true via
-    /p:UseXamlCompilerExecutable=true in the publish command, because the
-    managed task throws WMC9999 (PlatformNotSupportedException during WinRT
-    interop) on headless GitHub Actions runners. The CI runner's clean
-    .NET Framework 4.x environment makes XamlCompiler.exe work correctly.
+    WinUI local builds currently fail with WMC9999 when the managed in-process
+    XAML compiler is forced on. Keep the supported executable compiler enabled
+    so `dotnet build` and `dotnet test` work consistently locally and in CI.
   -->
   <PropertyGroup>
-    <UseXamlCompilerExecutable>false</UseXamlCompilerExecutable>
+    <UseXamlCompilerExecutable>true</UseXamlCompilerExecutable>
   </PropertyGroup>
 </Project>

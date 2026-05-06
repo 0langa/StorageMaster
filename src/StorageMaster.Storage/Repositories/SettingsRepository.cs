@@ -5,12 +5,15 @@ using StorageMaster.Core.Models;
 
 namespace StorageMaster.Storage.Repositories;
 
-public sealed class SettingsRepository : ISettingsRepository
+public sealed class SettingsRepository : ISettingsRepository, ISettingsSnapshotProvider
 {
     private readonly StorageDbContext _db;
     private const string Key = "AppSettings";
+    private AppSettings _current = new();
 
     public SettingsRepository(StorageDbContext db) => _db = db;
+
+    public AppSettings Current => Clone(_current);
 
     public async Task<AppSettings> LoadAsync(CancellationToken ct = default)
     {
@@ -24,10 +27,12 @@ public sealed class SettingsRepository : ISettingsRepository
         {
             var settings = JsonSerializer.Deserialize<AppSettings>(json) ?? new AppSettings();
             settings.FfmpegPath = FfmpegPathNormalizer.Normalize(settings.FfmpegPath);
+            _current = Clone(settings);
             return settings;
         }
 
-        return new AppSettings();
+        _current = new AppSettings();
+        return Clone(_current);
     }
 
     public async Task SaveAsync(AppSettings settings, CancellationToken ct = default)
@@ -46,10 +51,14 @@ public sealed class SettingsRepository : ISettingsRepository
             cmd.Parameters.AddWithValue("$key", Key);
             cmd.Parameters.AddWithValue("$val", json);
             await cmd.ExecuteNonQueryAsync(ct);
+            _current = Clone(settings);
         }
         finally
         {
             _db.WriteLock.Release();
         }
     }
+
+    private static AppSettings Clone(AppSettings settings) =>
+        JsonSerializer.Deserialize<AppSettings>(JsonSerializer.Serialize(settings)) ?? new AppSettings();
 }

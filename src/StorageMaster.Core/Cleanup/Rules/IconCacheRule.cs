@@ -12,13 +12,13 @@ namespace StorageMaster.Core.Cleanup.Rules;
 /// </summary>
 public sealed class IconCacheRule : ICleanupRule
 {
-    public string RuleId      => "core.icon-cache";
+    public string RuleId => "core.icon-cache";
     public string DisplayName => "Icon Cache";
     public CleanupCategory Category => CleanupCategory.IconCache;
 
     public async IAsyncEnumerable<CleanupSuggestion> AnalyzeAsync(
-        long              sessionId,
-        AppSettings       settings,
+        long sessionId,
+        AppSettings settings,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         await Task.Yield();
@@ -49,16 +49,16 @@ public sealed class IconCacheRule : ICleanupRule
 
         yield return new CleanupSuggestion
         {
-            Id             = Guid.NewGuid(),
-            RuleId         = RuleId,
-            Title          = $"Icon cache ({paths.Count} file(s))",
-            Description    = $"Explorer icon cache database files. Windows rebuilds them automatically. " +
+            Id = Guid.NewGuid(),
+            RuleId = RuleId,
+            Title = $"Icon cache ({paths.Count} file(s))",
+            Description = $"Explorer icon cache database files. Windows rebuilds them automatically. " +
                              $"Deleting may cause temporary icon refresh. Estimated savings: {FormatBytes(totalBytes)}.",
-            Category       = Category,
-            Risk           = CleanupRisk.Low,
+            Category = Category,
+            Risk = CleanupRisk.Low,
             EstimatedBytes = totalBytes,
-            TargetPaths    = paths,
-            IsSystemPath   = false,
+            TargetPaths = paths,
+            IsSystemPath = false,
         };
     }
 
@@ -67,6 +67,6 @@ public sealed class IconCacheRule : ICleanupRule
         >= 1L << 30 => $"{b / (1L << 30):F1} GB",
         >= 1L << 20 => $"{b / (1L << 20):F1} MB",
         >= 1L << 10 => $"{b / (1L << 10):F1} KB",
-        _           => $"{b} B",
+        _ => $"{b} B",
     };
 }

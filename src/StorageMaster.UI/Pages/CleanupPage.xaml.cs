@@ -47,9 +47,9 @@ public sealed partial class CleanupPage : Page
         ViewModel.UpdateTotalSelected();
 
         var isDryRun = ViewModel.IsDryRun;
-        var size     = ViewModel.TotalSelectedSize;
+        var size = ViewModel.TotalSelectedSize;
 
-        string title   = isDryRun ? "Confirm Dry Run Preview" : "Confirm Cleanup";
+        string title = isDryRun ? "Confirm Dry Run Preview" : "Confirm Cleanup";
         string message = isDryRun
             ? $"This will simulate the cleanup for {size} of selected items without deleting anything. Continue?"
             : $"This will delete {size} of selected files and folders. " +
@@ -58,12 +58,12 @@ public sealed partial class CleanupPage : Page
 
         var confirm = new ContentDialog
         {
-            Title               = title,
-            Content             = message,
-            PrimaryButtonText   = isDryRun ? "Run Preview" : "Clean Up",
-            CloseButtonText     = "Cancel",
-            DefaultButton       = ContentDialogButton.Close,
-            XamlRoot            = XamlRoot,
+            Title = title,
+            Content = message,
+            PrimaryButtonText = isDryRun ? "Run Preview" : "Clean Up",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Close,
+            XamlRoot = XamlRoot,
         };
 
         if (await confirm.ShowAsync() != ContentDialogResult.Primary)
@@ -84,10 +84,10 @@ public sealed partial class CleanupPage : Page
     {
         while (true)
         {
-            bool           wasDry   = ViewModel.LastRunWasDryRun;
+            bool wasDry = ViewModel.LastRunWasDryRun;
             DeletionMethod wasMethod = ViewModel.LastRunDeletionMethod;
-            var            results  = ViewModel.ExecutionResults.ToList();
-            string         summary  = ViewModel.LastRunSummary;
+            var results = ViewModel.ExecutionResults.ToList();
+            string summary = ViewModel.LastRunSummary;
 
             var dialog = BuildReportDialog(wasDry, wasMethod, results, summary);
             var choice = await dialog.ShowAsync();
@@ -117,10 +117,10 @@ public sealed partial class CleanupPage : Page
     // ── Dialog builder ─────────────────────────────────────────────────────
 
     private ContentDialog BuildReportDialog(
-        bool                            isDryRun,
-        DeletionMethod                  method,
+        bool isDryRun,
+        DeletionMethod method,
         IReadOnlyList<CleanupResultDisplay> results,
-        string                          summary)
+        string summary)
     {
         // ── Content ────────────────────────────────────────────────────────
 
@@ -131,9 +131,9 @@ public sealed partial class CleanupPage : Page
         {
             mainStack.Children.Add(new TextBlock
             {
-                Text        = summary,
+                Text = summary,
                 TextWrapping = TextWrapping.WrapWholeWords,
-                Opacity     = 0.85,
+                Opacity = 0.85,
             });
         }
 
@@ -145,10 +145,10 @@ public sealed partial class CleanupPage : Page
 
             var divider = new Border
             {
-                Height     = 1,
-                Opacity    = 0.2,
+                Height = 1,
+                Opacity = 0.2,
                 Background = new SolidColorBrush(Colors.Gray),
-                Margin     = new Thickness(0, 0, 0, 4),
+                Margin = new Thickness(0, 0, 0, 4),
             };
             mainStack.Children.Add(divider);
         }
@@ -161,8 +161,8 @@ public sealed partial class CleanupPage : Page
 
             var titleText = new TextBlock
             {
-                Text         = r.Title,
-                FontWeight   = FontWeights.SemiBold,
+                Text = r.Title,
+                FontWeight = FontWeights.SemiBold,
                 TextTrimming = TextTrimming.CharacterEllipsis,
                 VerticalAlignment = VerticalAlignment.Center,
             };
@@ -174,9 +174,9 @@ public sealed partial class CleanupPage : Page
             {
                 titleCell.Children.Add(new TextBlock
                 {
-                    Text      = r.Error,
-                    FontSize  = 11,
-                    Opacity   = 0.7,
+                    Text = r.Error,
+                    FontSize = 11,
+                    Opacity = 0.7,
                     Foreground = new SolidColorBrush(Colors.OrangeRed),
                     TextTrimming = TextTrimming.CharacterEllipsis,
                 });
@@ -184,12 +184,12 @@ public sealed partial class CleanupPage : Page
 
             var statusText = new TextBlock
             {
-                Text              = r.Status,
+                Text = r.Status,
                 HorizontalAlignment = HorizontalAlignment.Center,
-                VerticalAlignment   = VerticalAlignment.Center,
-                FontSize          = 12,
-                Opacity           = ok ? 0.9 : 0.6,
-                Foreground        = ok
+                VerticalAlignment = VerticalAlignment.Center,
+                FontSize = 12,
+                Opacity = ok ? 0.9 : 0.6,
+                Foreground = ok
                     ? new SolidColorBrush(Colors.MediumSeaGreen)
                     : skipped
                         ? new SolidColorBrush(Colors.Gray)
@@ -198,20 +198,20 @@ public sealed partial class CleanupPage : Page
 
             var sizeText = new TextBlock
             {
-                Text                = r.WasDryRun ? $"~{r.BytesFreed}" : r.BytesFreed,
+                Text = r.WasDryRun ? $"~{r.BytesFreed}" : r.BytesFreed,
                 HorizontalAlignment = HorizontalAlignment.Right,
-                VerticalAlignment   = VerticalAlignment.Center,
-                FontWeight          = FontWeights.SemiBold,
-                FontSize            = 12,
+                VerticalAlignment = VerticalAlignment.Center,
+                FontWeight = FontWeights.SemiBold,
+                FontSize = 12,
             };
 
             var row = new Grid { Margin = new Thickness(0, 3, 0, 3) };
             row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(100) });
             row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(90) });
-            Grid.SetColumn(titleCell,  0);
+            Grid.SetColumn(titleCell, 0);
             Grid.SetColumn(statusText, 1);
-            Grid.SetColumn(sizeText,   2);
+            Grid.SetColumn(sizeText, 2);
             row.Children.Add(titleCell);
             row.Children.Add(statusText);
             row.Children.Add(sizeText);
@@ -220,8 +220,8 @@ public sealed partial class CleanupPage : Page
 
         var scrollContent = new ScrollViewer
         {
-            MaxHeight                   = 380,
-            Content                     = mainStack,
+            MaxHeight = 380,
+            Content = mainStack,
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
         };
 
@@ -235,19 +235,19 @@ public sealed partial class CleanupPage : Page
 
         var dialog = new ContentDialog
         {
-            Title         = title,
-            Content       = scrollContent,
+            Title = title,
+            Content = scrollContent,
             CloseButtonText = "Close",
-            XamlRoot      = XamlRoot,
+            XamlRoot = XamlRoot,
             DefaultButton = ContentDialogButton.Close,
         };
 
         // Add action buttons depending on what the last run was.
         if (isDryRun)
         {
-            dialog.PrimaryButtonText   = "Delete (Recycle Bin)";
+            dialog.PrimaryButtonText = "Delete (Recycle Bin)";
             dialog.SecondaryButtonText = "Delete Permanently";
-            dialog.DefaultButton       = ContentDialogButton.Primary;
+            dialog.DefaultButton = ContentDialogButton.Primary;
         }
         else if (method == DeletionMethod.RecycleBin)
         {

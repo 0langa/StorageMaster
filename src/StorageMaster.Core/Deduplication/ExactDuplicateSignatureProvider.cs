@@ -13,21 +13,21 @@ public sealed class ExactDuplicateSignatureProvider(IFileContentHasher hasher) :
 
     public async Task<DuplicateSignature> ComputeAsync(
         DuplicateCandidate candidate,
-        CancellationToken  ct = default)
+        CancellationToken ct = default)
     {
         var hash = await hasher.ComputeSha256Async(candidate.File.FullPath, ct);
         return new DuplicateSignature
         {
-            Id               = 0,
-            SessionId        = candidate.File.SessionId,
-            FileEntryId      = candidate.File.Id,
-            Method           = Method,
-            Algorithm        = "SHA-256",
+            Id = 0,
+            SessionId = candidate.File.SessionId,
+            FileEntryId = candidate.File.Id,
+            Method = Method,
+            Algorithm = "SHA-256",
             AlgorithmVersion = 1,
-            SignatureText    = hash,
-            ComputedUtc      = DateTime.UtcNow,
-            Status           = "Ready",
-            SourceSizeBytes  = candidate.File.SizeBytes,
+            SignatureText = hash,
+            ComputedUtc = DateTime.UtcNow,
+            Status = "Ready",
+            SourceSizeBytes = candidate.File.SizeBytes,
             SourceModifiedUtc = candidate.File.ModifiedUtc,
         };
     }

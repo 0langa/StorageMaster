@@ -99,16 +99,16 @@ public sealed class DownloadedInstallersRuleTests
 
     private static FileEntry MakeFile(string path, long sizeBytes) => new()
     {
-        Id          = 1,
-        SessionId   = 1,
-        FullPath    = path,
-        FileName    = Path.GetFileName(path),
-        Extension   = Path.GetExtension(path),
-        SizeBytes   = sizeBytes,
-        CreatedUtc  = DateTime.UtcNow.AddDays(-30),
+        Id = 1,
+        SessionId = 1,
+        FullPath = path,
+        FileName = Path.GetFileName(path),
+        Extension = Path.GetExtension(path),
+        SizeBytes = sizeBytes,
+        CreatedUtc = DateTime.UtcNow.AddDays(-30),
         ModifiedUtc = DateTime.UtcNow.AddDays(-30),
         AccessedUtc = DateTime.UtcNow,
-        Attributes  = FileAttributes.Normal,
-        Category    = FileTypeCategory.Unknown,
+        Attributes = FileAttributes.Normal,
+        Category = FileTypeCategory.Unknown,
     };
 }

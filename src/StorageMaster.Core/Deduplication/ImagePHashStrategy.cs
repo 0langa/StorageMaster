@@ -27,10 +27,10 @@ namespace StorageMaster.Core.Deduplication;
 /// </summary>
 public sealed class ImagePHashStrategy : IDuplicateDetectionStrategy
 {
-    public const int    DefaultHammingThreshold        = 10;    // out of 64 bits
-    public const double AutoSelectConfidenceThreshold  = 0.98d; // future opt-in
+    public const int DefaultHammingThreshold = 10;    // out of 64 bits
+    public const double AutoSelectConfidenceThreshold = 0.98d; // future opt-in
 
-    private const int DctSize  = 32;
+    private const int DctSize = 32;
     private const int HashBits = 8;   // top-left 8×8 block of DCT
 
     public static readonly IReadOnlySet<string> SupportedExtensions =
@@ -43,6 +43,7 @@ public sealed class ImagePHashStrategy : IDuplicateDetectionStrategy
 
     private readonly int _hammingThreshold;
     private readonly IFileSnapshotProvider? _snapshotProvider;
+    private readonly ISettingsSnapshotProvider? _settingsSnapshotProvider;
 
     public ImagePHashStrategy(
         IFileSnapshotProvider? snapshotProvider = null,
@@ -52,36 +53,45 @@ public sealed class ImagePHashStrategy : IDuplicateDetectionStrategy
         _hammingThreshold = hammingThreshold;
     }
 
-    public DuplicateMethod Method           => DuplicateMethod.ImagePHash;
-    public string          Algorithm        => "IMAGE-PHASH-DCT64";
-    public int             AlgorithmVersion => 1;
-    public bool            SupportsAutoSelection => false;
-    public double          DefaultConfidence     => 0.0d;   // computed per-pair
-    public string          DisplayName           => "Image perceptual hash";
+    public ImagePHashStrategy(
+        ISettingsSnapshotProvider settingsSnapshotProvider,
+        IFileSnapshotProvider? snapshotProvider = null)
+    {
+        _settingsSnapshotProvider = settingsSnapshotProvider;
+        _snapshotProvider = snapshotProvider;
+        _hammingThreshold = DefaultHammingThreshold;
+    }
+
+    public DuplicateMethod Method => DuplicateMethod.ImagePHash;
+    public string Algorithm => "IMAGE-PHASH-DCT64";
+    public int AlgorithmVersion => 1;
+    public bool SupportsAutoSelection => false;
+    public double DefaultConfidence => 0.0d;   // computed per-pair
+    public string DisplayName => "Image perceptual hash";
 
     public DuplicateCandidateQuery BuildCandidateQuery(DuplicateScanOptions options) =>
         new()
         {
-            SessionId             = options.SessionId,
-            MinimumSizeBytes      = options.MinimumSizeBytes,
+            SessionId = options.SessionId,
+            MinimumSizeBytes = options.MinimumSizeBytes,
             RequireSameSizeBucket = false,  // resized/transcoded images differ in size
-            Extensions            = options.IncludeExtensions.Count > 0
+            Extensions = options.IncludeExtensions.Count > 0
                 ? options.IncludeExtensions
                       .Where(e => SupportedExtensions.Contains(e))
                       .ToList()
                 : SupportedExtensions.ToList(),
-            Categories            = options.IncludeCategories.Count > 0
+            Categories = options.IncludeCategories.Count > 0
                 ? options.IncludeCategories
                 : [FileTypeCategory.Image],
-            IncludedPaths         = options.IncludedPaths,
-            ExcludedPaths         = options.ExcludedPaths,
-            IncludeReparsePoints  = options.IncludeReparsePoints,
-            IncludeHiddenFiles    = options.IncludeHiddenFiles,
+            IncludedPaths = options.IncludedPaths,
+            ExcludedPaths = options.ExcludedPaths,
+            IncludeReparsePoints = options.IncludeReparsePoints,
+            IncludeHiddenFiles = options.IncludeHiddenFiles,
         };
 
     public async Task<DuplicateSignature> ComputeSignatureAsync(
         DuplicateCandidate candidate,
-        CancellationToken  ct = default)
+        CancellationToken ct = default)
     {
         if (!SupportedExtensions.Contains(candidate.File.Extension))
             return ErrorSig(candidate, "UnsupportedExtension",
@@ -109,23 +119,23 @@ public sealed class ImagePHashStrategy : IDuplicateDetectionStrategy
                 width,
                 height,
                 orientation,
-                hammingThreshold = _hammingThreshold,
+                hammingThreshold = ResolveHammingThreshold(),
             });
 
             return new DuplicateSignature
             {
-                Id               = 0,
-                SessionId        = candidate.File.SessionId,
-                FileEntryId      = candidate.File.Id,
-                Method           = Method,
-                Algorithm        = Algorithm,
+                Id = 0,
+                SessionId = candidate.File.SessionId,
+                FileEntryId = candidate.File.Id,
+                Method = Method,
+                Algorithm = Algorithm,
                 AlgorithmVersion = AlgorithmVersion,
-                SignatureBlob    = BitConverter.GetBytes(hash64),
-                SignatureText    = hash64.ToString("X16"),
-                MetadataJson     = meta,
-                ComputedUtc      = DateTime.UtcNow,
-                Status           = "Ready",
-                SourceSizeBytes  = before?.SizeBytes ?? candidate.File.SizeBytes,
+                SignatureBlob = BitConverter.GetBytes(hash64),
+                SignatureText = hash64.ToString("X16"),
+                MetadataJson = meta,
+                ComputedUtc = DateTime.UtcNow,
+                Status = "Ready",
+                SourceSizeBytes = before?.SizeBytes ?? candidate.File.SizeBytes,
                 SourceModifiedUtc = before?.LastWriteUtc ?? candidate.File.ModifiedUtc,
                 SourceFileIdentity = before?.Identity is { } id
                     ? $"{id.VolumeSerial}:{id.FileIndex}"
@@ -167,9 +177,9 @@ public sealed class ImagePHashStrategy : IDuplicateDetectionStrategy
         {
             if (assigned[i]) continue;
 
-            var group       = new List<(int Index, DuplicateCandidate Candidate)> { (i, items[i].Candidate) };
-            assigned[i]     = true;
-            var totalDist   = 0;
+            var group = new List<(int Index, DuplicateCandidate Candidate)> { (i, items[i].Candidate) };
+            assigned[i] = true;
+            var totalDist = 0;
             var comparisons = 0;
 
             for (var j = i + 1; j < items.Count; j++)
@@ -177,25 +187,26 @@ public sealed class ImagePHashStrategy : IDuplicateDetectionStrategy
                 if (assigned[j]) continue;
 
                 // Compare against the seed (items[i]) — single-linkage
+                var threshold = ResolveHammingThreshold();
                 var dist = HammingDistance(items[i].Hash, items[j].Hash);
-                if (dist <= _hammingThreshold)
+                if (dist <= threshold)
                 {
                     group.Add((j, items[j].Candidate));
-                    assigned[j]  = true;
-                    totalDist   += dist;
+                    assigned[j] = true;
+                    totalDist += dist;
                     comparisons++;
                 }
             }
 
             if (group.Count < 2) continue;
 
-            var avgDist    = comparisons > 0 ? (double)totalDist / comparisons : 0d;
+            var avgDist = comparisons > 0 ? (double)totalDist / comparisons : 0d;
             var confidence = Math.Clamp(1d - avgDist / 64d, 0.5d, 1.0d);
 
             yield return new DuplicateStrategyMatch(
                 group.Select(static g => g.Candidate).ToList(),
                 confidence,
-                $"Perceptual image match (Hamming ≤ {_hammingThreshold})");
+                $"Perceptual image match (Hamming ≤ {ResolveHammingThreshold()})");
         }
     }
 
@@ -213,7 +224,7 @@ public sealed class ImagePHashStrategy : IDuplicateDetectionStrategy
             orientation = orientTag?.Value ?? 1;
         img.Mutate(x => x.AutoOrient());
 
-        var width  = img.Width;
+        var width = img.Width;
         var height = img.Height;
 
         img.Mutate(x => x.Resize(DctSize, DctSize));
@@ -221,16 +232,16 @@ public sealed class ImagePHashStrategy : IDuplicateDetectionStrategy
         // Build float grayscale matrix
         var pixels = new float[DctSize * DctSize];
         for (var y = 0; y < DctSize; y++)
-        for (var x = 0; x < DctSize; x++)
-            pixels[y * DctSize + x] = img[x, y].PackedValue / 255f;
+            for (var x = 0; x < DctSize; x++)
+                pixels[y * DctSize + x] = img[x, y].PackedValue / 255f;
 
         var dct = ComputeDct2D(pixels, DctSize);
 
         // Extract top-left HashBits×HashBits block
         var coeffs = new double[HashBits * HashBits];
         for (var ky = 0; ky < HashBits; ky++)
-        for (var kx = 0; kx < HashBits; kx++)
-            coeffs[ky * HashBits + kx] = dct[ky * DctSize + kx];
+            for (var kx = 0; kx < HashBits; kx++)
+                coeffs[ky * HashBits + kx] = dct[ky * DctSize + kx];
 
         // Mean excluding DC [0,0] at index 0
         var sum = 0d;
@@ -248,7 +259,7 @@ public sealed class ImagePHashStrategy : IDuplicateDetectionStrategy
 
     private static double[] ComputeDct2D(float[] input, int n)
     {
-        var temp   = new double[n * n];
+        var temp = new double[n * n];
         var output = new double[n * n];
 
         // Row-wise DCT-II
@@ -300,10 +311,24 @@ public sealed class ImagePHashStrategy : IDuplicateDetectionStrategy
     private static DuplicateSignature ErrorSig(DuplicateCandidate c, string type, string msg) =>
         new()
         {
-            Id = 0, SessionId = c.File.SessionId, FileEntryId = c.File.Id,
-            Method = DuplicateMethod.ImagePHash, Algorithm = "IMAGE-PHASH-DCT64",
+            Id = 0,
+            SessionId = c.File.SessionId,
+            FileEntryId = c.File.Id,
+            Method = DuplicateMethod.ImagePHash,
+            Algorithm = "IMAGE-PHASH-DCT64",
             AlgorithmVersion = 1,
-            ComputedUtc = DateTime.UtcNow, Status = "Error", ErrorMessage = msg,
-            SourceSizeBytes = c.File.SizeBytes, SourceModifiedUtc = c.File.ModifiedUtc,
+            ComputedUtc = DateTime.UtcNow,
+            Status = "Error",
+            ErrorMessage = msg,
+            SourceSizeBytes = c.File.SizeBytes,
+            SourceModifiedUtc = c.File.ModifiedUtc,
         };
+
+    private int ResolveHammingThreshold()
+    {
+        if (_settingsSnapshotProvider is null)
+            return _hammingThreshold;
+
+        return Math.Clamp(_settingsSnapshotProvider.Current.DuplicateImagePHashThreshold, 2, 16);
+    }
 }

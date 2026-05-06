@@ -7,8 +7,8 @@ public interface ICleanupEngine
 {
     /// <summary>Runs all rules against the session and aggregates suggestions.</summary>
     IAsyncEnumerable<CleanupSuggestion> GetSuggestionsAsync(
-        long              sessionId,
-        AppSettings       settings,
+        long sessionId,
+        AppSettings settings,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -18,8 +18,8 @@ public interface ICleanupEngine
     /// </summary>
     Task<IReadOnlyList<CleanupResult>> ExecuteAsync(
         IReadOnlyList<CleanupSuggestion> suggestions,
-        bool                           dryRun,
-        DeletionMethod                 deletionMethod,
-        IProgress<CleanupProgress>?    progress          = null,
-        CancellationToken              cancellationToken = default);
+        bool dryRun,
+        DeletionMethod deletionMethod,
+        IProgress<CleanupProgress>? progress = null,
+        CancellationToken cancellationToken = default);
 }

@@ -16,10 +16,10 @@ public sealed class FileScannerTests
     {
         var session = new ScanSession
         {
-            Id         = 1,
-            RootPath   = @"C:\",
+            Id = 1,
+            RootPath = @"C:\",
             StartedUtc = DateTime.UtcNow,
-            Status     = ScanStatus.Running,
+            Status = ScanStatus.Running,
         };
 
         _repoMock
@@ -56,9 +56,9 @@ public sealed class FileScannerTests
         var root = CreateTempDir(files: 5, subdirs: 2);
         try
         {
-            var options  = new ScanOptions { RootPath = root, MaxParallelism = 1 };
+            var options = new ScanOptions { RootPath = root, MaxParallelism = 1 };
             var progress = new Progress<ScanProgress>();
-            var cts      = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+            var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
 
             var session = await _scanner.ScanAsync(options, progress, cts.Token);
 
@@ -74,9 +74,9 @@ public sealed class FileScannerTests
     [Fact]
     public async Task ScanAsync_Cancellation_ReturnsCancelledSession()
     {
-        var root    = CreateTempDir(files: 2, subdirs: 0);
+        var root = CreateTempDir(files: 2, subdirs: 0);
         var options = new ScanOptions { RootPath = root };
-        var cts     = new CancellationTokenSource();
+        var cts = new CancellationTokenSource();
 
         // Cancel immediately before the scan starts.
         cts.Cancel();
@@ -99,7 +99,7 @@ public sealed class FileScannerTests
     public async Task ScanAsync_BatchesFileWrites()
     {
         // Create more files than one batch to verify batched writes.
-        var root    = CreateTempDir(files: 20, subdirs: 0);
+        var root = CreateTempDir(files: 20, subdirs: 0);
         var options = new ScanOptions { RootPath = root, DbBatchSize = 5 };
 
         try
@@ -150,9 +150,9 @@ public sealed class FileScannerTests
 
         var options = new ScanOptions
         {
-            RootPath       = root,
+            RootPath = root,
             MaxParallelism = 1,
-            ExcludedPaths  = new[] { excludedDir },
+            ExcludedPaths = new[] { excludedDir },
         };
 
         try
@@ -171,10 +171,10 @@ public sealed class FileScannerTests
     [Fact]
     public async Task ScanAsync_ReportsProgress()
     {
-        var root           = CreateTempDir(files: 10, subdirs: 1);
-        var reportedOnce   = false;
-        var progress       = new Progress<ScanProgress>(_ => reportedOnce = true);
-        var options        = new ScanOptions { RootPath = root, MaxParallelism = 1 };
+        var root = CreateTempDir(files: 10, subdirs: 1);
+        var reportedOnce = false;
+        var progress = new Progress<ScanProgress>(_ => reportedOnce = true);
+        var options = new ScanOptions { RootPath = root, MaxParallelism = 1 };
 
         try
         {

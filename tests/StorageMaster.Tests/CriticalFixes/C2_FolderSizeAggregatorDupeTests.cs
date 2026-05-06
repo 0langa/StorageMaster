@@ -40,15 +40,15 @@ public sealed class C2_FolderSizeAggregatorDupeTests
 
     private static FolderEntry MakeFolder(string path, long directBytes) => new()
     {
-        Id              = 0,
-        SessionId       = 1,
-        FullPath        = path,
-        FolderName      = Path.GetFileName(path) ?? path,
+        Id = 0,
+        SessionId = 1,
+        FullPath = path,
+        FolderName = Path.GetFileName(path) ?? path,
         DirectSizeBytes = directBytes,
-        TotalSizeBytes  = directBytes,
-        FileCount       = 1,
-        SubFolderCount  = 0,
-        IsReparsePoint  = false,
+        TotalSizeBytes = directBytes,
+        FileCount = 1,
+        SubFolderCount = 0,
+        IsReparsePoint = false,
         WasAccessDenied = false,
     };
 }

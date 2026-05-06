@@ -12,7 +12,7 @@ namespace StorageMaster.Core.Cleanup.Rules;
 /// </summary>
 public sealed class WindowsUpdateCacheRule : ICleanupRule
 {
-    public string RuleId      => "core.windows-update-cache";
+    public string RuleId => "core.windows-update-cache";
     public string DisplayName => "Windows Update Cache";
     public CleanupCategory Category => CleanupCategory.WindowsUpdateCache;
 
@@ -21,8 +21,8 @@ public sealed class WindowsUpdateCacheRule : ICleanupRule
         "SoftwareDistribution", "Download");
 
     public async IAsyncEnumerable<CleanupSuggestion> AnalyzeAsync(
-        long              sessionId,
-        AppSettings       settings,
+        long sessionId,
+        AppSettings settings,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         await Task.Yield();
@@ -30,7 +30,7 @@ public sealed class WindowsUpdateCacheRule : ICleanupRule
         if (!Directory.Exists(CachePath)) yield break;
 
         long totalBytes = 0;
-        int  fileCount  = 0;
+        int fileCount = 0;
         try
         {
             foreach (var f in Directory.EnumerateFiles(CachePath, "*", SearchOption.AllDirectories))
@@ -50,17 +50,17 @@ public sealed class WindowsUpdateCacheRule : ICleanupRule
 
         yield return new CleanupSuggestion
         {
-            Id             = Guid.NewGuid(),
-            RuleId         = RuleId,
-            Title          = $"Windows Update cache ({fileCount:N0} files)",
-            Description    = "Downloaded update packages that have already been applied. " +
+            Id = Guid.NewGuid(),
+            RuleId = RuleId,
+            Title = $"Windows Update cache ({fileCount:N0} files)",
+            Description = "Downloaded update packages that have already been applied. " +
                              "Windows will re-download them only if the same update needs " +
                              $"to be re-applied. Estimated savings: {FormatBytes(totalBytes)}.",
-            Category       = Category,
-            Risk           = CleanupRisk.Low,
+            Category = Category,
+            Risk = CleanupRisk.Low,
             EstimatedBytes = totalBytes,
-            TargetPaths    = [CachePath],
-            IsSystemPath   = true,
+            TargetPaths = [CachePath],
+            IsSystemPath = true,
         };
     }
 
@@ -69,6 +69,6 @@ public sealed class WindowsUpdateCacheRule : ICleanupRule
         >= 1L << 30 => $"{b / (1L << 30):F1} GB",
         >= 1L << 20 => $"{b / (1L << 20):F1} MB",
         >= 1L << 10 => $"{b / (1L << 10):F1} KB",
-        _           => $"{b} B",
+        _ => $"{b} B",
     };
 }

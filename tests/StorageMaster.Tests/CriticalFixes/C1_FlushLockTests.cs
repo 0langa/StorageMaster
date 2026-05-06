@@ -18,9 +18,9 @@ public sealed class C1_FlushLockTests
     public async Task ConcurrentFlushes_NoLostOrDuplicateEntries()
     {
         // Arrange: tiny batch size so flushes trigger on every directory.
-        var insertedFiles   = new List<List<FileEntry>>();
+        var insertedFiles = new List<List<FileEntry>>();
         var insertedFolders = new List<List<FolderEntry>>();
-        var insertLock      = new object();
+        var insertLock = new object();
 
         var repoMock = new Mock<IScanRepository>();
         repoMock.Setup(r => r.CreateSessionAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))

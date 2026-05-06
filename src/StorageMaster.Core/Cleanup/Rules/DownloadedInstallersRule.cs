@@ -15,9 +15,9 @@ namespace StorageMaster.Core.Cleanup.Rules;
 public sealed class DownloadedInstallersRule : ICleanupRule
 {
     private readonly IScanRepository _repo;
-    private readonly Func<string>    _getDownloadsPath;
+    private readonly Func<string> _getDownloadsPath;
 
-    public string RuleId      => "core.downloaded-installers";
+    public string RuleId => "core.downloaded-installers";
     public string DisplayName => "Downloaded Installers";
     public CleanupCategory Category => CleanupCategory.DownloadedInstallers;
 
@@ -30,13 +30,13 @@ public sealed class DownloadedInstallersRule : ICleanupRule
 
     public DownloadedInstallersRule(IScanRepository repo, Func<string> getDownloadsPath)
     {
-        _repo             = repo;
+        _repo = repo;
         _getDownloadsPath = getDownloadsPath;
     }
 
     public async IAsyncEnumerable<CleanupSuggestion> AnalyzeAsync(
-        long              sessionId,
-        AppSettings       settings,
+        long sessionId,
+        AppSettings settings,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         var downloadsPath = _getDownloadsPath();
@@ -54,17 +54,17 @@ public sealed class DownloadedInstallersRule : ICleanupRule
             long totalBytes = installers.Sum(f => f.SizeBytes);
             yield return new CleanupSuggestion
             {
-                Id             = Guid.NewGuid(),
-                RuleId         = RuleId,
-                Title          = $"Downloaded installers ({installers.Count:N0} files)",
-                Description    = $"Installer files (.exe, .msi, .iso, …) in your Downloads folder. " +
+                Id = Guid.NewGuid(),
+                RuleId = RuleId,
+                Title = $"Downloaded installers ({installers.Count:N0} files)",
+                Description = $"Installer files (.exe, .msi, .iso, …) in your Downloads folder. " +
                                  $"Estimated savings: {FormatBytes(totalBytes)}. " +
                                  "Review before deleting — some may be needed for reinstallation.",
-                Category       = Category,
-                Risk           = CleanupRisk.Low,
+                Category = Category,
+                Risk = CleanupRisk.Low,
                 EstimatedBytes = totalBytes,
-                TargetPaths    = installers.Select(f => f.FullPath).ToList(),
-                IsSystemPath   = false,
+                TargetPaths = installers.Select(f => f.FullPath).ToList(),
+                IsSystemPath = false,
             };
         }
 
@@ -83,18 +83,18 @@ public sealed class DownloadedInstallersRule : ICleanupRule
             {
                 yield return new CleanupSuggestion
                 {
-                    Id             = Guid.NewGuid(),
-                    RuleId         = "core.clear-downloads-folder",
-                    Title          = $"Clear entire Downloads folder ({allDownloads.Count:N0} files)",
-                    Description    = $"Removes ALL content from {downloadsPath}. This includes documents, " +
+                    Id = Guid.NewGuid(),
+                    RuleId = "core.clear-downloads-folder",
+                    Title = $"Clear entire Downloads folder ({allDownloads.Count:N0} files)",
+                    Description = $"Removes ALL content from {downloadsPath}. This includes documents, " +
                                      $"archives, media, and any other files you may have downloaded. " +
                                      $"Estimated savings: {FormatBytes(totalDownloadBytes)}. " +
                                      "This action cannot be easily undone — use Recycle Bin mode.",
-                    Category       = Category,
-                    Risk           = CleanupRisk.Medium,
+                    Category = Category,
+                    Risk = CleanupRisk.Medium,
                     EstimatedBytes = totalDownloadBytes,
-                    TargetPaths    = [downloadsPath],
-                    IsSystemPath   = false,
+                    TargetPaths = [downloadsPath],
+                    IsSystemPath = false,
                 };
             }
         }
@@ -106,6 +106,6 @@ public sealed class DownloadedInstallersRule : ICleanupRule
             >= 1L << 30 => $"{bytes / (1L << 30):F1} GB",
             >= 1L << 20 => $"{bytes / (1L << 20):F1} MB",
             >= 1L << 10 => $"{bytes / (1L << 10):F1} KB",
-            _           => $"{bytes} B",
+            _ => $"{bytes} B",
         };
 }

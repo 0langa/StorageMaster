@@ -10,7 +10,6 @@
 ///
 /// Errors (access denied, I/O failures) are written to stderr as plain text
 /// and do not abort the scan.
-
 use clap::Parser;
 use jwalk::{Parallelism, WalkDir};
 use serde::Serialize;
@@ -39,11 +38,11 @@ struct Args {
 
 #[derive(Serialize)]
 struct FileRecord<'a> {
-    path:          &'a str,
-    size:          u64,
+    path: &'a str,
+    size: u64,
     modified_unix: i64,
-    created_unix:  i64,
-    is_dir:        bool,
+    created_unix: i64,
+    is_dir: bool,
 }
 
 fn main() {
@@ -89,7 +88,7 @@ fn main() {
         };
 
         let is_dir = metadata.is_dir();
-        let size   = if is_dir { 0 } else { metadata.len() };
+        let size = if is_dir { 0 } else { metadata.len() };
 
         if !is_dir && size < args.min_size {
             continue;
@@ -111,7 +110,7 @@ fn main() {
 
         let path_buf = entry.path();
         let path_str = path_buf.to_string_lossy();
-        let record   = FileRecord {
+        let record = FileRecord {
             path: path_str.as_ref(),
             size,
             modified_unix,

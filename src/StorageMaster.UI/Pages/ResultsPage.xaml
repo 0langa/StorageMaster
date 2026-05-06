@@ -100,7 +100,8 @@
                 </StackPanel>
 
                 <!-- Pivot for tabs -->
-                <Pivot>
+                <Pivot x:Name="ResultsPivot"
+                       SelectionChanged="ResultsPivot_SelectionChanged">
 
                     <!-- Largest Files -->
                     <PivotItem Header="Largest Files">
@@ -312,7 +313,7 @@
                     </PivotItem>
 
                     <!-- Errors -->
-                    <PivotItem>
+                    <PivotItem x:Name="ErrorsPivotItem">
                         <PivotItem.Header>
                             <StackPanel Orientation="Horizontal" Spacing="6">
                                 <TextBlock Text="Errors"/>
@@ -325,6 +326,15 @@
                                 </Border>
                             </StackPanel>
                         </PivotItem.Header>
+                        <StackPanel Spacing="8">
+                            <TextBlock Text="{x:Bind ViewModel.ErrorsStatusText, Mode=OneWay}"
+                                       Style="{StaticResource CaptionTextBlockStyle}"
+                                       Opacity="0.72"
+                                       TextWrapping="WrapWholeWords" />
+                            <ProgressRing IsActive="{x:Bind ViewModel.IsErrorsLoading, Mode=OneWay}"
+                                          Width="20"
+                                          Height="20"
+                                          Visibility="{x:Bind ViewModel.IsErrorsLoading, Mode=OneWay, Converter={StaticResource BoolVis}}" />
                         <ListView ItemsSource="{x:Bind ViewModel.ScanErrors}"
                                   SelectionMode="None" Margin="0,8,0,0">
                             <ListView.Header>
@@ -354,14 +364,21 @@
                                 </DataTemplate>
                             </ListView.ItemTemplate>
                         </ListView>
+                        </StackPanel>
                     </PivotItem>
 
                     <!-- Folder Tree -->
-                    <PivotItem Header="Folder Tree">
+                    <PivotItem x:Name="FolderTreePivotItem" Header="Folder Tree">
                         <StackPanel Spacing="8" Margin="0,8,0,0">
-                            <TextBlock Text="Folders sorted by recursive total size. Expand a node to see its sub-folders."
-                                       Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.65"/>
+                            <TextBlock Text="{x:Bind ViewModel.FolderTreeStatusText, Mode=OneWay}"
+                                       Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.65"
+                                       TextWrapping="WrapWholeWords" />
+                            <ProgressRing IsActive="{x:Bind ViewModel.IsFolderTreeLoading, Mode=OneWay}"
+                                          Width="20"
+                                          Height="20"
+                                          Visibility="{x:Bind ViewModel.IsFolderTreeLoading, Mode=OneWay, Converter={StaticResource BoolVis}}" />
                             <TreeView x:Name="FolderTreeControl"
+                                      Expanding="FolderTreeControl_Expanding"
                                       SelectionMode="None"
                                       MaxHeight="700">
                                 <TreeView.ItemTemplate>

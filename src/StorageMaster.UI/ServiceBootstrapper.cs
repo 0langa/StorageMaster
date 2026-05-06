@@ -35,7 +35,9 @@ internal static class ServiceBootstrapper
         services.AddSingleton<IScanRepository, ScanRepository>();
         services.AddSingleton<IScanErrorRepository, ScanErrorRepository>();
         services.AddSingleton<ICleanupLogRepository, CleanupLogRepository>();
-        services.AddSingleton<ISettingsRepository, SettingsRepository>();
+        services.AddSingleton<SettingsRepository>();
+        services.AddSingleton<ISettingsRepository>(sp => sp.GetRequiredService<SettingsRepository>());
+        services.AddSingleton<ISettingsSnapshotProvider>(sp => sp.GetRequiredService<SettingsRepository>());
         services.AddSingleton<DuplicateRepository>();
         services.AddSingleton<IDuplicateRepository>(sp => sp.GetRequiredService<DuplicateRepository>());
         services.AddSingleton<IDuplicateCandidateProvider>(sp => sp.GetRequiredService<DuplicateRepository>());
@@ -119,16 +121,13 @@ internal static class ServiceBootstrapper
             new NormalizedTextStrategy(
                 sp.GetRequiredService<IFileSnapshotProvider>()));
         services.AddSingleton<IDuplicateDetectionStrategy>(sp =>
-        {
-            var settings = sp.GetRequiredService<ISettingsRepository>()
-                .LoadAsync().GetAwaiter().GetResult();
-            return new ImagePHashStrategy(
-                sp.GetRequiredService<IFileSnapshotProvider>(),
-                settings.DuplicateImagePHashThreshold);
-        });
+            new ImagePHashStrategy(
+                sp.GetRequiredService<ISettingsSnapshotProvider>(),
+                sp.GetRequiredService<IFileSnapshotProvider>()));
         services.AddSingleton<IDuplicateDetectionStrategy>(sp =>
             new VideoPHashStrategy(
                 sp.GetRequiredService<ISettingsRepository>(),
+                sp.GetRequiredService<ISettingsSnapshotProvider>(),
                 sp.GetRequiredService<IFileSnapshotProvider>(),
                 AppContext.BaseDirectory));
 

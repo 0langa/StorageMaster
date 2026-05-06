@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Setup Rust (stable)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Restore solution
+        run: dotnet restore StorageMaster.sln
+
+      - name: Verify formatting
+        run: dotnet format --verify-no-changes
+
+      - name: Build solution
+        run: dotnet build StorageMaster.sln -c Release --no-restore
+
+      - name: Test solution
+        run: dotnet test StorageMaster.sln -c Release --no-build
+
+      - name: Rust format check
+        working-directory: turbo-scanner
+        run: cargo fmt --check
+
+      - name: Rust tests
+        working-directory: turbo-scanner
+        run: cargo test
+
+      - name: Rust release build
+        working-directory: turbo-scanner
+        run: cargo build --release

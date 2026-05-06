@@ -31,10 +31,10 @@ namespace StorageMaster.Core.Deduplication;
 /// </summary>
 public sealed class VideoPHashStrategy : IDuplicateDetectionStrategy
 {
-    public const int    FrameSampleCount          = 10;
-    public const int    FrameHammingThreshold     = 10;
-    public const double MinMatchingFrameFraction  = 0.8;   // 80 % of frames must match
-    public const int    DefaultMaxDurationSeconds = 3600;  // 1 hour
+    public const int FrameSampleCount = 10;
+    public const int FrameHammingThreshold = 10;
+    public const double MinMatchingFrameFraction = 0.8;   // 80 % of frames must match
+    public const int DefaultMaxDurationSeconds = 3600;  // 1 hour
 
     public static readonly IReadOnlySet<string> SupportedExtensions =
         new HashSet<string>(StringComparer.OrdinalIgnoreCase)
@@ -44,9 +44,10 @@ public sealed class VideoPHashStrategy : IDuplicateDetectionStrategy
         };
 
     private readonly string? _ffmpegPath;
-    private readonly int     _maxDurationSeconds;
+    private readonly int _maxDurationSeconds;
     private readonly ISettingsRepository? _settingsRepository;
-    private readonly string  _appBaseDirectory;
+    private readonly ISettingsSnapshotProvider? _settingsSnapshotProvider;
+    private readonly string _appBaseDirectory;
     private readonly IFileSnapshotProvider? _snapshotProvider;
 
     public VideoPHashStrategy(
@@ -54,31 +55,33 @@ public sealed class VideoPHashStrategy : IDuplicateDetectionStrategy
         IFileSnapshotProvider? snapshotProvider = null,
         int maxDurationSeconds = DefaultMaxDurationSeconds)
     {
-        _ffmpegPath         = ffmpegPath;
-        _snapshotProvider   = snapshotProvider;
+        _ffmpegPath = ffmpegPath;
+        _snapshotProvider = snapshotProvider;
         _maxDurationSeconds = maxDurationSeconds;
-        _appBaseDirectory   = AppContext.BaseDirectory;
+        _appBaseDirectory = AppContext.BaseDirectory;
     }
 
     public VideoPHashStrategy(
         ISettingsRepository settingsRepository,
+        ISettingsSnapshotProvider settingsSnapshotProvider,
         IFileSnapshotProvider? snapshotProvider = null,
         string? appBaseDirectory = null)
     {
         _settingsRepository = settingsRepository;
-        _snapshotProvider   = snapshotProvider;
+        _settingsSnapshotProvider = settingsSnapshotProvider;
+        _snapshotProvider = snapshotProvider;
         _maxDurationSeconds = DefaultMaxDurationSeconds;
-        _appBaseDirectory   = string.IsNullOrWhiteSpace(appBaseDirectory)
+        _appBaseDirectory = string.IsNullOrWhiteSpace(appBaseDirectory)
             ? AppContext.BaseDirectory
             : appBaseDirectory;
     }
 
-    public DuplicateMethod Method           => DuplicateMethod.VideoPHash;
-    public string          Algorithm        => "VIDEO-PHASH-FRAMES10";
-    public int             AlgorithmVersion => 1;
-    public bool            SupportsAutoSelection => false;
-    public double          DefaultConfidence     => 0.0d;   // computed per-pair
-    public string          DisplayName           => "Video perceptual hash";
+    public DuplicateMethod Method => DuplicateMethod.VideoPHash;
+    public string Algorithm => "VIDEO-PHASH-FRAMES10";
+    public int AlgorithmVersion => 1;
+    public bool SupportsAutoSelection => false;
+    public double DefaultConfidence => 0.0d;   // computed per-pair
+    public string DisplayName => "Video perceptual hash";
 
     /// <summary>
     /// Returns true when FFmpeg is configured and the binary exists.
@@ -94,26 +97,26 @@ public sealed class VideoPHashStrategy : IDuplicateDetectionStrategy
     public DuplicateCandidateQuery BuildCandidateQuery(DuplicateScanOptions options) =>
         new()
         {
-            SessionId             = options.SessionId,
-            MinimumSizeBytes      = options.MinimumSizeBytes,
+            SessionId = options.SessionId,
+            MinimumSizeBytes = options.MinimumSizeBytes,
             RequireSameSizeBucket = false,  // transcoded videos differ in size
-            Extensions            = options.IncludeExtensions.Count > 0
+            Extensions = options.IncludeExtensions.Count > 0
                 ? options.IncludeExtensions
                       .Where(e => SupportedExtensions.Contains(e))
                       .ToList()
                 : SupportedExtensions.ToList(),
-            Categories            = options.IncludeCategories.Count > 0
+            Categories = options.IncludeCategories.Count > 0
                 ? options.IncludeCategories
                 : [FileTypeCategory.Video],
-            IncludedPaths         = options.IncludedPaths,
-            ExcludedPaths         = options.ExcludedPaths,
-            IncludeReparsePoints  = options.IncludeReparsePoints,
-            IncludeHiddenFiles    = options.IncludeHiddenFiles,
+            IncludedPaths = options.IncludedPaths,
+            ExcludedPaths = options.ExcludedPaths,
+            IncludeReparsePoints = options.IncludeReparsePoints,
+            IncludeHiddenFiles = options.IncludeHiddenFiles,
         };
 
     public async Task<DuplicateSignature> ComputeSignatureAsync(
         DuplicateCandidate candidate,
-        CancellationToken  ct = default)
+        CancellationToken ct = default)
     {
         if (!SupportedExtensions.Contains(candidate.File.Extension))
             return ErrorSig(candidate, "UnsupportedExtension",
@@ -148,7 +151,7 @@ public sealed class VideoPHashStrategy : IDuplicateDetectionStrategy
                 .ToArray();
 
             var frameHashes = new ulong[FrameSampleCount];
-            var tempDir     = Path.Combine(Path.GetTempPath(), $"sm_vphash_{Guid.NewGuid():N}");
+            var tempDir = Path.Combine(Path.GetTempPath(), $"sm_vphash_{Guid.NewGuid():N}");
             Directory.CreateDirectory(tempDir);
             try
             {
@@ -183,25 +186,25 @@ public sealed class VideoPHashStrategy : IDuplicateDetectionStrategy
             var meta = JsonSerializer.Serialize(new
             {
                 duration,
-                frameCount    = FrameSampleCount,
+                frameCount = FrameSampleCount,
                 timestamps,
-                frameHashes   = frameHashes.Select(static h => h.ToString("X16")).ToArray(),
+                frameHashes = frameHashes.Select(static h => h.ToString("X16")).ToArray(),
                 hammingThreshold = FrameHammingThreshold,
             });
 
             return new DuplicateSignature
             {
-                Id               = 0,
-                SessionId        = candidate.File.SessionId,
-                FileEntryId      = candidate.File.Id,
-                Method           = Method,
-                Algorithm        = Algorithm,
+                Id = 0,
+                SessionId = candidate.File.SessionId,
+                FileEntryId = candidate.File.Id,
+                Method = Method,
+                Algorithm = Algorithm,
                 AlgorithmVersion = AlgorithmVersion,
-                SignatureText    = fingerprint,
-                MetadataJson     = meta,
-                ComputedUtc      = DateTime.UtcNow,
-                Status           = "Ready",
-                SourceSizeBytes  = before?.SizeBytes ?? candidate.File.SizeBytes,
+                SignatureText = fingerprint,
+                MetadataJson = meta,
+                ComputedUtc = DateTime.UtcNow,
+                Status = "Ready",
+                SourceSizeBytes = before?.SizeBytes ?? candidate.File.SizeBytes,
                 SourceModifiedUtc = before?.LastWriteUtc ?? candidate.File.ModifiedUtc,
                 SourceFileIdentity = before?.Identity is { } id
                     ? $"{id.VolumeSerial}:{id.FileIndex}"
@@ -243,10 +246,10 @@ public sealed class VideoPHashStrategy : IDuplicateDetectionStrategy
         {
             if (assigned[i]) continue;
 
-            var group       = new List<DuplicateCandidate> { items[i].Candidate };
-            assigned[i]     = true;
-            var totalSim    = 0d;
-            var groupCount  = 0;
+            var group = new List<DuplicateCandidate> { items[i].Candidate };
+            assigned[i] = true;
+            var totalSim = 0d;
+            var groupCount = 0;
 
             for (var j = i + 1; j < items.Count; j++)
             {
@@ -255,15 +258,15 @@ public sealed class VideoPHashStrategy : IDuplicateDetectionStrategy
                 if (sim >= MinMatchingFrameFraction)
                 {
                     group.Add(items[j].Candidate);
-                    assigned[j]  = true;
-                    totalSim    += sim;
+                    assigned[j] = true;
+                    totalSim += sim;
                     groupCount++;
                 }
             }
 
             if (group.Count < 2) continue;
 
-            var avgSim     = groupCount > 0 ? totalSim / groupCount : 1d;
+            var avgSim = groupCount > 0 ? totalSim / groupCount : 1d;
             var confidence = Math.Clamp(avgSim, 0.5d, 1.0d);
 
             yield return new DuplicateStrategyMatch(
@@ -281,10 +284,10 @@ public sealed class VideoPHashStrategy : IDuplicateDetectionStrategy
         var psi = new ProcessStartInfo(ffprobePath,
             $"-v error -show_entries format=duration -of csv=p=0 \"{videoPath}\"")
         {
-            UseShellExecute        = false,
+            UseShellExecute = false,
             RedirectStandardOutput = true,
-            RedirectStandardError  = true,
-            CreateNoWindow         = true,
+            RedirectStandardError = true,
+            CreateNoWindow = true,
         };
         using var proc = Process.Start(psi) ?? throw new InvalidOperationException("Could not start ffprobe.");
         var stdout = await proc.StandardOutput.ReadToEndAsync(ct);
@@ -296,13 +299,13 @@ public sealed class VideoPHashStrategy : IDuplicateDetectionStrategy
     private static async Task ExtractFrameAsync(
         string ffmpegPath, string videoPath, double timestamp, string outPath, CancellationToken ct)
     {
-        var ts  = timestamp.ToString("F3", System.Globalization.CultureInfo.InvariantCulture);
+        var ts = timestamp.ToString("F3", System.Globalization.CultureInfo.InvariantCulture);
         var psi = new ProcessStartInfo(ffmpegPath,
             $"-ss {ts} -i \"{videoPath}\" -frames:v 1 -q:v 2 \"{outPath}\" -y")
         {
-            UseShellExecute       = false,
+            UseShellExecute = false,
             RedirectStandardError = true,
-            CreateNoWindow        = true,
+            CreateNoWindow = true,
         };
         using var proc = Process.Start(psi) ?? throw new InvalidOperationException("Could not start ffmpeg.");
         await proc.WaitForExitAsync(ct);
@@ -317,14 +320,14 @@ public sealed class VideoPHashStrategy : IDuplicateDetectionStrategy
 
         var pixels = new float[32 * 32];
         for (var y = 0; y < 32; y++)
-        for (var x = 0; x < 32; x++)
-            pixels[y * 32 + x] = img[x, y].PackedValue / 255f;
+            for (var x = 0; x < 32; x++)
+                pixels[y * 32 + x] = img[x, y].PackedValue / 255f;
 
-        var dct    = ComputeDct2D(pixels, 32);
+        var dct = ComputeDct2D(pixels, 32);
         var coeffs = new double[64];
         for (var ky = 0; ky < 8; ky++)
-        for (var kx = 0; kx < 8; kx++)
-            coeffs[ky * 8 + kx] = dct[ky * 32 + kx];
+            for (var kx = 0; kx < 8; kx++)
+                coeffs[ky * 8 + kx] = dct[ky * 32 + kx];
 
         var sum = 0d;
         for (var i = 1; i < 64; i++) sum += coeffs[i];
@@ -340,7 +343,7 @@ public sealed class VideoPHashStrategy : IDuplicateDetectionStrategy
 
     private static double[] ComputeDct2D(float[] input, int n)
     {
-        var temp   = new double[n * n];
+        var temp = new double[n * n];
         var output = new double[n * n];
         for (var row = 0; row < n; row++)
         {
@@ -352,7 +355,7 @@ public sealed class VideoPHashStrategy : IDuplicateDetectionStrategy
                 temp[row * n + k] = s;
             }
         }
-        var col    = new double[n];
+        var col = new double[n];
         var colOut = new double[n];
         for (var c = 0; c < n; c++)
         {
@@ -392,11 +395,17 @@ public sealed class VideoPHashStrategy : IDuplicateDetectionStrategy
     private static DuplicateSignature ErrorSig(DuplicateCandidate c, string type, string msg) =>
         new()
         {
-            Id = 0, SessionId = c.File.SessionId, FileEntryId = c.File.Id,
-            Method = DuplicateMethod.VideoPHash, Algorithm = "VIDEO-PHASH-FRAMES10",
+            Id = 0,
+            SessionId = c.File.SessionId,
+            FileEntryId = c.File.Id,
+            Method = DuplicateMethod.VideoPHash,
+            Algorithm = "VIDEO-PHASH-FRAMES10",
             AlgorithmVersion = 1,
-            ComputedUtc = DateTime.UtcNow, Status = "Error", ErrorMessage = msg,
-            SourceSizeBytes = c.File.SizeBytes, SourceModifiedUtc = c.File.ModifiedUtc,
+            ComputedUtc = DateTime.UtcNow,
+            Status = "Error",
+            ErrorMessage = msg,
+            SourceSizeBytes = c.File.SizeBytes,
+            SourceModifiedUtc = c.File.ModifiedUtc,
         };
 
     private FfmpegToolPaths ResolveTools()
@@ -408,7 +417,7 @@ public sealed class VideoPHashStrategy : IDuplicateDetectionStrategy
                 _appBaseDirectory);
         }
 
-        var settings = _settingsRepository.LoadAsync().GetAwaiter().GetResult();
+        var settings = _settingsSnapshotProvider?.Current ?? new AppSettings();
         return FfmpegToolResolver.Resolve(
             settings.FfmpegPath,
             _appBaseDirectory);

@@ -24,50 +24,51 @@ public sealed partial class ScheduledJobEditorItem : ObservableObject
 public sealed partial class SettingsViewModel : ObservableObject
 {
     private readonly ISettingsRepository _repo;
-    private readonly IUpdateService      _updateService;
-    private readonly IScanRepository     _scanRepository;
+    private readonly IUpdateService _updateService;
+    private readonly IScanRepository _scanRepository;
     private readonly ILocalDiagnosticsService _diagnostics;
     private readonly IScheduledTaskService _scheduledTaskService;
     private readonly StartupRegistrationService _startupRegistration;
     private AppSettings _loadedSettings = new();
 
     private CancellationTokenSource? _downloadCts;
+    private CancellationTokenSource? _messageCts;
 
     // ── Deletion ────────────────────────────────────────────────────────────
-    [ObservableProperty] private bool   _preferRecycleBin  = true;
-    [ObservableProperty] private bool   _dryRunByDefault   = false;
+    [ObservableProperty] private bool _preferRecycleBin = true;
+    [ObservableProperty] private bool _dryRunByDefault = false;
 
     // ── Thresholds ──────────────────────────────────────────────────────────
-    [ObservableProperty] private int    _largeFileSizeMb   = 500;
-    [ObservableProperty] private int    _oldFileAgeDays    = 365;
+    [ObservableProperty] private int _largeFileSizeMb = 500;
+    [ObservableProperty] private int _oldFileAgeDays = 365;
 
     // ── Scan ────────────────────────────────────────────────────────────────
-    [ObservableProperty] private string _defaultScanPath   = @"C:\";
-    [ObservableProperty] private int    _scanParallelism   = 4;
-    [ObservableProperty] private bool   _showHiddenFiles   = false;
-    [ObservableProperty] private bool   _skipSystemFolders = true;
-    [ObservableProperty] private bool   _useTurboScanner   = false;
+    [ObservableProperty] private string _defaultScanPath = @"C:\";
+    [ObservableProperty] private int _scanParallelism = 4;
+    [ObservableProperty] private bool _showHiddenFiles = false;
+    [ObservableProperty] private bool _skipSystemFolders = true;
+    [ObservableProperty] private bool _useTurboScanner = false;
     [ObservableProperty] private ThemePreference _theme = ThemePreference.Default;
-    [ObservableProperty] private int    _scanHistoryRetentionDays = 365;
+    [ObservableProperty] private int _scanHistoryRetentionDays = 365;
 
     // ── Cleanup default rule toggles ─────────────────────────────────────
-    [ObservableProperty] private bool   _cleanRecycleBin           = true;
-    [ObservableProperty] private bool   _cleanTempFiles            = true;
-    [ObservableProperty] private bool   _cleanDownloadedInstallers = true;
-    [ObservableProperty] private bool   _clearEntireDownloads      = false;
-    [ObservableProperty] private bool   _cleanCacheFolders         = true;
-    [ObservableProperty] private bool   _cleanBrowserCache         = true;
-    [ObservableProperty] private bool   _cleanWindowsUpdateCache   = true;
-    [ObservableProperty] private bool   _cleanDeliveryOptimization = true;
-    [ObservableProperty] private bool   _cleanWindowsErrorReports  = true;
-    [ObservableProperty] private bool   _cleanProgramLeftovers     = true;
-    [ObservableProperty] private bool   _cleanLargeOldFiles        = false;
-    [ObservableProperty] private bool   _cleanThumbnailCache       = true;
-    [ObservableProperty] private bool   _cleanIconCache            = true;
-    [ObservableProperty] private bool   _cleanFontCache            = false;
-    [ObservableProperty] private bool   _cleanDnsCache             = true;
-    [ObservableProperty] private bool   _cleanPrefetchFiles        = false;
-    [ObservableProperty] private bool   _cleanStoreLogs            = true;
+    [ObservableProperty] private bool _cleanRecycleBin = true;
+    [ObservableProperty] private bool _cleanTempFiles = true;
+    [ObservableProperty] private bool _cleanDownloadedInstallers = true;
+    [ObservableProperty] private bool _clearEntireDownloads = false;
+    [ObservableProperty] private bool _cleanCacheFolders = true;
+    [ObservableProperty] private bool _cleanBrowserCache = true;
+    [ObservableProperty] private bool _cleanWindowsUpdateCache = true;
+    [ObservableProperty] private bool _cleanDeliveryOptimization = true;
+    [ObservableProperty] private bool _cleanWindowsErrorReports = true;
+    [ObservableProperty] private bool _cleanProgramLeftovers = true;
+    [ObservableProperty] private bool _cleanLargeOldFiles = false;
+    [ObservableProperty] private bool _cleanThumbnailCache = true;
+    [ObservableProperty] private bool _cleanIconCache = true;
+    [ObservableProperty] private bool _cleanFontCache = false;
+    [ObservableProperty] private bool _cleanDnsCache = true;
+    [ObservableProperty] private bool _cleanPrefetchFiles = false;
+    [ObservableProperty] private bool _cleanStoreLogs = true;
 
     // ── Dedup defaults ───────────────────────────────────────────────────────
     [ObservableProperty] private int _duplicateMinimumSizeMb = 1;
@@ -81,15 +82,15 @@ public sealed partial class SettingsViewModel : ObservableObject
     [ObservableProperty] private string _ffmpegPath = string.Empty;
 
     // ── Update preferences ───────────────────────────────────────────────────
-    [ObservableProperty] private bool   _checkOnStartup    = true;
-    [ObservableProperty] private bool   _includePrerelease = false;
-    [ObservableProperty] private bool   _requireSignedUpdates;
-    [ObservableProperty] private bool   _minimizeToTray;
-    [ObservableProperty] private bool   _startTrayOnLogin;
-    [ObservableProperty] private bool   _enableLowDiskNotifications = true;
-    [ObservableProperty] private int    _lowDiskWarningPercent = 15;
-    [ObservableProperty] private int    _lowDiskCriticalPercent = 5;
-    [ObservableProperty] private bool   _scheduledTasksEnabled;
+    [ObservableProperty] private bool _checkOnStartup = true;
+    [ObservableProperty] private bool _includePrerelease = false;
+    [ObservableProperty] private bool _requireSignedUpdates;
+    [ObservableProperty] private bool _minimizeToTray;
+    [ObservableProperty] private bool _startTrayOnLogin;
+    [ObservableProperty] private bool _enableLowDiskNotifications = true;
+    [ObservableProperty] private int _lowDiskWarningPercent = 15;
+    [ObservableProperty] private int _lowDiskCriticalPercent = 5;
+    [ObservableProperty] private bool _scheduledTasksEnabled;
 
     // ── Scheduler editor ────────────────────────────────────────────────────
     [ObservableProperty] private ScheduledJobEditorItem? _selectedScheduledJob;
@@ -104,11 +105,11 @@ public sealed partial class SettingsViewModel : ObservableObject
     [ObservableProperty] private bool _isSavingScheduledJob;
 
     // ── Update state ─────────────────────────────────────────────────────────
-    [ObservableProperty] private bool         _isCheckingForUpdates;
-    [ObservableProperty] private bool         _isDownloadingUpdate;
-    [ObservableProperty] private double       _downloadProgress;
-    [ObservableProperty] private string       _updateStatusMessage = string.Empty;
-    [ObservableProperty] private UpdateInfo?  _availableUpdate;
+    [ObservableProperty] private bool _isCheckingForUpdates;
+    [ObservableProperty] private bool _isDownloadingUpdate;
+    [ObservableProperty] private double _downloadProgress;
+    [ObservableProperty] private string _updateStatusMessage = string.Empty;
+    [ObservableProperty] private UpdateInfo? _availableUpdate;
 
     partial void OnIsCheckingForUpdatesChanged(bool value)
     {
@@ -124,7 +125,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         NotifyUpdateCommandStates();
     }
 
-    partial void OnUpdateStatusMessageChanged(string value)  => OnPropertyChanged(nameof(HasUpdateStatusMessage));
+    partial void OnUpdateStatusMessageChanged(string value) => OnPropertyChanged(nameof(HasUpdateStatusMessage));
     partial void OnAvailableUpdateChanged(UpdateInfo? value)
     {
         OnPropertyChanged(nameof(HasUpdateAvailable));
@@ -134,9 +135,9 @@ public sealed partial class SettingsViewModel : ObservableObject
         NotifyUpdateCommandStates();
     }
 
-    public bool   CanCheckForUpdates    => !IsCheckingForUpdates && !IsDownloadingUpdate;
-    public bool   HasUpdateAvailable    => AvailableUpdate is not null;
-    public bool   CanDownloadAndInstall => HasUpdateAvailable && !IsDownloadingUpdate && !IsCheckingForUpdates;
+    public bool CanCheckForUpdates => !IsCheckingForUpdates && !IsDownloadingUpdate;
+    public bool HasUpdateAvailable => AvailableUpdate is not null;
+    public bool CanDownloadAndInstall => HasUpdateAvailable && !IsDownloadingUpdate && !IsCheckingForUpdates;
 
     public string CurrentVersion => Assembly.GetEntryAssembly()
         ?.GetName().Version?.ToString(3) ?? "Unknown";
@@ -151,7 +152,7 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     // ── UI feedback ─────────────────────────────────────────────────────────
     [ObservableProperty] private string _savedMessage = string.Empty;
-    [ObservableProperty] private bool   _isPurgingHistory;
+    [ObservableProperty] private bool _isPurgingHistory;
     [ObservableProperty] private string _defaultScanPathError = string.Empty;
     [ObservableProperty] private string _ffmpegPathError = string.Empty;
     [ObservableProperty] private bool _isExportingDiagnostics;
@@ -188,7 +189,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         IScheduledTaskService scheduledTaskService,
         StartupRegistrationService startupRegistration)
     {
-        _repo          = repo;
+        _repo = repo;
         _updateService = updateService;
         _scanRepository = scanRepository;
         _diagnostics = diagnostics;
@@ -197,7 +198,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     }
 
     partial void OnLargeFileSizeMbChanged(int value) => OnPropertyChanged(nameof(LargeFileThresholdLabel));
-    partial void OnOldFileAgeDaysChanged(int value)  => OnPropertyChanged(nameof(OldFileAgeThresholdLabel));
+    partial void OnOldFileAgeDaysChanged(int value) => OnPropertyChanged(nameof(OldFileAgeThresholdLabel));
     partial void OnScanParallelismChanged(int value) => OnPropertyChanged(nameof(ScanParallelismLabel));
     partial void OnScanHistoryRetentionDaysChanged(int value) => OnPropertyChanged(nameof(ScanHistoryRetentionLabel));
     partial void OnSavedMessageChanged(string value) => OnPropertyChanged(nameof(HasSavedMessage));
@@ -237,52 +238,52 @@ public sealed partial class SettingsViewModel : ObservableObject
     {
         var s = await _repo.LoadAsync();
         _loadedSettings = CloneSettings(s);
-        PreferRecycleBin           = s.PreferRecycleBin;
-        DryRunByDefault            = s.DryRunByDefault;
-        LargeFileSizeMb            = s.LargeFileSizeMb;
-        OldFileAgeDays             = s.OldFileAgeDays;
-        DefaultScanPath            = s.DefaultScanPath;
-        ScanParallelism            = s.ScanParallelism;
-        ShowHiddenFiles            = s.ShowHiddenFiles;
-        SkipSystemFolders          = s.SkipSystemFolders;
-        UseTurboScanner            = s.UseTurboScanner;
-        Theme                      = s.Theme;
-        ScanHistoryRetentionDays   = s.ScanHistoryRetentionDays;
-        CleanRecycleBin            = s.CleanRecycleBin;
-        CleanTempFiles             = s.CleanTempFiles;
-        CleanDownloadedInstallers  = s.CleanDownloadedInstallers;
-        ClearEntireDownloads       = s.ClearEntireDownloads;
-        CleanCacheFolders          = s.CleanCacheFolders;
-        CleanBrowserCache          = s.CleanBrowserCache;
-        CleanWindowsUpdateCache    = s.CleanWindowsUpdateCache;
-        CleanDeliveryOptimization  = s.CleanDeliveryOptimization;
-        CleanWindowsErrorReports   = s.CleanWindowsErrorReports;
-        CleanProgramLeftovers      = s.CleanProgramLeftovers;
-        CleanLargeOldFiles         = s.CleanLargeOldFiles;
-        CleanThumbnailCache        = s.CleanThumbnailCache;
-        CleanIconCache             = s.CleanIconCache;
-        CleanFontCache             = s.CleanFontCache;
-        CleanDnsCache              = s.CleanDnsCache;
-        CleanPrefetchFiles         = s.CleanPrefetchFiles;
-        CleanStoreLogs             = s.CleanStoreLogs;
-        DuplicateMinimumSizeMb     = s.DuplicateMinimumSizeMb;
-        DuplicateKeeperPolicy      = s.DuplicateKeeperPolicy;
+        PreferRecycleBin = s.PreferRecycleBin;
+        DryRunByDefault = s.DryRunByDefault;
+        LargeFileSizeMb = s.LargeFileSizeMb;
+        OldFileAgeDays = s.OldFileAgeDays;
+        DefaultScanPath = s.DefaultScanPath;
+        ScanParallelism = s.ScanParallelism;
+        ShowHiddenFiles = s.ShowHiddenFiles;
+        SkipSystemFolders = s.SkipSystemFolders;
+        UseTurboScanner = s.UseTurboScanner;
+        Theme = s.Theme;
+        ScanHistoryRetentionDays = s.ScanHistoryRetentionDays;
+        CleanRecycleBin = s.CleanRecycleBin;
+        CleanTempFiles = s.CleanTempFiles;
+        CleanDownloadedInstallers = s.CleanDownloadedInstallers;
+        ClearEntireDownloads = s.ClearEntireDownloads;
+        CleanCacheFolders = s.CleanCacheFolders;
+        CleanBrowserCache = s.CleanBrowserCache;
+        CleanWindowsUpdateCache = s.CleanWindowsUpdateCache;
+        CleanDeliveryOptimization = s.CleanDeliveryOptimization;
+        CleanWindowsErrorReports = s.CleanWindowsErrorReports;
+        CleanProgramLeftovers = s.CleanProgramLeftovers;
+        CleanLargeOldFiles = s.CleanLargeOldFiles;
+        CleanThumbnailCache = s.CleanThumbnailCache;
+        CleanIconCache = s.CleanIconCache;
+        CleanFontCache = s.CleanFontCache;
+        CleanDnsCache = s.CleanDnsCache;
+        CleanPrefetchFiles = s.CleanPrefetchFiles;
+        CleanStoreLogs = s.CleanStoreLogs;
+        DuplicateMinimumSizeMb = s.DuplicateMinimumSizeMb;
+        DuplicateKeeperPolicy = s.DuplicateKeeperPolicy;
         DuplicateUseNormalizedText = s.DuplicateUseNormalizedText;
-        DuplicateUseImagePHash     = s.DuplicateUseImagePHash;
-        DuplicateUseVideoPHash     = s.DuplicateUseVideoPHash;
+        DuplicateUseImagePHash = s.DuplicateUseImagePHash;
+        DuplicateUseVideoPHash = s.DuplicateUseVideoPHash;
         DuplicateImagePHashThreshold = s.DuplicateImagePHashThreshold;
         DuplicateVideoFrameThreshold = s.DuplicateVideoFrameThreshold;
         DuplicateMaxVideoDurationSeconds = s.DuplicateMaxVideoDurationSeconds;
-        FfmpegPath                 = FfmpegPathNormalizer.Normalize(s.FfmpegPath);
-        CheckOnStartup             = s.CheckOnStartup;
-        IncludePrerelease          = s.IncludePrerelease;
-        RequireSignedUpdates       = s.RequireSignedUpdates;
-        MinimizeToTray             = s.MinimizeToTray;
-        StartTrayOnLogin           = s.StartTrayOnLogin || _startupRegistration.IsEnabled();
+        FfmpegPath = FfmpegPathNormalizer.Normalize(s.FfmpegPath);
+        CheckOnStartup = s.CheckOnStartup;
+        IncludePrerelease = s.IncludePrerelease;
+        RequireSignedUpdates = s.RequireSignedUpdates;
+        MinimizeToTray = s.MinimizeToTray;
+        StartTrayOnLogin = s.StartTrayOnLogin || _startupRegistration.IsEnabled();
         EnableLowDiskNotifications = s.EnableLowDiskNotifications;
-        LowDiskWarningPercent      = s.LowDiskWarningPercent;
-        LowDiskCriticalPercent     = s.LowDiskCriticalPercent;
-        ScheduledTasksEnabled      = s.ScheduledTasksEnabled;
+        LowDiskWarningPercent = s.LowDiskWarningPercent;
+        LowDiskCriticalPercent = s.LowDiskCriticalPercent;
+        ScheduledTasksEnabled = s.ScheduledTasksEnabled;
 
         ExcludedPaths.Clear();
         foreach (var p in s.ExcludedPaths)
@@ -321,9 +322,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         OnPropertyChanged(nameof(CanSave));
         if (!CanSave)
         {
-            SavedMessage = "Fix validation errors before saving.";
-            await Task.Delay(3000);
-            SavedMessage = string.Empty;
+            await ShowSavedMessageAsync("Fix validation errors before saving.");
             return;
         }
 
@@ -331,9 +330,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         await _repo.SaveAsync(settings);
         _startupRegistration.SetEnabled(StartTrayOnLogin);
         _loadedSettings = CloneSettings(settings);
-        SavedMessage = "Settings saved.";
-        await Task.Delay(3000);
-        SavedMessage = string.Empty;
+        await ShowSavedMessageAsync("Settings saved.");
     }
 
     [RelayCommand]
@@ -341,9 +338,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     {
         await _repo.SaveAsync(new AppSettings());
         await LoadAsync();
-        SavedMessage = "Settings reset to defaults.";
-        await Task.Delay(3000);
-        SavedMessage = string.Empty;
+        await ShowSavedMessageAsync("Settings reset to defaults.");
     }
 
     // ── Update commands ───────────────────────────────────────────────────────
@@ -352,8 +347,8 @@ public sealed partial class SettingsViewModel : ObservableObject
     private async Task CheckForUpdatesAsync()
     {
         IsCheckingForUpdates = true;
-        UpdateStatusMessage  = "Checking for updates…";
-        AvailableUpdate      = null;
+        UpdateStatusMessage = "Checking for updates…";
+        AvailableUpdate = null;
 
         try
         {
@@ -380,16 +375,16 @@ public sealed partial class SettingsViewModel : ObservableObject
     {
         if (AvailableUpdate is null) return;
 
-        _downloadCts     = new CancellationTokenSource();
+        _downloadCts = new CancellationTokenSource();
         IsDownloadingUpdate = true;
-        DownloadProgress    = 0;
+        DownloadProgress = 0;
         UpdateStatusMessage = "Downloading update…";
 
         try
         {
             var progress = new Progress<double>(p =>
             {
-                DownloadProgress    = p;
+                DownloadProgress = p;
                 UpdateStatusMessage = $"Downloading… {p:F0}%";
             });
 
@@ -409,7 +404,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         catch (OperationCanceledException)
         {
             UpdateStatusMessage = "Download cancelled.";
-            DownloadProgress    = 0;
+            DownloadProgress = 0;
         }
         catch (UpdateException ex)
         {
@@ -471,11 +466,9 @@ public sealed partial class SettingsViewModel : ObservableObject
                 .ToArray();
 
             await Task.WhenAll(deletions);
-            SavedMessage = deletions.Length > 0
+            await ShowSavedMessageAsync(deletions.Length > 0
                 ? $"Deleted {deletions.Length} old scan session(s)."
-                : "No scan history matched the current retention window.";
-            await Task.Delay(3000);
-            SavedMessage = string.Empty;
+                : "No scan history matched the current retention window.");
         }
         finally
         {
@@ -490,9 +483,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         try
         {
             var bundlePath = await _diagnostics.ExportBundleAsync();
-            SavedMessage = $"Diagnostics bundle exported: {bundlePath}";
-            await Task.Delay(4000);
-            SavedMessage = string.Empty;
+            await ShowSavedMessageAsync($"Diagnostics bundle exported: {bundlePath}", 4000);
         }
         finally
         {
@@ -503,53 +494,53 @@ public sealed partial class SettingsViewModel : ObservableObject
     private AppSettings BuildSettings()
     {
         var settings = CloneSettings(_loadedSettings);
-        settings.PreferRecycleBin           = PreferRecycleBin;
-        settings.DryRunByDefault            = DryRunByDefault;
-        settings.LargeFileSizeMb            = LargeFileSizeMb;
-        settings.OldFileAgeDays             = OldFileAgeDays;
-        settings.DefaultScanPath            = DefaultScanPath;
-        settings.ScanParallelism            = ScanParallelism;
-        settings.ShowHiddenFiles            = ShowHiddenFiles;
-        settings.SkipSystemFolders          = SkipSystemFolders;
-        settings.UseTurboScanner            = UseTurboScanner;
-        settings.Theme                      = Theme;
-        settings.ScanHistoryRetentionDays   = ScanHistoryRetentionDays;
-        settings.CleanRecycleBin            = CleanRecycleBin;
-        settings.CleanTempFiles             = CleanTempFiles;
-        settings.CleanDownloadedInstallers  = CleanDownloadedInstallers;
-        settings.ClearEntireDownloads       = ClearEntireDownloads;
-        settings.CleanCacheFolders          = CleanCacheFolders;
-        settings.CleanBrowserCache          = CleanBrowserCache;
-        settings.CleanWindowsUpdateCache    = CleanWindowsUpdateCache;
-        settings.CleanDeliveryOptimization  = CleanDeliveryOptimization;
-        settings.CleanWindowsErrorReports   = CleanWindowsErrorReports;
-        settings.CleanProgramLeftovers      = CleanProgramLeftovers;
-        settings.CleanLargeOldFiles         = CleanLargeOldFiles;
-        settings.CleanThumbnailCache        = CleanThumbnailCache;
-        settings.CleanIconCache             = CleanIconCache;
-        settings.CleanFontCache             = CleanFontCache;
-        settings.CleanDnsCache              = CleanDnsCache;
-        settings.CleanPrefetchFiles         = CleanPrefetchFiles;
-        settings.CleanStoreLogs             = CleanStoreLogs;
-        settings.DuplicateMinimumSizeMb     = DuplicateMinimumSizeMb;
-        settings.DuplicateKeeperPolicy      = DuplicateKeeperPolicy;
+        settings.PreferRecycleBin = PreferRecycleBin;
+        settings.DryRunByDefault = DryRunByDefault;
+        settings.LargeFileSizeMb = LargeFileSizeMb;
+        settings.OldFileAgeDays = OldFileAgeDays;
+        settings.DefaultScanPath = DefaultScanPath;
+        settings.ScanParallelism = ScanParallelism;
+        settings.ShowHiddenFiles = ShowHiddenFiles;
+        settings.SkipSystemFolders = SkipSystemFolders;
+        settings.UseTurboScanner = UseTurboScanner;
+        settings.Theme = Theme;
+        settings.ScanHistoryRetentionDays = ScanHistoryRetentionDays;
+        settings.CleanRecycleBin = CleanRecycleBin;
+        settings.CleanTempFiles = CleanTempFiles;
+        settings.CleanDownloadedInstallers = CleanDownloadedInstallers;
+        settings.ClearEntireDownloads = ClearEntireDownloads;
+        settings.CleanCacheFolders = CleanCacheFolders;
+        settings.CleanBrowserCache = CleanBrowserCache;
+        settings.CleanWindowsUpdateCache = CleanWindowsUpdateCache;
+        settings.CleanDeliveryOptimization = CleanDeliveryOptimization;
+        settings.CleanWindowsErrorReports = CleanWindowsErrorReports;
+        settings.CleanProgramLeftovers = CleanProgramLeftovers;
+        settings.CleanLargeOldFiles = CleanLargeOldFiles;
+        settings.CleanThumbnailCache = CleanThumbnailCache;
+        settings.CleanIconCache = CleanIconCache;
+        settings.CleanFontCache = CleanFontCache;
+        settings.CleanDnsCache = CleanDnsCache;
+        settings.CleanPrefetchFiles = CleanPrefetchFiles;
+        settings.CleanStoreLogs = CleanStoreLogs;
+        settings.DuplicateMinimumSizeMb = DuplicateMinimumSizeMb;
+        settings.DuplicateKeeperPolicy = DuplicateKeeperPolicy;
         settings.DuplicateUseNormalizedText = DuplicateUseNormalizedText;
-        settings.DuplicateUseImagePHash     = DuplicateUseImagePHash;
-        settings.DuplicateUseVideoPHash     = DuplicateUseVideoPHash;
+        settings.DuplicateUseImagePHash = DuplicateUseImagePHash;
+        settings.DuplicateUseVideoPHash = DuplicateUseVideoPHash;
         settings.DuplicateImagePHashThreshold = DuplicateImagePHashThreshold;
         settings.DuplicateVideoFrameThreshold = DuplicateVideoFrameThreshold;
         settings.DuplicateMaxVideoDurationSeconds = DuplicateMaxVideoDurationSeconds;
-        settings.FfmpegPath                 = FfmpegPathNormalizer.Normalize(FfmpegPath);
-        settings.CheckOnStartup             = CheckOnStartup;
-        settings.IncludePrerelease          = IncludePrerelease;
-        settings.RequireSignedUpdates       = RequireSignedUpdates;
-        settings.MinimizeToTray             = MinimizeToTray;
-        settings.StartTrayOnLogin           = StartTrayOnLogin;
+        settings.FfmpegPath = FfmpegPathNormalizer.Normalize(FfmpegPath);
+        settings.CheckOnStartup = CheckOnStartup;
+        settings.IncludePrerelease = IncludePrerelease;
+        settings.RequireSignedUpdates = RequireSignedUpdates;
+        settings.MinimizeToTray = MinimizeToTray;
+        settings.StartTrayOnLogin = StartTrayOnLogin;
         settings.EnableLowDiskNotifications = EnableLowDiskNotifications;
-        settings.LowDiskWarningPercent      = Math.Clamp(LowDiskWarningPercent, 1, 99);
-        settings.LowDiskCriticalPercent     = Math.Clamp(LowDiskCriticalPercent, 1, 99);
-        settings.ScheduledTasksEnabled      = ScheduledTasksEnabled;
-        settings.ExcludedPaths              = ExcludedPaths.ToList();
+        settings.LowDiskWarningPercent = Math.Clamp(LowDiskWarningPercent, 1, 99);
+        settings.LowDiskCriticalPercent = Math.Clamp(LowDiskCriticalPercent, 1, 99);
+        settings.ScheduledTasksEnabled = ScheduledTasksEnabled;
+        settings.ExcludedPaths = ExcludedPaths.ToList();
         return settings;
     }
 
@@ -651,9 +642,7 @@ public sealed partial class SettingsViewModel : ObservableObject
             ScheduledTasksEnabled = true;
             await RefreshScheduledJobsAsync();
             SelectedScheduledJob = ScheduledJobs.FirstOrDefault(item => item.Info.Job.Id == job.Id);
-            SavedMessage = "Scheduled job saved.";
-            await Task.Delay(2500);
-            SavedMessage = string.Empty;
+            await ShowSavedMessageAsync("Scheduled job saved.", 2500);
         }
         finally
         {
@@ -673,13 +662,30 @@ public sealed partial class SettingsViewModel : ObservableObject
             await _scheduledTaskService.DeleteAsync(SelectedScheduledJob.Info.Job.Id);
             await RefreshScheduledJobsAsync();
             NewScheduledJob();
-            SavedMessage = "Scheduled job deleted.";
-            await Task.Delay(2500);
-            SavedMessage = string.Empty;
+            await ShowSavedMessageAsync("Scheduled job deleted.", 2500);
         }
         finally
         {
             IsSavingScheduledJob = false;
+        }
+    }
+
+    private async Task ShowSavedMessageAsync(string message, int durationMs = 3000)
+    {
+        _messageCts?.Cancel();
+        _messageCts?.Dispose();
+        _messageCts = new CancellationTokenSource();
+        var token = _messageCts.Token;
+
+        SavedMessage = message;
+        try
+        {
+            await Task.Delay(durationMs, token);
+            if (!token.IsCancellationRequested)
+                SavedMessage = string.Empty;
+        }
+        catch (OperationCanceledException)
+        {
         }
     }
 }

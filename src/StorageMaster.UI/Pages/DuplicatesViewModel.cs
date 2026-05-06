@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using StorageMaster.Core.Interfaces;
@@ -149,10 +150,18 @@ public sealed partial class DuplicatesViewModel : ObservableObject
     private bool _hasMoreErrorPages;
 
     private CancellationTokenSource? _analysisCts;
+    private CancellationTokenSource? _groupReloadCts;
+    private CancellationTokenSource? _previewLoadCts;
+    private CancellationTokenSource? _filterDebounceCts;
+    private CancellationTokenSource? _exportCts;
+    private long? _quarantineRunId;
+    private IReadOnlyList<QuarantinedFile> _quarantineCache = [];
 
     [ObservableProperty] private bool _isLoading;
     [ObservableProperty] private bool _isRunning;
     [ObservableProperty] private bool _isDeleting;
+    [ObservableProperty] private bool _isExporting;
+    [ObservableProperty] private bool _isPreviewLoading;
     [ObservableProperty] private string _statusText = "Choose scan session, run duplicate analysis, review groups, delete copies.";
     [ObservableProperty] private string _progressPhase = string.Empty;
     [ObservableProperty] private int _progressProcessed;
@@ -182,6 +191,8 @@ public sealed partial class DuplicatesViewModel : ObservableObject
     [ObservableProperty] private bool _filterErroredOnly;
     [ObservableProperty] private double _minimumConfidenceFilter;
     [ObservableProperty] private string _previewSummary = string.Empty;
+    [ObservableProperty] private string _exportStatusText = string.Empty;
+    [ObservableProperty] private string _lastExportDirectory = string.Empty;
 
     public ObservableCollection<ScanSession> Sessions { get; } = [];
     public ObservableCollection<DuplicateGroupItem> Groups { get; } = [];
@@ -223,10 +234,12 @@ public sealed partial class DuplicatesViewModel : ObservableObject
     public bool IsCustomCategorySelected => SelectedCategory?.UsesCustomExtensions == true;
     public bool CanRun => SelectedSession is not null && !IsRunning && !IsDeleting;
     public bool CanCancel => IsRunning;
-    public bool CanDeleteSelected => _allGroups.Any(static group => group.SelectedCount > 0) && !IsDeleting && !IsRunning;
+    public bool CanDeleteSelected => _allGroups.Any(static group => group.SelectedCount > 0) && !IsDeleting && !IsRunning && !IsExporting;
     public bool CanLoadPreviousGroups => _currentGroupPage > 1 && !IsLoading && !IsRunning;
     public bool CanLoadNextGroups => _hasMoreGroupPages && !IsLoading && !IsRunning;
     public bool CanLoadMoreErrors => _hasMoreErrorPages && !IsLoading;
+    public bool CanCancelExport => IsExporting;
+    public bool CanOpenExportFolder => !string.IsNullOrWhiteSpace(LastExportDirectory) && Directory.Exists(LastExportDirectory);
     public bool IsImagePHashAvailable => IsMethodAvailable(DuplicateMethod.ImagePHash);
     public bool IsVideoPHashAvailable => IsMethodAvailable(DuplicateMethod.VideoPHash);
     public string ProgressText => ProgressTotal <= 0 ? string.Empty : $"{ProgressProcessed:N0} / {ProgressTotal:N0}";
@@ -242,7 +255,7 @@ public sealed partial class DuplicatesViewModel : ObservableObject
     public int ReviewGroupCount => (int)_runSummary.ReviewGroupCount;
     public string ReclaimableText => ByteSizeConverter.Format(_runSummary.ReclaimableBytes);
     public int SelectedDuplicateCount => _allGroups.Sum(static group => group.SelectedCount);
-    public string SelectedDuplicateSummary => $"{SelectedDuplicateCount:N0} file(s) selected";
+    public string SelectedDuplicateSummary => $"{SelectedDuplicateCount:N0} file(s) selected on current page";
     public string ErrorSummary => _runSummary.ErrorCount == 0 ? "No errors or skipped files." : $"{_runSummary.ErrorCount:N0} error / skipped item(s)";
     public string LatestRunSummary => LatestRun is null
         ? "No duplicate analysis has been saved for this scan session yet."
@@ -320,6 +333,13 @@ public sealed partial class DuplicatesViewModel : ObservableObject
         OnPropertyChanged(nameof(CanDeleteSelected));
     }
 
+    partial void OnIsExportingChanged(bool value)
+    {
+        OnPropertyChanged(nameof(CanDeleteSelected));
+        OnPropertyChanged(nameof(CanCancelExport));
+        OnPropertyChanged(nameof(CanOpenExportFolder));
+    }
+
     partial void OnUseRecycleBinChanged(bool value)
     {
         if (value && UseQuarantine)
@@ -345,18 +365,39 @@ public sealed partial class DuplicatesViewModel : ObservableObject
     partial void OnSelectedCategoryChanged(DuplicateCategoryOption? value) =>
         OnPropertyChanged(nameof(IsCustomCategorySelected));
 
-    partial void OnSearchTextChanged(string value) => _ = ReloadCurrentGroupPageAsync();
-    partial void OnSelectedMethodFilterChanged(DuplicateMethodFilterOption? value) => _ = ReloadCurrentGroupPageAsync();
-    partial void OnGroupSortByChanged(DuplicateGroupSortBy value) => _ = ReloadCurrentGroupPageAsync();
-    partial void OnFilterSelectedOnlyChanged(bool value) => _ = ReloadCurrentGroupPageAsync();
-    partial void OnFilterMissingOnlyChanged(bool value) => _ = ReloadCurrentGroupPageAsync();
-    partial void OnFilterErroredOnlyChanged(bool value) => _ = ReloadCurrentGroupPageAsync();
-    partial void OnMinimumConfidenceFilterChanged(double value) => _ = ReloadCurrentGroupPageAsync();
+    partial void OnSearchTextChanged(string value) => QueueGroupReload();
+    partial void OnSelectedMethodFilterChanged(DuplicateMethodFilterOption? value) => QueueGroupReload();
+    partial void OnGroupSortByChanged(DuplicateGroupSortBy value) => QueueGroupReload();
+    partial void OnFilterSelectedOnlyChanged(bool value) => QueueGroupReload();
+    partial void OnFilterMissingOnlyChanged(bool value) => QueueGroupReload();
+    partial void OnFilterErroredOnlyChanged(bool value) => QueueGroupReload();
+    partial void OnMinimumConfidenceFilterChanged(double value) => QueueGroupReload();
 
     partial void OnSelectedGroupChanged(DuplicateGroupItem? value)
     {
         OnPropertyChanged(nameof(HasSelectedGroup));
         _ = LoadSelectedGroupDetailAsync();
+    }
+
+    partial void OnLastExportDirectoryChanged(string value) => OnPropertyChanged(nameof(CanOpenExportFolder));
+
+    private void QueueGroupReload()
+    {
+        _filterDebounceCts?.Cancel();
+        _filterDebounceCts = new CancellationTokenSource();
+        _ = DebouncedGroupReloadAsync(_filterDebounceCts.Token);
+    }
+
+    private async Task DebouncedGroupReloadAsync(CancellationToken token)
+    {
+        try
+        {
+            await Task.Delay(300, token);
+            await ReloadCurrentGroupPageAsync(token);
+        }
+        catch (OperationCanceledException)
+        {
+        }
     }
 
     public async Task InitializeAsync(long? preselectedSessionId = null)
@@ -509,7 +550,7 @@ public sealed partial class DuplicatesViewModel : ObservableObject
         if (_currentGroupPage <= 1 || LatestRun is null)
             return;
 
-        await LoadGroupsPageAsync(_currentGroupPage - 1);
+        await LoadGroupsPageAsync(_currentGroupPage - 1, CancellationToken.None);
         StatusText = $"Loaded page {_currentGroupPage:N0}.";
     }
 
@@ -519,7 +560,7 @@ public sealed partial class DuplicatesViewModel : ObservableObject
         if (!_hasMoreGroupPages || LatestRun is null)
             return;
 
-        await LoadGroupsPageAsync(_currentGroupPage + 1);
+        await LoadGroupsPageAsync(_currentGroupPage + 1, CancellationToken.None);
         StatusText = $"Loaded page {_currentGroupPage:N0}.";
     }
 
@@ -537,48 +578,45 @@ public sealed partial class DuplicatesViewModel : ObservableObject
     {
         if (LatestRun is null)
             return;
-
-        var exportDir = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "StorageMaster",
-            "exports");
-        Directory.CreateDirectory(exportDir);
-        var filePath = Path.Combine(exportDir, $"dedupe-{LatestRun.Id}-report.csv");
-
-        await using var stream = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.Read);
-        await using var writer = new StreamWriter(stream);
-        await writer.WriteLineAsync("GroupId,Method,Confidence,KeeperPath,DuplicatePath,SizeBytes,Selected,ExistsNow");
-
-        var page = 1;
-        while (true)
+        await RunExportAsync("csv", async (filePath, ct) =>
         {
-            var groups = await _duplicateRepository.GetDuplicateGroupsPageAsync(
-                LatestRun.Id, page, GroupPageSize, null, DuplicateGroupSortBy.ReclaimableBytesDesc);
-            if (groups.Count == 0)
-                break;
+            await using var stream = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.Read);
+            await using var writer = new StreamWriter(stream);
+            await writer.WriteLineAsync("GroupId,Method,Confidence,KeeperPath,DuplicatePath,SizeBytes,Selected,ExistsNow");
 
-            foreach (var group in groups)
+            var page = 1;
+            while (true)
             {
-                var members = await _duplicateRepository.GetDuplicateGroupMembersAsync(group.Id);
-                var keeper = members.FirstOrDefault(static m => m.IsKeeper)?.FullPath ?? string.Empty;
-                foreach (var member in members.Where(static m => !m.IsKeeper))
-                {
-                    var row = string.Join(',',
-                        Csv(group.Id.ToString()),
-                        Csv(group.Method.ToString()),
-                        Csv(group.Confidence.ToString("F4", System.Globalization.CultureInfo.InvariantCulture)),
-                        Csv(keeper),
-                        Csv(member.FullPath),
-                        Csv(member.SizeBytes.ToString(System.Globalization.CultureInfo.InvariantCulture)),
-                        Csv(member.IsSelected ? "1" : "0"),
-                        Csv(member.ExistsNow ? "1" : "0"));
-                    await writer.WriteLineAsync(row);
-                }
-            }
-            page++;
-        }
+                ct.ThrowIfCancellationRequested();
+                var groups = await _duplicateRepository.GetDuplicateGroupsPageAsync(
+                    LatestRun.Id, page, GroupPageSize, null, DuplicateGroupSortBy.ReclaimableBytesDesc, ct);
+                if (groups.Count == 0)
+                    break;
 
-        StatusText = $"CSV export saved to {filePath}.";
+                foreach (var group in groups)
+                {
+                    ct.ThrowIfCancellationRequested();
+                    var members = await _duplicateRepository.GetDuplicateGroupMembersAsync(group.Id, ct);
+                    var keeper = members.FirstOrDefault(static m => m.IsKeeper)?.FullPath ?? string.Empty;
+                    foreach (var member in members.Where(static m => !m.IsKeeper))
+                    {
+                        var row = string.Join(',',
+                            Csv(group.Id.ToString()),
+                            Csv(group.Method.ToString()),
+                            Csv(group.Confidence.ToString("F4", System.Globalization.CultureInfo.InvariantCulture)),
+                            Csv(keeper),
+                            Csv(member.FullPath),
+                            Csv(member.SizeBytes.ToString(System.Globalization.CultureInfo.InvariantCulture)),
+                            Csv(member.IsSelected ? "1" : "0"),
+                            Csv(member.ExistsNow ? "1" : "0"));
+                        await writer.WriteLineAsync(row);
+                    }
+                }
+
+                page++;
+                ExportStatusText = $"Exporting CSV page {page - 1:N0}…";
+            }
+        });
     }
 
     [RelayCommand]
@@ -586,45 +624,40 @@ public sealed partial class DuplicatesViewModel : ObservableObject
     {
         if (LatestRun is null)
             return;
-
-        var exportDir = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "StorageMaster",
-            "exports");
-        Directory.CreateDirectory(exportDir);
-        var filePath = Path.Combine(exportDir, $"dedupe-{LatestRun.Id}-report.json");
-
-        var groups = await _duplicateRepository.GetGroupsForRunAsync(LatestRun.Id);
-        var groupPayload = new List<object>(groups.Count);
-        foreach (var group in groups)
+        await RunExportAsync("json", async (filePath, ct) =>
         {
-            var members = await _duplicateRepository.GetDuplicateGroupMembersAsync(group.Id);
-            groupPayload.Add(new
+            var groups = await _duplicateRepository.GetGroupsForRunAsync(LatestRun.Id, ct);
+            var groupPayload = new List<object>(groups.Count);
+            foreach (var group in groups)
             {
-                group.Id,
-                Method = group.Method.ToString(),
-                group.Confidence,
-                group.TotalBytes,
-                group.ReclaimableBytes,
-                Members = members,
-            });
-        }
+                ct.ThrowIfCancellationRequested();
+                var members = await _duplicateRepository.GetDuplicateGroupMembersAsync(group.Id, ct);
+                groupPayload.Add(new
+                {
+                    group.Id,
+                    Method = group.Method.ToString(),
+                    group.Confidence,
+                    group.TotalBytes,
+                    group.ReclaimableBytes,
+                    Members = members,
+                });
+            }
 
-        var payload = new
-        {
-            run = LatestRun,
-            summary = _runSummary,
-            settings = await _settingsRepository.LoadAsync(),
-            errors = await _duplicateRepository.GetErrorsForRunAsync(LatestRun.Id),
-            quarantined = await _duplicateRepository.GetQuarantinedFilesAsync(LatestRun.Id),
-            groups = groupPayload,
-        };
-        await File.WriteAllTextAsync(filePath, System.Text.Json.JsonSerializer.Serialize(payload, new System.Text.Json.JsonSerializerOptions
-        {
-            WriteIndented = true,
-        }));
+            var payload = new
+            {
+                run = LatestRun,
+                summary = _runSummary,
+                settings = await _settingsRepository.LoadAsync(ct),
+                errors = await _duplicateRepository.GetErrorsForRunAsync(LatestRun.Id, ct),
+                quarantined = await _duplicateRepository.GetQuarantinedFilesAsync(LatestRun.Id, ct),
+                groups = groupPayload,
+            };
 
-        StatusText = $"JSON export saved to {filePath}.";
+            await File.WriteAllTextAsync(filePath, System.Text.Json.JsonSerializer.Serialize(payload, new System.Text.Json.JsonSerializerOptions
+            {
+                WriteIndented = true,
+            }), ct);
+        });
     }
 
     [RelayCommand]
@@ -632,52 +665,47 @@ public sealed partial class DuplicatesViewModel : ObservableObject
     {
         if (LatestRun is null)
             return;
-
-        var exportDir = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "StorageMaster",
-            "exports");
-        Directory.CreateDirectory(exportDir);
-        var filePath = Path.Combine(exportDir, $"dedupe-{LatestRun.Id}-report.html");
-
-        var groups = await _duplicateRepository.GetGroupsForRunAsync(LatestRun.Id);
-        var lines = new List<string>
+        await RunExportAsync("html", async (filePath, ct) =>
         {
-            "<!doctype html>",
-            "<html><head><meta charset=\"utf-8\"><title>StorageMaster Duplicate Report</title>",
-            "<style>body{font-family:Segoe UI,Arial,sans-serif;padding:24px;}table{border-collapse:collapse;width:100%;}th,td{border:1px solid #ddd;padding:8px;}th{background:#f3f3f3;text-align:left;}tr:nth-child(even){background:#fafafa}</style>",
-            "</head><body>",
-            $"<h1>StorageMaster Duplicate Report (Run {LatestRun.Id})</h1>",
-            $"<p>Generated {DateTime.Now:G}. Groups: {_runSummary.GroupCount:N0}, Reclaimable: {ByteSizeConverter.Format(_runSummary.ReclaimableBytes)}</p>",
-            "<table><thead><tr><th>Group</th><th>Method</th><th>Confidence</th><th>Reclaimable</th><th>Keeper</th><th>Duplicate</th></tr></thead><tbody>",
-        };
-
-        foreach (var group in groups)
-        {
-            var members = await _duplicateRepository.GetDuplicateGroupMembersAsync(group.Id);
-            var preview = await _previewService.BuildPreviewAsync(group.Method, members);
-            var keeper = members.FirstOrDefault(static m => m.IsKeeper)?.FullPath ?? string.Empty;
-            foreach (var member in members.Where(static m => !m.IsKeeper))
+            var groups = await _duplicateRepository.GetGroupsForRunAsync(LatestRun.Id, ct);
+            var lines = new List<string>
             {
-                var previewPath = preview.Items.FirstOrDefault(item =>
-                    string.Equals(item.Path, member.FullPath, StringComparison.OrdinalIgnoreCase))?.PreviewPath;
-                var previewHtml = !string.IsNullOrWhiteSpace(previewPath) && File.Exists(previewPath)
-                    ? $"<img src=\"{new Uri(previewPath).AbsoluteUri}\" alt=\"preview\" style=\"max-width:180px;max-height:120px;display:block;margin-bottom:6px;\" />"
-                    : string.Empty;
-                lines.Add("<tr>" +
-                          $"<td>{EscapeHtml(group.Id.ToString())}</td>" +
-                          $"<td>{EscapeHtml(group.Method.ToString())}</td>" +
-                          $"<td>{EscapeHtml($"{group.Confidence:P0}")}</td>" +
-                          $"<td>{EscapeHtml(ByteSizeConverter.Format(group.ReclaimableBytes))}</td>" +
-                          $"<td>{EscapeHtml(keeper)}</td>" +
-                          $"<td>{previewHtml}{EscapeHtml(member.FullPath)}</td>" +
-                          "</tr>");
-            }
-        }
+                "<!doctype html>",
+                "<html><head><meta charset=\"utf-8\"><title>StorageMaster Duplicate Report</title>",
+                "<style>body{font-family:Segoe UI,Arial,sans-serif;padding:24px;}table{border-collapse:collapse;width:100%;}th,td{border:1px solid #ddd;padding:8px;}th{background:#f3f3f3;text-align:left;}tr:nth-child(even){background:#fafafa}</style>",
+                "</head><body>",
+                $"<h1>StorageMaster Duplicate Report (Run {LatestRun.Id})</h1>",
+                $"<p>Generated {DateTime.Now:G}. Groups: {_runSummary.GroupCount:N0}, Reclaimable: {ByteSizeConverter.Format(_runSummary.ReclaimableBytes)}</p>",
+                "<table><thead><tr><th>Group</th><th>Method</th><th>Confidence</th><th>Reclaimable</th><th>Keeper</th><th>Duplicate</th></tr></thead><tbody>",
+            };
 
-        lines.Add("</tbody></table></body></html>");
-        await File.WriteAllLinesAsync(filePath, lines);
-        StatusText = $"HTML export saved to {filePath}.";
+            foreach (var group in groups)
+            {
+                ct.ThrowIfCancellationRequested();
+                var members = await _duplicateRepository.GetDuplicateGroupMembersAsync(group.Id, ct);
+                var preview = await _previewService.BuildPreviewAsync(group.Method, members, ct);
+                var keeper = members.FirstOrDefault(static m => m.IsKeeper)?.FullPath ?? string.Empty;
+                foreach (var member in members.Where(static m => !m.IsKeeper))
+                {
+                    var previewPath = preview.Items.FirstOrDefault(item =>
+                        string.Equals(item.Path, member.FullPath, StringComparison.OrdinalIgnoreCase))?.PreviewPath;
+                    var previewHtml = !string.IsNullOrWhiteSpace(previewPath) && File.Exists(previewPath)
+                        ? $"<img src=\"{new Uri(previewPath).AbsoluteUri}\" alt=\"preview\" style=\"max-width:180px;max-height:120px;display:block;margin-bottom:6px;\" />"
+                        : string.Empty;
+                    lines.Add("<tr>" +
+                              $"<td>{EscapeHtml(group.Id.ToString())}</td>" +
+                              $"<td>{EscapeHtml(group.Method.ToString())}</td>" +
+                              $"<td>{EscapeHtml($"{group.Confidence:P0}")}</td>" +
+                              $"<td>{EscapeHtml(ByteSizeConverter.Format(group.ReclaimableBytes))}</td>" +
+                              $"<td>{EscapeHtml(keeper)}</td>" +
+                              $"<td>{previewHtml}{EscapeHtml(member.FullPath)}</td>" +
+                              "</tr>");
+                }
+            }
+
+            lines.Add("</tbody></table></body></html>");
+            await File.WriteAllLinesAsync(filePath, lines, ct);
+        });
     }
 
     [RelayCommand]
@@ -709,7 +737,7 @@ public sealed partial class DuplicatesViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private void SelectSafeExactDuplicates()
+    private void SelectSafeExactDuplicatesOnPage()
     {
         foreach (var group in _allGroups.Where(static item => item.Group.Method == DuplicateMethod.ExactSha256))
         {
@@ -717,11 +745,12 @@ public sealed partial class DuplicatesViewModel : ObservableObject
                 member.IsSelected = !member.IsKeeper && member.Member.ExistsNow;
         }
 
+        StatusText = $"Selected exact-match duplicates on page {_currentGroupPage:N0}.";
         RaiseSummaryProperties();
     }
 
     [RelayCommand]
-    private void DeselectAll()
+    private void DeselectCurrentPage()
     {
         foreach (var group in _allGroups)
         {
@@ -729,6 +758,7 @@ public sealed partial class DuplicatesViewModel : ObservableObject
                 member.IsSelected = false;
         }
 
+        StatusText = $"Cleared selections on page {_currentGroupPage:N0}.";
         RaiseSummaryProperties();
     }
 
@@ -751,8 +781,8 @@ public sealed partial class DuplicatesViewModel : ObservableObject
         };
 
         var confirmed = await _dialogs.ConfirmAsync(
-            "Delete selected duplicates",
-            $"Delete {selectedMembers:N0} duplicate file(s)?\n\nOne keeper per group stays untouched. Method: {methodLabel}.",
+            "Delete selected duplicates from current page",
+            $"Delete {selectedMembers:N0} duplicate file(s) from page {_currentGroupPage:N0}?\n\nOne keeper per group stays untouched. Method: {methodLabel}.",
             $"Delete via {methodLabel}");
         if (!confirmed)
             return;
@@ -775,7 +805,7 @@ public sealed partial class DuplicatesViewModel : ObservableObject
                     deletionMethod);
             }
 
-            StatusText = $"Deleted selected duplicates. Reclaimed {ByteSizeConverter.Format(freed)}.";
+            StatusText = $"Deleted selected duplicates from page {_currentGroupPage:N0}. Reclaimed {ByteSizeConverter.Format(freed)}.";
             await LoadLatestRunAsync();
         }
         catch (Exception ex)
@@ -792,12 +822,35 @@ public sealed partial class DuplicatesViewModel : ObservableObject
     private async Task RestoreQuarantinedAsync(QuarantinedFile file)
     {
         await _duplicateDeletionService.RestoreFromQuarantineAsync(file.Id);
+        _quarantineRunId = null;
+        _quarantineCache = [];
         await LoadLatestRunAsync();
         StatusText = $"Restored {file.OriginalPath}.";
     }
 
+    [RelayCommand]
+    private void CancelExport()
+    {
+        _exportCts?.Cancel();
+        ExportStatusText = "Cancelling export…";
+    }
+
+    [RelayCommand]
+    private void OpenExportFolder()
+    {
+        if (!CanOpenExportFolder)
+            return;
+
+        Process.Start(new ProcessStartInfo("explorer.exe", $"\"{LastExportDirectory}\"")
+        {
+            UseShellExecute = true,
+        });
+    }
+
     private async Task LoadLatestRunAsync()
     {
+        _groupReloadCts?.Cancel();
+        _previewLoadCts?.Cancel();
         Groups.Clear();
         Errors.Clear();
         PreviewItems.Clear();
@@ -829,7 +882,9 @@ public sealed partial class DuplicatesViewModel : ObservableObject
         }
 
         _runSummary = await _duplicateRepository.GetDuplicateRunSummaryAsync(LatestRun.Id);
-        await LoadGroupsPageAsync(1);
+        _quarantineRunId = null;
+        _quarantineCache = [];
+        await LoadGroupsPageAsync(1, CancellationToken.None);
         await LoadErrorsPageAsync(1, append: false);
 
         StatusText = _runSummary.GroupCount > 0
@@ -837,18 +892,22 @@ public sealed partial class DuplicatesViewModel : ObservableObject
             : "Latest duplicate analysis completed without duplicate groups.";
     }
 
-    private async Task ReloadCurrentGroupPageAsync()
+    private async Task ReloadCurrentGroupPageAsync(CancellationToken ct)
     {
         if (LatestRun is null || IsRunning)
             return;
 
-        await LoadGroupsPageAsync(_currentGroupPage);
+        await LoadGroupsPageAsync(_currentGroupPage, ct);
     }
 
-    private async Task LoadGroupsPageAsync(int page)
+    private async Task LoadGroupsPageAsync(int page, CancellationToken ct)
     {
         if (LatestRun is null)
             return;
+
+        _groupReloadCts?.Cancel();
+        _groupReloadCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        var linkedToken = _groupReloadCts.Token;
 
         var filter = new DuplicateGroupQueryFilter
         {
@@ -865,11 +924,12 @@ public sealed partial class DuplicatesViewModel : ObservableObject
             page,
             GroupPageSize + 1,
             filter,
-            GroupSortBy)).ToList();
+            GroupSortBy,
+            linkedToken)).ToList();
 
         if (groups.Count == 0 && page > 1)
         {
-            await LoadGroupsPageAsync(1);
+            await LoadGroupsPageAsync(1, linkedToken);
             return;
         }
 
@@ -885,7 +945,8 @@ public sealed partial class DuplicatesViewModel : ObservableObject
 
         foreach (var group in groups)
         {
-            var members = await _duplicateRepository.GetDuplicateGroupMembersAsync(group.Id);
+            linkedToken.ThrowIfCancellationRequested();
+            var members = await _duplicateRepository.GetDuplicateGroupMembersAsync(group.Id, linkedToken);
             var item = new DuplicateGroupItem(group, members);
             foreach (var member in item.Members)
                 member.PropertyChanged += (_, _) => OnPropertyChanged(nameof(CanDeleteSelected));
@@ -919,6 +980,10 @@ public sealed partial class DuplicatesViewModel : ObservableObject
 
     private async Task LoadSelectedGroupDetailAsync()
     {
+        _previewLoadCts?.Cancel();
+        _previewLoadCts = new CancellationTokenSource();
+        var ct = _previewLoadCts.Token;
+
         PreviewItems.Clear();
         QuarantineItems.Clear();
         PreviewSummary = string.Empty;
@@ -929,17 +994,75 @@ public sealed partial class DuplicatesViewModel : ObservableObject
             return;
         }
 
-        var preview = await _previewService.BuildPreviewAsync(
-            SelectedGroup.Group.Method,
-            SelectedGroup.Members.Select(static member => member.Member).ToList());
-        PreviewSummary = preview.Summary;
-        foreach (var item in preview.Items)
-            PreviewItems.Add(item);
+        IsPreviewLoading = true;
+        try
+        {
+            var preview = await _previewService.BuildPreviewAsync(
+                SelectedGroup.Group.Method,
+                SelectedGroup.Members.Select(static member => member.Member).ToList(),
+                ct);
+            PreviewSummary = preview.Summary;
+            foreach (var item in preview.Items)
+                PreviewItems.Add(item);
 
-        foreach (var item in await _duplicateRepository.GetQuarantinedFilesAsync(LatestRun.Id))
-            QuarantineItems.Add(item);
+            if (_quarantineRunId != LatestRun.Id)
+            {
+                _quarantineCache = await _duplicateRepository.GetQuarantinedFilesAsync(LatestRun.Id, ct);
+                _quarantineRunId = LatestRun.Id;
+            }
 
-        RaiseSummaryProperties();
+            foreach (var item in _quarantineCache)
+                QuarantineItems.Add(item);
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        finally
+        {
+            IsPreviewLoading = false;
+            RaiseSummaryProperties();
+        }
+    }
+
+    private async Task RunExportAsync(string extension, Func<string, CancellationToken, Task> exportAction)
+    {
+        if (LatestRun is null || IsExporting)
+            return;
+
+        var exportDir = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "StorageMaster",
+            "exports");
+        Directory.CreateDirectory(exportDir);
+        var filePath = Path.Combine(exportDir, $"dedupe-{LatestRun.Id}-report.{extension}");
+
+        _exportCts?.Cancel();
+        _exportCts = new CancellationTokenSource();
+        var ct = _exportCts.Token;
+
+        IsExporting = true;
+        ExportStatusText = $"Exporting {extension.ToUpperInvariant()} report…";
+        try
+        {
+            await exportAction(filePath, ct);
+            LastExportDirectory = exportDir;
+            ExportStatusText = $"{extension.ToUpperInvariant()} export saved to {filePath}.";
+            StatusText = ExportStatusText;
+        }
+        catch (OperationCanceledException)
+        {
+            ExportStatusText = "Export cancelled.";
+            StatusText = ExportStatusText;
+        }
+        catch (Exception ex)
+        {
+            ExportStatusText = $"Export failed: {ex.Message}";
+            StatusText = ExportStatusText;
+        }
+        finally
+        {
+            IsExporting = false;
+        }
     }
 
     private bool IsMethodAvailable(DuplicateMethod method) =>

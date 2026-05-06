@@ -4,10 +4,10 @@ public sealed record DriveDetail(
     string Name,
     string VolumeLabel,
     string DriveFormat,
-    long   TotalBytes,
-    long   FreeBytes,
-    long   UsedBytes,
-    bool   IsReady);
+    long TotalBytes,
+    long FreeBytes,
+    long UsedBytes,
+    bool IsReady);
 
 public interface IDriveInfoProvider
 {

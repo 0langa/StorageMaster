@@ -20,7 +20,7 @@ public interface ICleanupRule
     /// Implementations should be fast — defer expensive I/O to suggestion execution.
     /// </summary>
     IAsyncEnumerable<CleanupSuggestion> AnalyzeAsync(
-        long              sessionId,
-        AppSettings       settings,
+        long sessionId,
+        AppSettings settings,
         CancellationToken cancellationToken = default);
 }

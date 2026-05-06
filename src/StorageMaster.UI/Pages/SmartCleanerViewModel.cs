@@ -18,10 +18,10 @@ public sealed partial class SmartCleanGroupItem : ObservableObject
 
     [ObservableProperty] private bool _isSelected = true;
 
-    public string Category      => Group.Category;
-    public string Description   => Group.Description;
-    public string IconGlyph     => Group.IconGlyph;
-    public string SizeDisplay   => ByteSizeConverter.Format(Group.EstimatedBytes);
+    public string Category => Group.Category;
+    public string Description => Group.Description;
+    public string IconGlyph => Group.IconGlyph;
+    public string SizeDisplay => ByteSizeConverter.Format(Group.EstimatedBytes);
 
     public SmartCleanGroupItem(SmartCleanGroup group) => Group = group;
 }
@@ -29,27 +29,27 @@ public sealed partial class SmartCleanGroupItem : ObservableObject
 public sealed partial class SmartCleanerViewModel : ObservableObject
 {
     private readonly ISmartCleanerService _service;
-    private readonly ISettingsRepository  _settings;
-    private readonly IDialogService       _dialogs;
-    private readonly DispatcherQueue      _dispatcherQueue;
+    private readonly ISettingsRepository _settings;
+    private readonly IDialogService _dialogs;
+    private readonly DispatcherQueue _dispatcherQueue;
 
     // ── State ───────────────────────────────────────────────────────────────
-    [ObservableProperty] private bool   _isScanning;
-    [ObservableProperty] private bool   _isCleaning;
-    [ObservableProperty] private bool   _hasResults;
-    [ObservableProperty] private bool   _cleaningDone;
-    [ObservableProperty] private string _statusText     = "Click \"Scan & Analyse\" to find junk files automatically.";
-    [ObservableProperty] private string _progressText   = string.Empty;
-    [ObservableProperty] private string _totalSizeText  = string.Empty;
-    [ObservableProperty] private string _freedText      = string.Empty;
-    [ObservableProperty] private bool   _useRecycleBin  = true;
-    [ObservableProperty] private int    _selectedGroupCount;
+    [ObservableProperty] private bool _isScanning;
+    [ObservableProperty] private bool _isCleaning;
+    [ObservableProperty] private bool _hasResults;
+    [ObservableProperty] private bool _cleaningDone;
+    [ObservableProperty] private string _statusText = "Click \"Scan & Analyse\" to find junk files automatically.";
+    [ObservableProperty] private string _progressText = string.Empty;
+    [ObservableProperty] private string _totalSizeText = string.Empty;
+    [ObservableProperty] private string _freedText = string.Empty;
+    [ObservableProperty] private bool _useRecycleBin = true;
+    [ObservableProperty] private int _selectedGroupCount;
 
     public bool CanClean => HasResults && !IsScanning && !IsCleaning && SelectedGroupCount > 0;
 
-    partial void OnHasResultsChanged(bool value)  => OnPropertyChanged(nameof(CanClean));
-    partial void OnIsScanningChanged(bool value)  => OnPropertyChanged(nameof(CanClean));
-    partial void OnIsCleaningChanged(bool value)  => OnPropertyChanged(nameof(CanClean));
+    partial void OnHasResultsChanged(bool value) => OnPropertyChanged(nameof(CanClean));
+    partial void OnIsScanningChanged(bool value) => OnPropertyChanged(nameof(CanClean));
+    partial void OnIsCleaningChanged(bool value) => OnPropertyChanged(nameof(CanClean));
     partial void OnSelectedGroupCountChanged(int value) => OnPropertyChanged(nameof(CanClean));
 
     public ObservableCollection<SmartCleanGroupItem> Groups { get; } = [];
@@ -61,9 +61,9 @@ public sealed partial class SmartCleanerViewModel : ObservableObject
         ISettingsRepository settings,
         IDialogService dialogs)
     {
-        _service         = service;
-        _settings        = settings;
-        _dialogs         = dialogs;
+        _service = service;
+        _settings = settings;
+        _dialogs = dialogs;
         _dispatcherQueue = DispatcherQueue.GetForCurrentThread();
     }
 
@@ -78,12 +78,12 @@ public sealed partial class SmartCleanerViewModel : ObservableObject
     [RelayCommand]
     private async Task AnalyseAsync()
     {
-        IsScanning  = true;
-        HasResults  = false;
+        IsScanning = true;
+        HasResults = false;
         CleaningDone = false;
-        FreedText   = string.Empty;
+        FreedText = string.Empty;
         Groups.Clear();
-        StatusText  = "Scanning your PC for junk files…";
+        StatusText = "Scanning your PC for junk files…";
 
         var dq = _dispatcherQueue;
         var progress = new Progress<string>(msg =>
@@ -142,10 +142,10 @@ public sealed partial class SmartCleanerViewModel : ObservableObject
         if (!confirmed)
             return;
 
-        IsCleaning  = true;
+        IsCleaning = true;
         CleaningDone = false;
-        FreedText   = string.Empty;
-        StatusText  = "Cleaning…";
+        FreedText = string.Empty;
+        StatusText = "Cleaning…";
 
         var dq = _dispatcherQueue;
         var progress = new Progress<string>(msg =>
@@ -159,10 +159,10 @@ public sealed partial class SmartCleanerViewModel : ObservableObject
             var method = UseRecycleBin ? DeletionMethod.RecycleBin : DeletionMethod.Permanent;
             long freed = await _service.CleanAsync(selected, method, progress);
 
-            FreedText    = ByteSizeConverter.Format(freed);
-            StatusText   = $"Done! Freed {FreedText} of disk space.";
+            FreedText = ByteSizeConverter.Format(freed);
+            StatusText = $"Done! Freed {FreedText} of disk space.";
             CleaningDone = true;
-            HasResults   = false;
+            HasResults = false;
             SelectedGroupCount = 0;
             UnsubscribeGroups();
             Groups.Clear();
@@ -173,7 +173,7 @@ public sealed partial class SmartCleanerViewModel : ObservableObject
         }
         finally
         {
-            IsCleaning   = false;
+            IsCleaning = false;
             ProgressText = string.Empty;
         }
     }

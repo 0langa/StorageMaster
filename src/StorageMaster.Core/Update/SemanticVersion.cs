@@ -69,12 +69,12 @@ internal readonly partial record struct SemanticVersion(
         if (string.IsNullOrWhiteSpace(right))
             return -1;
 
-        var leftParts  = left.Split('.', StringSplitOptions.RemoveEmptyEntries);
+        var leftParts = left.Split('.', StringSplitOptions.RemoveEmptyEntries);
         var rightParts = right.Split('.', StringSplitOptions.RemoveEmptyEntries);
 
         for (var i = 0; i < Math.Min(leftParts.Length, rightParts.Length); i++)
         {
-            var leftIsNumeric  = int.TryParse(leftParts[i], out var leftNumber);
+            var leftIsNumeric = int.TryParse(leftParts[i], out var leftNumber);
             var rightIsNumeric = int.TryParse(rightParts[i], out var rightNumber);
 
             int partComparison;

@@ -11,9 +11,9 @@ namespace StorageMaster.Tests.Cleanup;
 /// <summary>Unit tests for <see cref="CleanupEngine"/>.</summary>
 public sealed class CleanupEngineTests
 {
-    private readonly Mock<IFileDeleter>          _deleter  = new();
-    private readonly Mock<ICleanupLogRepository> _log      = new();
-    private readonly AppSettings                 _settings = new();
+    private readonly Mock<IFileDeleter> _deleter = new();
+    private readonly Mock<ICleanupLogRepository> _log = new();
+    private readonly AppSettings _settings = new();
 
     public CleanupEngineTests()
     {
@@ -191,15 +191,15 @@ public sealed class CleanupEngineTests
         string title,
         IReadOnlyList<string>? paths = null) => new()
         {
-            Id             = Guid.NewGuid(),
-            RuleId         = ruleId,
-            Title          = title,
-            Description    = "Test suggestion",
-            Category       = CleanupCategory.TempFiles,
-            Risk           = CleanupRisk.Low,
+            Id = Guid.NewGuid(),
+            RuleId = ruleId,
+            Title = title,
+            Description = "Test suggestion",
+            Category = CleanupCategory.TempFiles,
+            Risk = CleanupRisk.Low,
             EstimatedBytes = 1024,
-            TargetPaths    = paths ?? [@"C:\Temp\test.tmp"],
-            IsSystemPath   = false,
+            TargetPaths = paths ?? [@"C:\Temp\test.tmp"],
+            IsSystemPath = false,
         };
 
     private void SetupDeleterSuccess() =>

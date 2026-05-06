@@ -11,13 +11,13 @@ namespace StorageMaster.Core.Cleanup.Rules;
 /// </summary>
 public sealed class ThumbnailCacheRule : ICleanupRule
 {
-    public string RuleId      => "core.thumbnail-cache";
+    public string RuleId => "core.thumbnail-cache";
     public string DisplayName => "Thumbnail Cache";
     public CleanupCategory Category => CleanupCategory.ThumbnailCache;
 
     public async IAsyncEnumerable<CleanupSuggestion> AnalyzeAsync(
-        long              sessionId,
-        AppSettings       settings,
+        long sessionId,
+        AppSettings settings,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         await Task.Yield();
@@ -48,16 +48,16 @@ public sealed class ThumbnailCacheRule : ICleanupRule
 
         yield return new CleanupSuggestion
         {
-            Id             = Guid.NewGuid(),
-            RuleId         = RuleId,
-            Title          = $"Thumbnail cache ({paths.Count} file(s))",
-            Description    = $"Explorer thumbnail database files. Windows regenerates them automatically " +
+            Id = Guid.NewGuid(),
+            RuleId = RuleId,
+            Title = $"Thumbnail cache ({paths.Count} file(s))",
+            Description = $"Explorer thumbnail database files. Windows regenerates them automatically " +
                              $"when folders with images are opened. Estimated savings: {FormatBytes(totalBytes)}.",
-            Category       = Category,
-            Risk           = CleanupRisk.Low,
+            Category = Category,
+            Risk = CleanupRisk.Low,
             EstimatedBytes = totalBytes,
-            TargetPaths    = paths,
-            IsSystemPath   = false,
+            TargetPaths = paths,
+            IsSystemPath = false,
         };
     }
 
@@ -66,6 +66,6 @@ public sealed class ThumbnailCacheRule : ICleanupRule
         >= 1L << 30 => $"{b / (1L << 30):F1} GB",
         >= 1L << 20 => $"{b / (1L << 20):F1} MB",
         >= 1L << 10 => $"{b / (1L << 10):F1} KB",
-        _           => $"{b} B",
+        _ => $"{b} B",
     };
 }

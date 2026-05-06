@@ -14,6 +14,6 @@ public interface IInstalledProgramProvider
 }
 
 public sealed record InstalledProgramInfo(
-    string  DisplayName,
+    string DisplayName,
     string? InstallLocation,
     string? Publisher);

@@ -7,8 +7,8 @@ public sealed class ByteSizeConverter : IValueConverter
 {
     public object Convert(object value, Type targetType, object parameter, string language)
     {
-        if (value is long bytes)  return Format(bytes);
-        if (value is int  intVal) return Format(intVal);
+        if (value is long bytes) return Format(bytes);
+        if (value is int intVal) return Format(intVal);
         return "—";
     }
 
@@ -22,6 +22,6 @@ public sealed class ByteSizeConverter : IValueConverter
             >= 1L << 30 => $"{bytes / (double)(1L << 30):F2} GB",
             >= 1L << 20 => $"{bytes / (double)(1L << 20):F1} MB",
             >= 1L << 10 => $"{bytes / (double)(1L << 10):F0} KB",
-            _           => $"{bytes} B",
+            _ => $"{bytes} B",
         };
 }

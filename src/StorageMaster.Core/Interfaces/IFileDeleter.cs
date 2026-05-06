@@ -13,17 +13,17 @@ public enum DeletionMethod
 }
 
 public sealed record DeletionRequest(
-    string         Path,
+    string Path,
     DeletionMethod Method,
-    bool           DryRun,
+    bool DryRun,
     /// <summary>Optional run ID required when Method == Quarantine.</summary>
-    long?          QuarantineRunId = null);
+    long? QuarantineRunId = null);
 
 public sealed record DeletionOutcome(
-    string  Path,
-    bool    Success,
-    long    BytesFreed,
-    string? Error         = null,
+    string Path,
+    bool Success,
+    long BytesFreed,
+    string? Error = null,
     /// <summary>Set when Method == Quarantine and move succeeded.</summary>
     string? QuarantinePath = null);
 
@@ -43,5 +43,5 @@ public interface IFileDeleter
     /// <summary>Batch overload — processes in parallel with bounded concurrency.</summary>
     IAsyncEnumerable<DeletionOutcome> DeleteManyAsync(
         IReadOnlyList<DeletionRequest> requests,
-        CancellationToken              cancellationToken = default);
+        CancellationToken cancellationToken = default);
 }

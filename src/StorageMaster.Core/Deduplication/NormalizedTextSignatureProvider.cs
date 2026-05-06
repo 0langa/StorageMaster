@@ -16,7 +16,7 @@ public sealed class NormalizedTextSignatureProvider : IDuplicateSignatureProvide
 
     public Task<DuplicateSignature> ComputeAsync(
         DuplicateCandidate candidate,
-        CancellationToken  ct = default) =>
+        CancellationToken ct = default) =>
         _strategy.ComputeSignatureAsync(candidate, ct);
 
     /// <summary>Returns true when this file's extension is in the default supported set.</summary>

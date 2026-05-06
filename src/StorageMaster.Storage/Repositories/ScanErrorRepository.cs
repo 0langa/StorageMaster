@@ -21,7 +21,7 @@ public sealed class ScanErrorRepository : IScanErrorRepository
         try
         {
             var conn = await _db.GetConnectionAsync(ct);
-            using var tx  = await conn.BeginTransactionAsync(ct);
+            using var tx = await conn.BeginTransactionAsync(ct);
             using var cmd = conn.CreateCommand();
             cmd.Transaction = (SqliteTransaction)tx;
             cmd.CommandText = """
@@ -29,19 +29,19 @@ public sealed class ScanErrorRepository : IScanErrorRepository
                 VALUES ($sid, $path, $type, $msg, $at);
                 """;
 
-            var pSid  = cmd.Parameters.Add("$sid",  SqliteType.Integer);
+            var pSid = cmd.Parameters.Add("$sid", SqliteType.Integer);
             var pPath = cmd.Parameters.Add("$path", SqliteType.Text);
             var pType = cmd.Parameters.Add("$type", SqliteType.Text);
-            var pMsg  = cmd.Parameters.Add("$msg",  SqliteType.Text);
-            var pAt   = cmd.Parameters.Add("$at",   SqliteType.Text);
+            var pMsg = cmd.Parameters.Add("$msg", SqliteType.Text);
+            var pAt = cmd.Parameters.Add("$at", SqliteType.Text);
 
             pSid.Value = sessionId;
             foreach (var e in errors)
             {
                 pPath.Value = e.Path;
                 pType.Value = e.ErrorType;
-                pMsg.Value  = e.Message;
-                pAt.Value   = e.OccurredAt.ToString("O");
+                pMsg.Value = e.Message;
+                pAt.Value = e.OccurredAt.ToString("O");
                 await cmd.ExecuteNonQueryAsync(ct);
             }
 
@@ -57,29 +57,54 @@ public sealed class ScanErrorRepository : IScanErrorRepository
         long sessionId,
         CancellationToken ct = default)
     {
+        return await GetErrorsPageForSessionAsync(sessionId, 0, int.MaxValue, ct);
+    }
+
+    public async Task<IReadOnlyList<ScanError>> GetErrorsPageForSessionAsync(
+        long sessionId,
+        int offset,
+        int limit,
+        CancellationToken ct = default)
+    {
         var conn = await _db.GetConnectionAsync(ct);
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
             SELECT Id, SessionId, Path, ErrorType, Message, OccurredAt
             FROM ScanErrors
             WHERE SessionId = $sid
-            ORDER BY OccurredAt;
+            ORDER BY OccurredAt DESC, Id DESC
+            LIMIT $limit OFFSET $offset;
             """;
         cmd.Parameters.AddWithValue("$sid", sessionId);
+        cmd.Parameters.AddWithValue("$limit", limit);
+        cmd.Parameters.AddWithValue("$offset", offset);
         using var reader = await cmd.ExecuteReaderAsync(ct);
         var list = new List<ScanError>();
         while (await reader.ReadAsync(ct))
         {
             list.Add(new ScanError
             {
-                Id         = reader.GetInt64(0),
-                SessionId  = reader.GetInt64(1),
-                Path       = reader.GetString(2),
-                ErrorType  = reader.GetString(3),
-                Message    = reader.GetString(4),
+                Id = reader.GetInt64(0),
+                SessionId = reader.GetInt64(1),
+                Path = reader.GetString(2),
+                ErrorType = reader.GetString(3),
+                Message = reader.GetString(4),
                 OccurredAt = DateTime.Parse(reader.GetString(5)),
             });
         }
         return list;
+    }
+
+    public async Task<long> CountErrorsForSessionAsync(long sessionId, CancellationToken ct = default)
+    {
+        var conn = await _db.GetConnectionAsync(ct);
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            SELECT COUNT(*)
+            FROM ScanErrors
+            WHERE SessionId = $sid;
+            """;
+        cmd.Parameters.AddWithValue("$sid", sessionId);
+        return Convert.ToInt64(await cmd.ExecuteScalarAsync(ct));
     }
 }

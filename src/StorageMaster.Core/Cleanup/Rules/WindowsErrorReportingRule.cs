@@ -12,13 +12,13 @@ namespace StorageMaster.Core.Cleanup.Rules;
 /// </summary>
 public sealed class WindowsErrorReportingRule : ICleanupRule
 {
-    public string RuleId      => "core.windows-error-reporting";
+    public string RuleId => "core.windows-error-reporting";
     public string DisplayName => "Windows Error Reports";
     public CleanupCategory Category => CleanupCategory.WindowsErrorReporting;
 
     private static IEnumerable<string> GetCandidatePaths()
     {
-        var local  = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        var local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
         var programData = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
 
         // Per-user WER
@@ -40,14 +40,14 @@ public sealed class WindowsErrorReportingRule : ICleanupRule
     }
 
     public async IAsyncEnumerable<CleanupSuggestion> AnalyzeAsync(
-        long              sessionId,
-        AppSettings       settings,
+        long sessionId,
+        AppSettings settings,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         await Task.Yield();
 
         long totalBytes = 0;
-        var  paths      = new List<string>();
+        var paths = new List<string>();
 
         foreach (var path in GetCandidatePaths())
         {
@@ -76,17 +76,17 @@ public sealed class WindowsErrorReportingRule : ICleanupRule
 
         yield return new CleanupSuggestion
         {
-            Id             = Guid.NewGuid(),
-            RuleId         = RuleId,
-            Title          = $"Windows Error Reports ({paths.Count} location(s))",
-            Description    = "Crash dumps and diagnostic reports generated when programs or Windows " +
+            Id = Guid.NewGuid(),
+            RuleId = RuleId,
+            Title = $"Windows Error Reports ({paths.Count} location(s))",
+            Description = "Crash dumps and diagnostic reports generated when programs or Windows " +
                              "itself encounters an error. Safe to delete — Microsoft has already " +
                              $"received any reports you chose to send. Estimated savings: {FormatBytes(totalBytes)}.",
-            Category       = Category,
-            Risk           = CleanupRisk.Low,
+            Category = Category,
+            Risk = CleanupRisk.Low,
             EstimatedBytes = totalBytes,
-            TargetPaths    = paths,
-            IsSystemPath   = true,
+            TargetPaths = paths,
+            IsSystemPath = true,
         };
     }
 
@@ -95,6 +95,6 @@ public sealed class WindowsErrorReportingRule : ICleanupRule
         >= 1L << 30 => $"{b / (1L << 30):F1} GB",
         >= 1L << 20 => $"{b / (1L << 20):F1} MB",
         >= 1L << 10 => $"{b / (1L << 10):F1} KB",
-        _           => $"{b} B",
+        _ => $"{b} B",
     };
 }

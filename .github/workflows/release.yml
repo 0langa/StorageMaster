@@ -87,12 +87,14 @@ jobs:
           $extract = Join-Path $stage "extracted"
           Expand-Archive -LiteralPath $zip.FullName -DestinationPath $extract -Force
 
-          $exe = Get-ChildItem $extract -Filter "WindowsAppRuntimeInstall*.exe" -Recurse |
+          # Redist zip contains arm64, x64, and x86 variants — pick x64 explicitly.
+          $exe = Get-ChildItem $extract -Filter "*x64*.exe" -Recurse |
+                 Where-Object { $_.Name -like 'WindowsAppRuntimeInstall*' } |
                  Select-Object -First 1
           if (-not $exe) {
             Write-Host "Files in zip:"
             Get-ChildItem $extract -Recurse | ForEach-Object { Write-Host "  $($_.FullName)" }
-            throw "WindowsAppRuntimeInstall.exe not found inside redist zip."
+            throw "WindowsAppRuntimeInstall-x64.exe not found inside redist zip."
           }
 
           Copy-Item $exe.FullName (Join-Path $prereqs "WindowsAppRuntimeInstall.exe") -Force

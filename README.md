@@ -1,4 +1,4 @@
-# StorageMaster    [![Release](https://github.com/0langa/StorageMaster/actions/workflows/release.yml/badge.svg?event=release)](https://github.com/0langa/StorageMaster/actions/workflows/release.yml)
+# StorageMaster    [![Release](https://github.com/0langa/StorageMaster/actions/workflows/release.yml/badge.svg)](https://github.com/0langa/StorageMaster/actions/workflows/release.yml) [![CI](https://github.com/0langa/StorageMaster/actions/workflows/ci.yml/badge.svg)](https://github.com/0langa/StorageMaster/actions/workflows/ci.yml)
 
 > **Current version:** 1.9.0 — Windows disk analyzer, junk cleaner, visual space map, and storage health tool.
 
@@ -315,7 +315,7 @@ Every push of a `v*.*.*` tag triggers `release.yml`:
 
 ## Further reading
 
-- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — Deep architecture reference
-- [`docs/CODEMAP.md`](docs/CODEMAP.md) — Every file, class, and method
-- [`docs/DOCUMENTATION.md`](docs/DOCUMENTATION.md) — Full API and configuration reference
+- [`docs/AIprojectcontext/ARCHITECTURE.md`](docs/AIprojectcontext/ARCHITECTURE.md) — Deep architecture reference
+- [`docs/AIprojectcontext/CODEMAP.md`](docs/AIprojectcontext/CODEMAP.md) — Every file, class, and method
+- [`docs/AIprojectcontext/DOCUMENTATION.md`](docs/AIprojectcontext/DOCUMENTATION.md) — Full API and configuration reference
 - [`CHANGELOG.md`](CHANGELOG.md) — Release history

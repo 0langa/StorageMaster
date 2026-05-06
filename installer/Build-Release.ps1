@@ -164,18 +164,53 @@ Copy-Item -Path (Join-Path $buildOutputDir "*") -Destination $publishDir -Recurs
 Copy-OptionalFfmpegBundle -SourceDirectory $ffmpegBundleSource -PublishDirectory $publishDir
 Copy-OptionalTurboScanner -SourcePath $turboScannerSource -PublishDirectory $publishDir
 
-$nugetCache = (& dotnet nuget locals global-packages -l) -replace 'global-packages: ', ''
-$msix = Get-ChildItem "$nugetCache\microsoft.windowsappsdk\1.8*\tools\MSIX" `
-          -Filter "Microsoft.WindowsAppRuntime.Release*.msix" -Recurse | Select-Object -First 1
-if ($msix) {
-    $prereqsDir = Join-Path $PSScriptRoot "prereqs"
-    New-Item -ItemType Directory -Force -Path $prereqsDir | Out-Null
-    Copy-Item $msix.FullName (Join-Path $prereqsDir "Microsoft.WindowsAppRuntime.1.8.msix") -Force
-    Copy-Item (Join-Path $PSScriptRoot "Install-WindowsAppRuntime.ps1") $prereqsDir -Force
-    Write-Host "Runtime MSIX staged: $($msix.FullName)"
+$prereqsDir = Join-Path $PSScriptRoot "prereqs"
+$msixDest   = Join-Path $prereqsDir "Microsoft.WindowsAppRuntime.1.8.msix"
+
+if (Test-Path $msixDest) {
+    Write-Host "Runtime MSIX already staged: $msixDest"
 } else {
-    Write-Warning "WinAppSDK 1.8 runtime MSIX not found in NuGet cache — installer prereqs will be missing."
+    New-Item -ItemType Directory -Force -Path $prereqsDir | Out-Null
+
+    # The redistributable MSIX ships in Windows App SDK GitHub releases, not in the NuGet package.
+    # Use the gh CLI (github.com/cli/cli) to download it — run 'gh auth login' once if prompted.
+    $gh = Get-Command gh -ErrorAction SilentlyContinue
+    if (-not $gh) {
+        throw "gh CLI not found. Install it from https://cli.github.com and run 'gh auth login', " +
+              "then re-run this script. Alternatively, manually place " +
+              "Microsoft.WindowsAppRuntime.Release*.msix into '$prereqsDir' " +
+              "and rename it to 'Microsoft.WindowsAppRuntime.1.8.msix'."
+    }
+
+    Write-Host "Fetching WinAppSDK 1.8 runtime MSIX via gh CLI..."
+    $releaseJson = & gh api "repos/microsoft/WindowsAppSDK/releases" --paginate 2>$null |
+                   ConvertFrom-Json
+    $release = $releaseJson |
+               Where-Object { -not $_.prerelease -and $_.tag_name -match '1\.8' } |
+               Sort-Object published_at -Descending |
+               Select-Object -First 1
+
+    if (-not $release) { throw "No stable Windows App SDK 1.8.x release found on GitHub." }
+    Write-Host "Using release: $($release.tag_name)"
+
+    $asset = $release.assets |
+             Where-Object { $_.name -like 'Microsoft.WindowsAppRuntime.Release*.msix' } |
+             Select-Object -First 1
+
+    if (-not $asset) {
+        $names = ($release.assets | ForEach-Object { $_.name }) -join ', '
+        throw "Runtime MSIX not found in release $($release.tag_name). Assets: $names"
+    }
+
+    & gh release download $release.tag_name `
+        --repo microsoft/WindowsAppSDK `
+        --pattern $asset.name `
+        --dir $prereqsDir
+    Rename-Item (Join-Path $prereqsDir $asset.name) "Microsoft.WindowsAppRuntime.1.8.msix" -ErrorAction SilentlyContinue
+    Write-Host "Runtime MSIX staged: $msixDest"
 }
+
+Copy-Item (Join-Path $PSScriptRoot "Install-WindowsAppRuntime.ps1") $prereqsDir -Force
 
 Invoke-Step -FilePath $iscc -Arguments @($installerScript)
 

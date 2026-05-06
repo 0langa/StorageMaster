@@ -88,3 +88,6 @@ target/
 
 # Keep Rust application lockfiles committed for reproducible release builds.
 !turbo-scanner/Cargo.lock
+
+#misc
+#docs/AIprojectcontext/

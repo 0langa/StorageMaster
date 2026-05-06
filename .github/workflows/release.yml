@@ -66,21 +66,38 @@ jobs:
       - name: Stage WinAppSDK 1.8 runtime installer for prereqs
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force -Path "installer\prereqs" | Out-Null
+          $prereqs = "installer\prereqs"
+          $stage   = "installer\prereqs-stage"
+          New-Item -ItemType Directory -Force -Path $prereqs, $stage | Out-Null
 
-          # Download the official Windows App Runtime 1.8 installer via winget.
-          # The redistributable installer is not shipped inside the NuGet package.
+          # Download the official Windows App Runtime 1.8 redist bundle via winget.
+          # winget downloads a .zip containing WindowsAppRuntimeInstall-x64.exe + MSIXs.
           winget download "Microsoft.WindowsAppRuntime.1.8" `
-            --download-directory "installer\prereqs" `
+            --download-directory $stage `
             --accept-source-agreements `
             --accept-package-agreements
 
-          $exe = Get-ChildItem "installer\prereqs" -Filter "*.exe" | Select-Object -First 1
-          if (-not $exe) { throw "WindowsAppRuntimeInstall.exe not found after winget download." }
-          if ($exe.Name -ne "WindowsAppRuntimeInstall.exe") {
-            Rename-Item $exe.FullName "installer\prereqs\WindowsAppRuntimeInstall.exe" -Force
+          $zip = Get-ChildItem $stage -Filter "*.zip" -Recurse | Select-Object -First 1
+          if (-not $zip) {
+            Write-Host "Files in stage:"
+            Get-ChildItem $stage -Recurse | ForEach-Object { Write-Host "  $($_.FullName)" }
+            throw "No redist zip downloaded by winget."
           }
-          Write-Host "Runtime installer staged: $($exe.Name)"
+
+          $extract = Join-Path $stage "extracted"
+          Expand-Archive -LiteralPath $zip.FullName -DestinationPath $extract -Force
+
+          $exe = Get-ChildItem $extract -Filter "WindowsAppRuntimeInstall*.exe" -Recurse |
+                 Select-Object -First 1
+          if (-not $exe) {
+            Write-Host "Files in zip:"
+            Get-ChildItem $extract -Recurse | ForEach-Object { Write-Host "  $($_.FullName)" }
+            throw "WindowsAppRuntimeInstall.exe not found inside redist zip."
+          }
+
+          Copy-Item $exe.FullName (Join-Path $prereqs "WindowsAppRuntimeInstall.exe") -Force
+          Remove-Item $stage -Recurse -Force
+          Write-Host "Runtime installer staged from: $($exe.Name)"
 
       - name: Run tests
         run: dotnet test tests/StorageMaster.Tests/StorageMaster.Tests.csproj --verbosity normal --no-restore

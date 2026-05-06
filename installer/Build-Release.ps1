@@ -170,23 +170,31 @@ $exeDest    = Join-Path $prereqsDir "WindowsAppRuntimeInstall.exe"
 if (Test-Path $exeDest) {
     Write-Host "Runtime installer already staged: $exeDest"
 } else {
-    New-Item -ItemType Directory -Force -Path $prereqsDir | Out-Null
+    $stageDir = Join-Path $PSScriptRoot "prereqs-stage"
+    New-Item -ItemType Directory -Force -Path $prereqsDir, $stageDir | Out-Null
 
-    Write-Host "Downloading WinAppSDK 1.8 runtime installer via winget..."
+    Write-Host "Downloading WinAppSDK 1.8 runtime redist bundle via winget..."
     winget download "Microsoft.WindowsAppRuntime.1.8" `
-        --download-directory $prereqsDir `
+        --download-directory $stageDir `
         --accept-source-agreements `
         --accept-package-agreements
 
-    $exe = Get-ChildItem $prereqsDir -Filter "*.exe" | Select-Object -First 1
+    $zip = Get-ChildItem $stageDir -Filter "*.zip" -Recurse | Select-Object -First 1
+    if (-not $zip) {
+        throw "winget did not produce a redist zip in $stageDir."
+    }
+
+    $extractDir = Join-Path $stageDir "extracted"
+    Expand-Archive -LiteralPath $zip.FullName -DestinationPath $extractDir -Force
+
+    $exe = Get-ChildItem $extractDir -Filter "WindowsAppRuntimeInstall*.exe" -Recurse |
+           Select-Object -First 1
     if (-not $exe) {
-        throw "WinAppSDK runtime installer not downloaded. Run manually: " +
-              "'winget download Microsoft.WindowsAppRuntime.1.8 --download-directory installer\prereqs' " +
-              "then rename the .exe to WindowsAppRuntimeInstall.exe."
+        throw "WindowsAppRuntimeInstall.exe not found inside $($zip.Name)."
     }
-    if ($exe.Name -ne "WindowsAppRuntimeInstall.exe") {
-        Rename-Item $exe.FullName $exeDest -Force
-    }
+
+    Copy-Item $exe.FullName $exeDest -Force
+    Remove-Item $stageDir -Recurse -Force
     Write-Host "Runtime installer staged: $exeDest"
 }
 

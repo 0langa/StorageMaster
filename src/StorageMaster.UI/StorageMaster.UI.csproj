@@ -20,8 +20,8 @@
     <WindowsPackageType>None</WindowsPackageType>
     <!-- Avoid legacy Appx/MRT packaging tasks that are not needed for an unpackaged desktop build. -->
     <EnableCoreMrtTooling>false</EnableCoreMrtTooling>
-    <!-- Ship Windows App SDK 1.8 files with the app so the per-user installer does not need elevation. -->
-    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <!-- Use the system-installed WinAppSDK 1.8 runtime (installed by the Inno setup prereq step). -->
+    <WindowsAppSDKSelfContained>false</WindowsAppSDKSelfContained>
     <SelfContained>false</SelfContained>
   </PropertyGroup>
 

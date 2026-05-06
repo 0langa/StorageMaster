@@ -8,6 +8,7 @@ namespace StorageMaster.UI.Pages;
 
 public sealed partial class ScanPage : Page
 {
+    private bool _pickerOpen;
     public ScanViewModel ViewModel { get; }
 
     public ScanPage()
@@ -37,16 +38,32 @@ public sealed partial class ScanPage : Page
 
     private async void BrowseButton_Click(object sender, Microsoft.UI.Xaml.RoutedEventArgs e)
     {
-        var picker = new FolderPicker();
-        picker.FileTypeFilter.Add("*");
+        if (_pickerOpen)
+            return;
 
-        // WinUI 3 requires the HWND to be associated with the picker.
-        var hwnd = WindowNative.GetWindowHandle(App.Services.GetRequiredService<MainWindow>());
-        InitializeWithWindow.Initialize(picker, hwnd);
+        _pickerOpen = true;
+        try
+        {
+            var picker = new FolderPicker();
+            picker.FileTypeFilter.Add("*");
 
-        var folder = await picker.PickSingleFolderAsync();
-        if (folder is not null)
-            ViewModel.SelectedPath = folder.Path;
+            // WinUI 3 requires the HWND to be associated with the picker.
+            var hwnd = WindowNative.GetWindowHandle(App.Services.GetRequiredService<MainWindow>());
+            InitializeWithWindow.Initialize(picker, hwnd);
+
+            var folder = await picker.PickSingleFolderAsync();
+            if (folder is not null)
+                ViewModel.SelectedPath = folder.Path;
+        }
+        catch (Exception ex)
+        {
+            ViewModel.ErrorMessage = $"Could not open folder picker: {ex.Message}";
+            ViewModel.HasError = true;
+        }
+        finally
+        {
+            _pickerOpen = false;
+        }
     }
 
     private void DriveButton_Click(object sender, Microsoft.UI.Xaml.RoutedEventArgs e)

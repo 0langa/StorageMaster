@@ -1,6 +1,7 @@
 using System.Collections.Specialized;
 using System.Runtime.InteropServices.WindowsRuntime;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.UI;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -18,10 +19,12 @@ namespace StorageMaster.UI.Pages;
 
 public sealed partial class SpaceMapPage : Page
 {
+    private readonly ILogger<SpaceMapPage> _logger;
     public SpaceMapViewModel ViewModel { get; }
 
     public SpaceMapPage()
     {
+        _logger = App.Services.GetRequiredService<ILogger<SpaceMapPage>>();
         ViewModel = App.Services.GetRequiredService<SpaceMapViewModel>();
         InitializeComponent();
         ViewModel.LayoutNodes.CollectionChanged += LayoutNodes_CollectionChanged;
@@ -42,7 +45,8 @@ public sealed partial class SpaceMapPage : Page
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine(ex);
+            _logger.LogError(ex, "Space map session load failed");
+            ViewModel.StatusText = "Failed to load session data.";
         }
     }
 
@@ -136,6 +140,7 @@ public sealed partial class SpaceMapPage : Page
         }
         catch (Exception ex)
         {
+            _logger.LogError(ex, "PNG export failed");
             ViewModel.StatusText = $"PNG export failed: {ex.Message}";
         }
     }

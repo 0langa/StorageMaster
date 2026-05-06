@@ -63,6 +63,19 @@ jobs:
           dotnet restore tests/StorageMaster.Tests/StorageMaster.Tests.csproj
           dotnet restore src/StorageMaster.UI/StorageMaster.UI.csproj
 
+      - name: Copy WinAppSDK 1.8 runtime to installer prereqs
+        shell: pwsh
+        run: |
+          $cache = (dotnet nuget locals global-packages -l) -replace 'global-packages: ', ''
+          $msix = Get-ChildItem "$cache\microsoft.windowsappsdk\1.8*\tools\MSIX" `
+                    -Filter "Microsoft.WindowsAppRuntime.Release*.msix" -Recurse |
+                  Select-Object -First 1
+          if (-not $msix) { throw "WinAppSDK 1.8 runtime MSIX not found in NuGet cache." }
+          New-Item -ItemType Directory -Force -Path "installer\prereqs" | Out-Null
+          Copy-Item $msix.FullName "installer\prereqs\Microsoft.WindowsAppRuntime.1.8.msix"
+          Copy-Item "installer\Install-WindowsAppRuntime.ps1" "installer\prereqs\"
+          Write-Host "Runtime MSIX: $($msix.FullName)"
+
       - name: Run tests
         run: dotnet test tests/StorageMaster.Tests/StorageMaster.Tests.csproj --verbosity normal --no-restore
 

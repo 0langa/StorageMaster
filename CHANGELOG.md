@@ -4,6 +4,15 @@ All notable changes to StorageMaster are documented here.
 
 ---
 
+## [1.9.2] — 2026-05-07 — Startup Fix (Corrected)
+
+- Fixed persistent launch failure introduced in 1.9.0 and incorrectly addressed in 1.9.1. Root cause: switching to `WindowsAppSDKSelfContained=true` (SDK 1.8) required the WinAppSDK MSIX to be installed on the system, but the installer no longer included it. `Bootstrap.Initialize()` (added in 1.9.1) compounded the failure by throwing on startup when the system MSIX was absent.
+- Reverted `WindowsAppSDKSelfContained` to `false` (framework-dependent deployment, matching 1.8.0/1.7.x). The installer now bundles and installs the WinAppSDK 1.8 runtime MSIX as a prerequisite step, matching the proven approach used for SDK 1.6.
+- Improved SpaceMapPage error handling: session load and PNG export failures now log via `ILogger<SpaceMapPage>` and display a user-visible status message instead of silently swallowing exceptions.
+- Hardened ScanPage folder picker: double-click guard prevents opening multiple concurrent pickers; COM errors surface as a visible error message.
+
+---
+
 ## [1.9.1] — 2026-05-07 — Startup Fix
 
 - Fixed critical startup crash on 1.9.0: `ms-appx:///Microsoft.UI.Xaml/Themes/themeresources.xaml` XamlParseException caused by missing `Bootstrap.Initialize()` call. With `WindowsAppSDKSelfContained=true` and `DISABLE_XAML_GENERATED_MAIN`, the XAML-generated bootstrap step was absent; now called explicitly before `XamlCheckProcessRequirements()`.

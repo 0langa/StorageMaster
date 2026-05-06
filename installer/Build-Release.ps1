@@ -164,6 +164,19 @@ Copy-Item -Path (Join-Path $buildOutputDir "*") -Destination $publishDir -Recurs
 Copy-OptionalFfmpegBundle -SourceDirectory $ffmpegBundleSource -PublishDirectory $publishDir
 Copy-OptionalTurboScanner -SourcePath $turboScannerSource -PublishDirectory $publishDir
 
+$nugetCache = (& dotnet nuget locals global-packages -l) -replace 'global-packages: ', ''
+$msix = Get-ChildItem "$nugetCache\microsoft.windowsappsdk\1.8*\tools\MSIX" `
+          -Filter "Microsoft.WindowsAppRuntime.Release*.msix" -Recurse | Select-Object -First 1
+if ($msix) {
+    $prereqsDir = Join-Path $PSScriptRoot "prereqs"
+    New-Item -ItemType Directory -Force -Path $prereqsDir | Out-Null
+    Copy-Item $msix.FullName (Join-Path $prereqsDir "Microsoft.WindowsAppRuntime.1.8.msix") -Force
+    Copy-Item (Join-Path $PSScriptRoot "Install-WindowsAppRuntime.ps1") $prereqsDir -Force
+    Write-Host "Runtime MSIX staged: $($msix.FullName)"
+} else {
+    Write-Warning "WinAppSDK 1.8 runtime MSIX not found in NuGet cache — installer prereqs will be missing."
+}
+
 Invoke-Step -FilePath $iscc -Arguments @($installerScript)
 
 Write-Host ""

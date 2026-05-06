@@ -15,6 +15,7 @@ $publishDir = Join-Path $repoRoot "artifacts\publish\win-x64"
 $installerScript = Join-Path $repoRoot "installer\StorageMaster.iss"
 $installerOutputDir = Join-Path $repoRoot "artifacts\installer"
 $windowsAppSdkPackageRoot = Join-Path $env:USERPROFILE ".nuget\packages\microsoft.windowsappsdk"
+$ffmpegBundleSource = Join-Path $repoRoot "installer\ffmpeg"
 
 function Resolve-MSBuild {
     $vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
@@ -70,6 +71,31 @@ function Invoke-Step {
     }
 }
 
+function Copy-OptionalFfmpegBundle {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$SourceDirectory,
+        [Parameter(Mandatory = $true)]
+        [string]$PublishDirectory
+    )
+
+    if (-not (Test-Path $SourceDirectory)) {
+        Write-Host "Optional FFmpeg bundle not found at $SourceDirectory"
+        return
+    }
+
+    $ffmpegExe = Join-Path $SourceDirectory "ffmpeg.exe"
+    $ffprobeExe = Join-Path $SourceDirectory "ffprobe.exe"
+    if (-not (Test-Path $ffmpegExe) -or -not (Test-Path $ffprobeExe)) {
+        throw "installer\\ffmpeg must contain both ffmpeg.exe and ffprobe.exe."
+    }
+
+    $targetDirectory = Join-Path $PublishDirectory "tools\ffmpeg"
+    New-Item -ItemType Directory -Force -Path $targetDirectory | Out-Null
+    Copy-Item -Path (Join-Path $SourceDirectory "*") -Destination $targetDirectory -Recurse -Force
+    Write-Host "Bundled FFmpeg copied to $targetDirectory"
+}
+
 New-Item -ItemType Directory -Force -Path $publishDir, $installerOutputDir | Out-Null
 
 $msbuild = Resolve-MSBuild
@@ -119,6 +145,7 @@ $prereqDir = Join-Path $publishDir "prereqs"
 New-Item -ItemType Directory -Force -Path $prereqDir | Out-Null
 Copy-Item -LiteralPath $windowsAppRuntimePackage -Destination (Join-Path $prereqDir "Microsoft.WindowsAppRuntime.1.6.msix") -Force
 Copy-Item -LiteralPath $windowsAppRuntimeInstaller -Destination (Join-Path $prereqDir "Install-WindowsAppRuntime.ps1") -Force
+Copy-OptionalFfmpegBundle -SourceDirectory $ffmpegBundleSource -PublishDirectory $publishDir
 
 Invoke-Step -FilePath $iscc -Arguments @($installerScript)
 

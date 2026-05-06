@@ -43,9 +43,10 @@ public sealed class VideoPHashStrategy : IDuplicateDetectionStrategy
             ".wmv", ".flv", ".ts", ".mts", ".m2ts",
         };
 
-    private readonly string  _ffmpegPath;
-    private readonly string  _ffprobePath;
+    private readonly string? _ffmpegPath;
     private readonly int     _maxDurationSeconds;
+    private readonly ISettingsRepository? _settingsRepository;
+    private readonly string  _appBaseDirectory;
     private readonly IFileSnapshotProvider? _snapshotProvider;
 
     public VideoPHashStrategy(
@@ -54,9 +55,22 @@ public sealed class VideoPHashStrategy : IDuplicateDetectionStrategy
         int maxDurationSeconds = DefaultMaxDurationSeconds)
     {
         _ffmpegPath         = ffmpegPath;
-        _ffprobePath        = Path.Combine(Path.GetDirectoryName(ffmpegPath) ?? string.Empty, "ffprobe.exe");
         _snapshotProvider   = snapshotProvider;
         _maxDurationSeconds = maxDurationSeconds;
+        _appBaseDirectory   = AppContext.BaseDirectory;
+    }
+
+    public VideoPHashStrategy(
+        ISettingsRepository settingsRepository,
+        IFileSnapshotProvider? snapshotProvider = null,
+        string? appBaseDirectory = null)
+    {
+        _settingsRepository = settingsRepository;
+        _snapshotProvider   = snapshotProvider;
+        _maxDurationSeconds = DefaultMaxDurationSeconds;
+        _appBaseDirectory   = string.IsNullOrWhiteSpace(appBaseDirectory)
+            ? AppContext.BaseDirectory
+            : appBaseDirectory;
     }
 
     public DuplicateMethod Method           => DuplicateMethod.VideoPHash;
@@ -71,14 +85,11 @@ public sealed class VideoPHashStrategy : IDuplicateDetectionStrategy
     /// Should be called before registering this strategy in DI to avoid
     /// registering an always-failing strategy.
     /// </summary>
-    public bool IsAvailable =>
-        !string.IsNullOrWhiteSpace(_ffmpegPath) &&
-        File.Exists(_ffmpegPath) &&
-        File.Exists(_ffprobePath);
+    public bool IsAvailable => ResolveTools().IsComplete;
 
     public string? UnavailableReason => IsAvailable
         ? null
-        : "FFmpeg/ffprobe not configured or not found.";
+        : "FFmpeg/ffprobe not found. Bundle them with app, put them on PATH, or set ffmpeg.exe in Settings.";
 
     public DuplicateCandidateQuery BuildCandidateQuery(DuplicateScanOptions options) =>
         new()
@@ -108,9 +119,10 @@ public sealed class VideoPHashStrategy : IDuplicateDetectionStrategy
             return ErrorSig(candidate, "UnsupportedExtension",
                 $"{candidate.File.Extension} is not a supported video format.");
 
-        if (!IsAvailable)
+        var tools = await ResolveToolsAsync(ct);
+        if (!tools.IsComplete)
             return ErrorSig(candidate, "FfmpegNotFound",
-                "FFmpeg is not configured or not found. Set FfmpegPath in Settings.");
+                "FFmpeg/ffprobe not found. Bundle them with app, put them on PATH, or set ffmpeg.exe in Settings.");
 
         try
         {
@@ -121,12 +133,13 @@ public sealed class VideoPHashStrategy : IDuplicateDetectionStrategy
                 return ErrorSig(candidate, "FileNotFound", "File no longer exists before video hashing.");
 
             // 1. Probe duration
-            var duration = await ProbeDurationAsync(_ffprobePath, candidate.File.FullPath, ct);
+            var maxDurationSeconds = await ResolveMaxDurationSecondsAsync(ct);
+            var duration = await ProbeDurationAsync(tools.FfprobePath, candidate.File.FullPath, ct);
             if (duration <= 0)
                 return ErrorSig(candidate, "ProbeError", "Could not determine video duration.");
-            if (duration > _maxDurationSeconds)
+            if (duration > maxDurationSeconds)
                 return ErrorSig(candidate, "TooLong",
-                    $"Video duration {duration:F0}s exceeds limit {_maxDurationSeconds}s.");
+                    $"Video duration {duration:F0}s exceeds limit {maxDurationSeconds}s.");
 
             // 2. Extract frames at deterministic timestamps
             var timestamps = Enumerable
@@ -143,7 +156,7 @@ public sealed class VideoPHashStrategy : IDuplicateDetectionStrategy
                 {
                     ct.ThrowIfCancellationRequested();
                     var framePath = Path.Combine(tempDir, $"frame_{fi:D2}.png");
-                    await ExtractFrameAsync(_ffmpegPath, candidate.File.FullPath,
+                    await ExtractFrameAsync(tools.FfmpegPath, candidate.File.FullPath,
                         timestamps[fi], framePath, ct);
 
                     if (File.Exists(framePath))
@@ -385,4 +398,37 @@ public sealed class VideoPHashStrategy : IDuplicateDetectionStrategy
             ComputedUtc = DateTime.UtcNow, Status = "Error", ErrorMessage = msg,
             SourceSizeBytes = c.File.SizeBytes, SourceModifiedUtc = c.File.ModifiedUtc,
         };
+
+    private FfmpegToolPaths ResolveTools()
+    {
+        if (_settingsRepository is null)
+        {
+            return FfmpegToolResolver.Resolve(
+                _ffmpegPath,
+                _appBaseDirectory);
+        }
+
+        var settings = _settingsRepository.LoadAsync().GetAwaiter().GetResult();
+        return FfmpegToolResolver.Resolve(
+            settings.FfmpegPath,
+            _appBaseDirectory);
+    }
+
+    private async Task<FfmpegToolPaths> ResolveToolsAsync(CancellationToken ct)
+    {
+        if (_settingsRepository is null)
+            return FfmpegToolResolver.Resolve(_ffmpegPath, _appBaseDirectory);
+
+        var settings = await _settingsRepository.LoadAsync(ct);
+        return FfmpegToolResolver.Resolve(settings.FfmpegPath, _appBaseDirectory);
+    }
+
+    private async Task<int> ResolveMaxDurationSecondsAsync(CancellationToken ct)
+    {
+        if (_settingsRepository is null)
+            return _maxDurationSeconds;
+
+        var settings = await _settingsRepository.LoadAsync(ct);
+        return Math.Max(60, settings.DuplicateMaxVideoDurationSeconds);
+    }
 }

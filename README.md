@@ -19,7 +19,7 @@ A Windows disk analyzer and storage cleaner built with **C# / .NET 8 / WinUI 3**
 | **Quarantine** | Duplicate deletions can be quarantined with one-click restore from the UI |
 | **Audit trail** | Every deletion logged to SQLite `CleanupLog` — forever |
 | **Scan history** | Every scan session stored; browse and compare historical results |
-| **Duplicate analysis** | Pluggable dedupe engine with exact SHA-256, normalized-text review, image pHash, optional video pHash (requires FFmpeg), quarantine/recycle deletion, and audit trail |
+| **Duplicate analysis** | Pluggable dedupe engine with exact SHA-256, normalized-text review, image pHash, optional video pHash (auto-detects bundled or PATH FFmpeg), quarantine/recycle deletion, and audit trail |
 | **Duplicate previews** | Inline previews for image and video groups; first-difference highlight for text duplicates |
 | **Results visualization** | Largest files, largest folders, file-type breakdown, error log, category filters, and paged loading |
 | **Folder size aggregation** | Bottom-up propagation gives accurate folder totals |
@@ -155,6 +155,8 @@ Copy-Item turbo-scanner\target\x86_64-pc-windows-msvc\release\turbo-scanner.exe 
 iscc installer\StorageMaster.iss
 # Output: artifacts/installer/StorageMaster-1.7.2-win-x64-Setup.exe
 ```
+
+Optional: place `ffmpeg.exe` and `ffprobe.exe` in `installer\ffmpeg\` before packaging. Release builds copy them into `tools\ffmpeg\` beside the app so video pHash works out of the box.
 
 The automated release pipeline (`release.yml`) runs all three steps on every `v*.*.*` git tag and attaches the installer to a GitHub Release.
 

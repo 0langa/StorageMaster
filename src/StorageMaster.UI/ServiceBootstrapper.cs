@@ -127,15 +127,10 @@ internal static class ServiceBootstrapper
                 settings.DuplicateImagePHashThreshold);
         });
         services.AddSingleton<IDuplicateDetectionStrategy>(sp =>
-        {
-            var settings = sp.GetRequiredService<ISettingsRepository>()
-                .LoadAsync().GetAwaiter().GetResult();
-            var ffmpegExe = FfmpegPathNormalizer.Normalize(settings.FfmpegPath);
-            return new VideoPHashStrategy(
-                ffmpegExe,
+            new VideoPHashStrategy(
+                sp.GetRequiredService<ISettingsRepository>(),
                 sp.GetRequiredService<IFileSnapshotProvider>(),
-                settings.DuplicateMaxVideoDurationSeconds);
-        });
+                AppContext.BaseDirectory));
 
         services.AddSingleton<IDuplicateKeeperPolicy, DuplicateKeeperPolicy>();
         services.AddSingleton<IDuplicateFinderService>(sp =>

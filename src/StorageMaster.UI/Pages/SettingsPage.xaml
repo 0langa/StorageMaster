@@ -218,6 +218,10 @@
                                    Visibility="{x:Bind ViewModel.HasFfmpegPathError, Mode=OneWay, Converter={StaticResource BoolVis}}"
                                    Style="{StaticResource CaptionTextBlockStyle}"
                                    TextWrapping="Wrap" />
+                        <TextBlock Text="{x:Bind ViewModel.FfmpegDetectionText, Mode=OneWay}"
+                                   Style="{StaticResource CaptionTextBlockStyle}"
+                                   Opacity="0.72"
+                                   TextWrapping="Wrap" />
                         <TextBlock Text="Video pHash requires ffmpeg.exe and ffprobe.exe in the same directory."
                                    Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.65" TextWrapping="Wrap" />
                     </StackPanel>

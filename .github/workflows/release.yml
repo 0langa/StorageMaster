@@ -78,6 +78,23 @@ jobs:
             turbo-scanner\target\x86_64-pc-windows-msvc\release\turbo-scanner.exe `
             artifacts\publish\win-x64\turbo-scanner.exe
 
+      - name: Copy optional FFmpeg bundle
+        shell: pwsh
+        run: |
+          $source = "installer\ffmpeg"
+          if (-not (Test-Path $source)) {
+            Write-Host "No bundled FFmpeg directory found."
+            exit 0
+          }
+
+          if (-not (Test-Path (Join-Path $source "ffmpeg.exe")) -or -not (Test-Path (Join-Path $source "ffprobe.exe"))) {
+            throw "installer\\ffmpeg must contain both ffmpeg.exe and ffprobe.exe."
+          }
+
+          $target = "artifacts\publish\win-x64\tools\ffmpeg"
+          New-Item -ItemType Directory -Force -Path $target | Out-Null
+          Copy-Item (Join-Path $source "*") $target -Recurse -Force
+
       # ── Code signing (optional) ────────────────────────────────────────────
       # Set CODE_SIGNING_PFX (base-64-encoded .pfx) and CODE_SIGNING_PFX_PASSWORD
       # in repo Settings → Secrets to enable Authenticode signing.

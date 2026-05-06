@@ -178,6 +178,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     public bool HasScheduledJobSelection => SelectedScheduledJob is not null;
     public bool CanSaveScheduledJob => !IsSavingScheduledJob;
     public bool CanDeleteScheduledJob => SelectedScheduledJob is not null && !IsSavingScheduledJob;
+    public string FfmpegDetectionText => BuildFfmpegDetectionText();
 
     public SettingsViewModel(
         ISettingsRepository repo,
@@ -208,7 +209,11 @@ public sealed partial class SettingsViewModel : ObservableObject
         OnPropertyChanged(nameof(CanDeleteScheduledJob));
     }
     partial void OnDefaultScanPathChanged(string value) => ValidateDefaultScanPath();
-    partial void OnFfmpegPathChanged(string value) => ValidateFfmpegPath();
+    partial void OnFfmpegPathChanged(string value)
+    {
+        ValidateFfmpegPath();
+        OnPropertyChanged(nameof(FfmpegDetectionText));
+    }
     partial void OnDefaultScanPathErrorChanged(string value) => OnPropertyChanged(nameof(HasDefaultScanPathError));
     partial void OnFfmpegPathErrorChanged(string value) => OnPropertyChanged(nameof(HasFfmpegPathError));
     partial void OnSelectedScheduledJobChanged(ScheduledJobEditorItem? value)
@@ -288,6 +293,7 @@ public sealed partial class SettingsViewModel : ObservableObject
 
         ValidateDefaultScanPath();
         ValidateFfmpegPath();
+        OnPropertyChanged(nameof(FfmpegDetectionText));
         OnPropertyChanged(nameof(CanSave));
 
         // Reflect any update already found by the startup background check.
@@ -565,14 +571,35 @@ public sealed partial class SettingsViewModel : ObservableObject
         if (!string.Equals(FfmpegPath, normalized, StringComparison.Ordinal))
             FfmpegPath = normalized;
 
+        var resolved = FfmpegToolResolver.Resolve(normalized, AppContext.BaseDirectory);
+
         FfmpegPathError = string.IsNullOrWhiteSpace(normalized)
             ? string.Empty
-            : !File.Exists(normalized)
+            : !resolved.HasFfmpeg
                 ? "FFmpeg path does not exist."
                 : !string.Equals(Path.GetFileName(normalized), "ffmpeg.exe", StringComparison.OrdinalIgnoreCase)
                     ? "FFmpeg path must point to ffmpeg.exe."
+                    : !resolved.HasFfprobe
+                        ? "ffprobe.exe must be in the same folder as ffmpeg.exe."
                     : string.Empty;
         OnPropertyChanged(nameof(CanSave));
+    }
+
+    private string BuildFfmpegDetectionText()
+    {
+        var resolved = FfmpegToolResolver.Resolve(FfmpegPath, AppContext.BaseDirectory);
+        if (resolved.IsComplete)
+        {
+            var prefix = string.IsNullOrWhiteSpace(FfmpegPath)
+                ? $"Auto-detected from {resolved.Source}"
+                : "Ready";
+            return $"{prefix}: {resolved.FfmpegPath}";
+        }
+
+        if (resolved.HasFfmpeg)
+            return "Found ffmpeg.exe, but ffprobe.exe is missing beside it.";
+
+        return "Tip: leave this blank if StorageMaster bundles FFmpeg in tools\\ffmpeg or if FFmpeg is on PATH.";
     }
 
     private static AppSettings CloneSettings(AppSettings settings) =>

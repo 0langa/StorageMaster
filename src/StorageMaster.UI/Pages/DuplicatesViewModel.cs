@@ -69,6 +69,9 @@ public sealed partial class DuplicateGroupItem : ObservableObject
     public string ReclaimableText => ByteSizeConverter.Format(Group.ReclaimableBytes);
     public int SelectedCount => Members.Count(static member => member.IsSelected && !member.IsKeeper);
     public int MemberCount => Members.Count;
+    public string MemberCountText => $"{MemberCount:N0} file(s)";
+    public string ReclaimableSummaryText => $"Can free {ReclaimableText}";
+    public string SelectedCountText => $"{SelectedCount:N0} selected";
     public bool CanAutoSelect => Group.Method == DuplicateMethod.ExactSha256;
     public bool RequiresReview => !CanAutoSelect;
     public string PathSummary => string.Join(" | ", Members.Take(2).Select(static m => m.Member.FullPath));
@@ -121,6 +124,7 @@ public sealed partial class DuplicateGroupItem : ObservableObject
     {
         OnPropertyChanged(nameof(SelectedCount));
         OnPropertyChanged(nameof(BadgeText));
+        OnPropertyChanged(nameof(SelectedCountText));
     }
 }
 
@@ -213,6 +217,10 @@ public sealed partial class DuplicatesViewModel : ObservableObject
     public bool HasSelectedGroup => SelectedGroup is not null;
     public bool HasPreviewItems => PreviewItems.Count > 0;
     public bool HasQuarantineItems => QuarantineItems.Count > 0;
+    public bool IsWholeSessionScope => SelectedScopeMode == DuplicateScopeMode.WholeSession;
+    public bool IsIncludedScopeMode => SelectedScopeMode == DuplicateScopeMode.IncludedFolders;
+    public bool IsExcludedScopeMode => SelectedScopeMode == DuplicateScopeMode.ExcludedFolders;
+    public bool IsCustomCategorySelected => SelectedCategory?.UsesCustomExtensions == true;
     public bool CanRun => SelectedSession is not null && !IsRunning && !IsDeleting;
     public bool CanCancel => IsRunning;
     public bool CanDeleteSelected => _allGroups.Any(static group => group.SelectedCount > 0) && !IsDeleting && !IsRunning;
@@ -222,16 +230,33 @@ public sealed partial class DuplicatesViewModel : ObservableObject
     public bool IsImagePHashAvailable => IsMethodAvailable(DuplicateMethod.ImagePHash);
     public bool IsVideoPHashAvailable => IsMethodAvailable(DuplicateMethod.VideoPHash);
     public string ProgressText => ProgressTotal <= 0 ? string.Empty : $"{ProgressProcessed:N0} / {ProgressTotal:N0}";
+    public string ScopeHelpText => SelectedScopeMode switch
+    {
+        DuplicateScopeMode.IncludedFolders => "Only files inside listed folders are checked.",
+        DuplicateScopeMode.ExcludedFolders => "Everything in scan is checked except listed folders and global exclusions.",
+        _ => "Whole completed scan is checked.",
+    };
     public int CurrentPage => _currentGroupPage;
     public int TotalGroupCount => (int)_runSummary.GroupCount;
     public int ExactGroupCount => (int)_runSummary.ExactGroupCount;
     public int ReviewGroupCount => (int)_runSummary.ReviewGroupCount;
     public string ReclaimableText => ByteSizeConverter.Format(_runSummary.ReclaimableBytes);
+    public int SelectedDuplicateCount => _allGroups.Sum(static group => group.SelectedCount);
+    public string SelectedDuplicateSummary => $"{SelectedDuplicateCount:N0} file(s) selected";
     public string ErrorSummary => _runSummary.ErrorCount == 0 ? "No errors or skipped files." : $"{_runSummary.ErrorCount:N0} error / skipped item(s)";
     public string LatestRunSummary => LatestRun is null
         ? "No duplicate analysis has been saved for this scan session yet."
         : $"Last run: {LatestRun.Status} on {LatestRun.CompletedUtc?.ToString("g") ?? LatestRun.StartedUtc.ToString("g")}. " +
           $"{LatestRun.GroupCount:N0} group(s), {ByteSizeConverter.Format(LatestRun.ReclaimableBytes)} reclaimable, {LatestRun.ErrorCount:N0} error(s).";
+    public string DeleteModeSummary => UseQuarantine
+        ? "Delete mode: quarantine. Files can be restored below."
+        : UseRecycleBin
+            ? "Delete mode: Recycle Bin."
+            : "Delete mode: permanent delete.";
+    public string VideoMethodSummary => DescribeMethod(DuplicateMethod.VideoPHash,
+        "Finds visually similar videos. Needs FFmpeg + ffprobe.");
+    public string ImageMethodSummary => DescribeMethod(DuplicateMethod.ImagePHash,
+        "Finds visually similar images.");
 
     public string ProviderSummary
     {
@@ -294,6 +319,31 @@ public sealed partial class DuplicatesViewModel : ObservableObject
         OnPropertyChanged(nameof(CanRun));
         OnPropertyChanged(nameof(CanDeleteSelected));
     }
+
+    partial void OnUseRecycleBinChanged(bool value)
+    {
+        if (value && UseQuarantine)
+            UseQuarantine = false;
+        OnPropertyChanged(nameof(DeleteModeSummary));
+    }
+
+    partial void OnUseQuarantineChanged(bool value)
+    {
+        if (value && UseRecycleBin)
+            UseRecycleBin = false;
+        OnPropertyChanged(nameof(DeleteModeSummary));
+    }
+
+    partial void OnSelectedScopeModeChanged(DuplicateScopeMode value)
+    {
+        OnPropertyChanged(nameof(IsWholeSessionScope));
+        OnPropertyChanged(nameof(IsIncludedScopeMode));
+        OnPropertyChanged(nameof(IsExcludedScopeMode));
+        OnPropertyChanged(nameof(ScopeHelpText));
+    }
+
+    partial void OnSelectedCategoryChanged(DuplicateCategoryOption? value) =>
+        OnPropertyChanged(nameof(IsCustomCategorySelected));
 
     partial void OnSearchTextChanged(string value) => _ = ReloadCurrentGroupPageAsync();
     partial void OnSelectedMethodFilterChanged(DuplicateMethodFilterOption? value) => _ = ReloadCurrentGroupPageAsync();
@@ -913,6 +963,8 @@ public sealed partial class DuplicatesViewModel : ObservableObject
         OnPropertyChanged(nameof(ExactGroupCount));
         OnPropertyChanged(nameof(ReviewGroupCount));
         OnPropertyChanged(nameof(ReclaimableText));
+        OnPropertyChanged(nameof(SelectedDuplicateCount));
+        OnPropertyChanged(nameof(SelectedDuplicateSummary));
         OnPropertyChanged(nameof(ErrorSummary));
         OnPropertyChanged(nameof(ProgressText));
         OnPropertyChanged(nameof(CurrentPage));
@@ -932,4 +984,14 @@ public sealed partial class DuplicatesViewModel : ObservableObject
              .Replace("<", "&lt;", StringComparison.Ordinal)
              .Replace(">", "&gt;", StringComparison.Ordinal)
              .Replace("\"", "&quot;", StringComparison.Ordinal);
+
+    private string DescribeMethod(DuplicateMethod method, string readyText)
+    {
+        if (!_strategyMap.TryGetValue(method, out var strategy))
+            return "Unavailable.";
+
+        return strategy.IsAvailable
+            ? readyText
+            : strategy.UnavailableReason ?? "Unavailable.";
+    }
 }

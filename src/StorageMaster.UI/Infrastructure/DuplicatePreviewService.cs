@@ -80,7 +80,7 @@ public sealed class DuplicatePreviewService(
         CancellationToken ct)
     {
         var settings = await settingsRepository.LoadAsync(ct);
-        var ffmpegPath = FfmpegPathNormalizer.Normalize(settings.FfmpegPath);
+        var tools = FfmpegToolResolver.Resolve(settings.FfmpegPath, AppContext.BaseDirectory);
         var items = new List<DuplicatePreviewItem>(members.Count);
 
         foreach (var member in members)
@@ -89,9 +89,9 @@ public sealed class DuplicatePreviewService(
             var previewPath = string.Empty;
             var subtitle = $"{member.SizeBytes:N0} bytes";
 
-            if (File.Exists(ffmpegPath))
+            if (tools.HasFfmpeg)
             {
-                previewPath = await GenerateVideoPreviewAsync(ffmpegPath, member.FullPath, ct);
+                previewPath = await GenerateVideoPreviewAsync(tools.FfmpegPath, member.FullPath, ct);
                 if (!string.IsNullOrWhiteSpace(previewPath))
                     subtitle = $"Keyframe preview • {member.SizeBytes:N0} bytes";
             }
@@ -107,7 +107,7 @@ public sealed class DuplicatePreviewService(
 
         return new DuplicatePreviewResult
         {
-            Summary = File.Exists(ffmpegPath)
+            Summary = tools.HasFfmpeg
                 ? "Perceptual video match. Review sampled keyframes and metadata before deleting."
                 : "Perceptual video match. FFmpeg preview unavailable on this device.",
             Items = items,

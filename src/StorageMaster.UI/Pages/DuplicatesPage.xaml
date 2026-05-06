@@ -35,133 +35,191 @@
                           Label="Delete selected"
                           Command="{x:Bind ViewModel.DeleteSelectedCommand}"
                           IsEnabled="{x:Bind ViewModel.CanDeleteSelected, Mode=OneWay}" />
-            <AppBarButton Icon="SelectAll"
-                          Label="Select safe exact"
-                          Command="{x:Bind ViewModel.SelectSafeExactDuplicatesCommand}" />
-            <AppBarButton Icon="ClearSelection"
-                          Label="Deselect all"
-                          Command="{x:Bind ViewModel.DeselectAllCommand}" />
-            <AppBarButton Icon="Save"
-                          Label="Export CSV"
-                          Command="{x:Bind ViewModel.ExportCsvCommand}" />
-            <AppBarButton Icon="SaveLocal"
-                          Label="Export JSON"
-                          Command="{x:Bind ViewModel.ExportJsonCommand}" />
-            <AppBarButton Icon="Document"
-                          Label="Export HTML"
-                          Command="{x:Bind ViewModel.ExportHtmlCommand}" />
             <CommandBar.Content>
                 <TextBlock Text="Deduplicate"
                            Style="{StaticResource TitleLargeTextBlockStyle}"
                            VerticalAlignment="Center" />
             </CommandBar.Content>
+            <CommandBar.SecondaryCommands>
+                <AppBarButton Icon="SelectAll"
+                              Label="Select safe exact"
+                              Command="{x:Bind ViewModel.SelectSafeExactDuplicatesCommand}" />
+                <AppBarButton Icon="ClearSelection"
+                              Label="Deselect all"
+                              Command="{x:Bind ViewModel.DeselectAllCommand}" />
+                <AppBarSeparator />
+                <AppBarButton Icon="Save"
+                              Label="Export CSV"
+                              Command="{x:Bind ViewModel.ExportCsvCommand}" />
+                <AppBarButton Icon="SaveLocal"
+                              Label="Export JSON"
+                              Command="{x:Bind ViewModel.ExportJsonCommand}" />
+                <AppBarButton Icon="Document"
+                              Label="Export HTML"
+                              Command="{x:Bind ViewModel.ExportHtmlCommand}" />
+            </CommandBar.SecondaryCommands>
         </CommandBar>
 
         <Border Grid.Row="1"
                 Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                 CornerRadius="10"
                 Padding="16">
-            <StackPanel Spacing="12">
-                <TextBlock Text="Scope and methods"
-                           Style="{StaticResource BodyStrongTextBlockStyle}" />
+            <Grid RowSpacing="12">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
 
-                <Grid ColumnSpacing="12" RowSpacing="12">
+                <Grid Grid.Row="0" ColumnSpacing="20">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="2*" />
                         <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="*" />
                     </Grid.ColumnDefinitions>
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="Auto" />
-                    </Grid.RowDefinitions>
 
-                    <ComboBox Grid.Row="0" Grid.Column="0"
-                              Header="Scan session"
-                              ItemsSource="{x:Bind ViewModel.Sessions}"
-                              SelectedItem="{x:Bind ViewModel.SelectedSession, Mode=TwoWay}"
-                              DisplayMemberPath="RootPath" />
+                    <StackPanel Grid.Column="0" Spacing="12">
+                        <TextBlock Text="Start analysis"
+                                   Style="{StaticResource BodyStrongTextBlockStyle}" />
+                        <TextBlock Text="{x:Bind ViewModel.LatestRunSummary, Mode=OneWay}"
+                                   Style="{StaticResource CaptionTextBlockStyle}"
+                                   Opacity="0.72"
+                                   TextWrapping="WrapWholeWords" />
 
-                    <ComboBox Grid.Row="0" Grid.Column="1"
-                              Header="Scope mode"
-                              ItemsSource="{x:Bind ViewModel.ScopeModeOptions, Mode=OneWay}"
-                              SelectedItem="{x:Bind ViewModel.SelectedScopeMode, Mode=TwoWay}" />
+                        <Grid ColumnSpacing="12" RowSpacing="12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="2*" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
 
-                    <ComboBox Grid.Row="0" Grid.Column="2"
-                              Header="File type"
-                              ItemsSource="{x:Bind ViewModel.CategoryOptions}"
-                              SelectedItem="{x:Bind ViewModel.SelectedCategory, Mode=TwoWay}"
-                              DisplayMemberPath="Label" />
+                        <ComboBox Grid.Row="0" Grid.Column="0"
+                                  Header="Scan session"
+                                  ItemsSource="{x:Bind ViewModel.Sessions}"
+                                  SelectedItem="{x:Bind ViewModel.SelectedSession, Mode=TwoWay}"
+                                  DisplayMemberPath="RootPath" />
 
-                    <NumberBox Grid.Row="0" Grid.Column="3"
-                               Header="Min size (MB)"
-                               Minimum="0"
-                               SmallChange="1"
-                               SpinButtonPlacementMode="Inline"
-                               Value="{x:Bind ViewModel.MinimumSizeMb, Mode=TwoWay}" />
+                        <ComboBox Grid.Row="0" Grid.Column="1"
+                                  Header="File type"
+                                  ItemsSource="{x:Bind ViewModel.CategoryOptions}"
+                                  SelectedItem="{x:Bind ViewModel.SelectedCategory, Mode=TwoWay}"
+                                  DisplayMemberPath="Label" />
 
-                    <TextBox Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2"
-                             Header="Included folders"
-                             PlaceholderText="One path per line. Used when scope mode = IncludedFolders."
-                             AcceptsReturn="True"
-                             Text="{x:Bind ViewModel.ScopePathsText, Mode=TwoWay}" />
+                        <NumberBox Grid.Row="0" Grid.Column="2"
+                                   Header="Min size (MB)"
+                                   Minimum="0"
+                                   SmallChange="1"
+                                   SpinButtonPlacementMode="Inline"
+                                   Value="{x:Bind ViewModel.MinimumSizeMb, Mode=TwoWay}" />
 
-                    <TextBox Grid.Row="1" Grid.Column="2" Grid.ColumnSpan="2"
-                             Header="Excluded folders"
-                             PlaceholderText="One path per line. Combined with global excluded paths when scope mode = ExcludedFolders."
-                             AcceptsReturn="True"
-                             Text="{x:Bind ViewModel.ExcludedScopePathsText, Mode=TwoWay}" />
+                        <ComboBox Grid.Row="1" Grid.Column="0"
+                                  Header="Scope"
+                                  ItemsSource="{x:Bind ViewModel.ScopeModeOptions, Mode=OneWay}"
+                                  SelectedItem="{x:Bind ViewModel.SelectedScopeMode, Mode=TwoWay}" />
 
-                    <TextBox Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="2"
-                             Header="Custom extensions"
-                             PlaceholderText=".jpg,.png,.mp4,.pdf"
-                             Text="{x:Bind ViewModel.CustomExtensionsText, Mode=TwoWay}" />
+                        <ComboBox Grid.Row="1" Grid.Column="1"
+                                  Header="Keep one file by"
+                                  ItemsSource="{x:Bind ViewModel.KeeperPolicyOptions, Mode=OneWay}"
+                                  SelectedItem="{x:Bind ViewModel.KeeperPolicy, Mode=TwoWay}" />
+                        </Grid>
 
-                    <ComboBox Grid.Row="2" Grid.Column="2"
-                              Header="Keeper policy"
-                              ItemsSource="{x:Bind ViewModel.KeeperPolicyOptions, Mode=OneWay}"
-                              SelectedItem="{x:Bind ViewModel.KeeperPolicy, Mode=TwoWay}" />
+                        <TextBlock Text="{x:Bind ViewModel.ScopeHelpText, Mode=OneWay}"
+                                   Style="{StaticResource CaptionTextBlockStyle}"
+                                   Opacity="0.72"
+                                   TextWrapping="WrapWholeWords" />
 
-                    <StackPanel Grid.Row="2" Grid.Column="3" Spacing="8">
-                        <ToggleSwitch Header="Recycle Bin"
-                                      IsOn="{x:Bind ViewModel.UseRecycleBin, Mode=TwoWay}" />
-                        <ToggleSwitch Header="Quarantine"
-                                      IsOn="{x:Bind ViewModel.UseQuarantine, Mode=TwoWay}" />
+                        <Expander Header="Folder scope and file filters">
+                            <StackPanel Spacing="12" Padding="0,12,0,0">
+                                <TextBox Header="Included folders"
+                                         PlaceholderText="One path per line"
+                                         AcceptsReturn="True"
+                                         Visibility="{x:Bind ViewModel.IsIncludedScopeMode, Mode=OneWay, Converter={StaticResource BoolVis}}"
+                                         Text="{x:Bind ViewModel.ScopePathsText, Mode=TwoWay}" />
+
+                                <TextBox Header="Excluded folders"
+                                         PlaceholderText="One path per line"
+                                         AcceptsReturn="True"
+                                         Visibility="{x:Bind ViewModel.IsExcludedScopeMode, Mode=OneWay, Converter={StaticResource BoolVis}}"
+                                         Text="{x:Bind ViewModel.ExcludedScopePathsText, Mode=TwoWay}" />
+
+                                <TextBox Header="Custom extensions"
+                                         PlaceholderText=".jpg,.png,.mp4,.pdf"
+                                         Visibility="{x:Bind ViewModel.IsCustomCategorySelected, Mode=OneWay, Converter={StaticResource BoolVis}}"
+                                         Text="{x:Bind ViewModel.CustomExtensionsText, Mode=TwoWay}" />
+                            </StackPanel>
+                        </Expander>
+                    </StackPanel>
+
+                    <StackPanel Grid.Column="1" Spacing="12">
+                        <TextBlock Text="Match methods"
+                                   Style="{StaticResource BodyStrongTextBlockStyle}" />
+
+                        <Border Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}"
+                                CornerRadius="8"
+                                Padding="12">
+                            <StackPanel Spacing="10">
+                                <TextBlock Text="Exact match is always on."
+                                           FontWeight="SemiBold" />
+                                <ToggleSwitch Header="Text documents"
+                                              IsOn="{x:Bind ViewModel.IncludeNormalizedText, Mode=TwoWay}" />
+                                <ToggleSwitch Header="Similar images"
+                                              IsOn="{x:Bind ViewModel.IncludeImagePHash, Mode=TwoWay}"
+                                              IsEnabled="{x:Bind ViewModel.IsImagePHashAvailable, Mode=OneWay}" />
+                                <TextBlock Text="{x:Bind ViewModel.ImageMethodSummary, Mode=OneWay}"
+                                           Style="{StaticResource CaptionTextBlockStyle}"
+                                           Opacity="0.72"
+                                           TextWrapping="WrapWholeWords" />
+                                <ToggleSwitch Header="Similar videos"
+                                              IsOn="{x:Bind ViewModel.IncludeVideoPHash, Mode=TwoWay}"
+                                              IsEnabled="{x:Bind ViewModel.IsVideoPHashAvailable, Mode=OneWay}" />
+                                <TextBlock Text="{x:Bind ViewModel.VideoMethodSummary, Mode=OneWay}"
+                                           Style="{StaticResource CaptionTextBlockStyle}"
+                                           Opacity="0.72"
+                                           TextWrapping="WrapWholeWords" />
+                            </StackPanel>
+                        </Border>
+
+                        <Expander Header="Advanced options">
+                            <StackPanel Spacing="10" Padding="0,12,0,0">
+                                <ToggleSwitch Header="Include hidden and system files"
+                                              IsOn="{x:Bind ViewModel.IncludeHiddenFiles, Mode=TwoWay}" />
+                                <ToggleSwitch Header="Include reparse points"
+                                              IsOn="{x:Bind ViewModel.IncludeReparsePoints, Mode=TwoWay}" />
+                                <ToggleSwitch Header="Use Recycle Bin"
+                                              IsOn="{x:Bind ViewModel.UseRecycleBin, Mode=TwoWay}" />
+                                <ToggleSwitch Header="Use quarantine"
+                                              IsOn="{x:Bind ViewModel.UseQuarantine, Mode=TwoWay}" />
+                                <TextBlock Text="{x:Bind ViewModel.DeleteModeSummary, Mode=OneWay}"
+                                           Style="{StaticResource CaptionTextBlockStyle}"
+                                           Opacity="0.72"
+                                           TextWrapping="WrapWholeWords" />
+                            </StackPanel>
+                        </Expander>
                     </StackPanel>
                 </Grid>
 
-                <StackPanel Orientation="Horizontal" Spacing="16">
-                    <ToggleSwitch Header="Normalized text"
-                                  IsOn="{x:Bind ViewModel.IncludeNormalizedText, Mode=TwoWay}" />
-                    <ToggleSwitch Header="Image pHash"
-                                  IsOn="{x:Bind ViewModel.IncludeImagePHash, Mode=TwoWay}"
-                                  IsEnabled="{x:Bind ViewModel.IsImagePHashAvailable, Mode=OneWay}" />
-                    <ToggleSwitch Header="Video pHash"
-                                  IsOn="{x:Bind ViewModel.IncludeVideoPHash, Mode=TwoWay}"
-                                  IsEnabled="{x:Bind ViewModel.IsVideoPHashAvailable, Mode=OneWay}" />
-                    <ToggleSwitch Header="Hidden/system"
-                                  IsOn="{x:Bind ViewModel.IncludeHiddenFiles, Mode=TwoWay}" />
-                    <ToggleSwitch Header="Reparse points"
-                                  IsOn="{x:Bind ViewModel.IncludeReparsePoints, Mode=TwoWay}" />
-                </StackPanel>
-
-                <TextBlock Text="{x:Bind ViewModel.ProviderSummary, Mode=OneWay}"
-                           Style="{StaticResource CaptionTextBlockStyle}"
-                           Opacity="0.7"
-                           TextWrapping="WrapWholeWords" />
-                <TextBlock Text="{x:Bind ViewModel.StatusText, Mode=OneWay}"
-                           TextWrapping="WrapWholeWords"
-                           Opacity="0.85" />
-                <StackPanel Orientation="Horizontal" Spacing="12">
-                    <ProgressRing IsActive="{x:Bind ViewModel.IsRunning, Mode=OneWay}"
-                                  Width="24"
-                                  Height="24" />
-                    <TextBlock Text="{x:Bind ViewModel.ProgressPhase, Mode=OneWay}" />
-                    <TextBlock Text="{x:Bind ViewModel.ProgressText, Mode=OneWay}" />
-                </StackPanel>
-            </StackPanel>
+                <Grid Grid.Row="1" ColumnSpacing="12">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <ProgressRing Grid.Column="0"
+                                  IsActive="{x:Bind ViewModel.IsRunning, Mode=OneWay}"
+                                  Width="22"
+                                  Height="22" />
+                    <TextBlock Grid.Column="1"
+                               Text="{x:Bind ViewModel.StatusText, Mode=OneWay}"
+                               TextWrapping="WrapWholeWords"
+                               Opacity="0.85" />
+                    <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8">
+                        <TextBlock Text="{x:Bind ViewModel.ProgressPhase, Mode=OneWay}" />
+                        <TextBlock Text="{x:Bind ViewModel.ProgressText, Mode=OneWay}" />
+                    </StackPanel>
+                </Grid>
+            </Grid>
         </Border>
 
         <Grid Grid.Row="2" ColumnSpacing="12">
@@ -177,7 +235,7 @@
                     CornerRadius="10"
                     Padding="14">
                 <StackPanel>
-                    <TextBlock Text="Groups" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                    <TextBlock Text="Groups found" Style="{StaticResource BodyStrongTextBlockStyle}" />
                     <TextBlock Text="{x:Bind ViewModel.TotalGroupCount, Mode=OneWay}" />
                 </StackPanel>
             </Border>
@@ -187,7 +245,7 @@
                     CornerRadius="10"
                     Padding="14">
                 <StackPanel>
-                    <TextBlock Text="Exact" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                    <TextBlock Text="Safe exact" Style="{StaticResource BodyStrongTextBlockStyle}" />
                     <TextBlock Text="{x:Bind ViewModel.ExactGroupCount, Mode=OneWay}" />
                 </StackPanel>
             </Border>
@@ -197,7 +255,7 @@
                     CornerRadius="10"
                     Padding="14">
                 <StackPanel>
-                    <TextBlock Text="Review required" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                    <TextBlock Text="Needs review" Style="{StaticResource BodyStrongTextBlockStyle}" />
                     <TextBlock Text="{x:Bind ViewModel.ReviewGroupCount, Mode=OneWay}" />
                 </StackPanel>
             </Border>
@@ -253,30 +311,42 @@
                                 IsEnabled="{x:Bind ViewModel.CanLoadNextGroups, Mode=OneWay}" />
                     </Grid>
 
-                    <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="12">
-                        <ComboBox Width="180"
-                                  Header="Sort"
-                                  ItemsSource="{x:Bind ViewModel.GroupSortOptions, Mode=OneWay}"
-                                  SelectedItem="{x:Bind ViewModel.GroupSortBy, Mode=TwoWay}" />
-                        <NumberBox Width="160"
-                                   Header="Min confidence"
-                                   Minimum="0"
-                                   Maximum="1"
-                                   SmallChange="0.1"
-                                   SpinButtonPlacementMode="Inline"
-                                   Value="{x:Bind ViewModel.MinimumConfidenceFilter, Mode=TwoWay}" />
-                        <ComboBox Width="160"
-                                  Header="Method"
-                                  ItemsSource="{x:Bind ViewModel.MethodFilterOptions}"
-                                  SelectedItem="{x:Bind ViewModel.SelectedMethodFilter, Mode=TwoWay}"
-                                  DisplayMemberPath="Label" />
-                        <ToggleSwitch Header="Selected only"
-                                      IsOn="{x:Bind ViewModel.FilterSelectedOnly, Mode=TwoWay}" />
-                        <ToggleSwitch Header="Missing only"
-                                      IsOn="{x:Bind ViewModel.FilterMissingOnly, Mode=TwoWay}" />
-                        <ToggleSwitch Header="Errored only"
-                                      IsOn="{x:Bind ViewModel.FilterErroredOnly, Mode=TwoWay}" />
-                    </StackPanel>
+                    <Expander Grid.Row="1" Header="More filters">
+                        <StackPanel Spacing="12" Padding="0,12,0,0">
+                            <Grid ColumnSpacing="12">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <ComboBox Grid.Column="0"
+                                          Header="Sort"
+                                          ItemsSource="{x:Bind ViewModel.GroupSortOptions, Mode=OneWay}"
+                                          SelectedItem="{x:Bind ViewModel.GroupSortBy, Mode=TwoWay}" />
+                                <NumberBox Grid.Column="1"
+                                           Header="Min confidence"
+                                           Minimum="0"
+                                           Maximum="1"
+                                           SmallChange="0.1"
+                                           SpinButtonPlacementMode="Inline"
+                                           Value="{x:Bind ViewModel.MinimumConfidenceFilter, Mode=TwoWay}" />
+                                <ComboBox Grid.Column="2"
+                                          Header="Method"
+                                          ItemsSource="{x:Bind ViewModel.MethodFilterOptions}"
+                                          SelectedItem="{x:Bind ViewModel.SelectedMethodFilter, Mode=TwoWay}"
+                                          DisplayMemberPath="Label" />
+                            </Grid>
+
+                            <StackPanel Orientation="Horizontal" Spacing="16">
+                                <ToggleSwitch Header="Selected only"
+                                              IsOn="{x:Bind ViewModel.FilterSelectedOnly, Mode=TwoWay}" />
+                                <ToggleSwitch Header="Missing only"
+                                              IsOn="{x:Bind ViewModel.FilterMissingOnly, Mode=TwoWay}" />
+                                <ToggleSwitch Header="Errored only"
+                                              IsOn="{x:Bind ViewModel.FilterErroredOnly, Mode=TwoWay}" />
+                            </StackPanel>
+                        </StackPanel>
+                    </Expander>
 
                     <ListView Grid.Row="2"
                               ItemsSource="{x:Bind ViewModel.Groups}"
@@ -300,11 +370,10 @@
                                         <TextBlock Text="{x:Bind PathSummary}"
                                                    TextWrapping="WrapWholeWords"
                                                    Opacity="0.72" />
-                                        <Grid ColumnDefinitions="Auto,Auto,Auto,Auto" ColumnSpacing="12">
-                                            <TextBlock Grid.Column="0" Text="{x:Bind MemberCount}" />
-                                            <TextBlock Grid.Column="1" Text="{x:Bind TotalSizeText}" />
-                                            <TextBlock Grid.Column="2" Text="{x:Bind ReclaimableText}" />
-                                            <TextBlock Grid.Column="3" Text="{x:Bind SelectedCount}" />
+                                        <Grid ColumnDefinitions="Auto,Auto,Auto" ColumnSpacing="12">
+                                            <TextBlock Grid.Column="0" Text="{x:Bind MemberCountText}" />
+                                            <TextBlock Grid.Column="1" Text="{x:Bind ReclaimableSummaryText}" />
+                                            <TextBlock Grid.Column="2" Text="{x:Bind SelectedCountText}" />
                                         </Grid>
                                     </StackPanel>
                                 </Border>
@@ -337,36 +406,18 @@
                               Visibility="{x:Bind ViewModel.HasSelectedGroup, Mode=OneWay, Converter={StaticResource BoolVis}}">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                                <ColumnDefinition Width="Auto" />
-                                <ColumnDefinition Width="Auto" />
-                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="260" />
                             </Grid.ColumnDefinitions>
                             <StackPanel Grid.Column="0">
                                 <TextBlock Text="{x:Bind ViewModel.SelectedGroup.MethodText, Mode=OneWay}"
                                            Style="{StaticResource BodyStrongTextBlockStyle}" />
                                 <TextBlock Text="{x:Bind ViewModel.SelectedGroup.BadgeText, Mode=OneWay}" Opacity="0.75" />
                             </StackPanel>
-                            <Button Grid.Column="1"
-                                    Margin="8,0,0,0"
-                                    Content="Keep newest"
-                                    Command="{x:Bind ViewModel.KeepNewestCommand}"
-                                    CommandParameter="{x:Bind ViewModel.SelectedGroup, Mode=OneWay}" />
-                            <Button Grid.Column="2"
-                                    Margin="8,0,0,0"
-                                    Content="Keep oldest"
-                                    Command="{x:Bind ViewModel.KeepOldestCommand}"
-                                    CommandParameter="{x:Bind ViewModel.SelectedGroup, Mode=OneWay}" />
-                            <Button Grid.Column="3"
-                                    Margin="8,0,0,0"
-                                    Content="Keep shortest path"
-                                    Command="{x:Bind ViewModel.KeepShortestPathCommand}"
-                                    CommandParameter="{x:Bind ViewModel.SelectedGroup, Mode=OneWay}" />
-                            <Button Grid.Column="4"
-                                    Margin="8,0,0,0"
-                                    Content="Keep longest path"
-                                    Command="{x:Bind ViewModel.KeepLongestPathCommand}"
-                                    CommandParameter="{x:Bind ViewModel.SelectedGroup, Mode=OneWay}" />
+                            <ComboBox Grid.Column="1"
+                                      Header="Keep one file by"
+                                      Margin="8,0,0,0"
+                                      ItemsSource="{x:Bind ViewModel.KeeperPolicyOptions, Mode=OneWay}"
+                                      SelectedItem="{x:Bind ViewModel.KeeperPolicy, Mode=TwoWay}" />
                         </Grid>
 
                         <TextBlock Grid.Row="1"

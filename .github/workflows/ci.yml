@@ -30,7 +30,9 @@ jobs:
         run: dotnet restore StorageMaster.sln
 
       - name: Verify formatting
-        run: dotnet format --verify-no-changes
+        shell: pwsh
+        run: |
+          & "$env:DOTNET_ROOT\dotnet.exe" format StorageMaster.sln --verify-no-changes --no-restore
 
       - name: Build solution
         run: dotnet build StorageMaster.sln -c Release --no-restore

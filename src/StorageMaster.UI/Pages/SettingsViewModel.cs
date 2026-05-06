@@ -30,6 +30,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     private readonly IScheduledTaskService _scheduledTaskService;
     private readonly StartupRegistrationService _startupRegistration;
     private AppSettings _loadedSettings = new();
+    private AppSettings? _editorSnapshot;
 
     private CancellationTokenSource? _downloadCts;
     private CancellationTokenSource? _messageCts;
@@ -81,6 +82,14 @@ public sealed partial class SettingsViewModel : ObservableObject
     [ObservableProperty] private int _duplicateMaxVideoDurationSeconds = 1800;
     [ObservableProperty] private string _ffmpegPath = string.Empty;
 
+    // ── UI preferences ───────────────────────────────────────────────────────
+    [ObservableProperty] private UiDensity _uiDensity = UiDensity.Default;
+    [ObservableProperty] private bool _reduceAnimations;
+    [ObservableProperty] private string _defaultLandingPage = "Dashboard";
+    [ObservableProperty] private int _defaultResultsPageSize = 100;
+    [ObservableProperty] private string _defaultDuplicatesReviewMode = "Exact";
+    [ObservableProperty] private bool _expandAdvancedOptionsByDefault;
+
     // ── Update preferences ───────────────────────────────────────────────────
     [ObservableProperty] private bool _checkOnStartup = true;
     [ObservableProperty] private bool _includePrerelease = false;
@@ -111,6 +120,12 @@ public sealed partial class SettingsViewModel : ObservableObject
     [ObservableProperty] private string _updateStatusMessage = string.Empty;
     [ObservableProperty] private UpdateInfo? _availableUpdate;
 
+    // ── Hub / editor state ───────────────────────────────────────────────────
+    [ObservableProperty] private SettingsCategory _selectedCategory = SettingsCategory.General;
+    [ObservableProperty] private bool _isEditorOpen;
+    [ObservableProperty] private string _searchQuery = string.Empty;
+    [ObservableProperty] private string _editorValidationMessage = string.Empty;
+
     partial void OnIsCheckingForUpdatesChanged(bool value)
     {
         OnPropertyChanged(nameof(CanCheckForUpdates));
@@ -134,6 +149,22 @@ public sealed partial class SettingsViewModel : ObservableObject
         OnPropertyChanged(nameof(CanDownloadAndInstall));
         NotifyUpdateCommandStates();
     }
+
+    partial void OnSelectedCategoryChanged(SettingsCategory value)
+    {
+        OnPropertyChanged(nameof(SelectedCategoryTitle));
+        OnPropertyChanged(nameof(IsGeneralSelected));
+        OnPropertyChanged(nameof(IsScanningSelected));
+        OnPropertyChanged(nameof(IsCleanupSelected));
+        OnPropertyChanged(nameof(IsDuplicatesSelected));
+        OnPropertyChanged(nameof(IsResultsHistorySelected));
+        OnPropertyChanged(nameof(IsSchedulingSelected));
+        OnPropertyChanged(nameof(IsTrayNotificationsSelected));
+        OnPropertyChanged(nameof(IsUpdatesSelected));
+        OnPropertyChanged(nameof(IsAdvancedDiagnosticsSelected));
+    }
+
+    partial void OnSearchQueryChanged(string value) => FilterCategories();
 
     public bool CanCheckForUpdates => !IsCheckingForUpdates && !IsDownloadingUpdate;
     public bool HasUpdateAvailable => AvailableUpdate is not null;
@@ -160,6 +191,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     public ObservableCollection<string> ExcludedPaths { get; } = [];
     public ObservableCollection<ScheduledJobEditorItem> ScheduledJobs { get; } = [];
     public Array ThemeOptions => Enum.GetValues(typeof(ThemePreference));
+    public Array UiDensityOptions => Enum.GetValues(typeof(UiDensity));
     public Array KeeperPolicyOptions => Enum.GetValues(typeof(KeeperPolicy));
     public Array ScheduledJobKindOptions => Enum.GetValues(typeof(ScheduledJobKind));
     public Array ScheduledJobFrequencyOptions => Enum.GetValues(typeof(ScheduledJobFrequency));
@@ -181,6 +213,34 @@ public sealed partial class SettingsViewModel : ObservableObject
     public bool CanDeleteScheduledJob => SelectedScheduledJob is not null && !IsSavingScheduledJob;
     public string FfmpegDetectionText => BuildFfmpegDetectionText();
 
+    public string SelectedCategoryTitle => SelectedCategory switch
+    {
+        SettingsCategory.General => "General & Appearance",
+        SettingsCategory.Scanning => "Scanning & Performance",
+        SettingsCategory.Cleanup => "Cleanup & Safety",
+        SettingsCategory.Duplicates => "Duplicates & Matching",
+        SettingsCategory.ResultsHistory => "Results & History",
+        SettingsCategory.Scheduling => "Scheduling & Automation",
+        SettingsCategory.TrayNotifications => "Background, Tray & Notifications",
+        SettingsCategory.Updates => "Updates & Security",
+        SettingsCategory.AdvancedDiagnostics => "Advanced Diagnostics & About",
+        _ => "Settings",
+    };
+
+    public bool IsGeneralSelected => SelectedCategory == SettingsCategory.General;
+    public bool IsScanningSelected => SelectedCategory == SettingsCategory.Scanning;
+    public bool IsCleanupSelected => SelectedCategory == SettingsCategory.Cleanup;
+    public bool IsDuplicatesSelected => SelectedCategory == SettingsCategory.Duplicates;
+    public bool IsResultsHistorySelected => SelectedCategory == SettingsCategory.ResultsHistory;
+    public bool IsSchedulingSelected => SelectedCategory == SettingsCategory.Scheduling;
+    public bool IsTrayNotificationsSelected => SelectedCategory == SettingsCategory.TrayNotifications;
+    public bool IsUpdatesSelected => SelectedCategory == SettingsCategory.Updates;
+    public bool IsAdvancedDiagnosticsSelected => SelectedCategory == SettingsCategory.AdvancedDiagnostics;
+
+    public ObservableCollection<SettingsCategoryItem> FilteredCategories { get; } = [];
+
+    private readonly SettingsCategoryItem[] _allCategories;
+
     public SettingsViewModel(
         ISettingsRepository repo,
         IUpdateService updateService,
@@ -195,6 +255,22 @@ public sealed partial class SettingsViewModel : ObservableObject
         _diagnostics = diagnostics;
         _scheduledTaskService = scheduledTaskService;
         _startupRegistration = startupRegistration;
+
+        _allCategories =
+        [
+            new SettingsCategoryItem(SettingsCategory.General, "General & Appearance", "Theme, density, landing page, and scan path.", "\uE771"),
+            new SettingsCategoryItem(SettingsCategory.Scanning, "Scanning & Performance", "Parallelism, hidden files, exclusions, and retention.", "\uE8B5"),
+            new SettingsCategoryItem(SettingsCategory.Cleanup, "Cleanup & Safety", "Deletion behaviour, thresholds, and default rules.", "\uE74C"),
+            new SettingsCategoryItem(SettingsCategory.Duplicates, "Duplicates & Matching", "Detection methods, keeper policy, and FFmpeg.", "\uE8B7"),
+            new SettingsCategoryItem(SettingsCategory.ResultsHistory, "Results & History", "History retention and default page size.", "\uE81C"),
+            new SettingsCategoryItem(SettingsCategory.Scheduling, "Scheduling & Automation", "Scheduled scans, cleanup jobs, and triggers.", "\uE8C0"),
+            new SettingsCategoryItem(SettingsCategory.TrayNotifications, "Background, Tray & Notifications", "Tray minimise, startup, and low-disk alerts.", "\uE7E8"),
+            new SettingsCategoryItem(SettingsCategory.Updates, "Updates & Security", "Startup checks, pre-releases, and signing.", "\uE8C3"),
+            new SettingsCategoryItem(SettingsCategory.AdvancedDiagnostics, "Advanced Diagnostics & About", "Diagnostics export and version info.", "\uE9CE"),
+        ];
+
+        foreach (var c in _allCategories)
+            FilteredCategories.Add(c);
     }
 
     partial void OnLargeFileSizeMbChanged(int value) => OnPropertyChanged(nameof(LargeFileThresholdLabel));
@@ -215,8 +291,6 @@ public sealed partial class SettingsViewModel : ObservableObject
         ValidateFfmpegPath();
         OnPropertyChanged(nameof(FfmpegDetectionText));
     }
-    partial void OnDefaultScanPathErrorChanged(string value) => OnPropertyChanged(nameof(HasDefaultScanPathError));
-    partial void OnFfmpegPathErrorChanged(string value) => OnPropertyChanged(nameof(HasFfmpegPathError));
     partial void OnSelectedScheduledJobChanged(ScheduledJobEditorItem? value)
     {
         OnPropertyChanged(nameof(HasScheduledJobSelection));
@@ -238,52 +312,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     {
         var s = await _repo.LoadAsync();
         _loadedSettings = CloneSettings(s);
-        PreferRecycleBin = s.PreferRecycleBin;
-        DryRunByDefault = s.DryRunByDefault;
-        LargeFileSizeMb = s.LargeFileSizeMb;
-        OldFileAgeDays = s.OldFileAgeDays;
-        DefaultScanPath = s.DefaultScanPath;
-        ScanParallelism = s.ScanParallelism;
-        ShowHiddenFiles = s.ShowHiddenFiles;
-        SkipSystemFolders = s.SkipSystemFolders;
-        UseTurboScanner = s.UseTurboScanner;
-        Theme = s.Theme;
-        ScanHistoryRetentionDays = s.ScanHistoryRetentionDays;
-        CleanRecycleBin = s.CleanRecycleBin;
-        CleanTempFiles = s.CleanTempFiles;
-        CleanDownloadedInstallers = s.CleanDownloadedInstallers;
-        ClearEntireDownloads = s.ClearEntireDownloads;
-        CleanCacheFolders = s.CleanCacheFolders;
-        CleanBrowserCache = s.CleanBrowserCache;
-        CleanWindowsUpdateCache = s.CleanWindowsUpdateCache;
-        CleanDeliveryOptimization = s.CleanDeliveryOptimization;
-        CleanWindowsErrorReports = s.CleanWindowsErrorReports;
-        CleanProgramLeftovers = s.CleanProgramLeftovers;
-        CleanLargeOldFiles = s.CleanLargeOldFiles;
-        CleanThumbnailCache = s.CleanThumbnailCache;
-        CleanIconCache = s.CleanIconCache;
-        CleanFontCache = s.CleanFontCache;
-        CleanDnsCache = s.CleanDnsCache;
-        CleanPrefetchFiles = s.CleanPrefetchFiles;
-        CleanStoreLogs = s.CleanStoreLogs;
-        DuplicateMinimumSizeMb = s.DuplicateMinimumSizeMb;
-        DuplicateKeeperPolicy = s.DuplicateKeeperPolicy;
-        DuplicateUseNormalizedText = s.DuplicateUseNormalizedText;
-        DuplicateUseImagePHash = s.DuplicateUseImagePHash;
-        DuplicateUseVideoPHash = s.DuplicateUseVideoPHash;
-        DuplicateImagePHashThreshold = s.DuplicateImagePHashThreshold;
-        DuplicateVideoFrameThreshold = s.DuplicateVideoFrameThreshold;
-        DuplicateMaxVideoDurationSeconds = s.DuplicateMaxVideoDurationSeconds;
-        FfmpegPath = FfmpegPathNormalizer.Normalize(s.FfmpegPath);
-        CheckOnStartup = s.CheckOnStartup;
-        IncludePrerelease = s.IncludePrerelease;
-        RequireSignedUpdates = s.RequireSignedUpdates;
-        MinimizeToTray = s.MinimizeToTray;
-        StartTrayOnLogin = s.StartTrayOnLogin || _startupRegistration.IsEnabled();
-        EnableLowDiskNotifications = s.EnableLowDiskNotifications;
-        LowDiskWarningPercent = s.LowDiskWarningPercent;
-        LowDiskCriticalPercent = s.LowDiskCriticalPercent;
-        ScheduledTasksEnabled = s.ScheduledTasksEnabled;
+        ApplySettings(s);
 
         ExcludedPaths.Clear();
         foreach (var p in s.ExcludedPaths)
@@ -297,10 +326,11 @@ public sealed partial class SettingsViewModel : ObservableObject
         OnPropertyChanged(nameof(FfmpegDetectionText));
         OnPropertyChanged(nameof(CanSave));
 
-        // Reflect any update already found by the startup background check.
         AvailableUpdate = _updateService.LastCheckResult;
         if (AvailableUpdate is not null)
             UpdateStatusMessage = $"Update to {AvailableUpdate.Version.ToString(3)} is ready to download.";
+
+        RefreshCategorySummaries();
     }
 
     public void AddExcludedPath(string path)
@@ -315,6 +345,116 @@ public sealed partial class SettingsViewModel : ObservableObject
     private void RemoveExcludedPath(string path) => ExcludedPaths.Remove(path);
 
     [RelayCommand]
+    private void OpenCategory(SettingsCategory category)
+    {
+        SelectedCategory = category;
+        _editorSnapshot = CloneSettings(BuildSettings());
+        EditorValidationMessage = string.Empty;
+        IsEditorOpen = true;
+    }
+
+    [RelayCommand]
+    private void CloseEditor()
+    {
+        IsEditorOpen = false;
+        _editorSnapshot = null;
+    }
+
+    [RelayCommand]
+    private void CancelCategory()
+    {
+        if (_editorSnapshot is not null)
+            ApplySettings(_editorSnapshot);
+
+        IsEditorOpen = false;
+        _editorSnapshot = null;
+    }
+
+    [RelayCommand]
+    private void ResetCategory()
+    {
+        var defaults = new AppSettings();
+        switch (SelectedCategory)
+        {
+            case SettingsCategory.General:
+                Theme = defaults.Theme;
+                DefaultScanPath = defaults.DefaultScanPath;
+                UiDensity = defaults.UiDensity;
+                ReduceAnimations = defaults.ReduceAnimations;
+                DefaultLandingPage = defaults.DefaultLandingPage;
+                ExpandAdvancedOptionsByDefault = defaults.ExpandAdvancedOptionsByDefault;
+                break;
+            case SettingsCategory.Scanning:
+                ScanParallelism = defaults.ScanParallelism;
+                UseTurboScanner = defaults.UseTurboScanner;
+                ShowHiddenFiles = defaults.ShowHiddenFiles;
+                SkipSystemFolders = defaults.SkipSystemFolders;
+                ScanHistoryRetentionDays = defaults.ScanHistoryRetentionDays;
+                ExcludedPaths.Clear();
+                break;
+            case SettingsCategory.Cleanup:
+                PreferRecycleBin = defaults.PreferRecycleBin;
+                DryRunByDefault = defaults.DryRunByDefault;
+                LargeFileSizeMb = defaults.LargeFileSizeMb;
+                OldFileAgeDays = defaults.OldFileAgeDays;
+                CleanRecycleBin = defaults.CleanRecycleBin;
+                CleanTempFiles = defaults.CleanTempFiles;
+                CleanDownloadedInstallers = defaults.CleanDownloadedInstallers;
+                ClearEntireDownloads = defaults.ClearEntireDownloads;
+                CleanCacheFolders = defaults.CleanCacheFolders;
+                CleanBrowserCache = defaults.CleanBrowserCache;
+                CleanWindowsUpdateCache = defaults.CleanWindowsUpdateCache;
+                CleanDeliveryOptimization = defaults.CleanDeliveryOptimization;
+                CleanWindowsErrorReports = defaults.CleanWindowsErrorReports;
+                CleanProgramLeftovers = defaults.CleanProgramLeftovers;
+                CleanLargeOldFiles = defaults.CleanLargeOldFiles;
+                CleanThumbnailCache = defaults.CleanThumbnailCache;
+                CleanIconCache = defaults.CleanIconCache;
+                CleanFontCache = defaults.CleanFontCache;
+                CleanDnsCache = defaults.CleanDnsCache;
+                CleanPrefetchFiles = defaults.CleanPrefetchFiles;
+                CleanStoreLogs = defaults.CleanStoreLogs;
+                break;
+            case SettingsCategory.Duplicates:
+                DuplicateMinimumSizeMb = defaults.DuplicateMinimumSizeMb;
+                DuplicateKeeperPolicy = defaults.DuplicateKeeperPolicy;
+                DuplicateUseNormalizedText = defaults.DuplicateUseNormalizedText;
+                DuplicateUseImagePHash = defaults.DuplicateUseImagePHash;
+                DuplicateUseVideoPHash = defaults.DuplicateUseVideoPHash;
+                DuplicateImagePHashThreshold = defaults.DuplicateImagePHashThreshold;
+                DuplicateVideoFrameThreshold = defaults.DuplicateVideoFrameThreshold;
+                DuplicateMaxVideoDurationSeconds = defaults.DuplicateMaxVideoDurationSeconds;
+                FfmpegPath = defaults.FfmpegPath;
+                DefaultDuplicatesReviewMode = defaults.DefaultDuplicatesReviewMode;
+                break;
+            case SettingsCategory.ResultsHistory:
+                ScanHistoryRetentionDays = defaults.ScanHistoryRetentionDays;
+                DefaultResultsPageSize = defaults.DefaultResultsPageSize;
+                break;
+            case SettingsCategory.Scheduling:
+                ScheduledTasksEnabled = defaults.ScheduledTasksEnabled;
+                break;
+            case SettingsCategory.TrayNotifications:
+                MinimizeToTray = defaults.MinimizeToTray;
+                StartTrayOnLogin = defaults.StartTrayOnLogin;
+                EnableLowDiskNotifications = defaults.EnableLowDiskNotifications;
+                LowDiskWarningPercent = defaults.LowDiskWarningPercent;
+                LowDiskCriticalPercent = defaults.LowDiskCriticalPercent;
+                break;
+            case SettingsCategory.Updates:
+                CheckOnStartup = defaults.CheckOnStartup;
+                IncludePrerelease = defaults.IncludePrerelease;
+                RequireSignedUpdates = defaults.RequireSignedUpdates;
+                break;
+            case SettingsCategory.AdvancedDiagnostics:
+                break;
+        }
+
+        ValidateDefaultScanPath();
+        ValidateFfmpegPath();
+    }
+
+    [RelayCommand]
     private async Task SaveAsync()
     {
         ValidateDefaultScanPath();
@@ -322,7 +462,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         OnPropertyChanged(nameof(CanSave));
         if (!CanSave)
         {
-            await ShowSavedMessageAsync("Fix validation errors before saving.");
+            EditorValidationMessage = "Fix validation errors before saving.";
             return;
         }
 
@@ -330,6 +470,8 @@ public sealed partial class SettingsViewModel : ObservableObject
         await _repo.SaveAsync(settings);
         _startupRegistration.SetEnabled(StartTrayOnLogin);
         _loadedSettings = CloneSettings(settings);
+        _editorSnapshot = CloneSettings(settings);
+        RefreshCategorySummaries();
         await ShowSavedMessageAsync("Settings saved.");
     }
 
@@ -541,7 +683,69 @@ public sealed partial class SettingsViewModel : ObservableObject
         settings.LowDiskCriticalPercent = Math.Clamp(LowDiskCriticalPercent, 1, 99);
         settings.ScheduledTasksEnabled = ScheduledTasksEnabled;
         settings.ExcludedPaths = ExcludedPaths.ToList();
+        settings.UiDensity = UiDensity;
+        settings.ReduceAnimations = ReduceAnimations;
+        settings.DefaultLandingPage = DefaultLandingPage;
+        settings.DefaultResultsPageSize = Math.Clamp(DefaultResultsPageSize, 10, 1000);
+        settings.DefaultDuplicatesReviewMode = DefaultDuplicatesReviewMode;
+        settings.ExpandAdvancedOptionsByDefault = ExpandAdvancedOptionsByDefault;
         return settings;
+    }
+
+    private void ApplySettings(AppSettings s)
+    {
+        PreferRecycleBin = s.PreferRecycleBin;
+        DryRunByDefault = s.DryRunByDefault;
+        LargeFileSizeMb = s.LargeFileSizeMb;
+        OldFileAgeDays = s.OldFileAgeDays;
+        DefaultScanPath = s.DefaultScanPath;
+        ScanParallelism = s.ScanParallelism;
+        ShowHiddenFiles = s.ShowHiddenFiles;
+        SkipSystemFolders = s.SkipSystemFolders;
+        UseTurboScanner = s.UseTurboScanner;
+        Theme = s.Theme;
+        ScanHistoryRetentionDays = s.ScanHistoryRetentionDays;
+        CleanRecycleBin = s.CleanRecycleBin;
+        CleanTempFiles = s.CleanTempFiles;
+        CleanDownloadedInstallers = s.CleanDownloadedInstallers;
+        ClearEntireDownloads = s.ClearEntireDownloads;
+        CleanCacheFolders = s.CleanCacheFolders;
+        CleanBrowserCache = s.CleanBrowserCache;
+        CleanWindowsUpdateCache = s.CleanWindowsUpdateCache;
+        CleanDeliveryOptimization = s.CleanDeliveryOptimization;
+        CleanWindowsErrorReports = s.CleanWindowsErrorReports;
+        CleanProgramLeftovers = s.CleanProgramLeftovers;
+        CleanLargeOldFiles = s.CleanLargeOldFiles;
+        CleanThumbnailCache = s.CleanThumbnailCache;
+        CleanIconCache = s.CleanIconCache;
+        CleanFontCache = s.CleanFontCache;
+        CleanDnsCache = s.CleanDnsCache;
+        CleanPrefetchFiles = s.CleanPrefetchFiles;
+        CleanStoreLogs = s.CleanStoreLogs;
+        DuplicateMinimumSizeMb = s.DuplicateMinimumSizeMb;
+        DuplicateKeeperPolicy = s.DuplicateKeeperPolicy;
+        DuplicateUseNormalizedText = s.DuplicateUseNormalizedText;
+        DuplicateUseImagePHash = s.DuplicateUseImagePHash;
+        DuplicateUseVideoPHash = s.DuplicateUseVideoPHash;
+        DuplicateImagePHashThreshold = s.DuplicateImagePHashThreshold;
+        DuplicateVideoFrameThreshold = s.DuplicateVideoFrameThreshold;
+        DuplicateMaxVideoDurationSeconds = s.DuplicateMaxVideoDurationSeconds;
+        FfmpegPath = FfmpegPathNormalizer.Normalize(s.FfmpegPath);
+        CheckOnStartup = s.CheckOnStartup;
+        IncludePrerelease = s.IncludePrerelease;
+        RequireSignedUpdates = s.RequireSignedUpdates;
+        MinimizeToTray = s.MinimizeToTray;
+        StartTrayOnLogin = s.StartTrayOnLogin || _startupRegistration.IsEnabled();
+        EnableLowDiskNotifications = s.EnableLowDiskNotifications;
+        LowDiskWarningPercent = s.LowDiskWarningPercent;
+        LowDiskCriticalPercent = s.LowDiskCriticalPercent;
+        ScheduledTasksEnabled = s.ScheduledTasksEnabled;
+        UiDensity = s.UiDensity;
+        ReduceAnimations = s.ReduceAnimations;
+        DefaultLandingPage = s.DefaultLandingPage;
+        DefaultResultsPageSize = s.DefaultResultsPageSize;
+        DefaultDuplicatesReviewMode = s.DefaultDuplicatesReviewMode;
+        ExpandAdvancedOptionsByDefault = s.ExpandAdvancedOptionsByDefault;
     }
 
     private void ValidateDefaultScanPath()
@@ -686,6 +890,69 @@ public sealed partial class SettingsViewModel : ObservableObject
         }
         catch (OperationCanceledException)
         {
+        }
+    }
+
+    private void FilterCategories()
+    {
+        FilteredCategories.Clear();
+        var query = SearchQuery.Trim();
+        foreach (var c in _allCategories)
+        {
+            if (string.IsNullOrWhiteSpace(query)
+                || c.Title.Contains(query, StringComparison.OrdinalIgnoreCase)
+                || c.Description.Contains(query, StringComparison.OrdinalIgnoreCase))
+            {
+                FilteredCategories.Add(c);
+            }
+        }
+    }
+
+    private void RefreshCategorySummaries()
+    {
+        foreach (var c in _allCategories)
+        {
+            switch (c.Category)
+            {
+                case SettingsCategory.General:
+                    c.StatusSummary = $"{Theme}";
+                    c.HasWarning = false;
+                    break;
+                case SettingsCategory.Scanning:
+                    c.StatusSummary = $"{ScanParallelism} threads · {ExcludedPaths.Count} exclusions";
+                    c.HasWarning = false;
+                    break;
+                case SettingsCategory.Cleanup:
+                    c.StatusSummary = PreferRecycleBin ? "Recycle Bin preferred" : "Permanent delete enabled";
+                    c.HasWarning = !PreferRecycleBin;
+                    c.WarningText = "Permanent deletion is risky. Enable Recycle Bin for safety.";
+                    break;
+                case SettingsCategory.Duplicates:
+                    c.StatusSummary = $"{DuplicateKeeperPolicy} keeper · {DuplicateMinimumSizeMb} MB min";
+                    c.HasWarning = false;
+                    break;
+                case SettingsCategory.ResultsHistory:
+                    c.StatusSummary = $"{ScanHistoryRetentionDays} days retention";
+                    c.HasWarning = false;
+                    break;
+                case SettingsCategory.Scheduling:
+                    c.StatusSummary = $"{ScheduledJobs.Count} job(s)";
+                    c.HasWarning = false;
+                    break;
+                case SettingsCategory.TrayNotifications:
+                    c.StatusSummary = MinimizeToTray ? "Tray enabled" : "Tray disabled";
+                    c.HasWarning = false;
+                    break;
+                case SettingsCategory.Updates:
+                    c.StatusSummary = CheckOnStartup ? "Auto-check on" : "Manual checks";
+                    c.HasWarning = !RequireSignedUpdates;
+                    c.WarningText = "Signed updates are recommended for security.";
+                    break;
+                case SettingsCategory.AdvancedDiagnostics:
+                    c.StatusSummary = $"v{CurrentVersion}";
+                    c.HasWarning = false;
+                    break;
+            }
         }
     }
 }

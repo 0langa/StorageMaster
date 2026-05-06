@@ -1,6 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Navigation;
 using Windows.Storage.Pickers;
 using WinRT.Interop;
@@ -28,6 +29,22 @@ public sealed partial class SettingsPage : Page
         {
             System.Diagnostics.Debug.WriteLine(ex);
         }
+    }
+
+    protected override void OnKeyDown(KeyRoutedEventArgs e)
+    {
+        base.OnKeyDown(e);
+        if (e.Key == Windows.System.VirtualKey.Escape && ViewModel.IsEditorOpen)
+        {
+            ViewModel.CancelCategoryCommand.Execute(null);
+            e.Handled = true;
+        }
+    }
+
+    private void CategoriesGridView_ItemClick(object sender, ItemClickEventArgs e)
+    {
+        if (e.ClickedItem is SettingsCategoryItem item)
+            ViewModel.OpenCategoryCommand.Execute(item.Category);
     }
 
     private void RemovePath_Click(object sender, RoutedEventArgs e)

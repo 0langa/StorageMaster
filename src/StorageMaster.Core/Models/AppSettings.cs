@@ -10,6 +10,13 @@ public enum ThemePreference
     Dark,
 }
 
+public enum UiDensity
+{
+    Compact,
+    Default,
+    Comfortable,
+}
+
 /// <summary>Persisted application preferences.</summary>
 public sealed class AppSettings
 {
@@ -80,6 +87,14 @@ public sealed class AppSettings
     /// Absolute path to ffmpeg.exe. Legacy directory values are normalized on load.
     /// </summary>
     public string FfmpegPath { get; set; } = string.Empty;
+
+    // ── UI preferences ─────────────────────────────────────────────────────
+    public UiDensity UiDensity { get; set; } = UiDensity.Default;
+    public bool ReduceAnimations { get; set; } = false;
+    public string DefaultLandingPage { get; set; } = "Dashboard";
+    public int DefaultResultsPageSize { get; set; } = 100;
+    public string DefaultDuplicatesReviewMode { get; set; } = "Exact";
+    public bool ExpandAdvancedOptionsByDefault { get; set; } = false;
 
     // Preserve forwards-compatible JSON fields on load-modify-save cycles.
     [JsonExtensionData]

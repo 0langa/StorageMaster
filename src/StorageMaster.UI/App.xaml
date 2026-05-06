@@ -24,6 +24,21 @@
                 <Setter Property="Opacity" Value="0.72" />
                 <Setter Property="TextWrapping" Value="WrapWholeWords" />
             </Style>
+            <Style x:Key="SettingsTileCardStyle" TargetType="Border">
+                <Setter Property="Background" Value="{ThemeResource CardBackgroundFillColorDefaultBrush}" />
+                <Setter Property="CornerRadius" Value="10" />
+                <Setter Property="Padding" Value="20" />
+            </Style>
+            <Style x:Key="StatusChipStyle" TargetType="Border">
+                <Setter Property="Background" Value="{ThemeResource AccentFillColorDefaultBrush}" />
+                <Setter Property="CornerRadius" Value="12" />
+                <Setter Property="Padding" Value="8,4" />
+            </Style>
+            <Style x:Key="EmptyStateTextStyle" TargetType="TextBlock">
+                <Setter Property="Style" Value="{StaticResource CaptionTextBlockStyle}" />
+                <Setter Property="Opacity" Value="0.55" />
+                <Setter Property="TextWrapping" Value="WrapWholeWords" />
+            </Style>
         </ResourceDictionary>
     </Application.Resources>
 </Application>

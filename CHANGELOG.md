@@ -4,6 +4,17 @@ All notable changes to StorageMaster are documented here.
 
 ---
 
+## [1.8.0] — 2026-05-06 — Settings Redesign And Accessibility
+
+- Redesigned Settings page into a category-tile hub with 9 categories: General & Appearance, Scanning & Performance, Cleanup & Safety, Duplicates & Matching, Results & History, Scheduling & Automation, Background/Tray & Notifications, Updates & Security, Advanced Diagnostics & About.
+- Clicking a tile opens a modal overlay editor with category-specific settings, Save, Cancel, Reset Category, and close actions.
+- Added real-time search/filter on the hub to find categories quickly.
+- Added cancellation-based dirty-state handling: Cancel reverts changes made since the editor opened.
+- Added `AutomationProperties.Name` and `AutomationProperties.HelpText` to every toggle, slider, text box, combo box, and button in Settings.
+- Added lightweight UI preference properties to `AppSettings`: UI density, reduce animations, default landing page, default results page size, default duplicates review mode, and expand-advanced-by-default.
+- Added shared styles for settings tiles, status chips, and empty states in `App.xaml`.
+- Updated ROADMAP to reflect shipped 1.7.4 baseline and 1.8.0 scope.
+
 ## [1.7.4] — 2026-05-06 — Results Hardening And UX Polish
 
 - Fixed the broken duplicate candidate category filter so image/video/document filters use real stored category values.

@@ -1,6 +1,6 @@
 # StorageMaster Roadmap
 
-Current deployed repository state: v1.7.4 on 2026-05-06. This roadmap replaces older v1.3-v1.7 planning text with the actual shipped state.
+Current deployed repository state: v1.8.0 on 2026-05-06. This roadmap replaces older v1.3-v1.8 planning text with the actual shipped state.
 
 ## Shipped baseline
 
@@ -13,6 +13,7 @@ Current deployed repository state: v1.7.4 on 2026-05-06. This roadmap replaces o
 | 1.7.1 | fixed Duplicates Visibility binding crash; committed Rust lockfile |
 | 1.7.2 | fixed updater Download & Install button state |
 | 1.7.4 | Results hardening: paged scan errors, lazy folder tree, cached repeat navigation, duplicate filter/export/previews hardening, dashboard/cleanup layout refresh, settings toast cancellation |
+| 1.8.0 | Settings redesign into category-tile hub with modal overlays, accessibility annotations, UI preferences layer, shared styles |
 
 ## Current feature inventory
 
@@ -25,21 +26,19 @@ Not present: treemap/sunburst visualization, WebView2/D3 assets, Serilog rolling
 | Priority | Work | Why |
 |---:|---|---|
 | 1 | Fix remaining correctness/data-loss edges in `FileDeleter`, scanner option validation, folder aggregation, and Shell32 return checking | prevents destructive or hanging behavior |
-| 2 | Accessibility pass: `AutomationProperties.Name/HelpText`, keyboard/focus, text scaling, high contrast | current XAML has zero automation properties |
-| 3 | Settings UX redesign into category tiles + overlays | current Settings page is a long stacked form |
-| 4 | Results/Duplicates/Cleanup performance profiling on million-file sessions | current code has paging/lazy loading but no benchmark suite |
-| 5 | Structured logging + diagnostics package | app uses Debug logger and local diagnostics, not production file logs |
-| 6 | Installer/runtime hardening | per-user install still requests admin; publish is framework-dependent |
-| 7 | Visualization: native charts first, then treemap/sunburst if still needed | currently absent and high effort |
-| 8 | Test expansion: ViewModels, platform wrappers, CLI, scheduler, updater failure modes | current tests are useful but not UI-heavy |
+| 2 | Accessibility pass for remaining pages: keyboard/focus, text scaling, high contrast, Narrator verification | Settings is done; Dashboard, Scan, Results, Duplicates, Cleanup remain |
+| 3 | Results/Duplicates/Cleanup performance profiling on million-file sessions | current code has paging/lazy loading but no benchmark suite |
+| 4 | Structured logging + diagnostics package | app uses Debug logger and local diagnostics, not production file logs |
+| 5 | Installer/runtime hardening | per-user install still requests admin; publish is framework-dependent |
+| 6 | Visualization: native charts first, then treemap/sunburst if still needed | currently absent and high effort |
+| 7 | Test expansion: ViewModels, platform wrappers, CLI, scheduler, updater failure modes | current tests are useful but not UI-heavy |
 
 ## Suggested release plan
 
 | Target | Scope |
 |---|---|
-| 1.7.5 | hotfixes: `ScanOptions` validation, `SHEmptyRecycleBin`/`SHQueryRecycleBin` return handling, `SemaphoreSlim` disposal in delete path, defensive folder aggregation, updater/CLI edge tests |
-| 1.8.0 | accessibility + Settings redesign + UI explanations for every setting/action/category |
-| 1.8.1 | Results/Duplicates scale hardening, benchmark project, repository query/index tuning |
+| 1.8.0 | Settings redesign + accessibility for Settings + UI explanations for every setting/action/category |
+| 1.8.1 | accessibility for remaining pages, Results/Duplicates scale hardening, benchmark project |
 | 1.9.0 | diagnostics/logging, installer/runtime cleanup, optional ARM64 release support |
 | 2.0.0 | visualization, first-run experience, broader export/reporting, polish pass |
 

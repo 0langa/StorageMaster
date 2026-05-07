@@ -4,6 +4,18 @@ All notable changes to StorageMaster are documented here.
 
 ---
 
+## [2.1.2] — 2026-05-07 — Deletion Safety Hardening
+
+- `FileDeleter` now refuses to operate on drive roots (`C:\`) and UNC share roots (`\\server\share`) — any such path returns a clear failure instead of silently wiping an entire volume.
+- Fixed `IFileOperation` batch recycle reporting silent partial failures: `FOF_NOERRORUI` causes the shell to skip locked or access-denied files while returning success; each path is now existence-checked after `PerformOperations` and failures are surfaced individually to the user.
+- Fixed `DeleteDirectoryRecursiveSafe` race condition: switched from lazy `EnumerateDirectories`/`EnumerateFiles` (which throw `DirectoryNotFoundException` mid-iteration) to eager `GetDirectories`/`GetFiles` snapshots; per-operation `DirectoryNotFoundException` and `FileNotFoundException` are caught so a folder vanishing during delete no longer aborts the entire tree.
+- Fixed `TempFilesCleanupRule` path boundary: temp root `C:\Windows\Temp` no longer incorrectly matches `C:\Windows\Temporary Internet Files` — each root is now normalized with a trailing separator before prefix comparison.
+- Fixed `DownloadedInstallersRule` with the same separator boundary fix for the Downloads root; the "Clear entire Downloads folder" option now targets individual file paths instead of the folder path itself, so `FileDeleter` can report per-file failures and the Downloads folder is preserved.
+- `DuplicateFilesCleanupRule` now checks `File.Exists(keeper.FullPath)` before suggesting duplicate deletion; if the keeper file was removed between scan time and cleanup analysis the entire group is skipped, preventing total data loss.
+- 34 new adversarial tests: `IsRootOrUncPrefix` boundary cases, root-guard for all deletion methods, read-only directory delete, vanished-file/directory race conditions, `EstimateSize` edge cases, quarantine collision counter suffix, path boundary correctness for Temp and Downloads rules, keeper-gone duplicate group skip.
+
+---
+
 ## [2.1.1] — 2026-05-07 — UI Polish
 
 - Fixed settings category tiles clipping description and badge text on two-line descriptions: the `GridView.ItemsWrapGrid` now measures each item at a fixed 350 px column width so wrapping text correctly reports its required height before the row slot is committed.

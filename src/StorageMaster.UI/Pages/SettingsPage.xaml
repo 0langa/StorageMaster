@@ -550,6 +550,13 @@
                           SelectionMode="None"
                           IsItemClickEnabled="True"
                           ItemClick="CategoriesGridView_ItemClick">
+                    <GridView.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <!-- ItemWidth forces measure-time width so WrapWholeWords text
+                                 correctly reports its wrapped height — prevents tile clipping. -->
+                            <ItemsWrapGrid Orientation="Horizontal" ItemWidth="350" />
+                        </ItemsPanelTemplate>
+                    </GridView.ItemsPanel>
                     <GridView.ItemContainerStyle>
                         <Style TargetType="GridViewItem">
                             <Setter Property="Margin" Value="8" />

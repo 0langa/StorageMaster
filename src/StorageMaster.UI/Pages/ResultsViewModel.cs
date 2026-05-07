@@ -72,6 +72,12 @@ public sealed partial class ResultsViewModel : ObservableObject
 
     public IReadOnlyList<FolderTreeNode> FolderTreeRoots => _folderTreeRoots;
 
+    /// <summary>
+    /// Raised on the UI thread after a category filter is applied from the File Types tab,
+    /// so the page can switch the pivot to Largest Files to show the filtered results.
+    /// </summary>
+    public event EventHandler? CategoryFilterApplied;
+
     public bool HasErrors => ErrorCount > 0;
     public bool HasCategoryFilter => !string.IsNullOrWhiteSpace(SelectedCategoryFilter);
     public bool HasSessionNote => !string.IsNullOrWhiteSpace(SessionNote);
@@ -429,6 +435,7 @@ public sealed partial class ResultsViewModel : ObservableObject
     {
         SelectedCategoryFilter = row.Category;
         await ApplyFilterAsync();
+        CategoryFilterApplied?.Invoke(this, EventArgs.Empty);
     }
 
     [RelayCommand]

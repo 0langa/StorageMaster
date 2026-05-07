@@ -26,6 +26,7 @@ public sealed partial class ResultsPage : Page
     {
         ViewModel = App.Services.GetRequiredService<ResultsViewModel>();
         InitializeComponent();
+        ViewModel.CategoryFilterApplied += OnCategoryFilterApplied;
     }
 
     protected override async void OnNavigatedTo(NavigationEventArgs e)
@@ -46,8 +47,18 @@ public sealed partial class ResultsPage : Page
 
     protected override void OnNavigatedFrom(NavigationEventArgs e)
     {
+        ViewModel.CategoryFilterApplied -= OnCategoryFilterApplied;
         ViewModel.CancelBackgroundWork();
         base.OnNavigatedFrom(e);
+    }
+
+    /// <summary>
+    /// Switches to the Largest Files tab after a category filter is applied from File Types,
+    /// so the user immediately sees the filtered file list.
+    /// </summary>
+    private void OnCategoryFilterApplied(object? sender, EventArgs e)
+    {
+        ResultsPivot.SelectedIndex = 0;
     }
 
     private async void ResultsPivot_SelectionChanged(object sender, SelectionChangedEventArgs e)

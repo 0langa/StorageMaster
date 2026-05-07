@@ -86,7 +86,8 @@
             </NavigationView.MenuItems>
 
             <NavigationView.PaneFooter>
-                <Border Margin="12" Padding="12" CornerRadius="{StaticResource TileCornerRadius}" Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}">
+                <Border x:Name="PaneFooterBorder"
+                        Margin="12" Padding="12" CornerRadius="{StaticResource TileCornerRadius}" Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}">
                     <StackPanel Spacing="4">
                         <TextBlock Text="Global status" Style="{StaticResource CaptionTextBlockStyle}" FontWeight="SemiBold" />
                         <TextBlock x:Name="PaneLatestScanText" Text="Latest scan unavailable" Style="{StaticResource GlobalStatusTextStyle}" />

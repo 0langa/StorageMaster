@@ -51,6 +51,9 @@ public sealed partial class MainWindow : Window
         _nav.Initialize(ContentFrame);
         _nav.Navigated += OnNavigated;
         _notificationService.NotificationRaised += OnNotificationRaised;
+        NavView.DisplayModeChanged += (_, _) => UpdatePaneFooterVisibility();
+        NavView.PaneOpened += (_, _) => UpdatePaneFooterVisibility();
+        NavView.PaneClosed += (_, _) => UpdatePaneFooterVisibility();
 
         Title = "StorageMaster";
         TryApplyMicaBackdrop();
@@ -215,6 +218,18 @@ public sealed partial class MainWindow : Window
         {
             _isUpdatingSelection = false;
         }
+    }
+
+    /// <summary>
+    /// Hides the PaneFooter status block when the pane is collapsed/compact so
+    /// the text does not render character-by-character in the 56 px icon strip.
+    /// </summary>
+    private void UpdatePaneFooterVisibility()
+    {
+        PaneFooterBorder.Visibility =
+            NavView.DisplayMode == NavigationViewDisplayMode.Expanded || NavView.IsPaneOpen
+                ? Visibility.Visible
+                : Visibility.Collapsed;
     }
 
     private async void OnWindowActivated(object sender, WindowActivatedEventArgs args)

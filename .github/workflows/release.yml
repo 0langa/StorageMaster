@@ -67,6 +67,15 @@ jobs:
       - name: Build test project (x64)
         run: dotnet build tests/StorageMaster.Tests/StorageMaster.Tests.csproj -c Release --no-restore -p:Platform=x64
 
+      - name: Install Windows App Runtime 1.6
+        shell: pwsh
+        run: |
+          $msix = "$env:USERPROFILE\.nuget\packages\microsoft.windowsappsdk\1.6.250205002\tools\MSIX\win10-x64\Microsoft.WindowsAppRuntime.1.6.msix"
+          if (-not (Test-Path $msix)) { throw "WinAppSDK MSIX not found at: $msix" }
+          Write-Host "Installing Windows App Runtime 1.6..."
+          Add-AppxPackage -Path $msix -ForceUpdateFromAnyVersion
+          Write-Host "Done."
+
       - name: Run tests (x64)
         run: dotnet test tests/StorageMaster.Tests/StorageMaster.Tests.csproj -c Release --verbosity normal --no-restore --no-build -p:Platform=x64
 

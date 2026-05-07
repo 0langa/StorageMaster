@@ -1,7 +1,7 @@
 # StorageMaster — Architecture Overview
 
-> **Version:** 1.9.0 | **Date:** 2026-05-06 | **Framework:** .NET 8 / WinUI 3 / Windows App SDK 1.8
-> **v1.9 update:** StorageMaster now includes a native WinUI Space Map treemap, Scan Delta Insights, schema v6 normalized path indexes, centralized version metadata in `Directory.Build.props`, scanner option validation, safer boundary-aware exclusions, hardened folder aggregation, and deletion hardening for read-only files, bounded size estimates, shell HRESULTs, and directory quarantine rejection.
+> **Version:** 1.9.6 | **Date:** 2026-05-07 | **Framework:** .NET 8 / WinUI 3 / Windows App SDK 1.6
+> **v1.9 update:** StorageMaster now includes a native WinUI Space Map treemap, Scan Delta Insights, schema v6 normalized path indexes, centralized version metadata in `Directory.Build.props`, scanner option validation, safer boundary-aware exclusions, hardened folder aggregation, deletion hardening, and a runtime rollback to the framework-dependent Windows App SDK 1.6 deployment path.
 
 ---
 

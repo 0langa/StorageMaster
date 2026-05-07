@@ -1,10 +1,10 @@
 # StorageMaster — v2.0.0 Development Plan
 
-> **Baseline:** v1.9.0 (2026-05-06)
+> **Baseline:** v1.9.6 (2026-05-07)
 > **Target:** v2.0.0 — feature-rich, fully hardened, production-grade Windows disk utility.
 > **Estimated total effort:** 12–18 weeks (1 developer)
 
-> **v1.9 status:** C1/C2/C3/C4/C5/C6/C7/C8 and H1/H2/H4/H14 are addressed in current code. Storage schema is v6 with normalized path indexes. Space Map and Scan Delta Insights are implemented natively with CSV/HTML/PNG export. Remaining v2 work should focus on STA shell abstraction tests, broad ViewModel/accessibility test coverage, app-local .NET runtime bootstrapper, richer diagnostics/logging, and performance benchmarks.
+> **v1.9 status:** C1/C2/C3/C4/C5/C6/C7/C8 and H1/H2/H4/H14 are addressed in current code. Storage schema is v6 with normalized path indexes. Space Map and Scan Delta Insights are implemented natively with CSV/HTML/PNG export. Release deployment is framework-dependent on Windows App SDK 1.6 with a staged runtime MSIX. Remaining v2 work should focus on STA shell abstraction tests, broad ViewModel/accessibility test coverage, app-local .NET runtime bootstrapper, richer diagnostics/logging, and performance benchmarks.
 
 ---
 
@@ -42,7 +42,7 @@
 | H15 | `RecyclePathsViaIFileOperation`: COM item leaks on `DeleteItem` exception | `FileDeleter.cs:189` |
 | H16 | No empty/loading/error states in most pages | All pages |
 | H17 | `FileTypeCategorizor` — misspelled class name | `FileTypeCategorizor.cs` |
-| H18 | Installer requests admin for per-user install location; no .NET runtime prereq check | `StorageMaster.iss` |
+| H18 | Installer is per-user and stages Windows App Runtime 1.6, but still has no .NET runtime prereq check | `StorageMaster.iss` |
 | H19 | `UpdateFolderTotalsAsync` issues 1 UPDATE per folder — extremely slow at scale | `ScanRepository.cs:304-348` |
 | H20 | `async void OnNavigatedTo` in all pages — unhandled exceptions leave page in broken state | All code-behind |
 | H21 | `CleanupPage` hardcoded `CategoryOptions[9]` index binding | `CleanupPage.xaml:100` |

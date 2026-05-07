@@ -1,7 +1,7 @@
 #define AppName "StorageMaster"
 ; AppVersion can be overridden at build time: iscc /DAppVersion=1.2.3 StorageMaster.iss
 #ifndef AppVersion
-  #define AppVersion "1.9.5"
+  #define AppVersion "1.9.6"
 #endif
 #define AppPublisher "StorageMaster"
 #define AppExeName "StorageMaster.UI.exe"
@@ -32,7 +32,18 @@ Name: "desktopicon"; Description: "Create a &desktop icon"; GroupDescription: "A
 
 [Files]
 Source: "{#PublishDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
-Source: "..\installer\prereqs\*"; DestDir: "{app}\prereqs"; Flags: ignoreversion
+
+[InstallDelete]
+; Remove obsolete WinAppSDK 1.8 app-local/redist payloads from 1.9.0-1.9.5 upgrades.
+Type: files; Name: "{app}\Microsoft.ui.xaml.dll"
+Type: files; Name: "{app}\Microsoft.UI.Xaml*.dll"
+Type: files; Name: "{app}\Microsoft.UI.Xaml*.winmd"
+Type: files; Name: "{app}\Microsoft.UI.Xaml*.pri"
+Type: files; Name: "{app}\Microsoft.UI.Xaml*.pri.xml"
+Type: files; Name: "{app}\Microsoft.WindowsAppRuntime.dll"
+Type: files; Name: "{app}\Microsoft.WindowsAppRuntime.pri"
+Type: files; Name: "{app}\prereqs\WindowsAppRuntimeInstall.exe"
+Type: filesandordirs; Name: "{app}\Microsoft.UI.Xaml"
 
 [Icons]
 Name: "{group}\{#AppName}";          Filename: "{app}\{#AppExeName}"; IconFilename: "{app}\Assets\storagemaster.ico"
@@ -40,7 +51,7 @@ Name: "{group}\Uninstall {#AppName}"; Filename: "{uninstallexe}"
 Name: "{userdesktop}\{#AppName}";  Filename: "{app}\{#AppExeName}"; IconFilename: "{app}\Assets\storagemaster.ico"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\prereqs\WindowsAppRuntimeInstall.exe"; Parameters: "--quiet"; StatusMsg: "Installing Windows App SDK 1.8 runtime..."; Flags: runhidden waituntilterminated
+Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\prereqs\Install-WindowsAppRuntime.ps1"" -MsixPath ""{app}\prereqs\Microsoft.WindowsAppRuntime.1.6.msix"""; StatusMsg: "Installing Windows App SDK 1.6 runtime..."; Flags: runhidden waituntilterminated
 Filename: "{app}\{#AppExeName}"; Description: "Launch {#AppName}"; Flags: nowait postinstall skipifsilent
 
 ; User data is preserved on uninstall by default.

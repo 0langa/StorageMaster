@@ -17,6 +17,8 @@ $installerScript = Join-Path $repoRoot "installer\StorageMaster.iss"
 $installerOutputDir = Join-Path $repoRoot "artifacts\installer"
 $ffmpegBundleSource = Join-Path $repoRoot "installer\ffmpeg"
 $turboScannerSource = Join-Path $repoRoot "turbo-scanner\target\release\turbo-scanner.exe"
+$windowsAppSdkPackageRoot = Join-Path $env:USERPROFILE ".nuget\packages\microsoft.windowsappsdk"
+$windowsAppRuntimeInstaller = Join-Path $repoRoot "installer\Install-WindowsAppRuntime.ps1"
 
 function Resolve-MSBuild {
     $vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
@@ -42,6 +44,18 @@ function Resolve-ISCC {
     }
 
     return $candidate
+}
+
+function Get-WindowsAppSdkVersion {
+    [xml]$projectXml = Get-Content -Path $uiProject
+    $packageReference = $projectXml.SelectNodes("//PackageReference[@Include='Microsoft.WindowsAppSDK']") |
+        Select-Object -First 1
+
+    if (-not $packageReference) {
+        throw "Microsoft.WindowsAppSDK package reference was not found in $uiProject"
+    }
+
+    return $packageReference.GetAttribute("Version")
 }
 
 function Invoke-Step {
@@ -130,6 +144,8 @@ New-Item -ItemType Directory -Force -Path $publishDir, $installerOutputDir | Out
 
 $msbuild = Resolve-MSBuild
 $iscc = Resolve-ISCC
+$windowsAppSdkVersion = Get-WindowsAppSdkVersion
+$windowsAppRuntimePackage = Join-Path $windowsAppSdkPackageRoot "$windowsAppSdkVersion\tools\MSIX\win10-x64\Microsoft.WindowsAppRuntime.1.6.msix"
 
 Invoke-Step -FilePath $msbuild -Arguments @(
     $uiProject,
@@ -159,46 +175,24 @@ if (-not (Test-Path $buildOutputDir)) {
     throw "Build output directory was not produced: $buildOutputDir"
 }
 
+if (-not (Test-Path $windowsAppRuntimePackage)) {
+    throw "Windows App SDK runtime package was not found: $windowsAppRuntimePackage"
+}
+
+if (-not (Test-Path $windowsAppRuntimeInstaller)) {
+    throw "Windows App SDK runtime installer script was not found: $windowsAppRuntimeInstaller"
+}
+
 Get-ChildItem -LiteralPath $publishDir -Force -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force
 Copy-Item -Path (Join-Path $buildOutputDir "*") -Destination $publishDir -Recurse -Force
 Copy-OptionalFfmpegBundle -SourceDirectory $ffmpegBundleSource -PublishDirectory $publishDir
 Copy-OptionalTurboScanner -SourcePath $turboScannerSource -PublishDirectory $publishDir
 
-$prereqsDir = Join-Path $PSScriptRoot "prereqs"
-$exeDest    = Join-Path $prereqsDir "WindowsAppRuntimeInstall.exe"
-
-if (Test-Path $exeDest) {
-    Write-Host "Runtime installer already staged: $exeDest"
-} else {
-    $stageDir = Join-Path $PSScriptRoot "prereqs-stage"
-    New-Item -ItemType Directory -Force -Path $prereqsDir, $stageDir | Out-Null
-
-    Write-Host "Downloading WinAppSDK 1.8 runtime redist bundle via winget..."
-    winget download "Microsoft.WindowsAppRuntime.1.8" `
-        --download-directory $stageDir `
-        --accept-source-agreements `
-        --accept-package-agreements
-
-    $zip = Get-ChildItem $stageDir -Filter "*.zip" -Recurse | Select-Object -First 1
-    if (-not $zip) {
-        throw "winget did not produce a redist zip in $stageDir."
-    }
-
-    $extractDir = Join-Path $stageDir "extracted"
-    Expand-Archive -LiteralPath $zip.FullName -DestinationPath $extractDir -Force
-
-    # Redist zip contains arm64, x64, and x86 variants — pick x64 explicitly.
-    $exe = Get-ChildItem $extractDir -Filter "*x64*.exe" -Recurse |
-           Where-Object { $_.Name -like 'WindowsAppRuntimeInstall*' } |
-           Select-Object -First 1
-    if (-not $exe) {
-        throw "WindowsAppRuntimeInstall-x64.exe not found inside $($zip.Name)."
-    }
-
-    Copy-Item $exe.FullName $exeDest -Force
-    Remove-Item $stageDir -Recurse -Force
-    Write-Host "Runtime installer staged: $exeDest"
-}
+$prereqDir = Join-Path $publishDir "prereqs"
+New-Item -ItemType Directory -Force -Path $prereqDir | Out-Null
+Copy-Item -LiteralPath $windowsAppRuntimePackage -Destination (Join-Path $prereqDir "Microsoft.WindowsAppRuntime.1.6.msix") -Force
+Copy-Item -LiteralPath $windowsAppRuntimeInstaller -Destination (Join-Path $prereqDir "Install-WindowsAppRuntime.ps1") -Force
+Write-Host "Windows App SDK 1.6 runtime prereqs staged in $prereqDir"
 
 Invoke-Step -FilePath $iscc -Arguments @($installerScript)
 

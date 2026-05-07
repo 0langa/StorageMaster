@@ -1,6 +1,6 @@
 # StorageMaster v2 Plan
 
-Source of truth: current v1.9.0 repository snapshot. This is a forward plan from the actual code, not older speculative audit.
+Source of truth: current v1.9.6 repository snapshot. This is a forward plan from the actual code, not older speculative audit.
 
 ## Current strengths to preserve
 
@@ -24,7 +24,7 @@ Layering is mostly clean; Core contains contracts and domain services, Storage/P
 | H-12 | Done in v1.9.0: schema v6 adds `NormalizedFullPath` and unique file path protection per session | Consider path identity columns in future |
 | H-13 | Partly done in v1.9.0: scan status parsing is tolerant | Extend tolerant parsing to every status enum field |
 | H-14 | Done in v1.9.0: session delete runs `PRAGMA optimize` | Consider manual vacuum prompt/maintenance path |
-| H-15 | installer uses LocalAppData install path but still requests admin | remove admin where possible or justify with prereq/runtime install path |
+| H-15 | Done in v1.9.6: installer remains per-user/lowest-privilege while staging Windows App Runtime 1.6 MSIX prereq | Continue verifying fresh-machine install behavior |
 | H-16 | publish is framework-dependent and installer only installs Windows App Runtime | add .NET Desktop Runtime detection/bootstrapper or self-contained publish decision |
 
 ## UX work required by current product state

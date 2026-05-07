@@ -1,6 +1,6 @@
 # StorageMaster Codemap
 
-Version: 1.9.0. Compact source map for the deployed repository. Source code is authoritative.
+Version: 1.9.6. Compact source map for the deployed repository. Source code is authoritative.
 
 ## Root
 
@@ -8,13 +8,13 @@ Version: 1.9.0. Compact source map for the deployed repository. Source code is a
 |---|---|
 | `StorageMaster.sln`, `.slnx` | solution files |
 | `global.json` | .NET SDK 8.0 latest patch |
-| `Directory.Build.props` | centralized product version metadata (`1.9.0`) |
+| `Directory.Build.props` | centralized product version metadata (`1.9.6`) |
 | `Directory.Build.targets` | forces executable WinUI XAML compiler |
-| `README.md`, `CHANGELOG.md` | public docs; changelog current through 1.9.0 |
+| `README.md`, `CHANGELOG.md` | public docs; changelog current through 1.9.6 |
 | `.github/workflows/ci.yml` | PR/push build/test/format/Rust checks |
 | `.github/workflows/release.yml` | tag release pipeline, optional signing |
-| `installer/StorageMaster.iss` | Inno Setup, `AppVersion=1.9.0`, `PrivilegesRequired=lowest`, `DefaultDirName={localappdata}\Programs\StorageMaster` |
-| `turbo-scanner/` | Rust binary crate, package version 1.9.0 |
+| `installer/StorageMaster.iss` | Inno Setup, `AppVersion=1.9.6`, `PrivilegesRequired=lowest`, stages Windows App Runtime 1.6 MSIX prereq, `DefaultDirName={localappdata}\Programs\StorageMaster` |
+| `turbo-scanner/` | Rust binary crate, package version 1.9.6 |
 
 ## Project files and packages
 
@@ -23,7 +23,7 @@ Version: 1.9.0. Compact source map for the deployed repository. Source code is a
 | `StorageMaster.Core` | `net8.0` | CommunityToolkit.Mvvm 8.4.0, DI.Abstractions 10.0.0, Logging.Abstractions 10.0.0, SixLabors.ImageSharp 3.1.12 |
 | `StorageMaster.Storage` | `net8.0` | Microsoft.Data.Sqlite 9.0.4, Logging.Abstractions 10.0.0 |
 | `StorageMaster.Platform.Windows` | `net8.0-windows10.0.19041.0` | Logging.Abstractions 10.0.0 |
-| `StorageMaster.UI` | `net8.0-windows10.0.19041.0` | WindowsAppSDK 1.8.260416003, SDK BuildTools 10.0.28000.1839, Toolkit.Mvvm, H.NotifyIcon.WinUI 2.3.1, Microsoft.Extensions.* 10.0.0, System.CommandLine 2.0.7 |
+| `StorageMaster.UI` | `net8.0-windows10.0.19041.0` | WindowsAppSDK 1.6.250205002, SDK BuildTools 10.0.26100.1742, Toolkit.Mvvm, H.NotifyIcon.WinUI 2.3.1, Microsoft.Extensions.* 10.0.0, System.CommandLine 2.0.7 |
 | `StorageMaster.Tests` | `net8.0-windows10.0.19041.0` | xUnit 2.9.3, runner 3.1.4, Microsoft.NET.Test.Sdk 17.14.1, Moq 4.20.72, FluentAssertions 7.2.0 |
 
 `System.CommandLine` is referenced, but the current `CommandRunner` uses manual option parsing.

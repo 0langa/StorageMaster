@@ -4,6 +4,15 @@ All notable changes to StorageMaster are documented here.
 
 ---
 
+## [1.9.6] — 2026-05-07 — Runtime Rollback Release
+
+- Rolled WinUI deployment back to the proven framework-dependent Windows App SDK `1.6.250205002` runtime path while keeping the 1.9.x app features and hardening work.
+- Removed the Windows App SDK 1.8 redist installer flow and the 1.8-specific bootstrap/UndockedRegFreeWinRT startup workaround. Startup now uses the simpler framework-dependent WinUI path that previously launched reliably.
+- Restored installer staging for `Microsoft.WindowsAppRuntime.1.6.msix` plus `Install-WindowsAppRuntime.ps1`, reducing the release installer size compared with the 1.9.5 redist-based package.
+- Added installer cleanup for obsolete 1.9.0-1.9.5 app-local WinUI/Windows App Runtime payload files so upgrades cannot keep loading stale 1.8 DLLs from the app directory.
+
+---
+
 ## [1.9.5] — 2026-05-07 — Actual Real Startup Fix
 
 - **True root cause of the 1.9.0–1.9.4 launch failure identified.** WinAppSDK 1.8's `Microsoft.WindowsAppSDK.UndockedRegFreeWinRTCommon.targets` only auto-enables the `UndockedRegFreeWinRT` initializer when `WindowsAppSDKSelfContained=true`. This initializer is a `[ModuleInitializer]` that loads `Microsoft.WindowsAppRuntime.dll`, which in turn registers the SxS WinRT activation classes that make `ms-appx:///Microsoft.UI.Xaml/...` URIs resolvable. With our framework-dependent build (`WindowsAppSDKSelfContained=false`), the initializer was silently skipped, leaving WinRT activation contexts unregistered. `Bootstrap.Initialize` succeeded (registering the runtime in the package graph), but the WinRT URI handler chain was never set up — so the very first XAML load (`XamlControlsResources` → `themeresources.xaml`) threw `XamlParseException: Cannot locate resource from 'ms-appx:///Microsoft.UI.Xaml/Themes/themeresources.xaml'`.

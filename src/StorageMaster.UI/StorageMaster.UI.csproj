@@ -20,23 +20,9 @@
     <WindowsPackageType>None</WindowsPackageType>
     <!-- Avoid legacy Appx/MRT packaging tasks that are not needed for an unpackaged desktop build. -->
     <EnableCoreMrtTooling>false</EnableCoreMrtTooling>
-    <!-- Use the system-installed WinAppSDK 1.8 runtime (installed by the Inno setup prereq step). -->
+    <!-- Use the supported framework-dependent desktop flow and install the Windows App SDK 1.6 runtime via setup. -->
     <WindowsAppSDKSelfContained>false</WindowsAppSDKSelfContained>
     <SelfContained>false</SelfContained>
-    <!--
-      Framework-dependent unpackaged apps must opt in to these auto-initializers.
-      They emit a [ModuleInitializer] (runs before Main) that:
-        - Bootstrap: registers the system-installed WinAppSDK runtime in the
-          process package graph (replaces the explicit Bootstrap.Initialize call).
-        - UndockedRegFreeWinRT: loads Microsoft.WindowsAppRuntime.dll so its SxS
-          activation classes are registered, which is what makes
-          ms-appx:///Microsoft.UI.Xaml/Themes/themeresources.xaml resolvable.
-      Without UndockedRegFreeWinRTInitialize, WinUI 3 fails on the first XAML
-      load with "Cannot locate resource from 'ms-appx:///...'" — both auto
-      initializers default to true ONLY when WindowsAppSDKSelfContained=true.
-    -->
-    <WindowsAppSdkBootstrapInitialize>true</WindowsAppSdkBootstrapInitialize>
-    <WindowsAppSdkUndockedRegFreeWinRTInitialize>true</WindowsAppSdkUndockedRegFreeWinRTInitialize>
   </PropertyGroup>
 
   <ItemGroup>
@@ -54,8 +40,8 @@
 
   <ItemGroup>
     <!-- Windows App SDK — includes WinUI 3 and the XAML compiler targets -->
-    <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.260416003" />
-    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.28000.1839" />
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.6.250205002" />
+    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.1742" />
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.0" />
     <PackageReference Include="H.NotifyIcon.WinUI" Version="2.3.1" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.0" />

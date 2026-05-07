@@ -1,8 +1,8 @@
 # StorageMaster — Codemap
 
-> **Version:** 1.9.0 | **Date:** 2026-05-06
+> **Version:** 1.9.6 | **Date:** 2026-05-07
 > Quick-reference for every file, type, method, and database table in the project.
-> **Current-state note:** v1.9.0 adds `Directory.Build.props`, `Core/Scanner/ScanOptionValidator.cs`, `Core/SpaceMap/*`, `Core/Interfaces/ISpaceMapRepository.cs`, `Storage/Repositories/SpaceMapRepository.cs`, `UI/Pages/SpaceMapPage.*`, schema v6 normalized path columns/indexes, and expanded scanner/storage/deletion/Space Map tests. Older file-by-file sections below are retained for background; source code is authoritative where details differ.
+> **Current-state note:** v1.9.6 keeps the v1.9 Space Map/schema/scanner hardening work and rolls release deployment back to framework-dependent Windows App SDK 1.6 with a staged runtime MSIX prereq. Older file-by-file sections below are retained for background; source code is authoritative where details differ.
 
 ---
 
@@ -39,7 +39,7 @@
 | `docs/DOCUMENTATION.md` | Full API and configuration reference |
 | `docs/ROADMAP.md` | v1.3 → v1.5 development plan |
 | `.github/workflows/release.yml` | CI/CD: test → Rust build → publish → installer → Release |
-| `installer/StorageMaster.iss` | Inno Setup 6 script (admin-required installer) |
+| `installer/StorageMaster.iss` | Inno Setup 6 script (per-user installer, stages Windows App Runtime 1.6 prereq) |
 | `turbo-scanner/Cargo.toml` | Rust crate manifest |
 | `turbo-scanner/src/main.rs` | Turbo Scanner entry point |
 
@@ -641,7 +641,7 @@ Implements `ISettingsRepository`. Uses `System.Text.Json`. Key `"AppSettings"` i
 
 **Target:** `net8.0-windows10.0.19041.0`
 **WindowsPackageType:** `None` (unpackaged)
-**WindowsAppSDKSelfContained:** `true`
+**WindowsAppSDKSelfContained:** `false`
 
 ---
 
@@ -903,8 +903,8 @@ strip     = true
 | Platform.Windows | `Microsoft.Extensions.Logging.Abstractions` | 10.0.0 | Logging |
 | Storage | `Microsoft.Data.Sqlite` | 9.0.4 | SQLite access |
 | Storage | `Microsoft.Extensions.Logging.Abstractions` | 10.0.0 | Logging |
-| UI | `Microsoft.WindowsAppSDK` | 1.8.260416003 | WinUI 3 runtime + XAML compiler |
-| UI | `Microsoft.Windows.SDK.BuildTools` | 10.0.28000.1839 | WinUI 3 build tools |
+| UI | `Microsoft.WindowsAppSDK` | 1.6.250205002 | WinUI 3 runtime + XAML compiler |
+| UI | `Microsoft.Windows.SDK.BuildTools` | 10.0.26100.1742 | WinUI 3 build tools |
 | UI | `CommunityToolkit.Mvvm` | 8.4.0 | MVVM source generators |
 | UI | `Microsoft.Extensions.DependencyInjection` | 10.0.0 | Full DI container |
 | UI | `Microsoft.Extensions.Logging` | 10.0.0 | Logging infrastructure |

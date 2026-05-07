@@ -1,6 +1,6 @@
 # StorageMaster — Full Technical Documentation
 
-> **Version:** 1.9.0 | **Date:** 2026-05-06 | **.NET 8 / WinUI 3 / Windows App SDK 1.8**
+> **Version:** 1.9.6 | **Date:** 2026-05-07 | **.NET 8 / WinUI 3 / Windows App SDK 1.6**
 > **v1.9 update:** Core scanner APIs now validate and normalize options before scanning; default exclusions derive from the actual Windows folder and use boundary-aware matching. Storage schema v6 adds normalized path indexes and per-session file path uniqueness. Space Map APIs (`ISpaceMapRepository`, `TreemapLayoutService`) power native treemap drill-down and Scan Delta Insights. Directory quarantine is intentionally rejected; file quarantine remains available through duplicate review.
 
 ---
@@ -36,7 +36,7 @@
 | .NET SDK | 8.0.x | `global.json` pins this |
 | Visual Studio | 2022 17.9+ | For building the WinUI 3 UI project |
 | Rust | stable | For building `turbo-scanner.exe` from source |
-| Windows App SDK | 1.6+ | NuGet restored automatically |
+| Windows App SDK | 1.6 runtime | NuGet restored for builds; release installer stages the x64 runtime MSIX |
 
 ### Clone and build
 
@@ -552,7 +552,7 @@ Used by `UninstalledProgramLeftoversRule` to cross-reference AppData folders aga
 - **Deletion Behaviour:** RecycleBin toggle, dry-run default toggle
 - **Cleanup Options:** All 10 rule enable/disable toggles, Downloads full-clear toggle
 - **Large & Old File Thresholds:** Size (MB) and age (days) sliders
-- **About:** Current app version from assembly metadata (`1.9.0` for this release), diagnostics export, update settings
+- **About:** Current app version from assembly metadata (`1.9.6` for this release), diagnostics export, update settings
 
 **Save behaviour:** All settings written to SQLite on "Save Settings" click.
 
@@ -986,7 +986,7 @@ If zero, the scan failed or was cancelled before any data was written.
 
 ### WinUI 3 app fails to launch
 
-The installer deploys Windows App SDK dependencies. If launching the raw exe:
+The installer deploys the Windows App SDK 1.6 runtime dependency. If launching the raw exe:
 - Ensure Windows 10 1809 (build 17763) or later
-- Install the Windows App SDK runtime from [aka.ms/windowsappsdk](https://aka.ms/windowsappsdk)
-- Or use the published folder output which includes framework-dependent dependencies
+- Install the Windows App SDK 1.6 runtime, or use the release installer so `Microsoft.WindowsAppRuntime.1.6.msix` is installed first
+- Use the published folder output only on machines with the matching runtime already installed

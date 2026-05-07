@@ -63,44 +63,6 @@ jobs:
           dotnet restore tests/StorageMaster.Tests/StorageMaster.Tests.csproj
           dotnet restore src/StorageMaster.UI/StorageMaster.UI.csproj
 
-      - name: Stage WinAppSDK 1.8 runtime installer for prereqs
-        shell: pwsh
-        run: |
-          $prereqs = "installer\prereqs"
-          $stage   = "installer\prereqs-stage"
-          New-Item -ItemType Directory -Force -Path $prereqs, $stage | Out-Null
-
-          # Download the official Windows App Runtime 1.8 redist bundle via winget.
-          # winget downloads a .zip containing WindowsAppRuntimeInstall-x64.exe + MSIXs.
-          winget download "Microsoft.WindowsAppRuntime.1.8" `
-            --download-directory $stage `
-            --accept-source-agreements `
-            --accept-package-agreements
-
-          $zip = Get-ChildItem $stage -Filter "*.zip" -Recurse | Select-Object -First 1
-          if (-not $zip) {
-            Write-Host "Files in stage:"
-            Get-ChildItem $stage -Recurse | ForEach-Object { Write-Host "  $($_.FullName)" }
-            throw "No redist zip downloaded by winget."
-          }
-
-          $extract = Join-Path $stage "extracted"
-          Expand-Archive -LiteralPath $zip.FullName -DestinationPath $extract -Force
-
-          # Redist zip contains arm64, x64, and x86 variants — pick x64 explicitly.
-          $exe = Get-ChildItem $extract -Filter "*x64*.exe" -Recurse |
-                 Where-Object { $_.Name -like 'WindowsAppRuntimeInstall*' } |
-                 Select-Object -First 1
-          if (-not $exe) {
-            Write-Host "Files in zip:"
-            Get-ChildItem $extract -Recurse | ForEach-Object { Write-Host "  $($_.FullName)" }
-            throw "WindowsAppRuntimeInstall-x64.exe not found inside redist zip."
-          }
-
-          Copy-Item $exe.FullName (Join-Path $prereqs "WindowsAppRuntimeInstall.exe") -Force
-          Remove-Item $stage -Recurse -Force
-          Write-Host "Runtime installer staged from: $($exe.Name)"
-
       - name: Run tests
         run: dotnet test tests/StorageMaster.Tests/StorageMaster.Tests.csproj --verbosity normal --no-restore
 
@@ -109,6 +71,23 @@ jobs:
           dotnet publish src/StorageMaster.UI/StorageMaster.UI.csproj `
             /p:PublishProfile=win-x64 -c Release --no-restore `
             /p:UseXamlCompilerExecutable=true
+
+      - name: Stage WinAppSDK 1.6 runtime MSIX prereq
+        shell: pwsh
+        run: |
+          $package = "$env:USERPROFILE\.nuget\packages\microsoft.windowsappsdk\1.6.250205002\tools\MSIX\win10-x64\Microsoft.WindowsAppRuntime.1.6.msix"
+          $script = "installer\Install-WindowsAppRuntime.ps1"
+          if (-not (Test-Path $package)) {
+            throw "Windows App SDK runtime package was not found: $package"
+          }
+          if (-not (Test-Path $script)) {
+            throw "Windows App SDK runtime installer script was not found: $script"
+          }
+
+          $target = "artifacts\publish\win-x64\prereqs"
+          New-Item -ItemType Directory -Force -Path $target | Out-Null
+          Copy-Item $package (Join-Path $target "Microsoft.WindowsAppRuntime.1.6.msix") -Force
+          Copy-Item $script (Join-Path $target "Install-WindowsAppRuntime.ps1") -Force
 
       - name: Copy Turbo Scanner to publish output
         run: |

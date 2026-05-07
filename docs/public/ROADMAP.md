@@ -1,6 +1,6 @@
 # StorageMaster — Development Roadmap
 
-> **Current release:** v1.9.0 (2026-05-06) — Space Map native treemap, Scan Delta Insights, schema v6 normalized path integrity, scanner/deletion/folder aggregation hardening, centralized version metadata, and 136 tests.
+> **Current release:** v1.9.6 (2026-05-07) — Space Map native treemap, Scan Delta Insights, schema v6 normalized path integrity, scanner/deletion/folder aggregation hardening, centralized version metadata, and runtime rollback to framework-dependent Windows App SDK 1.6 deployment.
 > **Previous baseline:** v1.8.0 — Settings redesign, accessibility annotations in Settings, UI preference layer, shared styles.
 
 ---

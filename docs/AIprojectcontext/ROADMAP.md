@@ -1,6 +1,6 @@
 # StorageMaster Roadmap
 
-Current repository state: v1.9.0 on 2026-05-06. This roadmap replaces older speculative planning text with the actual shipped state.
+Current repository state: v1.9.6 on 2026-05-07. This roadmap replaces older speculative planning text with the actual shipped state.
 
 ## Shipped baseline
 
@@ -15,6 +15,7 @@ Current repository state: v1.9.0 on 2026-05-06. This roadmap replaces older spec
 | 1.7.4 | Results hardening: paged scan errors, lazy folder tree, cached repeat navigation, duplicate filter/export/previews hardening, dashboard/cleanup layout refresh, settings toast cancellation |
 | 1.8.0 | Settings redesign into category-tile hub with modal overlays, accessibility annotations, UI preferences layer, shared styles |
 | 1.9.0 | Space Map native treemap, Scan Delta Insights, scanner validation/exclusion hardening, schema v6 normalized path integrity, folder aggregation hardening, deletion safety fixes |
+| 1.9.6 | Runtime rollback: kept 1.9.x features while returning release builds to framework-dependent Windows App SDK 1.6 with staged runtime MSIX prereq |
 
 ## Current feature inventory
 
@@ -30,7 +31,7 @@ Not present: WebView2/D3 visualization assets, Serilog rolling logs, broad ViewM
 | 2 | Accessibility pass for remaining pages: keyboard/focus, text scaling, high contrast, Narrator verification | Settings is done; Dashboard, Scan, Results, Duplicates, Cleanup remain |
 | 3 | Results/Duplicates/Cleanup performance profiling on million-file sessions | current code has paging/lazy loading but no benchmark suite |
 | 4 | Structured logging + diagnostics package | app uses Debug logger and local diagnostics, not production file logs |
-| 5 | Installer/runtime hardening | per-user install still requests admin; publish is framework-dependent |
+| 5 | Installer/runtime hardening | publish is framework-dependent and stages the Windows App Runtime 1.6 MSIX, but there is still no .NET Desktop Runtime bootstrapper |
 | 6 | Space Map scale polish: virtualization benchmarks and richer reports | native treemap and PNG screenshot export exist; next work is scale/UX depth |
 | 7 | Test expansion: ViewModels, platform wrappers, CLI, scheduler, updater failure modes | current tests are useful but not UI-heavy |
 

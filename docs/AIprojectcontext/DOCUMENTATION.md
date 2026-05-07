@@ -1,6 +1,6 @@
 # StorageMaster Technical Reference
 
-Version: 1.9.0. This reference matches the current repository implementation.
+Version: 1.9.6. This reference matches the current repository implementation.
 
 ## Build prerequisites
 
@@ -26,7 +26,7 @@ UI publish profile:
 dotnet publish src/StorageMaster.UI/StorageMaster.UI.csproj /p:PublishProfile=win-x64 -c Release /p:UseXamlCompilerExecutable=true
 ```
 
-Publish is .NET framework-dependent and Windows App SDK self-contained: `SelfContained=false`, `WindowsAppSDKSelfContained=true`. Inno installs per-user with `PrivilegesRequired=lowest`; no .NET runtime bootstrapper is defined in the installer script. Product version is centralized in `Directory.Build.props`.
+Publish is .NET and Windows App SDK framework-dependent: `SelfContained=false`, `WindowsAppSDKSelfContained=false`. Inno installs per-user with `PrivilegesRequired=lowest` and stages `Microsoft.WindowsAppRuntime.1.6.msix` plus `Install-WindowsAppRuntime.ps1`; no .NET runtime bootstrapper is defined in the installer script. Product version is centralized in `Directory.Build.props`.
 
 ## Data locations
 

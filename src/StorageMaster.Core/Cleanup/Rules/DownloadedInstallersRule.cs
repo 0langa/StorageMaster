@@ -39,14 +39,20 @@ public sealed class DownloadedInstallersRule : ICleanupRule
         AppSettings settings,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
-        var downloadsPath = _getDownloadsPath();
+        // Normalize: strip trailing separators then add exactly one so that a
+        // downloads path of "C:\Users\foo\Downloads" cannot match a sibling
+        // folder called "C:\Users\foo\Downloads Backup".
+        var downloadsRoot = _getDownloadsPath()
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+            + Path.DirectorySeparatorChar;
+
         var files = await _repo.GetLargestFilesAsync(sessionId, topN: 50_000, cancellationToken);
 
         // ── Suggestion 1: installer files only ──────────────────────────────
         var installers = files
             .Where(f =>
                 InstallerExtensions.Contains(f.Extension) &&
-                f.FullPath.StartsWith(downloadsPath, StringComparison.OrdinalIgnoreCase))
+                f.FullPath.StartsWith(downloadsRoot, StringComparison.OrdinalIgnoreCase))
             .ToList();
 
         if (installers.Count > 0)
@@ -69,31 +75,37 @@ public sealed class DownloadedInstallersRule : ICleanupRule
         }
 
         // ── Suggestion 2 (optional): clear the entire Downloads folder ───────
-        if (settings.ClearEntireDownloads && Directory.Exists(downloadsPath))
+        if (settings.ClearEntireDownloads && Directory.Exists(downloadsRoot))
         {
             await Task.Yield();
 
-            // Estimate total Downloads size from scan data.
+            // Collect individual file paths so FileDeleter can report
+            // per-file success/failure rather than treating the folder as an
+            // atomic unit (which would silently skip locked files).
             var allDownloads = files
-                .Where(f => f.FullPath.StartsWith(downloadsPath, StringComparison.OrdinalIgnoreCase))
+                .Where(f => f.FullPath.StartsWith(downloadsRoot, StringComparison.OrdinalIgnoreCase))
                 .ToList();
 
             long totalDownloadBytes = allDownloads.Sum(f => f.SizeBytes);
             if (totalDownloadBytes > 0)
             {
+                // Strip the trailing separator back off for display only.
+                var displayPath = downloadsRoot.TrimEnd(Path.DirectorySeparatorChar);
                 yield return new CleanupSuggestion
                 {
                     Id = Guid.NewGuid(),
                     RuleId = "core.clear-downloads-folder",
                     Title = $"Clear entire Downloads folder ({allDownloads.Count:N0} files)",
-                    Description = $"Removes ALL content from {downloadsPath}. This includes documents, " +
+                    Description = $"Removes ALL content from {displayPath}. This includes documents, " +
                                      $"archives, media, and any other files you may have downloaded. " +
                                      $"Estimated savings: {FormatBytes(totalDownloadBytes)}. " +
                                      "This action cannot be easily undone — use Recycle Bin mode.",
                     Category = Category,
                     Risk = CleanupRisk.Medium,
                     EstimatedBytes = totalDownloadBytes,
-                    TargetPaths = [downloadsPath],
+                    // Individual file paths — not the folder itself — so the
+                    // Downloads directory is preserved and partial failures surface.
+                    TargetPaths = allDownloads.Select(f => f.FullPath).ToList(),
                     IsSystemPath = false,
                 };
             }

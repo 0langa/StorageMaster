@@ -59,6 +59,15 @@ public sealed class FileDeleter : IFileDeleter
         if (request.Path == "::DnsFlush::")
             return await FlushDnsCacheAsync();
 
+        // Safety guard: refuse to operate on drive roots or UNC share roots
+        // (e.g. "C:\", "\\server\share") — these would wipe entire volumes.
+        if (IsRootOrUncPrefix(request.Path))
+        {
+            _logger.LogError("Refused to delete filesystem root or UNC prefix: {Path}", request.Path);
+            return new DeletionOutcome(request.Path, false, 0,
+                "Refusing to delete a filesystem root or UNC share prefix.");
+        }
+
         try
         {
             long size = EstimateSize(request.Path, cancellationToken);
@@ -138,9 +147,32 @@ public sealed class FileDeleter : IFileDeleter
 
         if (batchSucceeded)
         {
-            _logger.LogInformation("Batch recycle: {Count} items", requests.Count);
+            // IFileOperation with FOF_NOERRORUI silently skips files it cannot recycle
+            // (locked by another process, access denied, cross-volume Recycle Bin).
+            // It returns S_OK and GetAnyOperationsAborted()=false even when items were skipped.
+            // We verify each path is actually gone from its original location.
+            // A file still present at its original path after PerformOperations means it failed.
+            _logger.LogInformation("Batch recycle: {Count} item(s) submitted; verifying outcomes", requests.Count);
+            int succeeded = 0, failed = 0;
             for (int i = 0; i < requests.Count; i++)
-                yield return new DeletionOutcome(requests[i].Path, true, sizes[i]);
+            {
+                var path = requests[i].Path;
+                bool recycled = !File.Exists(path) && !Directory.Exists(path);
+                if (recycled)
+                {
+                    succeeded++;
+                    yield return new DeletionOutcome(path, Success: true, BytesFreed: sizes[i]);
+                }
+                else
+                {
+                    failed++;
+                    _logger.LogWarning("Batch recycle: item not moved to Recycle Bin (locked/denied?) — {Path}", path);
+                    yield return new DeletionOutcome(path, Success: false, BytesFreed: 0,
+                        Error: "File could not be moved to the Recycle Bin (may be locked, access denied, or cross-volume).");
+                }
+            }
+            if (failed > 0)
+                _logger.LogWarning("Batch recycle partial failure: {Succeeded} recycled, {Failed} skipped by IFileOperation", succeeded, failed);
             yield break;
         }
 
@@ -289,25 +321,62 @@ public sealed class FileDeleter : IFileDeleter
     /// <summary>
     /// Recursive directory delete that skips into reparse-point subdirectories,
     /// removing them as links only.
+    ///
+    /// Uses eager GetDirectories/GetFiles (not lazy Enumerate*) so that a folder
+    /// vanishing mid-delete (race with the OS, another process, or Windows cleaning
+    /// temp directories) produces a handled DirectoryNotFoundException rather than
+    /// a partially-consumed enumerator exception.
     /// </summary>
     private static void DeleteDirectoryRecursiveSafe(string dir)
     {
-        foreach (var subDir in Directory.EnumerateDirectories(dir))
+        string[] subDirs;
+        string[] files;
+        try
+        {
+            subDirs = Directory.GetDirectories(dir);
+            files = Directory.GetFiles(dir);
+        }
+        catch (DirectoryNotFoundException) { return; } // dir vanished between scan and delete — treat as done
+
+        foreach (var subDir in subDirs)
         {
             if (IsReparsePoint(subDir))
-                Directory.Delete(subDir, recursive: false); // remove link, not target
+            {
+                try { Directory.Delete(subDir, recursive: false); } // remove link, not target
+                catch (DirectoryNotFoundException) { }              // link already gone
+            }
             else
+            {
                 DeleteDirectoryRecursiveSafe(subDir);
+            }
         }
 
-        foreach (var file in Directory.EnumerateFiles(dir))
+        foreach (var file in files)
         {
             ClearReadOnly(file);
-            File.Delete(file);
+            try { File.Delete(file); }
+            catch (FileNotFoundException) { } // deleted by another process between snapshot and delete
         }
 
         ClearReadOnly(dir);
-        Directory.Delete(dir, recursive: false);
+        try { Directory.Delete(dir, recursive: false); }
+        catch (DirectoryNotFoundException) { } // already removed by a parallel delete or OS cleanup
+    }
+
+    /// <summary>
+    /// Returns <c>true</c> when <paramref name="path"/> is a drive root (e.g. <c>C:\</c>)
+    /// or a UNC share root (e.g. <c>\\server\share</c>) — paths that must never be passed
+    /// to destructive operations because they represent entire volumes or shares.
+    /// </summary>
+    internal static bool IsRootOrUncPrefix(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return false;
+        var root = Path.GetPathRoot(path);
+        if (string.IsNullOrEmpty(root)) return false;
+        // Compare normalized (no trailing separator) so both "C:\" and "C:" are caught.
+        var normalized = path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var rootNorm = root.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        return string.Equals(normalized, rootNorm, StringComparison.OrdinalIgnoreCase);
     }
 
     private static void ClearReadOnly(string path)

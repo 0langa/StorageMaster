@@ -37,8 +37,10 @@ public sealed class TempFilesCleanupRule : ICleanupRule
     {
         var files = await _repo.GetLargestFilesAsync(sessionId, topN: 50_000, cancellationToken);
 
+        // Normalize each root: strip trailing separators then re-add exactly one.
+        // This prevents "C:\Temp" from matching "C:\Temporary Internet Files".
         var tempRootsNorm = TempRoots
-            .Select(r => r.TrimEnd('\\', '/'))
+            .Select(r => r.TrimEnd('\\', '/') + Path.DirectorySeparatorChar)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
 

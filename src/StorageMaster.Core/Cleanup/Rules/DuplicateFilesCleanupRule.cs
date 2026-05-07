@@ -31,6 +31,12 @@ public sealed class DuplicateFilesCleanupRule(IDuplicateRepository duplicateRepo
                 continue;
 
             var keeper = members.FirstOrDefault(static member => member.IsKeeper);
+
+            // Safety: if the keeper file no longer exists on disk, deleting the
+            // "duplicates" would cause total data loss for this group — skip it.
+            if (keeper is null || !File.Exists(keeper.FullPath))
+                continue;
+
             yield return new CleanupSuggestion
             {
                 Id = Guid.NewGuid(),

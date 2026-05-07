@@ -1,6 +1,6 @@
 # StorageMaster Roadmap
 
-Current repository state: v2.0.0-prerelease on 2026-05-07. This roadmap replaces older speculative planning text with the actual shipped state.
+Current repository state: v2.0.0 on 2026-05-07. This roadmap replaces older speculative planning text with the actual shipped state.
 
 ## Shipped baseline
 
@@ -16,7 +16,7 @@ Current repository state: v2.0.0-prerelease on 2026-05-07. This roadmap replaces
 | 1.8.0 | Settings redesign into category-tile hub with modal overlays, accessibility annotations, UI preferences layer, shared styles |
 | 1.9.0 | Space Map native treemap, Scan Delta Insights, scanner validation/exclusion hardening, schema v6 normalized path integrity, folder aggregation hardening, deletion safety fixes |
 | 1.9.6 | Runtime rollback: kept 1.9.x features while returning release builds to framework-dependent Windows App SDK 1.6 with staged runtime MSIX prereq |
-| 2.0.0-prerelease | Drive Health & Storage Sentinel, schema v7 health snapshots, prerelease-safe versioning/updater/release flow, .NET runtime setup check, elevated CLI deep-scan worker |
+| 2.0.0 | Drive Health & Storage Sentinel, schema v7 health snapshots, stable/prerelease-safe versioning and release flow, .NET runtime setup check, elevated CLI deep-scan worker, and v2 visual foundation: shared style dictionaries, grouped shell with Mica fallback, Dashboard/Drive Health refresh, guided scan flow, Scan Workspace, Space Map tile control |
 
 ## Current feature inventory
 
@@ -29,7 +29,7 @@ Not present: WebView2/D3 visualization assets, Serilog rolling logs, broad ViewM
 | Priority | Work | Why |
 |---:|---|---|
 | 1 | Fix remaining correctness/data-loss edges in `FileDeleter`, scanner option validation, folder aggregation, and Shell32 return checking | prevents destructive or hanging behavior |
-| 2 | Accessibility pass for remaining pages: keyboard/focus, text scaling, high contrast, Narrator verification | Settings is done; Dashboard, Scan, Results, Duplicates, Cleanup remain |
+| 2 | Accessibility and visual QA pass for remaining pages: keyboard/focus, text scaling, high contrast, Narrator verification, screenshot matrix | shared controls exist; final rendered QA still required |
 | 3 | Results/Duplicates/Cleanup performance profiling on million-file sessions | current code has paging/lazy loading but no benchmark suite |
 | 4 | Structured logging + diagnostics package | app uses Debug logger, startup crash log, prereq log, and local diagnostics, not production rolling file logs |
 | 5 | Installer/runtime hardening lab | setup checks .NET Desktop Runtime 8 and stages Windows App Runtime 1.6, but clean-VM install coverage should stay mandatory |

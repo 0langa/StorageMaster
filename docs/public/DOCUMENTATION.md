@@ -1,7 +1,7 @@
 # StorageMaster — Full Technical Documentation
 
-> **Version:** 2.0.0-prerelease | **Date:** 2026-05-07 | **.NET 8 / WinUI 3 / Windows App SDK 1.6**
-> **v2 prerelease update:** Storage schema v7 adds Drive Health snapshots. Drive Health reads Windows WMI/storage telemetry with explicit Unknown/Unsupported fallbacks, surfaces Dashboard/Drive Health UI warnings, and supports `--cli health report`. Product versioning now separates semantic prerelease display from numeric assembly/manifest versions.
+> **Version:** 2.0.0 | **Date:** 2026-05-07 | **.NET 8 / WinUI 3 / Windows App SDK 1.6**
+> **v2 update:** Storage schema v7 adds Drive Health snapshots. Drive Health reads Windows WMI/storage telemetry with explicit Unknown/Unsupported fallbacks, surfaces Dashboard/Drive Health UI warnings, and supports `--cli health report`. The WinUI shell now uses shared v2 styles, grouped navigation, a guided Scan flow, Scan Workspace, and Space Map tile controls. Product versioning separates semantic stable/prerelease display from numeric assembly/manifest versions.
 
 ---
 
@@ -487,6 +487,8 @@ Used by `UninstalledProgramLeftoversRule` to cross-reference AppData folders aga
 
 ## 9. UI pages reference
 
+v2 adds shared visual tokens/styles, reusable page/state/gauge/badge/card controls, grouped shell navigation, Mica fallback, and a Scan Workspace route. Scan completion now opens the workspace, which loads persisted overview, files, folders, duplicate-run summary, and errors from existing repositories without schema changes.
+
 ### Dashboard (`DashboardPage`)
 
 **Purpose:** Application home screen showing disk health and last scan summary.
@@ -510,8 +512,9 @@ Used by `UninstalledProgramLeftoversRule` to cross-reference AppData folders aga
 - **Turbo Scanner toggle** — uses Rust binary when available; greyed out with InfoBar warning when `turbo-scanner.exe` not found
 - **Deep Scan toggle** — includes system directories; shows elevation prompt when not running as admin
 - Start/Cancel buttons
-- Live progress display (files, folders, bytes, estimated %)
+- Live progress display (files, folders, bytes, errors, elapsed time, sample speed, conservative ETA)
 - InfoBar for success and error states
+- Scan completion action opens the unified Scan Workspace.
 
 **Note on FolderPicker:** WinUI 3 requires the window HWND to be passed via `InitializeWithWindow.Initialize(picker, hwnd)`. Done in `ScanPage.xaml.cs::BrowseButton_Click`.
 
@@ -576,7 +579,7 @@ Used by `UninstalledProgramLeftoversRule` to cross-reference AppData folders aga
 - **Deletion Behaviour:** RecycleBin toggle, dry-run default toggle
 - **Cleanup Options:** All 10 rule enable/disable toggles, Downloads full-clear toggle
 - **Large & Old File Thresholds:** Size (MB) and age (days) sliders
-- **About:** Current app version from informational assembly metadata (`2.0.0-prerelease` for this release), diagnostics export, update settings
+- **About:** Current app version from informational assembly metadata (`2.0.0` for this release), diagnostics export, update settings
 
 **Save behaviour:** All settings written to SQLite on "Save Settings" click.
 

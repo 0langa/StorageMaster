@@ -1,0 +1,12 @@
+<ResourceDictionary
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <x:String x:Key="IconScan">&#xE721;</x:String>
+    <x:String x:Key="IconResults">&#xE8A5;</x:String>
+    <x:String x:Key="IconCleanup">&#xE74D;</x:String>
+    <x:String x:Key="IconDuplicates">&#xE8C8;</x:String>
+    <x:String x:Key="IconSpaceMap">&#xE9D2;</x:String>
+    <x:String x:Key="IconHealth">&#xE95E;</x:String>
+    <x:String x:Key="IconSettings">&#xE713;</x:String>
+</ResourceDictionary>

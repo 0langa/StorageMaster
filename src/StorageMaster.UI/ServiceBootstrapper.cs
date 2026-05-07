@@ -157,6 +157,7 @@ internal static class ServiceBootstrapper
         services.AddSingleton<ICommandRunner, CommandRunner>();
 
         services.AddTransient<DashboardViewModel>();
+        services.AddTransient<ScanWorkspaceViewModel>();
         services.AddSingleton<ScanViewModel>(sp => new ScanViewModel(
             sp.GetRequiredService<FileScanner>(),
             sp.GetRequiredService<TurboFileScanner>(),

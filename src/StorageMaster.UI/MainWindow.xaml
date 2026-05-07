@@ -7,38 +7,76 @@
     mc:Ignorable="d"
     Title="StorageMaster">
 
-    <NavigationView
-        x:Name="NavView"
-        AutomationProperties.Name="StorageMaster navigation"
-        PaneDisplayMode="Left"
-        IsBackButtonVisible="Visible"
-        IsSettingsVisible="True"
-        BackRequested="NavView_BackRequested"
-        SelectionChanged="NavView_SelectionChanged">
+    <Grid>
+        <NavigationView
+            x:Name="NavView"
+            AutomationProperties.Name="StorageMaster navigation"
+            PaneDisplayMode="Left"
+            IsBackButtonVisible="Visible"
+            IsSettingsVisible="True"
+            IsTitleBarAutoPaddingEnabled="False"
+            BackRequested="NavView_BackRequested"
+            SelectionChanged="NavView_SelectionChanged">
 
-        <NavigationView.MenuItems>
-            <NavigationViewItem Tag="Dashboard"    Icon="Home"    Content="Dashboard" AutomationProperties.Name="Dashboard" />
-            <NavigationViewItem Tag="Scan"         Icon="Find"    Content="Scan" AutomationProperties.Name="Scan" />
-            <NavigationViewItem Tag="Results"      Icon="List"    Content="Results" AutomationProperties.Name="Results" />
-            <NavigationViewItem Tag="Duplicates"   Icon="Copy"    Content="Duplicates" AutomationProperties.Name="Duplicates" />
-            <NavigationViewItem Tag="Cleanup"      Icon="Delete"  Content="Cleanup" AutomationProperties.Name="Cleanup" />
-            <NavigationViewItem Tag="SmartCleaner" Content="Smart Cleaner" AutomationProperties.Name="Smart Cleaner">
-                <NavigationViewItem.Icon>
-                    <FontIcon Glyph="&#xE9E9;" />
-                </NavigationViewItem.Icon>
-            </NavigationViewItem>
-            <NavigationViewItem Tag="SpaceMap" Content="Space Map" AutomationProperties.Name="Space Map">
-                <NavigationViewItem.Icon>
-                    <FontIcon Glyph="&#xE9D2;" />
-                </NavigationViewItem.Icon>
-            </NavigationViewItem>
-            <NavigationViewItem Tag="DriveHealth" Content="Drive Health" AutomationProperties.Name="Drive Health">
-                <NavigationViewItem.Icon>
-                    <FontIcon Glyph="&#xE95E;" />
-                </NavigationViewItem.Icon>
-            </NavigationViewItem>
-        </NavigationView.MenuItems>
+            <NavigationView.Header>
+                <Grid Padding="24,14,24,10" ColumnDefinitions="*,Auto" ColumnSpacing="16">
+                    <StackPanel Grid.Column="0" Spacing="2">
+                        <TextBlock Text="StorageMaster" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                        <TextBlock Text="v2 storage command center" Style="{StaticResource GlobalStatusTextStyle}" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                        <TextBlock x:Name="LatestScanStatusText" Text="No scan loaded" Style="{StaticResource GlobalStatusTextStyle}" />
+                        <TextBlock x:Name="WarningStatusText" Text="Monitoring active" Style="{StaticResource GlobalStatusTextStyle}" />
+                    </StackPanel>
+                </Grid>
+            </NavigationView.Header>
 
-        <Frame x:Name="ContentFrame" />
-    </NavigationView>
+            <NavigationView.MenuItems>
+                <NavigationViewItemHeader Content="Overview" />
+                <NavigationViewItem Tag="Dashboard" Icon="Home" Content="Dashboard" AutomationProperties.Name="Dashboard" />
+
+                <NavigationViewItemHeader Content="Analyze" />
+                <NavigationViewItem Tag="Scan" Icon="Find" Content="Scan" AutomationProperties.Name="Scan" />
+                <NavigationViewItem Tag="ScanWorkspace" Content="Scan Workspace" AutomationProperties.Name="Scan Workspace">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE8A5;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+                <NavigationViewItem Tag="Results" Icon="List" Content="Results" AutomationProperties.Name="Results" />
+                <NavigationViewItem Tag="SpaceMap" Content="Space Map" AutomationProperties.Name="Space Map">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE9D2;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+                <NavigationViewItem Tag="Duplicates" Icon="Copy" Content="Duplicates" AutomationProperties.Name="Duplicates" />
+
+                <NavigationViewItemHeader Content="Clean" />
+                <NavigationViewItem Tag="Cleanup" Icon="Delete" Content="Cleanup" AutomationProperties.Name="Cleanup" />
+                <NavigationViewItem Tag="SmartCleaner" Content="Smart Cleaner" AutomationProperties.Name="Smart Cleaner">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE9E9;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+
+                <NavigationViewItemHeader Content="Monitor" />
+                <NavigationViewItem Tag="DriveHealth" Content="Drive Health" AutomationProperties.Name="Drive Health">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE95E;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+            </NavigationView.MenuItems>
+
+            <NavigationView.PaneFooter>
+                <Border Margin="12" Padding="12" CornerRadius="{StaticResource TileCornerRadius}" Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}">
+                    <StackPanel Spacing="4">
+                        <TextBlock Text="Global status" Style="{StaticResource CaptionTextBlockStyle}" FontWeight="SemiBold" />
+                        <TextBlock x:Name="PaneLatestScanText" Text="Latest scan unavailable" Style="{StaticResource GlobalStatusTextStyle}" />
+                        <TextBlock x:Name="PaneDiskStatusText" Text="Disk monitor starting" Style="{StaticResource GlobalStatusTextStyle}" />
+                    </StackPanel>
+                </Border>
+            </NavigationView.PaneFooter>
+
+            <Frame x:Name="ContentFrame" />
+        </NavigationView>
+    </Grid>
 </Window>

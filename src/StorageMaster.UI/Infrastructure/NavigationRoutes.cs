@@ -6,6 +6,7 @@ internal static class NavigationRoutes
 {
     internal const string Dashboard = "Dashboard";
     internal const string Scan = "Scan";
+    internal const string ScanWorkspace = "ScanWorkspace";
     internal const string Results = "Results";
     internal const string Duplicates = "Duplicates";
     internal const string Cleanup = "Cleanup";
@@ -18,6 +19,7 @@ internal static class NavigationRoutes
     {
         [Dashboard] = typeof(DashboardPage),
         [Scan] = typeof(ScanPage),
+        [ScanWorkspace] = typeof(ScanWorkspacePage),
         [Results] = typeof(ResultsPage),
         [Duplicates] = typeof(DuplicatesPage),
         [Cleanup] = typeof(CleanupPage),

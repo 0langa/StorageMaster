@@ -1,8 +1,8 @@
 # StorageMaster — Codemap
 
-> **Version:** 2.0.0-prerelease | **Date:** 2026-05-07
+> **Version:** 2.0.0 | **Date:** 2026-05-07
 > Quick-reference for every file, type, method, and database table in the project.
-> **Current-state note:** v2.0.0-prerelease keeps the v1.9 Space Map/schema/scanner hardening work, adds Drive Health/schema v7/prerelease release hardening, and remains framework-dependent on Windows App SDK 1.6 with a staged runtime MSIX prereq. Source code is authoritative where older file-by-file sections differ.
+> **Current-state note:** v2.0.0 keeps the v1.9 Space Map/schema/scanner hardening work, adds Drive Health/schema v7/release hardening and the v2 UI foundation, and remains framework-dependent on Windows App SDK 1.6 with a staged runtime MSIX prereq. Source code is authoritative where older file-by-file sections differ.
 
 ---
 
@@ -643,6 +643,8 @@ Implements `ISettingsRepository`. Uses `System.Text.Json`. Key `"AppSettings"` i
 **WindowsPackageType:** `None` (unpackaged)
 **WindowsAppSDKSelfContained:** `false`
 
+v2 UI primitives now live in `src/StorageMaster.UI/Styles/*.xaml` and `src/StorageMaster.UI/Controls/*`: `PageHeader`, `StateView`, `RadialGauge`, `SeverityBadge`, `SettingsCard`, `SettingsExpander`, and `TreemapTileControl`.
+
 ---
 
 #### `App` — `App.xaml.cs`
@@ -665,7 +667,7 @@ Implements `ISettingsRepository`. Uses `System.Text.Json`. Key `"AppSettings"` i
 | `ApplyStartupWindowSize()` | `DisplayArea.GetFromWindowId` → 85% width, 90% height, clamped 900×700 min |
 | `NavView_SelectionChanged` | Maps tag → page type, calls `_nav.NavigateTo(pageType)` |
 
-Navigation tags include `Dashboard`, `Scan`, `Results`, `Duplicates`, `Cleanup`, `SmartCleaner`, `SpaceMap`, `DriveHealth`, and `Settings`.
+Navigation tags include `Dashboard`, `Scan`, `ScanWorkspace`, `Results`, `Duplicates`, `Cleanup`, `SmartCleaner`, `SpaceMap`, `DriveHealth`, and `Settings`.
 
 ---
 
@@ -698,6 +700,7 @@ void GoBack()
 |------|-----------|-----------|
 | `DashboardPage` | `DashboardViewModel` | Launch + "Dashboard" tag |
 | `ScanPage` | `ScanViewModel` | "Scan" tag |
+| `ScanWorkspacePage` | `ScanWorkspaceViewModel` | "ScanWorkspace" tag or scan completion |
 | `ResultsPage` | `ResultsViewModel` | "Results" tag or `GoToResultsCommand` (parameter: sessionId) |
 | `CleanupPage` | `CleanupViewModel` | "Cleanup" tag |
 | `SmartCleanerPage` | `SmartCleanerViewModel` | "SmartCleaner" tag |

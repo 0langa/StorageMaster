@@ -7,35 +7,24 @@
             <ResourceDictionary.MergedDictionaries>
                 <!-- Provides Fluent Design control styles for WinUI 3 -->
                 <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
+                <ResourceDictionary Source="Styles/Tokens.xaml" />
+                <ResourceDictionary Source="Styles/Typography.xaml" />
+                <ResourceDictionary Source="Styles/Cards.xaml" />
+                <ResourceDictionary Source="Styles/Buttons.xaml" />
+                <ResourceDictionary Source="Styles/Inputs.xaml" />
+                <ResourceDictionary Source="Styles/Navigation.xaml" />
+                <ResourceDictionary Source="Styles/Motion.xaml" />
+                <ResourceDictionary Source="Styles/Severity.xaml" />
+                <ResourceDictionary Source="Styles/FileTypes.xaml" />
+                <ResourceDictionary Source="Styles/Icons.xaml" />
             </ResourceDictionary.MergedDictionaries>
-            <Thickness x:Key="PageCardPadding">20</Thickness>
-            <CornerRadius x:Key="PageCardCornerRadius">10</CornerRadius>
-            <Style x:Key="SectionCardStyle" TargetType="Border">
-                <Setter Property="Background" Value="{ThemeResource CardBackgroundFillColorDefaultBrush}" />
-                <Setter Property="CornerRadius" Value="{StaticResource PageCardCornerRadius}" />
-                <Setter Property="Padding" Value="{StaticResource PageCardPadding}" />
-            </Style>
-            <Style x:Key="SectionHeaderTextStyle" TargetType="TextBlock">
-                <Setter Property="Style" Value="{StaticResource BodyStrongTextBlockStyle}" />
-                <Setter Property="TextWrapping" Value="WrapWholeWords" />
-            </Style>
-            <Style x:Key="HelperTextStyle" TargetType="TextBlock">
-                <Setter Property="Style" Value="{StaticResource CaptionTextBlockStyle}" />
-                <Setter Property="Opacity" Value="0.72" />
-                <Setter Property="TextWrapping" Value="WrapWholeWords" />
-            </Style>
-            <Style x:Key="SettingsTileCardStyle" TargetType="Border">
-                <Setter Property="Background" Value="{ThemeResource CardBackgroundFillColorDefaultBrush}" />
-                <Setter Property="CornerRadius" Value="10" />
-                <Setter Property="Padding" Value="20" />
-            </Style>
             <Style x:Key="StatusChipStyle" TargetType="Border">
                 <Setter Property="Background" Value="{ThemeResource AccentFillColorDefaultBrush}" />
-                <Setter Property="CornerRadius" Value="12" />
-                <Setter Property="Padding" Value="8,4" />
+                <Setter Property="CornerRadius" Value="{StaticResource ChipCornerRadius}" />
+                <Setter Property="Padding" Value="{StaticResource ChipPadding}" />
             </Style>
             <Style x:Key="EmptyStateTextStyle" TargetType="TextBlock">
-                <Setter Property="Style" Value="{StaticResource CaptionTextBlockStyle}" />
+                <Setter Property="Style" Value="{StaticResource MutedTextStyle}" />
                 <Setter Property="Opacity" Value="0.55" />
                 <Setter Property="TextWrapping" Value="WrapWholeWords" />
             </Style>

@@ -1,0 +1,15 @@
+<UserControl
+    x:Class="StorageMaster.UI.Controls.SeverityBadge"
+    x:Name="Root"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <Border x:Name="BadgeBorder"
+            Padding="{StaticResource ChipPadding}"
+            CornerRadius="{StaticResource ChipCornerRadius}">
+        <TextBlock x:Name="BadgeTextBlock"
+                   Text="{x:Bind DisplayText, Mode=OneWay}"
+                   Style="{StaticResource CaptionTextBlockStyle}"
+                   FontWeight="SemiBold" />
+    </Border>
+</UserControl>

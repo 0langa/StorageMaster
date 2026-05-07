@@ -39,6 +39,11 @@ public sealed partial class ScanViewModel : ObservableObject
     [ObservableProperty] private bool _useTurboScanner;
     [ObservableProperty] private bool _turboScannerAvailable;
     [ObservableProperty] private bool _isProgressIndeterminate = true;
+    [ObservableProperty] private string _selectedScanMode = "Standard Scan";
+    [ObservableProperty] private string _elapsedTime = "0s";
+    [ObservableProperty] private string _scanSpeed = "Calculating";
+    [ObservableProperty] private string _estimatedRemainingTime = "Calculating";
+    [ObservableProperty] private string _scanStepText = "Step 1 of 4 · Choose scope";
 
     /// <summary>True when the process already holds administrator privileges.</summary>
     public bool IsRunningAsAdmin => _admin.IsRunningAsAdmin;
@@ -68,6 +73,9 @@ public sealed partial class ScanViewModel : ObservableObject
     }
 
     private long _lastSessionId;
+    private DateTime _scanStartedUtc;
+    private DateTime _lastProgressUtc;
+    private long _lastProgressBytes;
 
     public ScanViewModel(
         IFileScanner scanner,
@@ -100,6 +108,16 @@ public sealed partial class ScanViewModel : ObservableObject
         if (autoEnableDeepScan)
             DeepScan = true;
         ValidateSelectedPath(SelectedPath);
+    }
+
+    [RelayCommand]
+    private void SelectScanMode(string? mode)
+    {
+        SelectedScanMode = string.IsNullOrWhiteSpace(mode) ? "Standard Scan" : mode;
+        DeepScan = SelectedScanMode == "Deep Scan";
+        if (SelectedScanMode == "Quick Scan")
+            UseTurboScanner = TurboScannerAvailable;
+        ScanStepText = "Step 2 of 4 · Choose scan mode";
     }
 
     [RelayCommand]
@@ -153,6 +171,13 @@ public sealed partial class ScanViewModel : ObservableObject
         IsProgressIndeterminate = true;
         ProgressText = "Preparing scan...";
         CurrentFile = SelectedPath;
+        ElapsedTime = "0s";
+        ScanSpeed = "Calculating";
+        EstimatedRemainingTime = "Calculating";
+        ScanStepText = "Step 3 of 4 · Run scan";
+        _scanStartedUtc = DateTime.UtcNow;
+        _lastProgressUtc = _scanStartedUtc;
+        _lastProgressBytes = 0;
 
         _cts = new CancellationTokenSource();
 
@@ -195,17 +220,20 @@ public sealed partial class ScanViewModel : ObservableObject
                 _cts.Token);
             _lastSessionId = session.Id;
             ScanComplete = true;
+            ScanStepText = "Step 4 of 4 · Review results";
             ProgressText = $"Scan complete — {ByteSizeConverter.Format(session.TotalSizeBytes)} in {session.TotalFiles:N0} files";
         }
         catch (OperationCanceledException)
         {
             ProgressText = "Scan cancelled.";
+            ScanStepText = "Scan cancelled";
         }
         catch (Exception ex)
         {
             HasError = true;
             ErrorMessage = ex.Message;
             ProgressText = "Scan failed.";
+            ScanStepText = "Scan failed";
         }
         finally
         {
@@ -222,15 +250,30 @@ public sealed partial class ScanViewModel : ObservableObject
     private void ViewResults()
     {
         if (_lastSessionId > 0)
-            _nav.NavigateTo(typeof(ResultsPage), _lastSessionId);
+            _nav.NavigateTo(typeof(ScanWorkspacePage), _lastSessionId);
     }
 
     private void OnProgress(ScanProgress p)
     {
+        var elapsed = p.Timestamp - _scanStartedUtc;
+        if (elapsed < TimeSpan.Zero)
+            elapsed = TimeSpan.Zero;
+
         FilesScanned = p.FilesScanned;
         FoldersScanned = p.FoldersScanned;
         BytesScanned = ByteSizeConverter.Format(p.BytesScanned);
         ErrorCount = p.ErrorCount;
+        ElapsedTime = FormatDuration(elapsed);
+
+        var sampleSeconds = Math.Max(0.001, (p.Timestamp - _lastProgressUtc).TotalSeconds);
+        var sampleBytes = p.BytesScanned - _lastProgressBytes;
+        if (sampleBytes > 0)
+            ScanSpeed = $"{ByteSizeConverter.Format((long)(sampleBytes / sampleSeconds))}/s";
+
+        _lastProgressUtc = p.Timestamp;
+        _lastProgressBytes = p.BytesScanned;
+        EstimatedRemainingTime = "Calculating";
+
         CurrentFile = p.CurrentPath.Length > 80
             ? "…" + p.CurrentPath[^77..]
             : p.CurrentPath;
@@ -291,7 +334,17 @@ public sealed partial class ScanViewModel : ObservableObject
         }
 
         ScanPathError = string.Empty;
+        ScanStepText = "Step 1 of 4 · Choose scope";
     }
 
     private static string QuoteArgument(string value) => "\"" + value.Replace("\"", "\\\"", StringComparison.Ordinal) + "\"";
+
+    private static string FormatDuration(TimeSpan value)
+    {
+        if (value.TotalHours >= 1)
+            return $"{(int)value.TotalHours}h {value.Minutes}m";
+        if (value.TotalMinutes >= 1)
+            return $"{value.Minutes}m {value.Seconds}s";
+        return $"{Math.Max(0, value.Seconds)}s";
+    }
 }

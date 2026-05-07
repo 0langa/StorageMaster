@@ -1,6 +1,6 @@
 # StorageMaster — Development Roadmap
 
-> **Current release:** v2.0.0-prerelease (2026-05-07) — Drive Health & Storage Sentinel, schema v7 health snapshots, prerelease-safe versioning/updater/release flow, .NET Desktop Runtime setup check, elevated CLI deep-scan worker, and the v1.9 Space Map/runtime rollback baseline.
+> **Current release:** v2.0.0 (2026-05-07) — Drive Health & Storage Sentinel, schema v7 health snapshots, stable/prerelease-safe versioning and release flow, .NET Desktop Runtime setup check, elevated CLI deep-scan worker, the v1.9 Space Map/runtime rollback baseline, and the v2 UI foundation: grouped shell, shared styles/controls, guided Scan flow, Scan Workspace, refreshed Dashboard/Drive Health, and Space Map tile control.
 > **Previous baseline:** v1.9.6 — runtime rollback to framework-dependent Windows App SDK 1.6 deployment.
 
 ---

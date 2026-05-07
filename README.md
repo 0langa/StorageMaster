@@ -1,6 +1,6 @@
 # StorageMaster    [![Release](https://github.com/0langa/StorageMaster/actions/workflows/release.yml/badge.svg)](https://github.com/0langa/StorageMaster/actions/workflows/release.yml) [![CI](https://github.com/0langa/StorageMaster/actions/workflows/ci.yml/badge.svg)](https://github.com/0langa/StorageMaster/actions/workflows/ci.yml)
 
-> **Current version:** 2.0.0-prerelease — Windows disk analyzer, junk cleaner, visual space map, drive health sentinel, and storage automation tool.
+> **Current version:** 2.0.0 — Windows disk analyzer, junk cleaner, visual space map, drive health sentinel, and storage automation tool.
 
 A Windows disk analyzer and storage cleaner built with **C# / .NET 8 / WinUI 3**, with an optional native Rust scan engine for maximum throughput on multi-core systems.
 
@@ -21,8 +21,8 @@ A Windows disk analyzer and storage cleaner built with **C# / .NET 8 / WinUI 3**
 | **Scan history** | Every scan session stored; browse and compare historical results |
 | **Duplicate analysis** | Pluggable dedupe engine with exact SHA-256, normalized-text review, image pHash, optional video pHash (auto-detects bundled or PATH FFmpeg), quarantine/recycle deletion, and audit trail |
 | **Duplicate previews** | Inline previews for image and video groups; first-difference highlight for text duplicates |
-| **Results visualization** | Largest files, largest folders, file-type breakdown, error log, category filters, and paged loading |
-| **Visual Space Map** | Interactive treemap for completed scans, with folder drill-down, category colors, size filters, CSV/HTML/PNG export, and safe review-only actions |
+| **Results visualization** | Largest files, largest folders, file-type breakdown, error log, category filters, scan workspace handoff, and paged loading |
+| **Visual Space Map** | Interactive treemap for completed scans, with native tile controls, folder drill-down, category colors, size filters, CSV/HTML/PNG export, and safe review-only actions |
 | **Scan Delta Insights** | Compare a scan to the previous scan of the same root to find growing folders, new large files, and removed files |
 | **Folder size aggregation** | Bottom-up propagation gives accurate folder totals |
 | **CLI / headless mode** | Full-featured command-line interface for scripting and automation |
@@ -61,8 +61,9 @@ StorageMaster/
 
 | Page | Purpose |
 |------|---------|
-| **Dashboard** | Disk health overview, drive usage bars, last scan summary |
-| **Scan** | Configure and run a full directory scan (managed or Turbo) |
+| **Dashboard** | Command-center overview with health summary, drive gauges, reclaimable space, file-type composition, and quick actions |
+| **Scan** | Guided scan flow with scope, mode, live progress metrics, cancellation, and managed/Turbo backend selection |
+| **Scan Workspace** | Unified completed-scan workspace for overview, files, folders, Space Map, Duplicates, Delta, and Errors |
 | **Results** | Largest files, largest folders, file types, scan errors |
 | **Cleanup** | Session-based cleanup with per-category toggles and dry-run |
 | **Duplicates** | Scope by folders/categories/extensions, run exact or fuzzy methods, review previews, delete/quarantine selected copies, restore quarantined files |
@@ -153,7 +154,7 @@ Copy-Item turbo-scanner\target\x86_64-pc-windows-msvc\release\turbo-scanner.exe 
 
 # 3. Build the installer
 iscc installer\StorageMaster.iss
-# Output: artifacts/installer/StorageMaster-2.0.0-prerelease-win-x64-Setup.exe
+# Output: artifacts/installer/StorageMaster-2.0.0-win-x64-Setup.exe
 ```
 
 Optional: place `ffmpeg.exe` and `ffprobe.exe` in `installer\ffmpeg\` before packaging. If that folder is absent, release builds also look for both tools together on PATH and copy them into `tools\ffmpeg\` beside the app so video pHash works out of the box.

@@ -123,6 +123,15 @@ public sealed partial class DashboardViewModel : ObservableObject
     private void ScanDrive(DriveDetail drive) => _nav.NavigateTo(typeof(ScanPage), drive.Name);
 
     [RelayCommand]
+    private void GoToWorkspace()
+    {
+        if (HasLastSession)
+            _nav.NavigateTo(typeof(ScanWorkspacePage), LastSession!.Id);
+        else
+            _nav.NavigateTo(typeof(ScanWorkspacePage));
+    }
+
+    [RelayCommand]
     private void GoToResults()
     {
         if (HasLastSession)

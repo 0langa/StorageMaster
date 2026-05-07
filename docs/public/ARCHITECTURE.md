@@ -1,7 +1,7 @@
 # StorageMaster — Architecture Overview
 
-> **Version:** 2.0.0-prerelease | **Date:** 2026-05-07 | **Framework:** .NET 8 / WinUI 3 / Windows App SDK 1.6
-> **v2 prerelease update:** StorageMaster now includes Drive Health & Storage Sentinel, schema v7 health snapshots, prerelease-safe versioning, .NET Desktop Runtime setup checks, elevated CLI deep-scan workers, and prerelease-aware GitHub release automation.
+> **Version:** 2.0.0 | **Date:** 2026-05-07 | **Framework:** .NET 8 / WinUI 3 / Windows App SDK 1.6
+> **v2 update:** StorageMaster now includes the v2 UI foundation, Drive Health & Storage Sentinel, schema v7 health snapshots, stable/prerelease-safe versioning, .NET Desktop Runtime setup checks, elevated CLI deep-scan workers, and GitHub release automation.
 
 ---
 
@@ -137,14 +137,14 @@ Pure SQLite persistence:
 
 ### StorageMaster.UI
 
-WinUI 3 MVVM application (unpackaged, `WindowsPackageType=None`):
+WinUI 3 MVVM application (unpackaged, `WindowsPackageType=None`). The v2 shell uses grouped `NavigationView` sections, Mica Alt when available, a global status strip, shared style dictionaries under `StorageMaster.UI/Styles`, and reusable controls under `StorageMaster.UI/Controls`. `ScanWorkspacePage` centralizes persisted scan context while existing Results, Duplicates, Cleanup, Space Map, and Drive Health pages remain directly routable.
 
 | Component | Pattern |
 |-----------|---------|
 | `Program.cs` | Entry point; routes `--cli` / `--headless` to `CommandRunner`, otherwise launches WinUI app |
 | `ServiceBootstrapper.cs` | DI container wiring; all singletons and transients registered here |
 | `App.xaml.cs` | `OnLaunched` activates `MainWindow`; startup arg flags (`StartInTray`, `StartWithDeepScan`) |
-| `MainWindow` | `NavigationView` shell + `Frame` host; DPI-aware sizing; tray icon; low-disk monitor |
+| `MainWindow` | grouped `NavigationView` shell + `Frame` host; Mica fallback; global status; DPI-aware sizing; tray icon; low-disk monitor |
 | `NavigationService` | `INavigationService` abstraction over `Frame.Navigate` |
 | `*ViewModel` | `ObservableObject` + `[ObservableProperty]` + `[RelayCommand]` source-gen |
 | `*Page.xaml` | `{x:Bind}` compiled bindings; no logic in code-behind |

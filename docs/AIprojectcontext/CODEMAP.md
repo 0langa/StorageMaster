@@ -1,6 +1,6 @@
 # StorageMaster Codemap
 
-Version: 2.0.0-prerelease. Compact source map for the deployed repository. Source code is authoritative.
+Version: 2.0.0. Compact source map for the deployed repository. Source code is authoritative.
 
 ## Root
 
@@ -8,13 +8,13 @@ Version: 2.0.0-prerelease. Compact source map for the deployed repository. Sourc
 |---|---|
 | `StorageMaster.sln`, `.slnx` | solution files |
 | `global.json` | .NET SDK 8.0 latest patch |
-| `Directory.Build.props` | centralized semantic version (`2.0.0-prerelease`) plus numeric assembly version (`2.0.0.0`) |
+| `Directory.Build.props` | centralized semantic version (`2.0.0`) plus numeric assembly version (`2.0.0.0`) |
 | `Directory.Build.targets` | forces executable WinUI XAML compiler |
-| `README.md`, `CHANGELOG.md` | public docs; changelog current through 2.0.0-prerelease |
+| `README.md`, `CHANGELOG.md` | public docs; changelog current through 2.0.0 |
 | `.github/workflows/ci.yml` | PR/push build/test/format/Rust checks |
 | `.github/workflows/release.yml` | tag release pipeline, optional signing |
-| `installer/StorageMaster.iss` | Inno Setup, `AppVersion=2.0.0-prerelease`, `PrivilegesRequired=lowest`, checks .NET Desktop Runtime 8 x64, stages Windows App Runtime 1.6 MSIX prereq, `DefaultDirName={localappdata}\Programs\StorageMaster` |
-| `turbo-scanner/` | Rust binary crate, package version 2.0.0-prerelease |
+| `installer/StorageMaster.iss` | Inno Setup, `AppVersion=2.0.0`, `PrivilegesRequired=lowest`, checks .NET Desktop Runtime 8 x64, stages Windows App Runtime 1.6 MSIX prereq, `DefaultDirName={localappdata}\Programs\StorageMaster` |
+| `turbo-scanner/` | Rust binary crate, package version 2.0.0 |
 
 ## Project files and packages
 
@@ -169,19 +169,20 @@ Cleanup rules and IDs:
 
 | Area | Files |
 |---|---|
-| Startup/DI | `Program.cs`, `App.xaml(.cs)`, `ServiceBootstrapper.cs`, `MainWindow.xaml(.cs)` |
+| Startup/DI | `Program.cs`, `App.xaml(.cs)`, `ServiceBootstrapper.cs`, `MainWindow.xaml(.cs)`, `Styles/*.xaml`, `Controls/*` |
 | Infrastructure | `CommandRunner`, `NavigationService`, `NavigationRoutes`, `DialogService`, `DesktopNotificationService`, `DuplicatePreviewService`, `ScheduledTaskService`, `StartupRegistrationService`, `LocalDiagnosticsService` |
-| Pages/ViewModels | Dashboard, Scan, Results, Duplicates, Cleanup, SmartCleaner, SpaceMap, DriveHealth, Settings |
+| Pages/ViewModels | Dashboard, Scan, ScanWorkspace, Results, Duplicates, Cleanup, SmartCleaner, SpaceMap, DriveHealth, Settings |
 | Converters | `BoolNegation`, `BoolToChevron`, `BoolToVisibility`, `ByteSize`, `FilePathToBitmapImage` |
 
-Navigation tags: `Dashboard`, `Scan`, `Results`, `Duplicates`, `Cleanup`, `SmartCleaner`, `SpaceMap`, `DriveHealth`, `Settings`.
+Navigation tags: `Dashboard`, `Scan`, `ScanWorkspace`, `Results`, `Duplicates`, `Cleanup`, `SmartCleaner`, `SpaceMap`, `DriveHealth`, `Settings`.
 
 ## UI ViewModel command map
 
 | VM | Commands |
 |---|---|
 | `DashboardViewModel` | go to Scan/Results/Duplicates/Cleanup/SmartCleaner/SpaceMap/DriveHealth/Settings, scan drive |
-| `ScanViewModel` | request elevation, start/cancel scan, view results |
+| `ScanViewModel` | select scan mode, request elevation, start/cancel scan, view scan workspace |
+| `ScanWorkspaceViewModel` | load scan overview/files/folders/errors/category breakdown, route to Results/SpaceMap/Duplicates/Cleanup |
 | `ResultsViewModel` | clear/apply/category filters, sort files/folders, load more files/folders/errors, delete file, delete session |
 | `CleanupViewModel` | analyze, execute cleanup |
 | `DuplicatesViewModel` | run/cancel analysis, page groups/errors, export CSV/JSON/HTML, keeper shortcuts, select/deselect current page, delete selected, restore quarantine, cancel export, open export folder |

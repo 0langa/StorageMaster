@@ -5,6 +5,7 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:converters="using:StorageMaster.UI.Converters"
+    xmlns:controls="using:StorageMaster.UI.Controls"
     xmlns:local="using:StorageMaster.UI.Pages"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
@@ -561,29 +562,11 @@
                     </GridView.ItemContainerStyle>
                     <GridView.ItemTemplate>
                         <DataTemplate x:DataType="local:SettingsCategoryItem">
-                            <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                                    CornerRadius="10"
-                                    Padding="20"
-                                    MinWidth="280"
-                                    MinHeight="150"
-                                    AutomationProperties.Name="{x:Bind Title}">
-                                <StackPanel Spacing="8">
-                                    <FontIcon Glyph="{x:Bind IconGlyph}" FontSize="28" />
-                                    <TextBlock Text="{x:Bind Title}" Style="{StaticResource BodyStrongTextBlockStyle}" />
-                                    <TextBlock Text="{x:Bind Description}"
-                                               Style="{StaticResource CaptionTextBlockStyle}"
-                                               Opacity="0.7"
-                                               TextWrapping="WrapWholeWords" />
-                                    <TextBlock Text="{x:Bind StatusSummary}"
-                                               Style="{StaticResource CaptionTextBlockStyle}"
-                                               Opacity="0.6"
-                                               TextWrapping="WrapWholeWords" />
-                                    <InfoBar Message="{x:Bind WarningText}"
-                                             Severity="Warning"
-                                             IsOpen="{x:Bind HasWarning}"
-                                             IsClosable="False" />
-                                </StackPanel>
-                            </Border>
+                            <controls:SettingsCard Title="{x:Bind Title}"
+                                                   Description="{x:Bind Description}"
+                                                   IconGlyph="{x:Bind IconGlyph}"
+                                                   BadgeText="{x:Bind StatusSummary}"
+                                                   WarningText="{x:Bind WarningText}" />
                         </DataTemplate>
                     </GridView.ItemTemplate>
                 </GridView>

@@ -1,10 +1,12 @@
 using System.Runtime.InteropServices;
 using H.NotifyIcon;
 using H.NotifyIcon.Core;
+using Microsoft.UI.Composition.SystemBackdrops;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Windowing;
 using StorageMaster.UI.Infrastructure;
 using StorageMaster.Core.Interfaces;
@@ -17,6 +19,7 @@ public sealed partial class MainWindow : Window
 {
     private readonly INavigationService _nav;
     private readonly ISettingsRepository _settingsRepository;
+    private readonly IScanRepository _scanRepository;
     private readonly IDriveInfoProvider _driveInfoProvider;
     private readonly IDriveHealthProvider _driveHealthProvider;
     private readonly DesktopNotificationService _notificationService;
@@ -30,6 +33,7 @@ public sealed partial class MainWindow : Window
     public MainWindow(
         INavigationService nav,
         ISettingsRepository settingsRepository,
+        IScanRepository scanRepository,
         IDriveInfoProvider driveInfoProvider,
         IDriveHealthProvider driveHealthProvider,
         DesktopNotificationService notificationService,
@@ -37,6 +41,7 @@ public sealed partial class MainWindow : Window
     {
         _nav = nav;
         _settingsRepository = settingsRepository;
+        _scanRepository = scanRepository;
         _driveInfoProvider = driveInfoProvider;
         _driveHealthProvider = driveHealthProvider;
         _notificationService = notificationService;
@@ -48,6 +53,7 @@ public sealed partial class MainWindow : Window
         _notificationService.NotificationRaised += OnNotificationRaised;
 
         Title = "StorageMaster";
+        TryApplyMicaBackdrop();
         ApplyStartupWindowSize();
 
         // Set window icon — covers title bar, taskbar button, and Alt+Tab thumbnail.
@@ -66,6 +72,18 @@ public sealed partial class MainWindow : Window
         SyncSelection(typeof(DashboardPage));
         AppWindow.Closing += OnAppWindowClosing;
         Activated += OnWindowActivated;
+    }
+
+    private void TryApplyMicaBackdrop()
+    {
+        try
+        {
+            SystemBackdrop = new MicaBackdrop { Kind = MicaKind.BaseAlt };
+        }
+        catch
+        {
+            SystemBackdrop = null;
+        }
     }
 
     // ── Win32 icon helpers ────────────────────────────────────────────────────
@@ -206,6 +224,7 @@ public sealed partial class MainWindow : Window
         {
             var settings = await _settingsRepository.LoadAsync();
             ConfigureDiskMonitor(settings);
+            await RefreshGlobalStatusAsync();
             if (App.StartInTray || settings.MinimizeToTray)
                 HideToTray();
         }
@@ -287,12 +306,14 @@ public sealed partial class MainWindow : Window
             if (settings.EnableLowDiskNotifications)
             {
                 var state = settings.LowDiskNotificationState;
+                var lowestFreePercent = 100;
                 foreach (var drive in _driveInfoProvider.GetAvailableDrives())
                 {
                     if (!drive.IsReady || drive.TotalBytes <= 0)
                         continue;
 
                     var freePercent = (int)Math.Round((double)drive.FreeBytes / drive.TotalBytes * 100.0);
+                    lowestFreePercent = Math.Min(lowestFreePercent, freePercent);
                     string? level = freePercent <= settings.LowDiskCriticalPercent
                         ? "critical"
                         : freePercent <= settings.LowDiskWarningPercent
@@ -315,6 +336,11 @@ public sealed partial class MainWindow : Window
                         "Low disk space",
                         $"{drive.Name} is down to {freePercent}% free ({drive.FreeBytes / 1024 / 1024 / 1024.0:F1} GB).");
                 }
+
+                PaneDiskStatusText.Text = lowestFreePercent == 100
+                    ? "Drives healthy"
+                    : $"Lowest free space: {lowestFreePercent}%";
+                WarningStatusText.Text = PaneDiskStatusText.Text;
             }
 
             if (!settings.EnableDriveHealthNotifications)
@@ -343,6 +369,28 @@ public sealed partial class MainWindow : Window
         catch (Exception ex)
         {
             await RecordDiagnosticsAsync("disk-monitor", ex);
+        }
+    }
+
+    private async Task RefreshGlobalStatusAsync()
+    {
+        try
+        {
+            var latest = (await _scanRepository.GetRecentSessionsAsync(1)).FirstOrDefault();
+            if (latest is null)
+            {
+                LatestScanStatusText.Text = "No scans yet";
+                PaneLatestScanText.Text = "Start a scan to build workspace data";
+                return;
+            }
+
+            var completed = latest.CompletedUtc?.ToLocalTime().ToString("g") ?? "in progress";
+            LatestScanStatusText.Text = $"Last scan: {latest.RootPath}";
+            PaneLatestScanText.Text = $"{latest.Status} · {completed}";
+        }
+        catch (Exception ex)
+        {
+            await RecordDiagnosticsAsync("global-status", ex);
         }
     }
 

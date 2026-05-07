@@ -4,6 +4,7 @@
     AutomationProperties.Name="Dashboard page"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="using:StorageMaster.UI.Controls"
     xmlns:converters="using:StorageMaster.UI.Converters"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
@@ -14,121 +15,100 @@
         <converters:BoolToVisibilityConverter x:Key="BoolVis" />
     </Page.Resources>
 
-    <ScrollViewer Padding="32,24">
-        <StackPanel Spacing="24" MaxWidth="1120" HorizontalAlignment="Center">
-            <TextBlock Text="Dashboard" Style="{StaticResource TitleLargeTextBlockStyle}" />
+    <ScrollViewer Padding="{StaticResource PagePaddingWide}">
+        <StackPanel Spacing="{StaticResource SectionSpacing}" MaxWidth="{StaticResource PageMaxWidth}" HorizontalAlignment="Center">
+            <controls:PageHeader Title="Overview"
+                                 Subtitle="Storage health, latest scan context, and safe next actions." />
 
-            <Border Background="{ThemeResource AccentAcrylicBackgroundFillColorDefaultBrush}"
-                    CornerRadius="12"
-                    Padding="24">
-                <Grid ColumnSpacing="24">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="2*" />
-                        <ColumnDefinition Width="*" />
-                    </Grid.ColumnDefinitions>
+            <Border Style="{StaticResource HeroCardStyle}">
+                <Grid ColumnDefinitions="2*,*,Auto" ColumnSpacing="24">
                     <StackPanel Grid.Column="0" Spacing="10">
-                        <TextBlock Text="{x:Bind ViewModel.HeroTitle, Mode=OneWay}"
-                                   Style="{StaticResource TitleTextBlockStyle}" />
-                        <TextBlock Text="{x:Bind ViewModel.HeroSubtitle, Mode=OneWay}"
-                                   TextWrapping="WrapWholeWords"
-                                   Opacity="0.82" />
-                        <TextBlock Text="{x:Bind ViewModel.StatusMessage, Mode=OneWay}"
-                                   TextWrapping="WrapWholeWords"
-                                   Opacity="0.72" />
+                        <TextBlock Text="{x:Bind ViewModel.HeroTitle, Mode=OneWay}" Style="{StaticResource TitleTextBlockStyle}" />
+                        <TextBlock Text="{x:Bind ViewModel.HeroSubtitle, Mode=OneWay}" Style="{StaticResource PageSubtitleTextStyle}" />
+                        <TextBlock Text="{x:Bind ViewModel.StatusMessage, Mode=OneWay}" Style="{StaticResource HelperTextStyle}" />
                     </StackPanel>
-                    <StackPanel Grid.Column="1" Spacing="8">
-                        <TextBlock Text="Recommended next step"
-                                   Style="{StaticResource CaptionTextBlockStyle}"
-                                   Opacity="0.72" />
-                        <TextBlock Text="{x:Bind ViewModel.RecommendedActionText, Mode=OneWay}"
-                                   Style="{StaticResource BodyStrongTextBlockStyle}" />
-                        <TextBlock Text="{x:Bind ViewModel.LatestScanSummary, Mode=OneWay}"
-                                   TextWrapping="WrapWholeWords"
-                                   Opacity="0.72" />
+                    <StackPanel Grid.Column="1" Spacing="6">
+                        <TextBlock Text="Recommended next step" Style="{StaticResource HelperTextStyle}" />
+                        <TextBlock Text="{x:Bind ViewModel.RecommendedActionText, Mode=OneWay}" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                        <TextBlock Text="{x:Bind ViewModel.LatestScanSummary, Mode=OneWay}" Style="{StaticResource HelperTextStyle}" />
                     </StackPanel>
+                    <controls:RadialGauge Grid.Column="2"
+                                           Value="72"
+                                           Label="ready"
+                                           GaugeSize="108"
+                                           VerticalAlignment="Center" />
                 </Grid>
             </Border>
 
-            <ItemsControl ItemsSource="{x:Bind ViewModel.Recommendations, Mode=OneWay}"
-                          Visibility="{x:Bind ViewModel.HasRecommendations, Mode=OneWay, Converter={StaticResource BoolVis}}">
-                <ItemsControl.ItemTemplate>
-                    <DataTemplate>
-                        <Border Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}"
-                                CornerRadius="8"
-                                Padding="12"
-                                Margin="0,0,0,8">
-                            <TextBlock Text="{Binding}" TextWrapping="WrapWholeWords" />
-                        </Border>
-                    </DataTemplate>
-                </ItemsControl.ItemTemplate>
-            </ItemsControl>
-
-            <Grid ColumnSpacing="12">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="*" />
-                </Grid.ColumnDefinitions>
-                <Button Grid.Column="0" Content="Scan drive or folder" Command="{x:Bind ViewModel.GoToScanCommand}" />
-                <Button Grid.Column="1" Content="Latest Results" Command="{x:Bind ViewModel.GoToResultsCommand}" IsEnabled="{x:Bind ViewModel.HasLastSession, Mode=OneWay}" />
-                <Button Grid.Column="2" Content="Review Duplicates" Command="{x:Bind ViewModel.GoToDuplicatesCommand}" IsEnabled="{x:Bind ViewModel.HasLastSession, Mode=OneWay}" />
-                <Button Grid.Column="3" Content="Run Cleanup" Command="{x:Bind ViewModel.GoToCleanupCommand}" />
+            <Grid ColumnDefinitions="*,*,*,*,*" ColumnSpacing="12">
+                <Button Grid.Column="0" Content="Start Scan" Command="{x:Bind ViewModel.GoToScanCommand}" Style="{StaticResource AccentButtonStyle}" />
+                <Button Grid.Column="1" Content="Workspace" Command="{x:Bind ViewModel.GoToWorkspaceCommand}" IsEnabled="{x:Bind ViewModel.HasLastSession, Mode=OneWay}" />
+                <Button Grid.Column="2" Content="Space Map" Command="{x:Bind ViewModel.GoToSpaceMapCommand}" />
+                <Button Grid.Column="3" Content="Duplicates" Command="{x:Bind ViewModel.GoToDuplicatesCommand}" IsEnabled="{x:Bind ViewModel.HasLastSession, Mode=OneWay}" />
+                <Button Grid.Column="4" Content="Smart Cleanup" Command="{x:Bind ViewModel.GoToSmartCleanerCommand}" />
             </Grid>
 
-            <Grid ColumnSpacing="12">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="*" />
-                </Grid.ColumnDefinitions>
-                <Button Grid.Column="0" Content="Smart Cleaner" Command="{x:Bind ViewModel.GoToSmartCleanerCommand}" />
-                <Button Grid.Column="1" Content="Space Map" Command="{x:Bind ViewModel.GoToSpaceMapCommand}" />
-                <Button Grid.Column="2" Content="Drive Health" Command="{x:Bind ViewModel.GoToDriveHealthCommand}" />
-                <Button Grid.Column="3" Content="Start new scan" Command="{x:Bind ViewModel.GoToScanCommand}" />
-            </Grid>
-
-            <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                    CornerRadius="10"
-                    Padding="18">
-                <StackPanel Spacing="12">
-                    <TextBlock Text="Drive health" Style="{StaticResource BodyStrongTextBlockStyle}" />
-                    <TextBlock Text="{x:Bind ViewModel.DriveHealthSummary, Mode=OneWay}"
-                               Opacity="0.72"
-                               TextWrapping="WrapWholeWords" />
-                    <ItemsControl ItemsSource="{x:Bind ViewModel.DriveHealthSnapshots, Mode=OneWay}">
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate>
-                                <Border Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}"
-                                        CornerRadius="8"
-                                        Padding="14"
-                                        Margin="0,0,0,8">
-                                    <StackPanel Spacing="8">
-                                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-                                            <TextBlock Grid.Column="0" Text="{Binding DriveName}" FontWeight="SemiBold" />
-                                            <TextBlock Grid.Column="1"
-                                                       Text="{Binding Status}" />
+            <Grid ColumnDefinitions="1.4*,*" ColumnSpacing="16">
+                <Border Grid.Column="0" Style="{StaticResource SectionCardStyle}">
+                    <StackPanel Spacing="14">
+                        <TextBlock Text="Drive overview" Style="{StaticResource SectionHeaderTextStyle}" />
+                        <ItemsControl ItemsSource="{x:Bind ViewModel.DriveHealthSnapshots, Mode=OneWay}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Style="{StaticResource SubtleCardStyle}" Margin="0,0,0,10">
+                                        <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="16">
+                                            <controls:RadialGauge Grid.Column="0"
+                                                                  Value="{Binding FreePercent}"
+                                                                  Label="free"
+                                                                  GaugeSize="78" />
+                                            <StackPanel Grid.Column="1" Spacing="4" VerticalAlignment="Center">
+                                                <TextBlock Text="{Binding DriveName}" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                                                <TextBlock Text="{Binding Message}" Style="{StaticResource HelperTextStyle}" />
+                                                <TextBlock Style="{StaticResource MutedTextStyle}">
+                                                    <Run Text="{Binding VolumeLabel}" />
+                                                    <Run Text=" " />
+                                                    <Run Text="{Binding DriveFormat}" />
+                                                    <Run Text=" " />
+                                                    <Run Text="{Binding MediaType}" />
+                                                </TextBlock>
+                                            </StackPanel>
+                                            <controls:SeverityBadge Grid.Column="2"
+                                                                    Text="{Binding Status}"
+                                                                    Status="{Binding Status}"
+                                                                    VerticalAlignment="Center" />
                                         </Grid>
-                                        <ProgressBar Value="{Binding FreeBytes}" Maximum="{Binding TotalBytes}" Height="8" />
-                                        <TextBlock Text="{Binding Message}"
-                                                   Opacity="0.78"
-                                                   TextWrapping="WrapWholeWords" />
-                                        <TextBlock Opacity="0.7" Style="{StaticResource CaptionTextBlockStyle}">
-                                            <Run Text="{Binding VolumeLabel}" />
-                                            <Run Text=" • " />
-                                            <Run Text="{Binding DriveFormat}" />
-                                            <Run Text=" • Free " />
-                                            <Run Text="{Binding FreePercent}" />
-                                            <Run Text="%" />
-                                        </TextBlock>
-                                    </StackPanel>
-                                </Border>
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </Border>
+
+                <StackPanel Grid.Column="1" Spacing="16">
+                    <Border Style="{StaticResource SectionCardStyle}">
+                        <StackPanel Spacing="8">
+                            <TextBlock Text="Latest scan" Style="{StaticResource SectionHeaderTextStyle}" />
+                            <TextBlock Text="{x:Bind ViewModel.TotalScannedSize, Mode=OneWay}" Style="{StaticResource MetricTextStyle}" />
+                            <TextBlock Text="{x:Bind ViewModel.TotalFiles, Mode=OneWay}" Style="{StaticResource HelperTextStyle}" />
+                        </StackPanel>
+                    </Border>
+
+                    <Border Style="{StaticResource SectionCardStyle}">
+                        <StackPanel Spacing="10">
+                            <TextBlock Text="Recommended actions" Style="{StaticResource SectionHeaderTextStyle}" />
+                            <ItemsControl ItemsSource="{x:Bind ViewModel.Recommendations, Mode=OneWay}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border Style="{StaticResource SubtleCardStyle}" Margin="0,0,0,8">
+                                            <TextBlock Text="{Binding}" TextWrapping="WrapWholeWords" />
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </StackPanel>
+                    </Border>
                 </StackPanel>
-            </Border>
+            </Grid>
         </StackPanel>
     </ScrollViewer>
 </Page>

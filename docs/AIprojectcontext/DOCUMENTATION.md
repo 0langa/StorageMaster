@@ -1,6 +1,6 @@
 # StorageMaster Technical Reference
 
-Version: 2.0.0-prerelease. This reference matches the current repository implementation.
+Version: 2.0.0. This reference matches the current repository implementation.
 
 ## Build prerequisites
 
@@ -82,6 +82,8 @@ Important: both managed and Turbo scanners call `ScanOptionValidator.NormalizeAn
 
 `IFileScanner.ScanAsync(ScanOptions, IProgress<ScanProgress>, CancellationToken)` creates a persisted session and returns the final `ScanSession`. Progress is emitted roughly every 300 ms. UI callers must marshal to `DispatcherQueue` before mutating WinUI state.
 
+The v2 Scan page presents a 4-step guided flow and derives elapsed time plus sample scan speed in `ScanViewModel` from `ScanProgress.Timestamp` and byte deltas. ETA remains conservative unless a reliable total is known. Completed scans route to `ScanWorkspacePage`.
+
 `GetLargestFilesAsync(sessionId, topN, ct)` and `GetLargestFoldersAsync(sessionId, topN, ct)` wrap repository calls and yield results.
 
 `TurboFileScanner.IsAvailable` is true only when `turbo-scanner.exe` exists beside the app. Missing binary falls back to managed scanner. Rust JSONL format:
@@ -101,6 +103,8 @@ Important: both managed and Turbo scanners call `ScanOptionValidator.NormalizeAn
 - `GetScanDeltaAsync` compares current vs previous scan and reports growing folders, shrinking folders, new large files, and removed files. Renames/moves are treated as removed + added.
 
 `TreemapLayoutService` computes native WinUI Canvas rectangles from bounded node lists. Space Map exports CSV/HTML through the VM and PNG through WinUI `RenderTargetBitmap`. Space Map has no direct deletion command; destructive actions route to Cleanup or Duplicates review.
+
+Space Map tiles are rendered by `TreemapTileControl`, which centralizes tile labels, hover/focus affordances, automation names, tooltips, and semantic file-type colors while keeping repository queries bounded.
 
 ## Cleanup APIs
 

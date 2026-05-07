@@ -3,6 +3,7 @@
     AutomationProperties.Name="Cleanup page"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="using:StorageMaster.UI.Controls"
     xmlns:local="using:StorageMaster.UI.Pages"
     xmlns:converters="using:StorageMaster.UI.Converters"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
@@ -16,10 +17,16 @@
         <converters:BoolToChevronConverter    x:Key="ChevronConv" />
     </Page.Resources>
 
-    <ScrollViewer Padding="32,24">
-        <StackPanel Spacing="20" MaxWidth="1040" HorizontalAlignment="Center">
+    <ScrollViewer Padding="{StaticResource PagePaddingWide}">
+        <StackPanel Spacing="{StaticResource SectionSpacing}" MaxWidth="{StaticResource PageMaxWidth}" HorizontalAlignment="Center">
 
-            <TextBlock Text="Cleanup" Style="{StaticResource TitleLargeTextBlockStyle}" />
+            <controls:PageHeader Title="Cleanup"
+                                 Subtitle="Preview recoverable cleanup candidates before any destructive operation." />
+
+            <InfoBar IsOpen="True"
+                     Severity="Informational"
+                     Title="Review before delete"
+                     Message="Analysis is read-only. Execution keeps Recycle Bin as the recommended path and dry-run can preview the exact selected categories." />
 
             <!-- ── Session selector ────────────────────────────────────────── -->
             <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"

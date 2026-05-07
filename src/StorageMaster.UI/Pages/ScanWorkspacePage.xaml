@@ -1,0 +1,163 @@
+<Page
+    x:Class="StorageMaster.UI.Pages.ScanWorkspacePage"
+    x:Name="PageRoot"
+    AutomationProperties.Name="Scan Workspace page"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="using:StorageMaster.UI.Controls"
+    xmlns:converters="using:StorageMaster.UI.Converters"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d">
+
+    <Page.Resources>
+        <converters:ByteSizeConverter x:Key="ByteSize" />
+        <converters:BoolToVisibilityConverter x:Key="BoolVis" />
+    </Page.Resources>
+
+    <ScrollViewer Padding="{StaticResource PagePaddingWide}">
+        <StackPanel Spacing="{StaticResource SectionSpacing}" MaxWidth="{StaticResource PageMaxWidth}" HorizontalAlignment="Center">
+            <controls:PageHeader Title="{x:Bind ViewModel.SessionTitle, Mode=OneWay}"
+                                 Subtitle="{x:Bind ViewModel.SummaryText, Mode=OneWay}">
+                <controls:PageHeader.ActionContent>
+                    <ProgressRing IsActive="{x:Bind ViewModel.IsLoading, Mode=OneWay}" Width="28" Height="28" />
+                </controls:PageHeader.ActionContent>
+            </controls:PageHeader>
+
+            <Grid ColumnDefinitions="*,*,*,*" ColumnSpacing="12">
+                <Border Grid.Column="0" Style="{StaticResource SectionCardStyle}">
+                    <StackPanel Spacing="4">
+                        <TextBlock Text="Scanned size" Style="{StaticResource HelperTextStyle}" />
+                        <TextBlock Text="{x:Bind ViewModel.TotalSize, Mode=OneWay}" Style="{StaticResource MetricTextStyle}" />
+                    </StackPanel>
+                </Border>
+                <Border Grid.Column="1" Style="{StaticResource SectionCardStyle}">
+                    <StackPanel Spacing="4">
+                        <TextBlock Text="Files" Style="{StaticResource HelperTextStyle}" />
+                        <TextBlock Text="{x:Bind ViewModel.FileCount, Mode=OneWay}" Style="{StaticResource MetricTextStyle}" />
+                    </StackPanel>
+                </Border>
+                <Border Grid.Column="2" Style="{StaticResource SectionCardStyle}">
+                    <StackPanel Spacing="4">
+                        <TextBlock Text="Folders" Style="{StaticResource HelperTextStyle}" />
+                        <TextBlock Text="{x:Bind ViewModel.FolderCount, Mode=OneWay}" Style="{StaticResource MetricTextStyle}" />
+                    </StackPanel>
+                </Border>
+                <Border Grid.Column="3" Style="{StaticResource SectionCardStyle}">
+                    <StackPanel Spacing="4">
+                        <TextBlock Text="Errors" Style="{StaticResource HelperTextStyle}" />
+                        <TextBlock Text="{x:Bind ViewModel.ErrorCount, Mode=OneWay}" Style="{StaticResource MetricTextStyle}" />
+                    </StackPanel>
+                </Border>
+            </Grid>
+
+            <CommandBar DefaultLabelPosition="Right" Background="Transparent">
+                <AppBarButton Icon="List" Label="Results" Command="{x:Bind ViewModel.OpenResultsCommand}" />
+                <AppBarButton Label="Space Map" Command="{x:Bind ViewModel.OpenSpaceMapCommand}">
+                    <AppBarButton.Icon>
+                        <FontIcon Glyph="{StaticResource IconSpaceMap}" />
+                    </AppBarButton.Icon>
+                </AppBarButton>
+                <AppBarButton Icon="Copy" Label="Duplicates" Command="{x:Bind ViewModel.OpenDuplicatesCommand}" />
+                <AppBarButton Icon="Delete" Label="Cleanup" Command="{x:Bind ViewModel.OpenCleanupCommand}" />
+            </CommandBar>
+
+            <TabView IsAddTabButtonVisible="False">
+                <TabViewItem Header="Overview" IsClosable="False">
+                    <Grid Padding="0,16,0,0" ColumnDefinitions="1.2*,*" ColumnSpacing="16">
+                        <Border Grid.Column="0" Style="{StaticResource SectionCardStyle}">
+                            <StackPanel Spacing="12">
+                                <TextBlock Text="File-type composition" Style="{StaticResource SectionHeaderTextStyle}" />
+                                <ItemsControl ItemsSource="{x:Bind ViewModel.CategoryBreakdown, Mode=OneWay}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="12" Padding="0,6">
+                                                <TextBlock Grid.Column="0" Text="{Binding Category}" />
+                                                <TextBlock Grid.Column="1" Text="{Binding Count}" Style="{StaticResource HelperTextStyle}" />
+                                                <TextBlock Grid.Column="2" Text="{Binding SizeDisplay}" FontWeight="SemiBold" />
+                                            </Grid>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </StackPanel>
+                        </Border>
+                        <Border Grid.Column="1" Style="{StaticResource SectionCardStyle}">
+                            <StackPanel Spacing="12">
+                                <TextBlock Text="Review queue" Style="{StaticResource SectionHeaderTextStyle}" />
+                                <TextBlock Text="{x:Bind ViewModel.DuplicateSummary, Mode=OneWay}" TextWrapping="Wrap" />
+                                <TextBlock Text="{x:Bind ViewModel.ReclaimableSummary, Mode=OneWay}" Style="{StaticResource HelperTextStyle}" />
+                            </StackPanel>
+                        </Border>
+                    </Grid>
+                </TabViewItem>
+
+                <TabViewItem Header="Files" IsClosable="False">
+                    <ListView ItemsSource="{x:Bind ViewModel.LargestFiles, Mode=OneWay}" MaxHeight="560">
+                        <ListView.ItemTemplate>
+                            <DataTemplate>
+                                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12" Padding="0,6">
+                                    <TextBlock Grid.Column="0" Text="{Binding FullPath}" TextTrimming="CharacterEllipsis" />
+                                    <TextBlock Grid.Column="1" Text="{Binding SizeBytes, Converter={StaticResource ByteSize}}" />
+                                </Grid>
+                            </DataTemplate>
+                        </ListView.ItemTemplate>
+                    </ListView>
+                </TabViewItem>
+
+                <TabViewItem Header="Folders" IsClosable="False">
+                    <ListView ItemsSource="{x:Bind ViewModel.LargestFolders, Mode=OneWay}" MaxHeight="560">
+                        <ListView.ItemTemplate>
+                            <DataTemplate>
+                                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12" Padding="0,6">
+                                    <TextBlock Grid.Column="0" Text="{Binding FullPath}" TextTrimming="CharacterEllipsis" />
+                                    <TextBlock Grid.Column="1" Text="{Binding TotalSizeBytes, Converter={StaticResource ByteSize}}" />
+                                </Grid>
+                            </DataTemplate>
+                        </ListView.ItemTemplate>
+                    </ListView>
+                </TabViewItem>
+
+                <TabViewItem Header="Space Map" IsClosable="False">
+                    <controls:StateView IconGlyph="{StaticResource IconSpaceMap}"
+                                        Title="Open Space Map"
+                                        Message="The interactive treemap opens with this scan context and keeps destructive actions routed through review flows.">
+                        <controls:StateView.ActionContent>
+                            <Button Content="Open Space Map" Command="{x:Bind ViewModel.OpenSpaceMapCommand}" Style="{StaticResource AccentButtonStyle}" />
+                        </controls:StateView.ActionContent>
+                    </controls:StateView>
+                </TabViewItem>
+
+                <TabViewItem Header="Duplicates" IsClosable="False">
+                    <controls:StateView IconGlyph="{StaticResource IconDuplicates}"
+                                        Title="Duplicate review"
+                                        Message="{x:Bind ViewModel.DuplicateSummary, Mode=OneWay}">
+                        <controls:StateView.ActionContent>
+                            <Button Content="Review duplicates" Command="{x:Bind ViewModel.OpenDuplicatesCommand}" />
+                        </controls:StateView.ActionContent>
+                    </controls:StateView>
+                </TabViewItem>
+
+                <TabViewItem Header="Delta" IsClosable="False">
+                    <controls:StateView IconGlyph="&#xE9D5;"
+                                        Title="Delta insights"
+                                        Message="Scan delta details remain available from Space Map, where comparable scans share the same root." />
+                </TabViewItem>
+
+                <TabViewItem Header="Errors" IsClosable="False">
+                    <ListView ItemsSource="{x:Bind ViewModel.Errors, Mode=OneWay}" MaxHeight="560">
+                        <ListView.ItemTemplate>
+                            <DataTemplate>
+                                <StackPanel Padding="0,8" Spacing="3">
+                                    <TextBlock Text="{Binding Path}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                    <TextBlock Text="{Binding Message}" Style="{StaticResource HelperTextStyle}" />
+                                </StackPanel>
+                            </DataTemplate>
+                        </ListView.ItemTemplate>
+                    </ListView>
+                </TabViewItem>
+            </TabView>
+
+            <InfoBar IsOpen="True" Severity="Informational" Message="{x:Bind ViewModel.StatusText, Mode=OneWay}" />
+        </StackPanel>
+    </ScrollViewer>
+</Page>

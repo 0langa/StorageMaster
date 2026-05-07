@@ -4,6 +4,7 @@
     AutomationProperties.Name="Space Map page"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="using:StorageMaster.UI.Controls"
     xmlns:converters="using:StorageMaster.UI.Converters"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
@@ -15,25 +16,16 @@
     </Page.Resources>
 
     <Grid>
-        <ScrollViewer Padding="32,24">
-            <StackPanel Spacing="20" MaxWidth="1180" HorizontalAlignment="Center">
-                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16">
-                    <StackPanel Grid.Column="0" Spacing="4">
-                        <TextBlock Text="Space Map" Style="{StaticResource TitleLargeTextBlockStyle}" />
-                        <TextBlock Text="Visual disk usage and scan delta insights. Delete actions are intentionally routed through review flows."
-                                   TextWrapping="WrapWholeWords"
-                                   Opacity="0.72" />
-                    </StackPanel>
-                    <ProgressRing Grid.Column="1"
-                                  IsActive="{x:Bind ViewModel.IsLoading, Mode=OneWay}"
-                                  Width="32"
-                                  Height="32"
-                                  Visibility="{x:Bind ViewModel.IsLoading, Mode=OneWay, Converter={StaticResource BoolVis}}" />
-                </Grid>
+        <ScrollViewer Padding="{StaticResource PagePaddingWide}">
+            <StackPanel Spacing="{StaticResource SectionSpacing}" MaxWidth="{StaticResource PageMaxWidth}" HorizontalAlignment="Center">
+                <controls:PageHeader Title="Space Map"
+                                     Subtitle="Interactive treemap, scan delta, and review-first actions.">
+                    <controls:PageHeader.ActionContent>
+                        <ProgressRing IsActive="{x:Bind ViewModel.IsLoading, Mode=OneWay}" Width="32" Height="32" />
+                    </controls:PageHeader.ActionContent>
+                </controls:PageHeader>
 
-                <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                        CornerRadius="8"
-                        Padding="16">
+                <Border Style="{StaticResource SectionCardStyle}">
                     <StackPanel Spacing="12">
                         <Grid ColumnDefinitions="2*,Auto,Auto,Auto" ColumnSpacing="12">
                             <ComboBox Grid.Column="0"
@@ -44,14 +36,17 @@
                                       AutomationProperties.Name="Space Map scan selection" />
                             <Button Grid.Column="1"
                                     Content="Folders + files"
+                                    Style="{StaticResource PillButtonStyle}"
                                     Command="{x:Bind ViewModel.SetFilterCommand}"
                                     CommandParameter="All" />
                             <Button Grid.Column="2"
                                     Content="Folders"
+                                    Style="{StaticResource PillButtonStyle}"
                                     Command="{x:Bind ViewModel.SetFilterCommand}"
                                     CommandParameter="Folders" />
                             <Button Grid.Column="3"
                                     Content="Files"
+                                    Style="{StaticResource PillButtonStyle}"
                                     Command="{x:Bind ViewModel.SetFilterCommand}"
                                     CommandParameter="Files" />
                         </Grid>
@@ -84,7 +79,7 @@
                                        LargeChange="100"
                                        Value="{x:Bind ViewModel.MinimumSizeMb, Mode=TwoWay}"
                                        AutomationProperties.Name="Minimum size filter in megabytes" />
-                            <Button Grid.Column="2" Content="Up" Command="{x:Bind ViewModel.GoUpCommand}" />
+                            <Button Grid.Column="2" Content="Up" Command="{x:Bind ViewModel.GoUpCommand}" Style="{StaticResource PillButtonStyle}" />
                             <Button Grid.Column="3" Content="CSV" Command="{x:Bind ViewModel.ExportCsvCommand}" />
                             <Button Grid.Column="4" Content="HTML" Command="{x:Bind ViewModel.ExportHtmlCommand}" />
                             <Button Grid.Column="5"
@@ -110,9 +105,7 @@
                     </Border>
 
                     <Border Grid.Column="1"
-                            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                            CornerRadius="8"
-                            Padding="16">
+                            Style="{StaticResource SectionCardStyle}">
                         <StackPanel Spacing="10">
                             <TextBlock Text="Selection" Style="{StaticResource BodyStrongTextBlockStyle}" />
                             <TextBlock Text="{x:Bind ViewModel.SelectedNodeDisplayName, Mode=OneWay}"
@@ -138,6 +131,23 @@
                                     Command="{x:Bind ViewModel.SendToDuplicateReviewCommand}" />
                             <Button Content="Open in Results"
                                     Command="{x:Bind ViewModel.OpenInResultsCommand}" />
+                            <TextBlock Text="Legend" Style="{StaticResource BodyStrongTextBlockStyle}" Margin="0,10,0,0" />
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <Border Width="12" Height="12" Background="{StaticResource FileTypeFolderBrush}" CornerRadius="3" />
+                                <TextBlock Text="Folders" Style="{StaticResource HelperTextStyle}" />
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <Border Width="12" Height="12" Background="{StaticResource FileTypeImageBrush}" CornerRadius="3" />
+                                <TextBlock Text="Images" Style="{StaticResource HelperTextStyle}" />
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <Border Width="12" Height="12" Background="{StaticResource FileTypeVideoBrush}" CornerRadius="3" />
+                                <TextBlock Text="Videos" Style="{StaticResource HelperTextStyle}" />
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <Border Width="12" Height="12" Background="{StaticResource FileTypeArchiveBrush}" CornerRadius="3" />
+                                <TextBlock Text="Archives" Style="{StaticResource HelperTextStyle}" />
+                            </StackPanel>
                         </StackPanel>
                     </Border>
                 </Grid>

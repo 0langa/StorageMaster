@@ -1,10 +1,12 @@
 # StorageMaster v2 Plan
 
-Source of truth: current v2.0.0-prerelease repository snapshot. This file now records remaining hardening work after the prerelease implementation, not older speculative audit.
+Source of truth: current v2.0.0 stable repository snapshot. This file records remaining hardening work after the v2 release implementation, not older speculative audit.
 
 ## Current strengths to preserve
 
 Layering is mostly clean; Core contains contracts and domain services, Storage/Platform/UI depend inward. SQLite migrations are additive and version-stamped atomically through schema v7. WAL, normalized path indexes, drive-health snapshots, and batched inserts are in place. Managed scanner and Turbo scanner share validated scan options and the same persisted model. Results, Duplicates, Space Map, and Drive Health use bounded queries in important paths. Deletion is centralized behind `IFileDeleter`. Duplicate deletion has keeper validation, size/mtime revalidation, audit JSON, file quarantine, and restore. CI exists for .NET/Rust and release signing is optional.
+
+The v2 UI foundation now includes shared style dictionaries, reusable controls (`PageHeader`, `StateView`, `RadialGauge`, `SeverityBadge`, `SettingsCard`, `TreemapTileControl`), grouped navigation with Mica fallback, a guided Scan page, and a new Scan Workspace route.
 
 ## Remaining correctness/hardening work
 
@@ -13,10 +15,10 @@ Layering is mostly clean; Core contains contracts and domain services, Storage/P
 | H-01 | Done in v1.9.0: `ScanOptionValidator` validates root, normalizes paths, clamps `MaxParallelism`/`DbBatchSize` for managed and Turbo scanners | Continue wiring validation messages into UI/CLI surfaces |
 | H-02 | Done in v1.9.0: `FolderSizeAggregator.Compute` groups paths case-insensitively and sums duplicates | Add million-folder benchmark coverage |
 | H-03 | Done in v1.9.0: `FileDeleter.EmptyRecycleBin` checks shell HRESULTs | Add shell abstraction tests around simulated HRESULTs |
-| H-04 | Done in v2.0.0-prerelease: `IFileOperation` calls run through an STA helper thread when needed | Add shell abstraction tests around simulated COM failures |
+| H-04 | Done in v2.0.0: `IFileOperation` calls run through an STA helper thread when needed | Add shell abstraction tests around simulated COM failures |
 | H-05 | Done in v1.9.0: size estimation is bounded, cancellable, and reparse-point safe | Surface partial-estimate metadata if needed |
-| H-06 | Done in v2.0.0-prerelease: app-created temp recursive deletes use `SafeTempDirectory` and refuse paths outside a direct `%TEMP%` child | Keep adding sentinels if new temp cleanup paths are introduced |
-| H-07 | Done in v2.0.0-prerelease: deep scan starts an elevated CLI worker and no longer exits/relaunches the WinUI shell | Consider a richer elevated helper progress bridge |
+| H-06 | Done in v2.0.0: app-created temp recursive deletes use `SafeTempDirectory` and refuse paths outside a direct `%TEMP%` child | Keep adding sentinels if new temp cleanup paths are introduced |
+| H-07 | Done in v2.0.0: deep scan starts an elevated CLI worker and no longer exits/relaunches the WinUI shell | Consider a richer elevated helper progress bridge |
 | H-08 | Done in v1.9.0: default excluded paths derive from `Environment.SpecialFolder.Windows` and use boundary-safe matching | No follow-up |
 | H-09 | `IRecycleBinInfoProvider` is declared inside `RecycleBinCleanupRule.cs` | move to `Core/Interfaces` and keep namespace stable |
 | H-10 | browser cache discovery is duplicated in cleanup rule and Smart Cleaner | extract shared path service |
@@ -24,8 +26,8 @@ Layering is mostly clean; Core contains contracts and domain services, Storage/P
 | H-12 | Done in v1.9.0: schema v6 adds `NormalizedFullPath` and unique file path protection per session | Consider path identity columns in future |
 | H-13 | Partly done in v1.9.0: scan status parsing is tolerant | Extend tolerant parsing to every status enum field |
 | H-14 | Done in v1.9.0: session delete runs `PRAGMA optimize` | Consider manual vacuum prompt/maintenance path |
-| H-15 | Done in v1.9.6/v2 prerelease: installer remains per-user/lowest-privilege while staging Windows App Runtime 1.6 MSIX prereq | Continue verifying fresh-machine install behavior |
-| H-16 | Done in v2.0.0-prerelease: setup blocks with actionable text when .NET Desktop Runtime 8 x64 is missing | Decide later whether to ship a full bootstrapper |
+| H-15 | Done in v1.9.6/v2: installer remains per-user/lowest-privilege while staging Windows App Runtime 1.6 MSIX prereq | Continue verifying fresh-machine install behavior |
+| H-16 | Done in v2.0.0: setup blocks with actionable text when .NET Desktop Runtime 8 x64 is missing | Decide later whether to ship a full bootstrapper |
 | H-17 | Drive Health uses Windows WMI/storage telemetry and explicit Unknown/Unsupported fallbacks | Add broader hardware-lab coverage for NVMe/SATA/USB/network drives |
 
 ## UX work required by current product state
@@ -35,8 +37,8 @@ Layering is mostly clean; Core contains contracts and domain services, Storage/P
 | Settings | long stacked settings form | category tiles; clicking a tile opens overlay/flyout with focused settings, validation, descriptions, reset defaults per category |
 | Duplicates | feature-rich but dense | add in-app explanations for methods, thresholds, keeper policy, scope modes, quarantine/recycle/permanent consequences; improve empty and first-run guidance |
 | Cleanup | grouped category toggles exist | add explanation/help text for every category, risk, method, dry-run, and threshold; ensure full-screen alignment across all cards |
-| Dashboard | quick links and drive health snapshots exist | make it a true quickstart: scan most relevant drive, last results, duplicate review, smart clean, scheduled jobs, update/status/diagnostics |
-| Results | paged files/folders/errors and lazy tree exist | keep paging; avoid any full-tree rebuild on navigation; add more explicit loading/empty/error states |
+| Dashboard | v2 command-center layout exists | keep tuning responsive behavior, real composition bars, and final visual QA |
+| Results | paged files/folders/errors and lazy tree exist; workspace handoff added | keep paging; avoid any full-tree rebuild on navigation; add more explicit loading/empty/error states |
 | Accessibility | XAML has no `AutomationProperties.*` | add Name/HelpText to all interactive controls, focus restoration, Narrator verification, high contrast/text-scale pass |
 
 ## Performance/scale plan
@@ -53,7 +55,7 @@ Default deletion should remain Recycle Bin. Quarantine should remain preferred f
 
 ## Testing plan
 
-Current static count is above the 1.9.6 baseline and includes drive-health repository plus prerelease updater tests. Add ViewModel tests for Scan/Results/Duplicates/Cleanup/Settings/DriveHealth, CLI tests for all command validation branches, scheduler tests with `schtasks.exe` mocked/wrapped, platform tests around deletion sentinels and Shell32 return handling, migration tests for schema v7+, and benchmark smoke tests. CI should keep `dotnet format`, `dotnet build`, `dotnet test`, `cargo fmt`, `cargo test`, and Rust release build.
+Current static count is above the 1.9.6 baseline and includes drive-health repository plus updater prerelease tests. Add ViewModel tests for Scan/Results/Duplicates/Cleanup/Settings/DriveHealth after UI test hosting is solved for WinUI output copying; direct UI project references currently require WinUI build output handling. CLI tests, scheduler tests with `schtasks.exe` mocked/wrapped, platform tests around deletion sentinels and Shell32 return handling, migration tests for schema v7+, and benchmark smoke tests remain needed.
 
 ## v2 acceptance criteria
 

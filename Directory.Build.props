@@ -1,6 +1,6 @@
 <Project>
   <PropertyGroup>
-    <StorageMasterVersion>2.0.0-prerelease</StorageMasterVersion>
+    <StorageMasterVersion>2.0.0</StorageMasterVersion>
     <StorageMasterAssemblyVersion>2.0.0.0</StorageMasterAssemblyVersion>
     <Version>$(StorageMasterVersion)</Version>
     <AssemblyVersion>$(StorageMasterAssemblyVersion)</AssemblyVersion>

@@ -336,6 +336,13 @@ public sealed partial class ResultsViewModel : ObservableObject
     }
 
     [RelayCommand]
+    private void OpenWorkspace()
+    {
+        if (_sessionId > 0)
+            _nav.NavigateTo(typeof(ScanWorkspacePage), _sessionId);
+    }
+
+    [RelayCommand]
     private async Task DeleteSessionAsync()
     {
         if (_sessionId <= 0)

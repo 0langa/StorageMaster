@@ -1,0 +1,14 @@
+<ResourceDictionary
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <SolidColorBrush x:Key="FileTypeFolderBrush" Color="#FF5B5FC7" />
+    <SolidColorBrush x:Key="FileTypeDocumentBrush" Color="#FF2563EB" />
+    <SolidColorBrush x:Key="FileTypeImageBrush" Color="#FF0E7C57" />
+    <SolidColorBrush x:Key="FileTypeVideoBrush" Color="#FFC239B3" />
+    <SolidColorBrush x:Key="FileTypeAudioBrush" Color="#FF038387" />
+    <SolidColorBrush x:Key="FileTypeArchiveBrush" Color="#FFCA5010" />
+    <SolidColorBrush x:Key="FileTypeExecutableBrush" Color="#FF69797E" />
+    <SolidColorBrush x:Key="FileTypeSystemBrush" Color="#FF8A8886" />
+    <SolidColorBrush x:Key="FileTypeOtherBrush" Color="#FF767676" />
+</ResourceDictionary>

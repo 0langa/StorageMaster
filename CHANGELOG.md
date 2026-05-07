@@ -4,6 +4,13 @@ All notable changes to StorageMaster are documented here.
 
 ---
 
+## [1.9.4] — 2026-05-07 — Real Startup Fix
+
+- **Root cause of the 1.9.0–1.9.3 launch failure identified.** WinUI/WinAppSDK types in the body of `Program.Main` (e.g. `Application.Start`, `DispatcherQueueSynchronizationContext`) caused the CLR to resolve and load `Microsoft.UI.Xaml.dll` while JIT-compiling `Main` — *before* `Bootstrap.Initialize` could register the system-installed Windows App SDK 1.8 runtime in the dynamic dependency graph. The runtime DLL loaded from an unregistered location, `ms-appx://` URIs could not be resolved, and the first XAML load threw `XamlParseException: Cannot locate resource from 'ms-appx:///Microsoft.UI.Xaml/Themes/themeresources.xaml'`.
+- Split `Program.Main` so the GUI initialization (`XamlCheckProcessRequirements`, `Application.Start`, etc.) lives in a separate `LaunchGui` method marked `[MethodImpl(MethodImplOptions.NoInlining)]`. `Main` now only calls `Bootstrap.Initialize` and dispatches; `LaunchGui` is JIT-compiled (and its WinAppSDK type references resolved) only after Bootstrap has succeeded. This is the documented Microsoft pattern for unpackaged framework-dependent WinUI 3 apps with a custom Main.
+
+---
+
 ## [1.9.3] — 2026-05-07 — Startup Diagnostic
 
 - Wrapped `Program.Main` GUI initialization in a top-level try/catch that writes the original exception to `%LOCALAPPDATA%\StorageMaster\logs\startup-errors.log` before rethrowing. Fixes a diagnostic gap where pre-`App` constructor crashes (e.g. `Bootstrap.Initialize` failures, `XamlCheckProcessRequirements` failures) bypassed the registered `Application.UnhandledException` handler and produced no log entry.

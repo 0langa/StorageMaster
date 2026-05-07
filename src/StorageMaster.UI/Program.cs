@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Dispatching;
@@ -19,6 +20,12 @@ public static class Program
     [DllImport("kernel32.dll", SetLastError = true)]
     private static extern bool AllocConsole();
 
+    // CRITICAL: Main MUST NOT reference any WinUI / WinAppSDK types in its body.
+    // The CLR resolves type references when Main is JIT-compiled, which can trigger
+    // Microsoft.UI.Xaml.dll load before Bootstrap.Initialize has a chance to register
+    // the runtime — producing a "Cannot locate resource from 'ms-appx:///...'" crash
+    // on the first XAML load. All WinUI work lives in LaunchGui, which is only JITed
+    // after Bootstrap.Initialize succeeds.
     [STAThread]
     public static void Main(string[] args)
     {
@@ -27,43 +34,49 @@ public static class Program
 
         if (isCli || isHeadless)
         {
-            EnsureConsole(isCli);
-            var services = ServiceBootstrapper.BuildServices();
-            App.SetServices(services);
-            var commandArgs = args.Skip(1).ToArray();
-            var exitCode = services.GetRequiredService<ICommandRunner>()
-                .RunAsync(commandArgs, isHeadless, Console.Out, Console.Error)
-                .GetAwaiter()
-                .GetResult();
-            Environment.ExitCode = exitCode;
+            RunCommandLine(args, isHeadless, isCli);
             return;
         }
 
         try
         {
-            // Framework-dependent unpackaged WinUI 3 apps with a custom Main
-            // (DISABLE_XAML_GENERATED_MAIN) must register the system-installed
-            // Windows App SDK 1.8 runtime in the dynamic dependency graph before
-            // any WinUI/XAML calls. Without it, ms-appx:// URI resolution fails
-            // with XamlParseException on the very first XAML load.
             Microsoft.Windows.ApplicationModel.DynamicDependency.Bootstrap.Initialize(0x00010008);
-
-            XamlCheckProcessRequirements();
-            WinRT.ComWrappersSupport.InitializeComWrappers();
-            App.SetServices(ServiceBootstrapper.BuildServices());
-
-            Application.Start(p =>
-            {
-                var context = new DispatcherQueueSynchronizationContext(DispatcherQueue.GetForCurrentThread());
-                SynchronizationContext.SetSynchronizationContext(context);
-                _ = new App();
-            });
+            LaunchGui();
         }
         catch (Exception ex)
         {
             LogStartupCrash(ex);
             throw;
         }
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static void LaunchGui()
+    {
+        XamlCheckProcessRequirements();
+        WinRT.ComWrappersSupport.InitializeComWrappers();
+        App.SetServices(ServiceBootstrapper.BuildServices());
+
+        Application.Start(p =>
+        {
+            var context = new DispatcherQueueSynchronizationContext(DispatcherQueue.GetForCurrentThread());
+            SynchronizationContext.SetSynchronizationContext(context);
+            _ = new App();
+        });
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static void RunCommandLine(string[] args, bool isHeadless, bool isCli)
+    {
+        EnsureConsole(isCli);
+        var services = ServiceBootstrapper.BuildServices();
+        App.SetServices(services);
+        var commandArgs = args.Skip(1).ToArray();
+        var exitCode = services.GetRequiredService<ICommandRunner>()
+            .RunAsync(commandArgs, isHeadless, Console.Out, Console.Error)
+            .GetAwaiter()
+            .GetResult();
+        Environment.ExitCode = exitCode;
     }
 
     private static void EnsureConsole(bool allocateWhenMissing)

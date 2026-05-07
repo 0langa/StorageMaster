@@ -33,10 +33,10 @@ jobs:
         run: dotnet format StorageMaster.sln --verify-no-changes --no-restore
 
       - name: Build solution
-        run: dotnet build StorageMaster.sln -c Release --no-restore -p:Platform=x64
+        run: dotnet build StorageMaster.sln -c Release --no-restore
 
       - name: Test solution
-        run: dotnet test StorageMaster.sln -c Release --no-build -p:Platform=x64
+        run: dotnet test tests/StorageMaster.Tests/StorageMaster.Tests.csproj -c Release --verbosity normal --no-restore -p:Platform=x64
 
       - name: Rust format check
         working-directory: turbo-scanner

@@ -4,6 +4,14 @@ All notable changes to StorageMaster are documented here.
 
 ---
 
+## [2.1.1] — 2026-05-07 — UI Polish
+
+- Fixed settings category tiles clipping description and badge text on two-line descriptions: the `GridView.ItemsWrapGrid` now measures each item at a fixed 350 px column width so wrapping text correctly reports its required height before the row slot is committed.
+- Fixed sidebar status block rendering character-by-character in the 56 px compact pane strip: the `PaneFooter` border is now hidden when the navigation pane is closed or in compact icon-only mode, and restored when the pane expands or is opened by the user.
+- Fixed "File Types" category rows in Results appearing to do nothing when clicked: selecting a category now applies the filter AND switches the pivot to the Largest Files tab so the filtered list is immediately visible.
+
+---
+
 ## [2.1.0] — 2026-05-07 — Code Hardening, Settings Fixes, And GitHub Infrastructure
 
 - Fixed Settings page so each category tile renders its own settings: `ContentTemplateSelector` was only evaluated once because `Content` was always the same ViewModel reference; code-behind now calls `SelectTemplate` manually whenever `SelectedCategory` or `IsEditorOpen` changes.

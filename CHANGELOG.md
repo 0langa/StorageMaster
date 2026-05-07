@@ -4,19 +4,17 @@ All notable changes to StorageMaster are documented here.
 
 ---
 
-## [2.1.3] — 2026-05-07 — Expanded Test Coverage
+## [2.1.3] — 2026-05-07 — Updater Failure-Mode Test Coverage & Test Naming Cleanup
 
 ### Added — test coverage
-- `CommandRunnerTests` (22 tests): all CLI exit codes — no-args, unknown command, version flags, scan path validation, `--deep` elevation check, JSON output mode, report last-scan with/without session, cleanup execute confirmation guard, both/neither deletion modes, rule matching, job run, health report, cancelled token.
-- `ScanViewModelTests` (18 tests): `CanStartScan`, `CanCancel`, `CanBrowse`, `NeedsElevation`, path validation (empty/whitespace/relative/nonexistent/valid), `IsRunningAsAdmin` delegation, `InitializeAsync` from settings/default/preselected, property-change notifications for `IsScanning`, `DeepScan`, and `ScanPathError`.
-- `SettingsViewModelTests` (19 tests): `SelectedCategoryTitle` for all 9 categories, `IsXSelected` mutual exclusion, `FilteredCategories` initial count, `SearchQuery` filter/restore/no-match, `CanCheckForUpdates`, `CanDownloadAndInstall`, `UpdateAvailableText`, `IsEditorOpen` default state, `HasUpdateAvailable`.
-- `ResultsViewModelTests` (13 tests): `HasSession` initial state, `LoadAsync` valid/zero/negative session, idempotent reload guard, `LoadMostRecentAsync` no session/completed/in-progress, `CancelBackgroundWork`, `HasErrors`, `HasCategoryFilter`, `HasSessionNote`.
-- `ScheduledTaskServiceTests` (9 tests): `GetJobAsync` find/miss/empty/case-insensitive, `UpdateRunOutcomeAsync` persists status+message+timestamp, leaves other jobs unchanged, skips save on missing ID, cancellation propagation.
-- `UpdateFailureModeTests` (11 tests): `CheckAsync` 404/malformed-JSON/empty-list/cancelled/same-version/older-version, `DownloadAsync` insecure URL/404-missing-asset/network-timeout/user-cancellation, `LastFailureKind` state after timeout.
+- `GitHubUpdateServiceFailureModeTests` (12 tests): `CheckAsync` 404/malformed-JSON/empty-list/cancelled/same-version/older-version, `DownloadAsync` insecure URL/404-missing-asset/network-timeout/user-cancellation, `LastCheckResult`/`LastFailureKind` state after errors. Uses fake `HttpMessageHandler` so no real network calls.
 
-### Changed
-- `CommandRunner` constructor now accepts `IFileScanner` interfaces instead of concrete `FileScanner`/`TurboFileScanner` types — enables mocking in test context (production wiring unchanged).
-- Test project (`StorageMaster.Tests`) now references `StorageMaster.UI` with WinUI MRT tooling suppressed (`EnableCoreMrtTooling=false`, `GenerateAppxPackageRecipe=false`) so ViewModel classes can be tested without a WinUI host process.
+### Changed — test file naming
+- Renamed `CriticalFixes/C1_FlushLockTests` → `FlushLockTests`, `C2C3_TurboScannerTests` → `TurboScannerCriticalTests`, `C2_FolderSizeAggregatorDupeTests` → `FolderSizeAggregatorDupeTests`, `C4_WriteLockTests` → `WriteLockTests`, `C5_AtomicMigrationTests` → `AtomicMigrationTests`, `C7_JunctionSafeDeleteTests` → `JunctionSafeDeleteTests`, `C8_SuggestionUnsubscribeTests` → `SuggestionUnsubscribeTests`. Historical bug-tracking IDs no longer leak into public test identifiers.
+- Renamed `Update/UpdateFailureModeTests` → `Update/GitHubUpdateServiceFailureModeTests` to match the `{SubjectClass}Tests.cs` convention used elsewhere.
+
+### Notes — deferred ViewModel/CLI test coverage
+- ViewModel and CLI tests originally planned for this release (CommandRunner, ScheduledTaskService, ScanViewModel, SettingsViewModel, ResultsViewModel) were withdrawn after CI hangs were traced to a fundamental WinUI assembly-load issue: loading `StorageMaster.UI.dll` from a non-WinUI process triggers WinRT/COM initialization that requires `Bootstrap.Initialize` (only the WinUI app entrypoint calls this). Restoring these tests requires extracting the testable classes (`CommandRunner`, `ScheduledTaskService`, ViewModels) into a `StorageMaster.UI.Core` library that has no WinUI runtime dependency. Tracked as a follow-up.
 
 ---
 

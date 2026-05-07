@@ -8,8 +8,8 @@ using StorageMaster.Platform.Windows;
 namespace StorageMaster.UI.Infrastructure;
 
 public sealed class CommandRunner(
-    IFileScanner managedScanner,
-    IFileScanner turboScanner,
+    FileScanner managedScanner,
+    TurboFileScanner turboScanner,
     IAdminService adminService,
     ISettingsRepository settingsRepository,
     IScanRepository scanRepository,

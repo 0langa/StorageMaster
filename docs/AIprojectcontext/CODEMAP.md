@@ -1,6 +1,6 @@
 # StorageMaster Codemap
 
-Version: 2.0.0. Compact source map for the deployed repository. Source code is authoritative.
+Version: 2.0.1. Compact source map for the deployed repository. Source code is authoritative.
 
 ## Root
 
@@ -8,13 +8,13 @@ Version: 2.0.0. Compact source map for the deployed repository. Source code is a
 |---|---|
 | `StorageMaster.sln`, `.slnx` | solution files |
 | `global.json` | .NET SDK 8.0 latest patch |
-| `Directory.Build.props` | centralized semantic version (`2.0.0`) plus numeric assembly version (`2.0.0.0`) |
+| `Directory.Build.props` | centralized semantic version (`2.0.1`) plus numeric assembly version (`2.0.1.0`) |
 | `Directory.Build.targets` | forces executable WinUI XAML compiler |
-| `README.md`, `CHANGELOG.md` | public docs; changelog current through 2.0.0 |
+| `README.md`, `CHANGELOG.md` | public docs; changelog current through 2.0.1 |
 | `.github/workflows/ci.yml` | PR/push build/test/format/Rust checks |
 | `.github/workflows/release.yml` | tag release pipeline, optional signing |
-| `installer/StorageMaster.iss` | Inno Setup, `AppVersion=2.0.0`, `PrivilegesRequired=lowest`, checks .NET Desktop Runtime 8 x64, stages Windows App Runtime 1.6 MSIX prereq, `DefaultDirName={localappdata}\Programs\StorageMaster` |
-| `turbo-scanner/` | Rust binary crate, package version 2.0.0 |
+| `installer/StorageMaster.iss` | Inno Setup, `AppVersion=2.0.1`, `PrivilegesRequired=lowest`, checks .NET Desktop Runtime 8 x64, stages Windows App Runtime 1.6 MSIX prereq, `DefaultDirName={localappdata}\Programs\StorageMaster` |
+| `turbo-scanner/` | Rust binary crate, package version 2.0.1 |
 
 ## Project files and packages
 

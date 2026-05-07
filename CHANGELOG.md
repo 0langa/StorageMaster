@@ -4,6 +4,16 @@ All notable changes to StorageMaster are documented here.
 
 ---
 
+## [2.0.1] — 2026-05-07 — Responsive UI And Loading Hotfix
+
+- Fixed narrow-window layout failures by letting the WinUI navigation pane auto-collapse, clamping page header text, and removing fragile fixed-width header behavior.
+- Moved active scan progress and all live scan metrics near the top of the Scan page, added a usable ETA based on estimated drive used bytes plus smoothed scan throughput, and replaced the permanent "Calculating" state with actionable fallback text.
+- Reduced perceived freezes on Results, Scan Workspace, and Space Map by yielding before heavy loads, coalescing Space Map canvas renders, and removing folder-tree N+1 child-count queries during expansion.
+- Fixed the Duplicates advanced-options area so expanded filters remain scrollable instead of being clipped by the fixed results layout.
+- Reworked Drive Health cards to stop chip/date/recommendation clipping and replaced the hardcoded Dashboard "72% ready" gauge with a described storage health score.
+
+---
+
 ## [2.0.0] — 2026-05-07 — UI Overhaul, Drive Health, And Release Hardening
 
 - Added the v2 UI foundation: shared WinUI style dictionaries, reusable page/state/card/gauge/badge/settings controls, grouped shell navigation with Mica fallback, global status strip, refreshed Dashboard and Drive Health pages, guided Scan flow, unified Scan Workspace, and native Space Map tile control.

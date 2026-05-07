@@ -76,6 +76,8 @@ public sealed partial class ScanViewModel : ObservableObject
     private DateTime _scanStartedUtc;
     private DateTime _lastProgressUtc;
     private long _lastProgressBytes;
+    private long _estimatedScanBytes;
+    private double _smoothedBytesPerSecond;
 
     public ScanViewModel(
         IFileScanner scanner,
@@ -178,6 +180,8 @@ public sealed partial class ScanViewModel : ObservableObject
         _scanStartedUtc = DateTime.UtcNow;
         _lastProgressUtc = _scanStartedUtc;
         _lastProgressBytes = 0;
+        _estimatedScanBytes = EstimateScanBytes(SelectedPath);
+        _smoothedBytesPerSecond = 0;
 
         _cts = new CancellationTokenSource();
 
@@ -268,11 +272,17 @@ public sealed partial class ScanViewModel : ObservableObject
         var sampleSeconds = Math.Max(0.001, (p.Timestamp - _lastProgressUtc).TotalSeconds);
         var sampleBytes = p.BytesScanned - _lastProgressBytes;
         if (sampleBytes > 0)
-            ScanSpeed = $"{ByteSizeConverter.Format((long)(sampleBytes / sampleSeconds))}/s";
+        {
+            var currentBytesPerSecond = sampleBytes / sampleSeconds;
+            _smoothedBytesPerSecond = _smoothedBytesPerSecond <= 0
+                ? currentBytesPerSecond
+                : (_smoothedBytesPerSecond * 0.75d) + (currentBytesPerSecond * 0.25d);
+            ScanSpeed = $"{ByteSizeConverter.Format((long)_smoothedBytesPerSecond)}/s";
+        }
 
         _lastProgressUtc = p.Timestamp;
         _lastProgressBytes = p.BytesScanned;
-        EstimatedRemainingTime = "Calculating";
+        EstimatedRemainingTime = EstimateRemainingText(p.BytesScanned);
 
         CurrentFile = p.CurrentPath.Length > 80
             ? "…" + p.CurrentPath[^77..]
@@ -346,5 +356,40 @@ public sealed partial class ScanViewModel : ObservableObject
         if (value.TotalMinutes >= 1)
             return $"{value.Minutes}m {value.Seconds}s";
         return $"{Math.Max(0, value.Seconds)}s";
+    }
+
+    private static long EstimateScanBytes(string path)
+    {
+        try
+        {
+            var root = Path.GetPathRoot(path);
+            if (string.IsNullOrWhiteSpace(root))
+                return 0;
+
+            var drive = new DriveInfo(root);
+            if (!drive.IsReady || drive.TotalSize <= 0)
+                return 0;
+
+            return Math.Max(0, drive.TotalSize - drive.AvailableFreeSpace);
+        }
+        catch
+        {
+            return 0;
+        }
+    }
+
+    private string EstimateRemainingText(long bytesScanned)
+    {
+        if (_smoothedBytesPerSecond <= 1)
+            return "Waiting for data";
+
+        if (_estimatedScanBytes <= 0)
+            return "Unknown total";
+
+        var remainingBytes = _estimatedScanBytes - bytesScanned;
+        if (remainingBytes <= 0)
+            return "Finalizing";
+
+        return FormatDuration(TimeSpan.FromSeconds(remainingBytes / _smoothedBytesPerSecond));
     }
 }

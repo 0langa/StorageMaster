@@ -22,6 +22,7 @@ namespace StorageMaster.UI.Pages;
 public sealed partial class SpaceMapPage : Page
 {
     private readonly ILogger<SpaceMapPage> _logger;
+    private bool _renderQueued;
     public SpaceMapViewModel ViewModel { get; }
 
     public SpaceMapPage()
@@ -61,18 +62,31 @@ public sealed partial class SpaceMapPage : Page
     }
 
     private void LayoutNodes_CollectionChanged(object? sender, NotifyCollectionChangedEventArgs e) =>
-        RenderTreemap();
+        QueueRenderTreemap();
 
     private void ViewModel_PropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (e.PropertyName == nameof(ViewModel.SelectedNode))
-            RenderTreemap();
+            QueueRenderTreemap();
     }
 
     private void TreemapCanvas_SizeChanged(object sender, SizeChangedEventArgs e)
     {
         ViewModel.ResizeLayout(e.NewSize.Width, e.NewSize.Height);
-        RenderTreemap();
+        QueueRenderTreemap();
+    }
+
+    private void QueueRenderTreemap()
+    {
+        if (_renderQueued)
+            return;
+
+        _renderQueued = true;
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            _renderQueued = false;
+            RenderTreemap();
+        });
     }
 
     private void RenderTreemap()

@@ -69,7 +69,11 @@
             </CommandBar.SecondaryCommands>
         </CommandBar>
 
-        <StackPanel Grid.Row="1" Spacing="12">
+        <ScrollViewer Grid.Row="1"
+                      MaxHeight="380"
+                      VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled">
+        <StackPanel Spacing="12">
             <InfoBar IsOpen="True"
                      Severity="Informational"
                      Title="Safety first"
@@ -238,6 +242,7 @@
             </Grid>
         </Border>
         </StackPanel>
+        </ScrollViewer>
 
         <Grid Grid.Row="2" ColumnSpacing="12">
             <Grid.ColumnDefinitions>

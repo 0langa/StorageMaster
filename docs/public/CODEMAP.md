@@ -1,8 +1,8 @@
 # StorageMaster — Codemap
 
-> **Version:** 2.0.0 | **Date:** 2026-05-07
+> **Version:** 2.0.1 | **Date:** 2026-05-07
 > Quick-reference for every file, type, method, and database table in the project.
-> **Current-state note:** v2.0.0 keeps the v1.9 Space Map/schema/scanner hardening work, adds Drive Health/schema v7/release hardening and the v2 UI foundation, and remains framework-dependent on Windows App SDK 1.6 with a staged runtime MSIX prereq. Source code is authoritative where older file-by-file sections differ.
+> **Current-state note:** v2.0.1 keeps the v1.9 Space Map/schema/scanner hardening work, adds Drive Health/schema v7/release hardening and the v2 UI foundation, and includes the responsive layout/loading hotfix after v2.0.0. It remains framework-dependent on Windows App SDK 1.6 with a staged runtime MSIX prereq. Source code is authoritative where older file-by-file sections differ.
 
 ---
 

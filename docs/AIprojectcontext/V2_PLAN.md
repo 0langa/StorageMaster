@@ -1,6 +1,6 @@
 # StorageMaster v2 Plan
 
-Source of truth: current v2.0.0 stable repository snapshot. This file records remaining hardening work after the v2 release implementation, not older speculative audit.
+Source of truth: current v2.0.1 stable repository snapshot. This file records remaining hardening work after the v2 release implementation, not older speculative audit.
 
 ## Current strengths to preserve
 

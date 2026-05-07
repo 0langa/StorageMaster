@@ -28,6 +28,9 @@ public sealed partial class DashboardViewModel : ObservableObject
     [ObservableProperty] private string _recommendedActionText = "Run a scan";
     [ObservableProperty] private string _latestScanSummary = "No scan history yet.";
     [ObservableProperty] private string _driveHealthSummary = string.Empty;
+    [ObservableProperty] private double _readinessScore;
+    [ObservableProperty] private string _readinessLabel = "health score";
+    [ObservableProperty] private string _readinessDescription = "Score combines scan freshness, low-space pressure, and drive-health warnings.";
 
     public ObservableCollection<string> Recommendations { get; } = [];
 
@@ -112,6 +115,7 @@ public sealed partial class DashboardViewModel : ObservableObject
                 Recommendations.Add("Review drive health before starting your first cleanup.");
         }
 
+        UpdateReadinessScore(lowSpaceDrives.Count, healthIssues);
         OnPropertyChanged(nameof(IsFirstRun));
         OnPropertyChanged(nameof(HasRecommendations));
     }
@@ -197,5 +201,26 @@ public sealed partial class DashboardViewModel : ObservableObject
         if (healthIssueCount > 0)
             parts.Add($"{healthIssueCount:N0} drive(s) report health warnings");
         return string.Join("; ", parts) + ".";
+    }
+
+    private void UpdateReadinessScore(int lowSpaceCount, int healthIssueCount)
+    {
+        var score = 100;
+        if (!HasLastSession)
+            score -= 35;
+        else if (LastSession is { Status: not ScanStatus.Completed })
+            score -= 25;
+        else if (LastSession is { CompletedUtc: null } || LastSession!.CompletedUtc < DateTime.UtcNow.AddDays(-14))
+            score -= 15;
+
+        if (lowSpaceCount > 0)
+            score -= Math.Min(35, lowSpaceCount * 20);
+        if (healthIssueCount > 0)
+            score -= Math.Min(35, healthIssueCount * 25);
+
+        ReadinessScore = Math.Clamp(score, 0, 100);
+        ReadinessLabel = "health score";
+        ReadinessDescription =
+            $"Storage health score: {ReadinessScore:N0}/100 from scan freshness, low-space threshold, and drive-health warnings.";
     }
 }

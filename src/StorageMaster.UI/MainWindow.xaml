@@ -11,7 +11,9 @@
         <NavigationView
             x:Name="NavView"
             AutomationProperties.Name="StorageMaster navigation"
-            PaneDisplayMode="Left"
+            PaneDisplayMode="Auto"
+            OpenPaneLength="300"
+            CompactPaneLength="56"
             IsBackButtonVisible="Visible"
             IsSettingsVisible="True"
             IsTitleBarAutoPaddingEnabled="False"
@@ -19,15 +21,32 @@
             SelectionChanged="NavView_SelectionChanged">
 
             <NavigationView.Header>
-                <Grid Padding="24,14,24,10" ColumnDefinitions="*,Auto" ColumnSpacing="16">
-                    <StackPanel Grid.Column="0" Spacing="2">
-                        <TextBlock Text="StorageMaster" Style="{StaticResource BodyStrongTextBlockStyle}" />
-                        <TextBlock Text="v2 storage command center" Style="{StaticResource GlobalStatusTextStyle}" />
+                <Grid Padding="24,14,24,10" ColumnDefinitions="Auto,*" ColumnSpacing="20">
+                    <StackPanel Grid.Column="0" Spacing="2" MinWidth="170">
+                        <TextBlock Text="StorageMaster"
+                                   Style="{StaticResource BodyStrongTextBlockStyle}"
+                                   TextWrapping="NoWrap"
+                                   TextTrimming="CharacterEllipsis" />
+                        <TextBlock Text="v2 storage command center"
+                                   Style="{StaticResource GlobalStatusTextStyle}"
+                                   TextWrapping="NoWrap"
+                                   TextTrimming="CharacterEllipsis" />
                     </StackPanel>
-                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
-                        <TextBlock x:Name="LatestScanStatusText" Text="No scan loaded" Style="{StaticResource GlobalStatusTextStyle}" />
-                        <TextBlock x:Name="WarningStatusText" Text="Monitoring active" Style="{StaticResource GlobalStatusTextStyle}" />
-                    </StackPanel>
+                    <Grid Grid.Column="1" ColumnDefinitions="*,Auto" ColumnSpacing="14" VerticalAlignment="Center">
+                        <TextBlock x:Name="LatestScanStatusText"
+                                   Grid.Column="0"
+                                   Text="No scan loaded"
+                                   Style="{StaticResource GlobalStatusTextStyle}"
+                                   TextWrapping="NoWrap"
+                                   TextTrimming="CharacterEllipsis"
+                                   HorizontalAlignment="Right" />
+                        <TextBlock x:Name="WarningStatusText"
+                                   Grid.Column="1"
+                                   Text="Monitoring active"
+                                   Style="{StaticResource GlobalStatusTextStyle}"
+                                   TextWrapping="NoWrap"
+                                   TextTrimming="CharacterEllipsis" />
+                    </Grid>
                 </Grid>
             </NavigationView.Header>
 

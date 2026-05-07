@@ -6,9 +6,14 @@
 
     <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16">
         <StackPanel Grid.Column="0" Spacing="4">
-            <TextBlock Text="{x:Bind Title, Mode=OneWay}" Style="{StaticResource PageTitleTextStyle}" />
+            <TextBlock Text="{x:Bind Title, Mode=OneWay}"
+                       Style="{StaticResource PageTitleTextStyle}"
+                       TextWrapping="NoWrap"
+                       TextTrimming="CharacterEllipsis" />
             <TextBlock Text="{x:Bind Subtitle, Mode=OneWay}"
                        Style="{StaticResource PageSubtitleTextStyle}"
+                       MaxLines="2"
+                       TextTrimming="CharacterEllipsis"
                        Visibility="{x:Bind HasSubtitle, Mode=OneWay}" />
         </StackPanel>
         <ContentPresenter Grid.Column="1"

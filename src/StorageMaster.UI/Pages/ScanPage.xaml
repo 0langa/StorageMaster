@@ -21,6 +21,69 @@
             <controls:PageHeader Title="Scan"
                                  Subtitle="{x:Bind ViewModel.ScanStepText, Mode=OneWay}" />
 
+            <StackPanel Orientation="Horizontal" Spacing="12">
+                <Button Content="Start Scan"
+                        Style="{StaticResource AccentButtonStyle}"
+                        Command="{x:Bind ViewModel.StartScanCommand}"
+                        IsEnabled="{x:Bind ViewModel.CanStartScan, Mode=OneWay}" />
+                <Button Content="Cancel"
+                        Command="{x:Bind ViewModel.CancelScanCommand}"
+                        IsEnabled="{x:Bind ViewModel.CanCancel, Mode=OneWay}"
+                        Visibility="{x:Bind ViewModel.IsScanning, Mode=OneWay, Converter={StaticResource BoolVis}}" />
+                <Button Content="View Results"
+                        Command="{x:Bind ViewModel.ViewResultsCommand}"
+                        Visibility="{x:Bind ViewModel.ScanComplete, Mode=OneWay, Converter={StaticResource BoolVis}}" />
+            </StackPanel>
+
+            <Border Style="{StaticResource SectionCardStyle}"
+                    Visibility="{x:Bind ViewModel.IsScanning, Mode=OneWay, Converter={StaticResource BoolVis}}">
+                <StackPanel Spacing="14">
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                        <StackPanel Grid.Column="0" Spacing="4">
+                            <TextBlock Text="{x:Bind ViewModel.ProgressText, Mode=OneWay}"
+                                       Style="{StaticResource SectionHeaderTextStyle}" />
+                            <TextBlock Text="{x:Bind ViewModel.CurrentFile, Mode=OneWay}"
+                                       Style="{StaticResource HelperTextStyle}"
+                                       TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"/>
+                        </StackPanel>
+                        <ProgressRing Grid.Column="1" IsActive="True" Width="44" Height="44" />
+                    </Grid>
+                    <ProgressBar Value="{x:Bind ViewModel.ProgressValue, Mode=OneWay}"
+                                 IsIndeterminate="{x:Bind ViewModel.IsProgressIndeterminate, Mode=OneWay}"
+                                 Maximum="100" Height="8" />
+                    <Grid ColumnDefinitions="*,*,*,*" RowDefinitions="Auto,Auto" ColumnSpacing="12" RowSpacing="10" Margin="0,8,0,0">
+                        <StackPanel Grid.Column="0">
+                            <TextBlock Text="Files" Style="{StaticResource MutedTextStyle}" />
+                            <TextBlock Text="{x:Bind ViewModel.FilesScanned, Mode=OneWay}" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="1">
+                            <TextBlock Text="Folders" Style="{StaticResource MutedTextStyle}" />
+                            <TextBlock Text="{x:Bind ViewModel.FoldersScanned, Mode=OneWay}" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="2">
+                            <TextBlock Text="Size" Style="{StaticResource MutedTextStyle}" />
+                            <TextBlock Text="{x:Bind ViewModel.BytesScanned, Mode=OneWay}" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="3">
+                            <TextBlock Text="Errors" Style="{StaticResource MutedTextStyle}" />
+                            <TextBlock Text="{x:Bind ViewModel.ErrorCount, Mode=OneWay}" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                        </StackPanel>
+                        <StackPanel Grid.Row="1" Grid.Column="0">
+                            <TextBlock Text="Speed" Style="{StaticResource MutedTextStyle}" />
+                            <TextBlock Text="{x:Bind ViewModel.ScanSpeed, Mode=OneWay}" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                        </StackPanel>
+                        <StackPanel Grid.Row="1" Grid.Column="1">
+                            <TextBlock Text="Elapsed" Style="{StaticResource MutedTextStyle}" />
+                            <TextBlock Text="{x:Bind ViewModel.ElapsedTime, Mode=OneWay}" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                        </StackPanel>
+                        <StackPanel Grid.Row="1" Grid.Column="2">
+                            <TextBlock Text="ETA" Style="{StaticResource MutedTextStyle}" />
+                            <TextBlock Text="{x:Bind ViewModel.EstimatedRemainingTime, Mode=OneWay}" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                        </StackPanel>
+                    </Grid>
+                </StackPanel>
+            </Border>
+
             <Grid ColumnDefinitions="*,*,*,*" ColumnSpacing="10">
                 <Border Grid.Column="0" Style="{StaticResource SubtleCardStyle}">
                     <StackPanel Spacing="4">
@@ -159,73 +222,6 @@
                              Title="Turbo Scanner binary not found"
                              Message="turbo-scanner.exe was not found next to the application. Build from source or install a release build to enable this feature."
                              Visibility="{x:Bind ViewModel.TurboScannerAvailable, Mode=OneWay, Converter={StaticResource InvBoolVis}}" />
-                </StackPanel>
-            </Border>
-
-            <StackPanel Orientation="Horizontal" Spacing="12">
-                <Button Content="Start Scan"
-                        Style="{StaticResource AccentButtonStyle}"
-                        Command="{x:Bind ViewModel.StartScanCommand}"
-                        IsEnabled="{x:Bind ViewModel.CanStartScan, Mode=OneWay}" />
-                <Button Content="Cancel"
-                        Command="{x:Bind ViewModel.CancelScanCommand}"
-                        IsEnabled="{x:Bind ViewModel.CanCancel, Mode=OneWay}"
-                        Visibility="{x:Bind ViewModel.IsScanning, Mode=OneWay, Converter={StaticResource BoolVis}}" />
-                <Button Content="View Results"
-                        Command="{x:Bind ViewModel.ViewResultsCommand}"
-                        Visibility="{x:Bind ViewModel.ScanComplete, Mode=OneWay, Converter={StaticResource BoolVis}}" />
-            </StackPanel>
-
-            <Border Style="{StaticResource SectionCardStyle}"
-                    Visibility="{x:Bind ViewModel.IsScanning, Mode=OneWay, Converter={StaticResource BoolVis}}">
-                <StackPanel Spacing="14">
-                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-                        <StackPanel Grid.Column="0" Spacing="4">
-                            <TextBlock Text="{x:Bind ViewModel.ProgressText, Mode=OneWay}"
-                                       Style="{StaticResource SectionHeaderTextStyle}" />
-                            <TextBlock Text="{x:Bind ViewModel.CurrentFile, Mode=OneWay}"
-                                       Style="{StaticResource HelperTextStyle}"
-                                       TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"/>
-                        </StackPanel>
-                        <ProgressRing Grid.Column="1" IsActive="True" Width="44" Height="44" />
-                    </Grid>
-                    <ProgressBar Value="{x:Bind ViewModel.ProgressValue, Mode=OneWay}"
-                                 IsIndeterminate="{x:Bind ViewModel.IsProgressIndeterminate, Mode=OneWay}"
-                                 Maximum="100" Height="8" />
-                    <Grid ColumnDefinitions="*,*,*,*,*,*,*" ColumnSpacing="12" Margin="0,8,0,0">
-                        <StackPanel Grid.Column="0">
-                            <TextBlock Text="Files" Style="{StaticResource MutedTextStyle}" />
-                            <TextBlock Text="{x:Bind ViewModel.FilesScanned, Mode=OneWay}"
-                                       Style="{StaticResource BodyStrongTextBlockStyle}" />
-                        </StackPanel>
-                        <StackPanel Grid.Column="1">
-                            <TextBlock Text="Folders" Style="{StaticResource MutedTextStyle}" />
-                            <TextBlock Text="{x:Bind ViewModel.FoldersScanned, Mode=OneWay}"
-                                       Style="{StaticResource BodyStrongTextBlockStyle}" />
-                        </StackPanel>
-                        <StackPanel Grid.Column="2">
-                            <TextBlock Text="Size" Style="{StaticResource MutedTextStyle}" />
-                            <TextBlock Text="{x:Bind ViewModel.BytesScanned, Mode=OneWay}"
-                                       Style="{StaticResource BodyStrongTextBlockStyle}" />
-                        </StackPanel>
-                        <StackPanel Grid.Column="3">
-                            <TextBlock Text="Errors" Style="{StaticResource MutedTextStyle}" />
-                            <TextBlock Text="{x:Bind ViewModel.ErrorCount, Mode=OneWay}"
-                                       Style="{StaticResource BodyStrongTextBlockStyle}" />
-                        </StackPanel>
-                        <StackPanel Grid.Column="4">
-                            <TextBlock Text="Speed" Style="{StaticResource MutedTextStyle}" />
-                            <TextBlock Text="{x:Bind ViewModel.ScanSpeed, Mode=OneWay}" Style="{StaticResource BodyStrongTextBlockStyle}" />
-                        </StackPanel>
-                        <StackPanel Grid.Column="5">
-                            <TextBlock Text="Elapsed" Style="{StaticResource MutedTextStyle}" />
-                            <TextBlock Text="{x:Bind ViewModel.ElapsedTime, Mode=OneWay}" Style="{StaticResource BodyStrongTextBlockStyle}" />
-                        </StackPanel>
-                        <StackPanel Grid.Column="6">
-                            <TextBlock Text="ETA" Style="{StaticResource MutedTextStyle}" />
-                            <TextBlock Text="{x:Bind ViewModel.EstimatedRemainingTime, Mode=OneWay}" Style="{StaticResource BodyStrongTextBlockStyle}" />
-                        </StackPanel>
-                    </Grid>
                 </StackPanel>
             </Border>
 

@@ -52,6 +52,7 @@ public sealed partial class ScanWorkspaceViewModel : ObservableObject
     public async Task LoadAsync(long? sessionId, CancellationToken ct = default)
     {
         IsLoading = true;
+        await Task.Yield();
         try
         {
             var target = sessionId is > 0

@@ -127,6 +127,7 @@ public sealed partial class ResultsViewModel : ObservableObject
 
         ResetForSessionSwitch(sessionId);
         IsLoading = true;
+        await Task.Yield();
 
         try
         {
@@ -217,10 +218,7 @@ public sealed partial class ResultsViewModel : ObservableObject
             var roots = await _repo.GetFolderTreeRootsAsync(_sessionId, ct);
             var nodes = new List<FolderTreeNode>(roots.Count);
             foreach (var root in roots)
-            {
-                var childCount = await _repo.CountFolderChildrenAsync(_sessionId, root.FullPath, ct);
-                nodes.Add(new FolderTreeNode(root, childCount));
-            }
+                nodes.Add(new FolderTreeNode(root, Math.Max(0, root.SubFolderCount)));
 
             _folderTreeRoots = nodes;
             _folderTreeLoaded = true;
@@ -256,10 +254,7 @@ public sealed partial class ResultsViewModel : ObservableObject
             var children = await _repo.GetFolderChildrenAsync(_sessionId, node.Folder.FullPath, ct);
             var nodes = new List<FolderTreeNode>(children.Count);
             foreach (var child in children)
-            {
-                var childCount = await _repo.CountFolderChildrenAsync(_sessionId, child.FullPath, ct);
-                nodes.Add(new FolderTreeNode(child, childCount));
-            }
+                nodes.Add(new FolderTreeNode(child, Math.Max(0, child.SubFolderCount)));
 
             node.SetChildren(nodes);
             FolderTreeStatusText = children.Count == 0

@@ -537,20 +537,22 @@ public sealed class ScanRepository : IScanRepository
         string parentPath,
         CancellationToken ct = default)
     {
+        var prefix = ChildPrefix(parentPath);
         var conn = await _db.GetConnectionAsync(ct);
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
             SELECT *
             FROM FolderEntries
             WHERE SessionId = $sid
-              AND FullPath LIKE $prefix || '%'
-              AND FullPath <> $parent
-              AND instr(substr(FullPath, length($parent) + 2), '\') = 0
+              AND NormalizedFullPath LIKE $prefixNorm || '%'
+              AND NormalizedFullPath <> $parentNorm
+              AND instr(substr(FullPath, length($prefix) + 1), '\') = 0
             ORDER BY TotalSizeBytes DESC, FullPath ASC;
             """;
         cmd.Parameters.AddWithValue("$sid", sessionId);
-        cmd.Parameters.AddWithValue("$parent", parentPath);
-        cmd.Parameters.AddWithValue("$prefix", parentPath + "\\");
+        cmd.Parameters.AddWithValue("$parentNorm", NormalizeForStorage(parentPath));
+        cmd.Parameters.AddWithValue("$prefixNorm", NormalizeForStorage(prefix));
+        cmd.Parameters.AddWithValue("$prefix", prefix);
         using var reader = await cmd.ExecuteReaderAsync(ct);
         var list = new List<FolderEntry>();
         while (await reader.ReadAsync(ct))
@@ -563,20 +565,42 @@ public sealed class ScanRepository : IScanRepository
         string parentPath,
         CancellationToken ct = default)
     {
+        var prefix = ChildPrefix(parentPath);
         var conn = await _db.GetConnectionAsync(ct);
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
             SELECT COUNT(*)
             FROM FolderEntries
             WHERE SessionId = $sid
-              AND FullPath LIKE $prefix || '%'
-              AND FullPath <> $parent
-              AND instr(substr(FullPath, length($parent) + 2), '\') = 0;
+              AND NormalizedFullPath LIKE $prefixNorm || '%'
+              AND NormalizedFullPath <> $parentNorm
+              AND instr(substr(FullPath, length($prefix) + 1), '\') = 0;
             """;
         cmd.Parameters.AddWithValue("$sid", sessionId);
-        cmd.Parameters.AddWithValue("$parent", parentPath);
-        cmd.Parameters.AddWithValue("$prefix", parentPath + "\\");
+        cmd.Parameters.AddWithValue("$parentNorm", NormalizeForStorage(parentPath));
+        cmd.Parameters.AddWithValue("$prefixNorm", NormalizeForStorage(prefix));
+        cmd.Parameters.AddWithValue("$prefix", prefix);
         return Convert.ToInt32(await cmd.ExecuteScalarAsync(ct));
+    }
+
+    private static string ChildPrefix(string folderPath)
+    {
+        var normalized = NormalizeDirectoryPath(folderPath);
+        return normalized.EndsWith(Path.DirectorySeparatorChar)
+            ? normalized
+            : normalized + Path.DirectorySeparatorChar;
+    }
+
+    private static string NormalizeDirectoryPath(string path)
+    {
+        try
+        {
+            return ScanOptionValidator.NormalizeDirectoryPath(path);
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            return path.Trim();
+        }
     }
 
     public async Task UpdateFolderTotalsAsync(

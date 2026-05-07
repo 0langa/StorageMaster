@@ -1,6 +1,6 @@
 # StorageMaster Roadmap
 
-Current repository state: v2.0.0 on 2026-05-07. This roadmap replaces older speculative planning text with the actual shipped state.
+Current repository state: v2.0.1 on 2026-05-07. This roadmap replaces older speculative planning text with the actual shipped state.
 
 ## Shipped baseline
 
@@ -16,6 +16,7 @@ Current repository state: v2.0.0 on 2026-05-07. This roadmap replaces older spec
 | 1.8.0 | Settings redesign into category-tile hub with modal overlays, accessibility annotations, UI preferences layer, shared styles |
 | 1.9.0 | Space Map native treemap, Scan Delta Insights, scanner validation/exclusion hardening, schema v6 normalized path integrity, folder aggregation hardening, deletion safety fixes |
 | 1.9.6 | Runtime rollback: kept 1.9.x features while returning release builds to framework-dependent Windows App SDK 1.6 with staged runtime MSIX prereq |
+| 2.0.1 | Responsive UI/loading hotfix: auto-collapsing shell, scan ETA/live progress placement, coalesced Space Map rendering, faster folder-tree expansion, Duplicates advanced-options scrolling, Drive Health layout cleanup, Dashboard health-score descriptor |
 | 2.0.0 | Drive Health & Storage Sentinel, schema v7 health snapshots, stable/prerelease-safe versioning and release flow, .NET runtime setup check, elevated CLI deep-scan worker, and v2 visual foundation: shared style dictionaries, grouped shell with Mica fallback, Dashboard/Drive Health refresh, guided scan flow, Scan Workspace, Space Map tile control |
 
 ## Current feature inventory

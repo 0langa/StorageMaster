@@ -65,6 +65,7 @@ public sealed partial class SpaceMapViewModel : ObservableObject
         var ct = _loadCts.Token;
 
         IsLoading = true;
+        await Task.Yield();
         try
         {
             Sessions.Clear();

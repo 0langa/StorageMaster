@@ -1,6 +1,6 @@
 # StorageMaster Technical Reference
 
-Version: 2.0.0. This reference matches the current repository implementation.
+Version: 2.0.1. This reference matches the current repository implementation.
 
 ## Build prerequisites
 

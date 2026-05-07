@@ -1,6 +1,6 @@
 # StorageMaster Architecture
 
-Version: 2.0.0. Stack: .NET 8, WinUI 3, Windows App SDK 1.6.250205002, SQLite schema v7, optional Rust `turbo-scanner`.
+Version: 2.0.1. Stack: .NET 8, WinUI 3, Windows App SDK 1.6.250205002, SQLite schema v7, optional Rust `turbo-scanner`.
 
 StorageMaster is a layered Windows disk analyzer/cleanup app. `StorageMaster.Core` is the inward-facing domain layer; UI, storage, and platform projects depend on Core interfaces. Core currently contains pure domain logic plus scanner/cleanup/dedup/update services, but no WinUI, SQLite, Win32, or subprocess hosting.
 
@@ -15,7 +15,7 @@ StorageMaster is a layered Windows disk analyzer/cleanup app. `StorageMaster.Cor
 | `StorageMaster.Tests` | `net8.0-windows10.0.19041.0` | xUnit tests | Core, Storage, Platform |
 | `turbo-scanner` | Rust 2021 | Native JSONL file enumerator using `jwalk` | independent binary |
 
-Version metadata is centralized in `Directory.Build.props`: `StorageMasterVersion=2.0.0` is semantic/informational, while `StorageMasterAssemblyVersion=2.0.0.0` feeds assembly/file/manifest versions. UI uses `WindowsPackageType=None`, `WindowsAppSDKSelfContained=false`, `SelfContained=false`, runtime IDs `win-x86;win-x64;win-arm64`, min OS `10.0.17763`. Release pipeline publishes `win-x64`, stages the Windows App Runtime 1.6 x64 MSIX prereq beside the app, checks .NET Desktop Runtime 8 x64 in setup, and marks tags containing `-` as GitHub prereleases.
+Version metadata is centralized in `Directory.Build.props`: `StorageMasterVersion=2.0.1` is semantic/informational, while `StorageMasterAssemblyVersion=2.0.1.0` feeds assembly/file/manifest versions. UI uses `WindowsPackageType=None`, `WindowsAppSDKSelfContained=false`, `SelfContained=false`, runtime IDs `win-x86;win-x64;win-arm64`, min OS `10.0.17763`. Release pipeline publishes `win-x64`, stages the Windows App Runtime 1.6 x64 MSIX prereq beside the app, checks .NET Desktop Runtime 8 x64 in setup, and marks tags containing `-` as GitHub prereleases.
 
 ## Runtime startup
 

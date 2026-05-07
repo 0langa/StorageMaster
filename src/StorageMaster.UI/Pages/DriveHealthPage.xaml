@@ -35,7 +35,7 @@
                 <ItemsControl.ItemTemplate>
                     <DataTemplate>
                         <Border Style="{StaticResource SectionCardStyle}" Margin="0,0,0,12">
-                            <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="20">
+                            <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto" ColumnSpacing="20" RowSpacing="16">
                                 <controls:RadialGauge Grid.Column="0"
                                                       Value="{Binding FreePercent}"
                                                       Label="free"
@@ -44,8 +44,14 @@
                                 <StackPanel Grid.Column="1" Spacing="10">
                                     <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
                                         <StackPanel Grid.Column="0" Spacing="4">
-                                            <TextBlock Text="{Binding DriveName}" Style="{StaticResource TitleTextBlockStyle}" />
-                                            <TextBlock Text="{Binding Message}" Style="{StaticResource PageSubtitleTextStyle}" />
+                                            <TextBlock Text="{Binding DriveName}"
+                                                       Style="{StaticResource TitleTextBlockStyle}"
+                                                       TextWrapping="NoWrap"
+                                                       TextTrimming="CharacterEllipsis" />
+                                            <TextBlock Text="{Binding Message}"
+                                                       Style="{StaticResource PageSubtitleTextStyle}"
+                                                       MaxLines="2"
+                                                       TextTrimming="CharacterEllipsis" />
                                         </StackPanel>
                                         <controls:SeverityBadge Grid.Column="1"
                                                                 Text="{Binding Status}"
@@ -55,25 +61,20 @@
 
                                     <ProgressBar Value="{Binding FreeBytes}" Maximum="{Binding TotalBytes}" Height="8" />
 
-                                    <ItemsControl>
-                                        <ItemsControl.ItemsPanel>
-                                            <ItemsPanelTemplate>
-                                                <ItemsWrapGrid Orientation="Horizontal" />
-                                            </ItemsPanelTemplate>
-                                        </ItemsControl.ItemsPanel>
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
                                         <Border Style="{StaticResource StatusChipStyle}" Margin="0,0,8,8">
-                                            <TextBlock Text="{Binding MediaType}" Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}" />
+                                            <TextBlock Text="{Binding MediaType}" Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}" TextTrimming="CharacterEllipsis" />
                                         </Border>
                                         <Border Style="{StaticResource StatusChipStyle}" Margin="0,0,8,8">
-                                            <TextBlock Text="{Binding DriveFormat}" Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}" />
+                                            <TextBlock Text="{Binding DriveFormat}" Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}" TextTrimming="CharacterEllipsis" />
                                         </Border>
                                         <Border Style="{StaticResource StatusChipStyle}" Margin="0,0,8,8">
-                                            <TextBlock Text="{Binding VolumeLabel}" Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}" />
+                                            <TextBlock Text="{Binding VolumeLabel}" Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}" TextTrimming="CharacterEllipsis" MaxWidth="160" />
                                         </Border>
                                         <Border Style="{StaticResource StatusChipStyle}" Margin="0,0,8,8">
-                                            <TextBlock Text="{Binding Source}" Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}" />
+                                            <TextBlock Text="{Binding Source}" Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}" TextTrimming="CharacterEllipsis" MaxWidth="160" />
                                         </Border>
-                                    </ItemsControl>
+                                    </StackPanel>
 
                                     <Grid ColumnDefinitions="*,*,*" ColumnSpacing="12">
                                         <StackPanel Grid.Column="0">
@@ -86,11 +87,11 @@
                                         </StackPanel>
                                         <StackPanel Grid.Column="2">
                                             <TextBlock Text="Captured" Style="{StaticResource MutedTextStyle}" />
-                                            <TextBlock Text="{Binding CapturedUtc}" FontWeight="SemiBold" />
+                                            <TextBlock Text="{Binding CapturedUtc}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
                                         </StackPanel>
                                     </Grid>
                                 </StackPanel>
-                                <StackPanel Grid.Column="2" Spacing="8" MinWidth="190">
+                                <StackPanel Grid.Row="1" Grid.ColumnSpan="2" Spacing="8">
                                     <TextBlock Text="Recommendation" Style="{StaticResource SectionHeaderTextStyle}" />
                                     <TextBlock Text="Run cleanup, review large folders, or move data if free space is low. Unknown states mean Windows did not expose reliable telemetry." Style="{StaticResource HelperTextStyle}" />
                                 </StackPanel>

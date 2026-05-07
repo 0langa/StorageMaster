@@ -32,11 +32,16 @@
                         <TextBlock Text="{x:Bind ViewModel.RecommendedActionText, Mode=OneWay}" Style="{StaticResource BodyStrongTextBlockStyle}" />
                         <TextBlock Text="{x:Bind ViewModel.LatestScanSummary, Mode=OneWay}" Style="{StaticResource HelperTextStyle}" />
                     </StackPanel>
-                    <controls:RadialGauge Grid.Column="2"
-                                           Value="72"
-                                           Label="ready"
-                                           GaugeSize="108"
-                                           VerticalAlignment="Center" />
+                    <StackPanel Grid.Column="2" Width="132" Spacing="6" VerticalAlignment="Center">
+                        <controls:RadialGauge Value="{x:Bind ViewModel.ReadinessScore, Mode=OneWay}"
+                                               Label="{x:Bind ViewModel.ReadinessLabel, Mode=OneWay}"
+                                               GaugeSize="108"
+                                               HorizontalAlignment="Center" />
+                        <TextBlock Text="{x:Bind ViewModel.ReadinessDescription, Mode=OneWay}"
+                                   Style="{StaticResource HelperTextStyle}"
+                                   MaxLines="3"
+                                   TextAlignment="Center" />
+                    </StackPanel>
                 </Grid>
             </Border>
 

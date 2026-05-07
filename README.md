@@ -1,6 +1,6 @@
 # StorageMaster    [![Release](https://github.com/0langa/StorageMaster/actions/workflows/release.yml/badge.svg)](https://github.com/0langa/StorageMaster/actions/workflows/release.yml) [![CI](https://github.com/0langa/StorageMaster/actions/workflows/ci.yml/badge.svg)](https://github.com/0langa/StorageMaster/actions/workflows/ci.yml)
 
-> **Current version:** 1.9.6 — Windows disk analyzer, junk cleaner, visual space map, and storage health tool.
+> **Current version:** 2.0.0-prerelease — Windows disk analyzer, junk cleaner, visual space map, drive health sentinel, and storage automation tool.
 
 A Windows disk analyzer and storage cleaner built with **C# / .NET 8 / WinUI 3**, with an optional native Rust scan engine for maximum throughput on multi-core systems.
 
@@ -14,7 +14,7 @@ A Windows disk analyzer and storage cleaner built with **C# / .NET 8 / WinUI 3**
 | **Turbo Scanner** | Optional Rust-powered scanner (jwalk) — up to 4× faster on SSDs |
 | **Smart Cleaner** | One-click scan & clean — no prior scan session needed |
 | **17 cleanup rules** | Temp files, browser caches, Windows Update, WER, Delivery Optimization, downloaded installers, app caches, program leftovers, Recycle Bin, large old files, thumbnail cache, icon cache, font cache, DNS cache, prefetch files, Microsoft Store logs, duplicate files |
-| **Deep scan / Admin elevation** | Restart-as-admin flow to scan protected directories |
+| **Deep scan worker** | Protected-directory scans launch through an elevated CLI worker so the WinUI shell remains unelevated |
 | **Recycle Bin integration** | All deletions go to Recycle Bin by default (recoverable) |
 | **Quarantine** | Duplicate deletions can be quarantined with one-click restore from the UI |
 | **Audit trail** | Every deletion logged to SQLite `CleanupLog` — forever |
@@ -28,6 +28,7 @@ A Windows disk analyzer and storage cleaner built with **C# / .NET 8 / WinUI 3**
 | **CLI / headless mode** | Full-featured command-line interface for scripting and automation |
 | **System tray** | Minimize to tray; tray menu for common actions; balloon notifications |
 | **Low-disk notifications** | Configurable warning/critical thresholds; per-drive 12 h debounce |
+| **Drive Health & Storage Sentinel** | Windows WMI/storage health snapshots, Dashboard warnings, dedicated Drive Health page, tray alerts, and CLI JSON reports |
 | **Scheduled tasks** | Windows Task Scheduler integration — daily/weekly scans and cleanups |
 | **GitHub release updater** | Checks GitHub Releases, verifies digest/signature policy, downloads setup EXE, and launches installer on demand |
 | **Theme + retention settings** | Persisted light/dark/default theme, scan-history retention window, and uninstall-safe user data |
@@ -67,6 +68,7 @@ StorageMaster/
 | **Duplicates** | Scope by folders/categories/extensions, run exact or fuzzy methods, review previews, delete/quarantine selected copies, restore quarantined files |
 | **Smart Cleaner** | Direct one-click scan → review → clean, no session needed |
 | **Space Map** | Interactive treemap and scan delta comparison for completed scans |
+| **Drive Health** | Read-only Windows storage telemetry, latest health snapshots, warnings, and unsupported/unknown fallbacks |
 | **Settings** | All user preferences, scanner options, cleanup thresholds, scheduler, tray, and app update controls |
 
 ---
@@ -81,6 +83,7 @@ StorageMaster.UI.exe --cli report last-scan [--json <file>] [--csv <file>]
 StorageMaster.UI.exe --cli dedupe scan --session <id> --methods exact,text,image,video [--min-size <mb>] [--extensions ...] [--json <file>]
 StorageMaster.UI.exe --cli cleanup analyze --session <id> [--json <file>]
 StorageMaster.UI.exe --cli cleanup execute --session <id> --rules <csv> --recycle-bin|--quarantine --confirm
+StorageMaster.UI.exe --cli health report [--json <file>]
 StorageMaster.UI.exe --headless jobs run --id <job-id>
 ```
 
@@ -92,7 +95,7 @@ Exit codes: `0` success · `1` unexpected error · `2` bad arguments · `3` miss
 
 - **Minimize to tray:** when enabled in Settings, the close button hides the window instead of exiting. Right-click the tray icon for Open, Run Smart Clean, Start Scan, Review Duplicates, Pause Notifications, and Exit.
 - **Start in tray:** launch with `--start-in-tray` to open minimized (used by the startup registry entry).
-- **Low-disk notifications:** tray balloon when a drive falls below the warning (default 15 %) or critical (default 5 %) threshold. Checked every 15 minutes with a 12-hour debounce per drive per level.
+- **Low-disk and drive-health notifications:** tray balloons when a drive falls below the warning (default 15 %) / critical (default 5 %) threshold or Windows reports unhealthy storage telemetry. Checked every 15 minutes with a 12-hour debounce per drive per level.
 
 ---
 
@@ -105,6 +108,7 @@ Exit codes: `0` success · `1` unexpected error · `2` bad arguments · `3` miss
 | Rust toolchain | stable (for building turbo-scanner from source) |
 | Inno Setup | 6.x (for local installer builds) |
 | Target OS | Windows 10 1809 (build 17763) or later |
+| Runtime on installed machines | .NET Desktop Runtime 8 x64 and Windows App Runtime 1.6 x64 |
 
 ---
 
@@ -149,12 +153,12 @@ Copy-Item turbo-scanner\target\x86_64-pc-windows-msvc\release\turbo-scanner.exe 
 
 # 3. Build the installer
 iscc installer\StorageMaster.iss
-# Output: artifacts/installer/StorageMaster-1.9.6-win-x64-Setup.exe
+# Output: artifacts/installer/StorageMaster-2.0.0-prerelease-win-x64-Setup.exe
 ```
 
 Optional: place `ffmpeg.exe` and `ffprobe.exe` in `installer\ffmpeg\` before packaging. If that folder is absent, release builds also look for both tools together on PATH and copy them into `tools\ffmpeg\` beside the app so video pHash works out of the box.
 
-The automated release pipeline (`release.yml`) runs all three steps on every `v*.*.*` git tag and attaches the installer to a GitHub Release.
+The automated release pipeline (`release.yml`) runs all three steps on every `v*.*.*` git tag, marks tags containing `-` as GitHub prereleases, verifies installer shape/size/prereqs, and attaches the installer plus checksums to the release.
 
 ---
 

@@ -1,6 +1,6 @@
 # StorageMaster Codemap
 
-Version: 1.9.6. Compact source map for the deployed repository. Source code is authoritative.
+Version: 2.0.0-prerelease. Compact source map for the deployed repository. Source code is authoritative.
 
 ## Root
 
@@ -8,13 +8,13 @@ Version: 1.9.6. Compact source map for the deployed repository. Source code is a
 |---|---|
 | `StorageMaster.sln`, `.slnx` | solution files |
 | `global.json` | .NET SDK 8.0 latest patch |
-| `Directory.Build.props` | centralized product version metadata (`1.9.6`) |
+| `Directory.Build.props` | centralized semantic version (`2.0.0-prerelease`) plus numeric assembly version (`2.0.0.0`) |
 | `Directory.Build.targets` | forces executable WinUI XAML compiler |
-| `README.md`, `CHANGELOG.md` | public docs; changelog current through 1.9.6 |
+| `README.md`, `CHANGELOG.md` | public docs; changelog current through 2.0.0-prerelease |
 | `.github/workflows/ci.yml` | PR/push build/test/format/Rust checks |
 | `.github/workflows/release.yml` | tag release pipeline, optional signing |
-| `installer/StorageMaster.iss` | Inno Setup, `AppVersion=1.9.6`, `PrivilegesRequired=lowest`, stages Windows App Runtime 1.6 MSIX prereq, `DefaultDirName={localappdata}\Programs\StorageMaster` |
-| `turbo-scanner/` | Rust binary crate, package version 1.9.6 |
+| `installer/StorageMaster.iss` | Inno Setup, `AppVersion=2.0.0-prerelease`, `PrivilegesRequired=lowest`, checks .NET Desktop Runtime 8 x64, stages Windows App Runtime 1.6 MSIX prereq, `DefaultDirName={localappdata}\Programs\StorageMaster` |
+| `turbo-scanner/` | Rust binary crate, package version 2.0.0-prerelease |
 
 ## Project files and packages
 
@@ -22,11 +22,13 @@ Version: 1.9.6. Compact source map for the deployed repository. Source code is a
 |---|---|---|
 | `StorageMaster.Core` | `net8.0` | CommunityToolkit.Mvvm 8.4.0, DI.Abstractions 10.0.0, Logging.Abstractions 10.0.0, SixLabors.ImageSharp 3.1.12 |
 | `StorageMaster.Storage` | `net8.0` | Microsoft.Data.Sqlite 9.0.4, Logging.Abstractions 10.0.0 |
-| `StorageMaster.Platform.Windows` | `net8.0-windows10.0.19041.0` | Logging.Abstractions 10.0.0 |
+| `StorageMaster.Platform.Windows` | `net8.0-windows10.0.19041.0` | Logging.Abstractions 10.0.0, System.Management 9.0.5 |
 | `StorageMaster.UI` | `net8.0-windows10.0.19041.0` | WindowsAppSDK 1.6.250205002, SDK BuildTools 10.0.26100.1742, Toolkit.Mvvm, H.NotifyIcon.WinUI 2.3.1, Microsoft.Extensions.* 10.0.0, System.CommandLine 2.0.7 |
 | `StorageMaster.Tests` | `net8.0-windows10.0.19041.0` | xUnit 2.9.3, runner 3.1.4, Microsoft.NET.Test.Sdk 17.14.1, Moq 4.20.72, FluentAssertions 7.2.0 |
 
 `System.CommandLine` is referenced, but the current `CommandRunner` uses manual option parsing.
+
+`src/StorageMaster.Core/Safety/SafeTempDirectory.cs` guards app-created temporary recursive deletes and refuses paths outside direct `%TEMP%` children.
 
 ## `StorageMaster.Core/Models`
 
@@ -63,7 +65,7 @@ Important defaults in `AppSettings`: `CleanProgramLeftovers=true`, `CleanLargeOl
 | `ICleanupLogRepository` | `CleanupLogRepository`; append and recent read, includes `AuditDataJson` |
 | `ISmartCleanerService` | `SmartCleanerService` |
 | Dedup | `IDuplicateFinderService`, `IDuplicateRepository`, `IDuplicateCandidateProvider`, `IDuplicateDetectionStrategy`, `IDuplicateDeletionService`, `IDuplicatePreviewService`, `IDuplicateKeeperPolicy`, `IFileContentHasher`, `IFileSnapshotProvider`, `IFileIdentityProvider` |
-| Platform/app | `IDriveInfoProvider`, `IAdminService`, `IInstalledProgramProvider`, `IInstallerTrustVerifier`, `INotificationService`, `IScheduledTaskService`, `ISettingsRepository`, `ISettingsSnapshotProvider`, `IUpdateService`, `ICommandRunner`, `IScanResultDeletionService` |
+| Platform/app | `IDriveInfoProvider`, `IDriveHealthProvider`, `IDriveHealthRepository`, `IAdminService`, `IInstalledProgramProvider`, `IInstallerTrustVerifier`, `INotificationService`, `IScheduledTaskService`, `ISettingsRepository`, `ISettingsSnapshotProvider`, `IUpdateService`, `ICommandRunner`, `IScanResultDeletionService` |
 
 `IRecycleBinInfoProvider` and `RecycleBinInfo` are declared at bottom of `Cleanup/Rules/RecycleBinCleanupRule.cs`.
 
@@ -137,7 +139,7 @@ Cleanup rules and IDs:
 | File | Purpose |
 |---|---|
 | `StorageDbContext.cs` | single SQLite connection, WAL PRAGMAs, migration lock, write lock, atomic version stamping |
-| `Schema/DatabaseSchema.cs` | schema version 6 DDL/migrations |
+| `Schema/DatabaseSchema.cs` | schema version 7 DDL/migrations |
 | `Repositories/ScanRepository.cs` | session/file/folder queries, normalized file path upsert, paged results, folder tree, deletion/stale marking |
 | `Repositories/SpaceMapRepository.cs` | Space Map direct children, largest files under folder, comparable sessions, delta insights |
 | `ScanErrorRepository.cs` | scan error logging/paging/count |
@@ -152,6 +154,7 @@ Cleanup rules and IDs:
 | `FileDeleter.cs` | dry-run, Recycle Bin batch via `IFileOperation`, read-only permanent delete, file quarantine only, bounded size estimate, DNS flush, Recycle Bin empty |
 | `TurboFileScanner.cs` | hidden Rust process host, shared scan option validation, JSONL parse, stderr scan errors, fallback to managed scanner |
 | `DriveInfoProvider.cs` | fixed/network/removable drive data |
+| `DriveHealthProvider.cs` | WMI/MSFT_PhysicalDisk/Win32_DiskDrive health snapshots with Unknown/Unsupported fallbacks |
 | `RecycleBinInfoProvider.cs` | `SHQueryRecycleBin` wrapper |
 | `AdminService.cs` | admin check and `runas` restart with optional `--deep-scan`, then `Environment.Exit(0)` |
 | `InstalledProgramProvider.cs` | reads uninstall registry keys in HKLM/HKCU and WOW6432Node |
@@ -168,16 +171,16 @@ Cleanup rules and IDs:
 |---|---|
 | Startup/DI | `Program.cs`, `App.xaml(.cs)`, `ServiceBootstrapper.cs`, `MainWindow.xaml(.cs)` |
 | Infrastructure | `CommandRunner`, `NavigationService`, `NavigationRoutes`, `DialogService`, `DesktopNotificationService`, `DuplicatePreviewService`, `ScheduledTaskService`, `StartupRegistrationService`, `LocalDiagnosticsService` |
-| Pages/ViewModels | Dashboard, Scan, Results, Duplicates, Cleanup, SmartCleaner, SpaceMap, Settings |
+| Pages/ViewModels | Dashboard, Scan, Results, Duplicates, Cleanup, SmartCleaner, SpaceMap, DriveHealth, Settings |
 | Converters | `BoolNegation`, `BoolToChevron`, `BoolToVisibility`, `ByteSize`, `FilePathToBitmapImage` |
 
-Navigation tags: `Dashboard`, `Scan`, `Results`, `Duplicates`, `Cleanup`, `SmartCleaner`, `SpaceMap`, `Settings`.
+Navigation tags: `Dashboard`, `Scan`, `Results`, `Duplicates`, `Cleanup`, `SmartCleaner`, `SpaceMap`, `DriveHealth`, `Settings`.
 
 ## UI ViewModel command map
 
 | VM | Commands |
 |---|---|
-| `DashboardViewModel` | go to Scan/Results/Duplicates/Cleanup/SmartCleaner/SpaceMap/Settings, scan drive |
+| `DashboardViewModel` | go to Scan/Results/Duplicates/Cleanup/SmartCleaner/SpaceMap/DriveHealth/Settings, scan drive |
 | `ScanViewModel` | request elevation, start/cancel scan, view results |
 | `ResultsViewModel` | clear/apply/category filters, sort files/folders, load more files/folders/errors, delete file, delete session |
 | `CleanupViewModel` | analyze, execute cleanup |
@@ -192,4 +195,4 @@ Rust args: `--path/-p`, `--threads/-t` default 0, `--min-size` default 0, `--ski
 
 ## Tests
 
-Current test count by static marker count: 113 tests across 25 files. Areas: cleanup rules/engine, critical fixes, deduplication, scanner/aggregator, settings FFmpeg helpers, repositories, updater. No ViewModel test suite is present.
+Current test count by static marker count is above the 1.9.6 baseline and includes drive-health repository and prerelease updater coverage. Areas: cleanup rules/engine, critical fixes, deduplication, scanner/aggregator, settings FFmpeg helpers, repositories, drive health, updater. No broad ViewModel test suite is present.

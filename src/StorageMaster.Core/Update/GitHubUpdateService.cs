@@ -30,7 +30,7 @@ public sealed class GitHubUpdateService : IUpdateService
     private const string AssetNameFormat = "StorageMaster-{0}-win-x64-Setup.exe";
 
     private readonly HttpClient _http;
-    private readonly Version _currentVersion;
+    private readonly SemanticVersion _currentVersion;
     private readonly ILogger<GitHubUpdateService> _logger;
     private readonly ISettingsRepository _settingsRepository;
     private readonly IInstallerTrustVerifier _installerTrustVerifier;
@@ -45,9 +45,26 @@ public sealed class GitHubUpdateService : IUpdateService
         ILogger<GitHubUpdateService> logger,
         ISettingsRepository settingsRepository,
         IInstallerTrustVerifier installerTrustVerifier)
+        : this(
+            http,
+            currentVersion.ToString(3),
+            logger,
+            settingsRepository,
+            installerTrustVerifier)
+    {
+    }
+
+    public GitHubUpdateService(
+        HttpClient http,
+        string currentVersion,
+        ILogger<GitHubUpdateService> logger,
+        ISettingsRepository settingsRepository,
+        IInstallerTrustVerifier installerTrustVerifier)
     {
         _http = http;
-        _currentVersion = currentVersion;
+        _currentVersion = SemanticVersion.TryParseTag(currentVersion, out var parsed)
+            ? parsed
+            : default;
         _logger = logger;
         _settingsRepository = settingsRepository;
         _installerTrustVerifier = installerTrustVerifier;
@@ -62,8 +79,6 @@ public sealed class GitHubUpdateService : IUpdateService
     {
         LastCheckResult = null;
         LastFailureKind = null;
-
-        var currentVersion = SemanticVersion.FromVersion(_currentVersion);
 
         IReadOnlyList<GitHubRelease> releases;
         try
@@ -101,7 +116,7 @@ public sealed class GitHubUpdateService : IUpdateService
             if (!TryCreateUpdateInfo(release, out var updateInfo, out var releaseVersion))
                 continue;
 
-            if (releaseVersion.CompareTo(currentVersion) <= 0)
+            if (releaseVersion.CompareTo(_currentVersion) <= 0)
                 continue;
 
             if (bestSemver is null || releaseVersion.CompareTo(bestSemver.Value) > 0)

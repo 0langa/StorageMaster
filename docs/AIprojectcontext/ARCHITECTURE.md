@@ -1,6 +1,6 @@
 # StorageMaster Architecture
 
-Version: 1.9.6. Stack: .NET 8, WinUI 3, Windows App SDK 1.6.250205002, SQLite schema v6, optional Rust `turbo-scanner`.
+Version: 2.0.0-prerelease. Stack: .NET 8, WinUI 3, Windows App SDK 1.6.250205002, SQLite schema v7, optional Rust `turbo-scanner`.
 
 StorageMaster is a layered Windows disk analyzer/cleanup app. `StorageMaster.Core` is the inward-facing domain layer; UI, storage, and platform projects depend on Core interfaces. Core currently contains pure domain logic plus scanner/cleanup/dedup/update services, but no WinUI, SQLite, Win32, or subprocess hosting.
 
@@ -15,7 +15,7 @@ StorageMaster is a layered Windows disk analyzer/cleanup app. `StorageMaster.Cor
 | `StorageMaster.Tests` | `net8.0-windows10.0.19041.0` | xUnit tests | Core, Storage, Platform |
 | `turbo-scanner` | Rust 2021 | Native JSONL file enumerator using `jwalk` | independent binary |
 
-Version metadata is centralized in `Directory.Build.props` (`StorageMasterVersion=1.9.6`). UI uses `WindowsPackageType=None`, `WindowsAppSDKSelfContained=false`, `SelfContained=false`, runtime IDs `win-x86;win-x64;win-arm64`, min OS `10.0.17763`. Release pipeline currently publishes `win-x64` and stages the Windows App Runtime 1.6 x64 MSIX prereq beside the app.
+Version metadata is centralized in `Directory.Build.props`: `StorageMasterVersion=2.0.0-prerelease` is semantic/informational, while `StorageMasterAssemblyVersion=2.0.0.0` feeds assembly/file/manifest versions. UI uses `WindowsPackageType=None`, `WindowsAppSDKSelfContained=false`, `SelfContained=false`, runtime IDs `win-x86;win-x64;win-arm64`, min OS `10.0.17763`. Release pipeline publishes `win-x64`, stages the Windows App Runtime 1.6 x64 MSIX prereq beside the app, checks .NET Desktop Runtime 8 x64 in setup, and marks tags containing `-` as GitHub prereleases.
 
 ## Runtime startup
 
@@ -23,7 +23,7 @@ Version metadata is centralized in `Directory.Build.props` (`StorageMasterVersio
 
 `App` reads startup flags `--deep-scan` and `--start-in-tray`, logs unhandled exceptions to `%LOCALAPPDATA%\StorageMaster\logs\startup-errors.log`, launches `MainWindow`, applies persisted theme, and runs a silent GitHub update check when `AppSettings.CheckOnStartup` is true.
 
-`MainWindow` hosts `NavigationView` + `Frame`, sets the icon, sizes to 85% of the display work area clamped to `1200x750..1800x1100`, starts on `DashboardPage`, owns tray behavior, and checks low disk space every 15 minutes when enabled. Tray menu: Open, Run Smart Clean, Start Scan, Review Duplicates, Pause Notifications for 12 h, Exit.
+`MainWindow` hosts `NavigationView` + `Frame`, sets the icon, sizes to 85% of the display work area clamped to `1200x750..1800x1100`, starts on `DashboardPage`, owns tray behavior, and checks low disk plus drive health every 15 minutes when enabled. Tray menu: Open, Run Smart Clean, Start Scan, Review Duplicates, Pause Notifications for 12 h, Exit.
 
 ## DI graph
 
@@ -32,7 +32,7 @@ Version metadata is centralized in `Directory.Build.props` (`StorageMasterVersio
 | Lifetime | Registrations |
 |---|---|
 | Singleton | `StorageDbContext`, repositories, `ISpaceMapRepository`, platform services, `FileScanner`, `TurboFileScanner`, 17 cleanup rules, `CleanupEngine`, Smart Cleaner, duplicate strategies/services, scheduler, notifications, updater, navigation, dialogs, command runner, `MainWindow` |
-| Transient | Dashboard, Results, Duplicates, Cleanup, Settings, SmartCleaner, SpaceMap VMs |
+| Transient | Dashboard, Results, Duplicates, Cleanup, Settings, SmartCleaner, SpaceMap, DriveHealth VMs |
 | Singleton VM | `ScanViewModel`, because it owns scan lifetime/cancellation |
 
 `IFileScanner` resolves to managed `FileScanner`; `ScanViewModel` explicitly receives both managed and turbo scanners and chooses based on settings/UI availability.
@@ -131,7 +131,7 @@ SQLite DB: `%LOCALAPPDATA%\StorageMaster\storagemaster.db`. `StorageDbContext` o
 
 PRAGMAs: `journal_mode=WAL`, `synchronous=NORMAL`, `foreign_keys=ON`, `temp_store=MEMORY`, `cache_size=-32000`.
 
-Schema `CurrentVersion = 6` with migrations:
+Schema `CurrentVersion = 7` with migrations:
 
 | Version | Adds |
 |---:|---|
@@ -141,6 +141,7 @@ Schema `CurrentVersion = 6` with migrations:
 | 4 | `CleanupLog.AuditDataJson` |
 | 5 | duplicate signature cache metadata, `QuarantinedFiles`, more duplicate indexes |
 | 6 | normalized path columns/indexes, unique file path protection per session, path search indexes |
+| 7 | `DriveHealthSnapshots` table and latest/history indexes |
 
 Each migration batch and schema-version stamp run in one transaction. `ScanRepository.DeleteSessionAsync` runs `PRAGMA optimize` after large session deletes.
 
@@ -150,13 +151,14 @@ Each migration batch and schema-version stamp run in one transaction. `ScanRepos
 
 | Page | ViewModel | Current behavior |
 |---|---|---|
-| Dashboard | `DashboardViewModel` | drive health, recommended action, latest scan summary, quick links |
+| Dashboard | `DashboardViewModel` | drive health snapshots, recommended action, latest scan summary, quick links |
 | Scan | `ScanViewModel` | choose path/drive, deep scan, turbo scanner, elevation, progress/cancel/view results |
 | Results | `ResultsViewModel` | paged largest files/folders/errors, file types, lazy folder tree, filters/sorts, copy/open/delete file, delete session |
 | Cleanup | `CleanupViewModel` | session-based suggestions, grouped category toggles, dry run, Recycle Bin/permanent execution |
 | Duplicates | `DuplicatesViewModel` | session selection, scope/category/extensions/methods, paged groups/errors, previews, selection, deletion/quarantine/restore, CSV/JSON/HTML export |
 | Smart Cleaner | `SmartCleanerViewModel` | direct junk analysis/cleaning without scan session |
 | Space Map | `SpaceMapViewModel` | selected completed scan treemap, folder drill-down, size/kind filters, selection details, CSV/HTML/PNG export, scan delta insights |
+| Drive Health | `DriveHealthViewModel` | read-only WMI/storage health snapshots, unsupported/unknown fallback states, persisted latest snapshot |
 | Settings | `SettingsViewModel` | deletion, thresholds, scan, theme, retention, excluded paths, cleanup defaults, dedupe defaults, FFmpeg, tray, scheduler, updates, diagnostics |
 
 Main navigation and all primary pages expose page-level automation names. Settings retains field-level automation help text; Space Map has named scan selection, canvas, and export controls. Remaining accessibility work is deeper UI automation coverage, not unlabeled primary navigation.
@@ -170,14 +172,14 @@ StorageMaster.UI.exe --cli <command>
 StorageMaster.UI.exe --headless <command>
 ```
 
-Supported commands are manually parsed in `CommandRunner`: `scan`, `report last-scan`, `dedupe scan`, `cleanup analyze`, `cleanup execute`, `jobs run --id`. Exit codes: `0` success, `1` unexpected/cancelled, `2` invalid args, `3` missing cleanup `--confirm`, `4` not found or not elevated.
+Supported commands are manually parsed in `CommandRunner`: `scan`, `report last-scan`, `dedupe scan`, `cleanup analyze`, `cleanup execute`, `health report`, `jobs run --id`. Exit codes: `0` success, `1` unexpected/cancelled/critical health report, `2` invalid args, `3` missing cleanup `--confirm`, `4` not found or not elevated.
 
 ## Updater and release pipeline
 
-`GitHubUpdateService` queries `0langa/StorageMaster` GitHub releases, accepts asset name `StorageMaster-{version}-win-x64-Setup.exe`, enforces HTTPS downloads, validates GitHub asset digest when provided, verifies Authenticode signature/timestamp when signed, and blocks unsigned installers only when `RequireSignedUpdates=true`. Installer launch uses `runas`.
+`GitHubUpdateService` queries `0langa/StorageMaster` GitHub releases, accepts asset name `StorageMaster-{version}-win-x64-Setup.exe` including prerelease identifiers, compares installed prerelease/stable semver through the informational version, enforces HTTPS downloads, validates GitHub asset digest when provided, verifies Authenticode signature/timestamp when signed, and blocks unsigned installers only when `RequireSignedUpdates=true`. Installer launch uses `runas`; deep scans no longer relaunch the full UI as admin.
 
 CI has `ci.yml` for PR/push: restore, `dotnet format --verify-no-changes`, build solution, test solution, `cargo fmt --check`, `cargo test`, Rust release build. `release.yml` runs on `v*.*.*` tags, builds Rust, tests, publishes win-x64, copies optional FFmpeg bundle, optionally signs binaries/installer from secrets, builds Inno installer, verifies signatures when signing is enabled, and generates checksums/release notes.
 
 ## Current architectural limitations to preserve in docs
 
-No WebView/D3 visualization exists; Space Map is a native WinUI Canvas treemap with PNG export through `RenderTargetBitmap`. No Serilog file logger exists; logging is Debug provider plus startup crash log and local diagnostics. `FileTypeCategorizor` is intentionally misspelled in code. `IRecycleBinInfoProvider` is declared in `RecycleBinCleanupRule.cs`, not under `Core/Interfaces`. Installer installs to LocalAppData with `PrivilegesRequired=lowest`. Release builds are .NET and Windows App SDK framework-dependent; the installer stages `Microsoft.WindowsAppRuntime.1.6.msix` plus `Install-WindowsAppRuntime.ps1`.
+No WebView/D3 visualization exists; Space Map is a native WinUI Canvas treemap with PNG export through `RenderTargetBitmap`. No Serilog file logger exists; logging is Debug provider plus startup crash log, installer prereq log, and local diagnostics. `FileTypeCategorizor` is intentionally misspelled in code. `IRecycleBinInfoProvider` is declared in `RecycleBinCleanupRule.cs`, not under `Core/Interfaces`. Installer installs to LocalAppData with `PrivilegesRequired=lowest`. Release builds are .NET and Windows App SDK framework-dependent; setup requires .NET Desktop Runtime 8 x64 and stages `Microsoft.WindowsAppRuntime.1.6.msix` plus `Install-WindowsAppRuntime.ps1`.

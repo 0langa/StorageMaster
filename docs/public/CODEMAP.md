@@ -1,8 +1,8 @@
 # StorageMaster — Codemap
 
-> **Version:** 1.9.6 | **Date:** 2026-05-07
+> **Version:** 2.0.0-prerelease | **Date:** 2026-05-07
 > Quick-reference for every file, type, method, and database table in the project.
-> **Current-state note:** v1.9.6 keeps the v1.9 Space Map/schema/scanner hardening work and rolls release deployment back to framework-dependent Windows App SDK 1.6 with a staged runtime MSIX prereq. Older file-by-file sections below are retained for background; source code is authoritative where details differ.
+> **Current-state note:** v2.0.0-prerelease keeps the v1.9 Space Map/schema/scanner hardening work, adds Drive Health/schema v7/prerelease release hardening, and remains framework-dependent on Windows App SDK 1.6 with a staged runtime MSIX prereq. Source code is authoritative where older file-by-file sections differ.
 
 ---
 
@@ -39,7 +39,7 @@
 | `docs/DOCUMENTATION.md` | Full API and configuration reference |
 | `docs/ROADMAP.md` | v1.3 → v1.5 development plan |
 | `.github/workflows/release.yml` | CI/CD: test → Rust build → publish → installer → Release |
-| `installer/StorageMaster.iss` | Inno Setup 6 script (per-user installer, stages Windows App Runtime 1.6 prereq) |
+| `installer/StorageMaster.iss` | Inno Setup 6 script (per-user installer, checks .NET Desktop Runtime 8 x64, stages Windows App Runtime 1.6 prereq) |
 | `turbo-scanner/Cargo.toml` | Rust crate manifest |
 | `turbo-scanner/src/main.rs` | Turbo Scanner entry point |
 
@@ -604,7 +604,7 @@ Singleton. Manages one `SqliteConnection`.
 
 #### `DatabaseSchema` — `Schema/DatabaseSchema.cs`
 
-Internal static class. `CurrentVersion = 6`. Migrations add scan errors, duplicate tables/signature cache/quarantine, cleanup audit metadata, and normalized path columns/indexes.
+Internal static class. `CurrentVersion = 7`. Migrations add scan errors, duplicate tables/signature cache/quarantine, cleanup audit metadata, normalized path columns/indexes, and drive-health snapshots.
 
 ---
 
@@ -665,7 +665,7 @@ Implements `ISettingsRepository`. Uses `System.Text.Json`. Key `"AppSettings"` i
 | `ApplyStartupWindowSize()` | `DisplayArea.GetFromWindowId` → 85% width, 90% height, clamped 900×700 min |
 | `NavView_SelectionChanged` | Maps tag → page type, calls `_nav.NavigateTo(pageType)` |
 
-Navigation tags: `Dashboard`, `Scan`, `Results`, `Cleanup`, `SmartCleaner`, `Settings`
+Navigation tags include `Dashboard`, `Scan`, `Results`, `Duplicates`, `Cleanup`, `SmartCleaner`, `SpaceMap`, `DriveHealth`, and `Settings`.
 
 ---
 
@@ -796,7 +796,7 @@ Commands: `AnalyseCommand`, `CleanCommand`
 
 ##### SettingsViewModel
 
-ObservableProperties map 1:1 to `AppSettings` members (all 21 settings).
+ObservableProperties map to persisted `AppSettings` members, including drive-health notification preferences.
 Commands: `SaveCommand`, `ResetToDefaultsCommand`
 
 ---

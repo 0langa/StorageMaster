@@ -1,5 +1,6 @@
 using System.IO.Compression;
 using System.Text.Json;
+using StorageMaster.Core.Safety;
 
 namespace StorageMaster.UI.Infrastructure;
 
@@ -31,8 +32,7 @@ public sealed class LocalDiagnosticsService : ILocalDiagnosticsService
         Directory.CreateDirectory(exportDirectory);
 
         var zipPath = Path.Combine(exportDirectory, $"diagnostics-{DateTime.UtcNow:yyyyMMdd-HHmmss}.zip");
-        var staging = Path.Combine(Path.GetTempPath(), $"sm_diag_{Guid.NewGuid():N}");
-        Directory.CreateDirectory(staging);
+        var staging = SafeTempDirectory.Create("sm_diag");
         try
         {
             foreach (var logFile in Directory.EnumerateFiles(_logDirectory, "*.*", SearchOption.TopDirectoryOnly)
@@ -65,7 +65,7 @@ public sealed class LocalDiagnosticsService : ILocalDiagnosticsService
         }
         finally
         {
-            try { Directory.Delete(staging, recursive: true); } catch { }
+            SafeTempDirectory.TryDelete(staging, "sm_diag");
         }
     }
 }

@@ -30,16 +30,20 @@ public sealed class C5_AtomicMigrationTests : IAsyncDisposable
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "SELECT MAX(Version) FROM SchemaVersion;";
         var version = Convert.ToInt32(await cmd.ExecuteScalarAsync());
-        version.Should().Be(6, "all migrations should stamp their versions");
+        version.Should().Be(7, "all migrations should stamp their versions");
 
-        // Verify there are exactly 6 version rows (one per migration).
+        // Verify there are exactly 7 version rows (one per migration).
         cmd.CommandText = "SELECT COUNT(*) FROM SchemaVersion;";
         var count = Convert.ToInt32(await cmd.ExecuteScalarAsync());
-        count.Should().Be(6, "each migration level stamps its own row");
+        count.Should().Be(7, "each migration level stamps its own row");
 
         cmd.CommandText = "SELECT COUNT(*) FROM pragma_table_info('CleanupLog') WHERE name = 'AuditDataJson';";
         var auditColumnCount = Convert.ToInt32(await cmd.ExecuteScalarAsync());
         auditColumnCount.Should().Be(1, "the cleanup audit metadata column should exist after v4");
+
+        cmd.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'DriveHealthSnapshots';";
+        var driveHealthTableCount = Convert.ToInt32(await cmd.ExecuteScalarAsync());
+        driveHealthTableCount.Should().Be(1, "drive health snapshots should exist after v7");
     }
 
     [Fact]
@@ -54,11 +58,11 @@ public sealed class C5_AtomicMigrationTests : IAsyncDisposable
         _ctx = new StorageDbContext(_dbPath, NullLogger<StorageDbContext>.Instance);
         var conn = await _ctx.GetConnectionAsync();
 
-        // Should still have exactly 6 version rows (not 12).
+        // Should still have exactly 7 version rows (not 14).
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "SELECT COUNT(*) FROM SchemaVersion;";
         var count = Convert.ToInt32(await cmd.ExecuteScalarAsync());
-        count.Should().Be(6, "migrations must not re-run on second open");
+        count.Should().Be(7, "migrations must not re-run on second open");
     }
 
     public async ValueTask DisposeAsync()

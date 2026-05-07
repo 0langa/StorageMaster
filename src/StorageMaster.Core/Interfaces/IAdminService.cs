@@ -6,10 +6,14 @@ public interface IAdminService
     bool IsRunningAsAdmin { get; }
 
     /// <summary>
-    /// Restarts the application with administrator privileges via UAC elevation prompt.
-    /// If <paramref name="enableDeepScan"/> is true, passes --deep-scan so the new
-    /// process auto-enables deep scan mode on launch.
-    /// Exits the current process after spawning the elevated one.
+    /// Starts the current executable with administrator privileges and the supplied
+    /// command-line arguments. The existing UI process remains unelevated.
+    /// </summary>
+    bool TryStartElevated(string arguments);
+
+    /// <summary>
+    /// Compatibility shim for older callers. Starts the CLI deep-scan path instead
+    /// of relaunching the full WinUI shell as administrator.
     /// </summary>
     void RestartAsAdmin(bool enableDeepScan = false);
 }

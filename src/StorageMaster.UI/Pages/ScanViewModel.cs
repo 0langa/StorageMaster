@@ -103,7 +103,30 @@ public sealed partial class ScanViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private void RequestElevation() => _admin.RestartAsAdmin(enableDeepScan: true);
+    private void RequestElevation()
+    {
+        ValidateSelectedPath(SelectedPath);
+        if (HasScanPathError)
+        {
+            HasError = true;
+            ErrorMessage = ScanPathError;
+            return;
+        }
+
+        var arguments = $"--cli scan --path {QuoteArgument(SelectedPath)} --deep" +
+                        (UseTurboScanner && TurboScannerAvailable ? " --turbo" : string.Empty);
+        if (_admin.TryStartElevated(arguments))
+        {
+            HasError = false;
+            ErrorMessage = string.Empty;
+            ProgressText = "Elevated deep scan started in a separate command-line worker. Refresh Results when it completes.";
+        }
+        else
+        {
+            HasError = true;
+            ErrorMessage = "Could not start the elevated scan worker.";
+        }
+    }
 
     [RelayCommand]
     private async Task StartScanAsync()
@@ -269,4 +292,6 @@ public sealed partial class ScanViewModel : ObservableObject
 
         ScanPathError = string.Empty;
     }
+
+    private static string QuoteArgument(string value) => "\"" + value.Replace("\"", "\\\"", StringComparison.Ordinal) + "\"";
 }

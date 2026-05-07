@@ -1,10 +1,12 @@
 <Project>
   <PropertyGroup>
-    <StorageMasterVersion>1.9.6</StorageMasterVersion>
+    <StorageMasterVersion>2.0.0-prerelease</StorageMasterVersion>
+    <StorageMasterAssemblyVersion>2.0.0.0</StorageMasterAssemblyVersion>
     <Version>$(StorageMasterVersion)</Version>
-    <AssemblyVersion>$(StorageMasterVersion).0</AssemblyVersion>
-    <FileVersion>$(StorageMasterVersion).0</FileVersion>
+    <AssemblyVersion>$(StorageMasterAssemblyVersion)</AssemblyVersion>
+    <FileVersion>$(StorageMasterAssemblyVersion)</FileVersion>
     <InformationalVersion>$(StorageMasterVersion)</InformationalVersion>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <Company>StorageMaster</Company>
     <Product>StorageMaster</Product>
     <Copyright>Copyright © 2026</Copyright>

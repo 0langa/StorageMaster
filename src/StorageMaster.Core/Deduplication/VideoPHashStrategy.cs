@@ -6,6 +6,7 @@ using SixLabors.ImageSharp.PixelFormats;
 using SixLabors.ImageSharp.Processing;
 using StorageMaster.Core.Interfaces;
 using StorageMaster.Core.Models;
+using StorageMaster.Core.Safety;
 
 namespace StorageMaster.Core.Deduplication;
 
@@ -152,8 +153,7 @@ public sealed class VideoPHashStrategy : IDuplicateDetectionStrategy
                 .ToArray();
 
             var frameHashes = new ulong[frameSampleCount];
-            var tempDir = Path.Combine(Path.GetTempPath(), $"sm_vphash_{Guid.NewGuid():N}");
-            Directory.CreateDirectory(tempDir);
+            var tempDir = SafeTempDirectory.Create("sm_vphash");
             try
             {
                 for (var fi = 0; fi < frameSampleCount; fi++)
@@ -173,7 +173,7 @@ public sealed class VideoPHashStrategy : IDuplicateDetectionStrategy
             }
             finally
             {
-                try { Directory.Delete(tempDir, recursive: true); } catch { /* best-effort */ }
+                SafeTempDirectory.TryDelete(tempDir, "sm_vphash");
             }
 
             // Encode fingerprint as array of hex hashes separated by ','

@@ -1,7 +1,7 @@
 # StorageMaster — Full Technical Documentation
 
-> **Version:** 1.9.6 | **Date:** 2026-05-07 | **.NET 8 / WinUI 3 / Windows App SDK 1.6**
-> **v1.9 update:** Core scanner APIs now validate and normalize options before scanning; default exclusions derive from the actual Windows folder and use boundary-aware matching. Storage schema v6 adds normalized path indexes and per-session file path uniqueness. Space Map APIs (`ISpaceMapRepository`, `TreemapLayoutService`) power native treemap drill-down and Scan Delta Insights. Directory quarantine is intentionally rejected; file quarantine remains available through duplicate review.
+> **Version:** 2.0.0-prerelease | **Date:** 2026-05-07 | **.NET 8 / WinUI 3 / Windows App SDK 1.6**
+> **v2 prerelease update:** Storage schema v7 adds Drive Health snapshots. Drive Health reads Windows WMI/storage telemetry with explicit Unknown/Unsupported fallbacks, surfaces Dashboard/Drive Health UI warnings, and supports `--cli health report`. Product versioning now separates semantic prerelease display from numeric assembly/manifest versions.
 
 ---
 
@@ -34,6 +34,7 @@
 |-------------|----------------|-------|
 | Windows | 10 1809 (build 17763) | Minimum target used by the unpackaged WinUI app |
 | .NET SDK | 8.0.x | `global.json` pins this |
+| .NET Desktop Runtime | 8.0.x x64 | Required on installed machines; setup blocks with guidance when missing |
 | Visual Studio | 2022 17.9+ | For building the WinUI 3 UI project |
 | Rust | stable | For building `turbo-scanner.exe` from source |
 | Windows App SDK | 1.6 runtime | NuGet restored for builds; release installer stages the x64 runtime MSIX |
@@ -69,6 +70,20 @@ Crash logs (unhandled exceptions) are written to:
 %LOCALAPPDATA%\StorageMaster\logs\startup-errors.log
 ```
 
+### CLI and headless commands
+
+```powershell
+StorageMaster.UI.exe --cli scan --path <abs-path> [--turbo] [--deep] [--json <file>]
+StorageMaster.UI.exe --cli report last-scan [--json <file>] [--csv <file>]
+StorageMaster.UI.exe --cli dedupe scan --session <id> --methods exact,text,image,video --min-size <mb> [--json <file>]
+StorageMaster.UI.exe --cli cleanup analyze --session <id> [--json <file>]
+StorageMaster.UI.exe --cli cleanup execute --session <id> --rules <csv> --recycle-bin|--quarantine --confirm
+StorageMaster.UI.exe --cli health report [--json <file>]
+StorageMaster.UI.exe --headless jobs run --id <job-id>
+```
+
+`health report` exits with `1` when a critical drive health status is reported, so scheduled or scripted checks can fail loudly.
+
 ---
 
 ## 2. Configuration reference
@@ -83,7 +98,7 @@ All settings are persisted in the SQLite `Settings` table as JSON under the key 
 |---------|------|---------|-------------|
 | `DefaultScanPath` | `string` | `C:\` | Pre-filled path in Scan page |
 | `ScanParallelism` | `int` | `4` | Concurrent directory workers (increase for SSDs) |
-| `ShowHiddenFiles` | `bool` | `false` | Include hidden files in results (reserved; not yet plumbed) |
+| `ShowHiddenFiles` | `bool` | `false` | Include hidden files in scans and duplicate analysis |
 | `SkipSystemFolders` | `bool` | `true` | Skip `C:\Windows` etc. (overridden by DeepScan) |
 | `ExcludedPaths` | `IList<string>` | `[]` | Custom path prefix exclusions |
 | `UseTurboScanner` | `bool` | `false` | Use Rust-backed scanner when binary available |
@@ -108,7 +123,7 @@ All settings are persisted in the SQLite `Settings` table as JSON under the key 
 | `CleanWindowsUpdateCache` | `true` | WindowsUpdateCacheRule |
 | `CleanDeliveryOptimization` | `true` | DeliveryOptimizationRule |
 | `CleanWindowsErrorReports` | `true` | WindowsErrorReportingRule |
-| `CleanProgramLeftovers` | `false` | UninstalledProgramLeftoversRule (medium risk — off by default) |
+| `CleanProgramLeftovers` | `true` | UninstalledProgramLeftoversRule |
 | `CleanLargeOldFiles` | `false` | LargeOldFilesCleanupRule (medium risk — off by default) |
 
 #### Large file thresholds (used by LargeOldFilesCleanupRule)
@@ -117,6 +132,15 @@ All settings are persisted in the SQLite `Settings` table as JSON under the key 
 |---------|------|---------|-------------|
 | `LargeFileSizeMb` | `int` | `500` | Minimum file size in MB |
 | `OldFileAgeDays` | `int` | `365` | Minimum age in days since last-write |
+
+#### Tray and health notifications
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `EnableLowDiskNotifications` | `bool` | `true` | Tray notification when free space crosses warning/critical thresholds |
+| `EnableDriveHealthNotifications` | `bool` | `true` | Tray notification when drive health is warning or critical |
+| `LowDiskWarningPercent` | `int` | `15` | Warning threshold by percent free |
+| `LowDiskCriticalPercent` | `int` | `5` | Critical threshold by percent free |
 
 ### ScanOptions
 
@@ -552,7 +576,7 @@ Used by `UninstalledProgramLeftoversRule` to cross-reference AppData folders aga
 - **Deletion Behaviour:** RecycleBin toggle, dry-run default toggle
 - **Cleanup Options:** All 10 rule enable/disable toggles, Downloads full-clear toggle
 - **Large & Old File Thresholds:** Size (MB) and age (days) sliders
-- **About:** Current app version from assembly metadata (`1.9.6` for this release), diagnostics export, update settings
+- **About:** Current app version from informational assembly metadata (`2.0.0-prerelease` for this release), diagnostics export, update settings
 
 **Save behaviour:** All settings written to SQLite on "Save Settings" click.
 
@@ -690,7 +714,7 @@ CREATE TABLE ScanErrors (
     Path        TEXT    NOT NULL,
     ErrorType   TEXT    NOT NULL,
     Message     TEXT    NOT NULL,
-    OccurredUtc TEXT    NOT NULL
+    OccurredAt  TEXT    NOT NULL
 );
 
 CREATE TABLE CleanupLog (
@@ -703,11 +727,31 @@ CREATE TABLE CleanupLog (
     Status       TEXT    NOT NULL,
     ExecutedUtc  TEXT    NOT NULL,
     ErrorMessage TEXT
+    AuditDataJson TEXT
 );
 
 CREATE TABLE Settings (
     Key   TEXT PRIMARY KEY,
     Value TEXT NOT NULL
+);
+
+CREATE TABLE DriveHealthSnapshots (
+    Id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+    DriveName          TEXT    NOT NULL,
+    VolumeLabel        TEXT    NOT NULL DEFAULT '',
+    DriveFormat        TEXT    NOT NULL DEFAULT '',
+    TotalBytes         INTEGER NOT NULL DEFAULT 0,
+    FreeBytes          INTEGER NOT NULL DEFAULT 0,
+    FreePercent        INTEGER NOT NULL DEFAULT 0,
+    Status             TEXT    NOT NULL,
+    Source             TEXT    NOT NULL DEFAULT '',
+    Message            TEXT    NOT NULL DEFAULT '',
+    Model              TEXT    NOT NULL DEFAULT '',
+    SerialNumber       TEXT    NOT NULL DEFAULT '',
+    MediaType          TEXT    NOT NULL DEFAULT '',
+    TemperatureCelsius INTEGER,
+    WearPercent        INTEGER,
+    CapturedUtc        TEXT    NOT NULL
 );
 ```
 
@@ -729,8 +773,8 @@ SELECT Title, BytesFreed/1024.0/1024.0 AS MB, Status, ExecutedUtc, WasDryRun
 FROM CleanupLog ORDER BY ExecutedUtc DESC LIMIT 20;
 
 -- Scan errors for a session
-SELECT Path, ErrorType, Message, OccurredUtc
-FROM ScanErrors WHERE SessionId = 1 ORDER BY OccurredUtc;
+SELECT Path, ErrorType, Message, OccurredAt
+FROM ScanErrors WHERE SessionId = 1 ORDER BY OccurredAt;
 
 -- All sessions with duration
 SELECT Id, RootPath, Status, TotalFiles,

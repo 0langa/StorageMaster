@@ -1,6 +1,6 @@
 # StorageMaster Technical Reference
 
-Version: 1.9.6. This reference matches the current repository implementation.
+Version: 2.0.0-prerelease. This reference matches the current repository implementation.
 
 ## Build prerequisites
 
@@ -26,7 +26,7 @@ UI publish profile:
 dotnet publish src/StorageMaster.UI/StorageMaster.UI.csproj /p:PublishProfile=win-x64 -c Release /p:UseXamlCompilerExecutable=true
 ```
 
-Publish is .NET and Windows App SDK framework-dependent: `SelfContained=false`, `WindowsAppSDKSelfContained=false`. Inno installs per-user with `PrivilegesRequired=lowest` and stages `Microsoft.WindowsAppRuntime.1.6.msix` plus `Install-WindowsAppRuntime.ps1`; no .NET runtime bootstrapper is defined in the installer script. Product version is centralized in `Directory.Build.props`.
+Publish is .NET and Windows App SDK framework-dependent: `SelfContained=false`, `WindowsAppSDKSelfContained=false`. Inno installs per-user with `PrivilegesRequired=lowest`, checks for .NET Desktop Runtime 8 x64, and stages `Microsoft.WindowsAppRuntime.1.6.msix` plus `Install-WindowsAppRuntime.ps1`. Product semantic version and numeric assembly version are split in `Directory.Build.props`.
 
 ## Data locations
 
@@ -46,6 +46,7 @@ StorageMaster.UI.exe --cli report last-scan [--json <file>] [--csv <file>]
 StorageMaster.UI.exe --cli dedupe scan --session <id> --methods exact,text,image,video --min-size <mb> [--extensions csv] [--json <file>]
 StorageMaster.UI.exe --cli cleanup analyze --session <id> [--json <file>]
 StorageMaster.UI.exe --cli cleanup execute --session <id> --rules <csv> --recycle-bin|--quarantine --confirm
+StorageMaster.UI.exe --cli health report [--json <file>]
 StorageMaster.UI.exe --headless jobs run --id <job-id>
 ```
 
@@ -63,7 +64,7 @@ Persisted as JSON in table `Settings` under `Key='AppSettings'`.
 | Theme | `Theme=Default` (`Default`, `Light`, `Dark`) |
 | Cleanup toggles | Recycle/Temp/DownloadedInstallers/Cache/BrowserCache/WindowsUpdate/DeliveryOptimization/WER/ProgramLeftovers/Thumbnail/Icon/DNS/StoreLogs true; LargeOldFiles/Font/Prefetch false; `ClearEntireDownloads=false` |
 | Updates | `CheckOnStartup=true`, `IncludePrerelease=false`, `RequireSignedUpdates=false` |
-| Tray/notifications | `MinimizeToTray=false`, `StartTrayOnLogin=false`, `EnableLowDiskNotifications=true`, warning 15%, critical 5%, persisted debounce map |
+| Tray/notifications | `MinimizeToTray=false`, `StartTrayOnLogin=false`, `EnableLowDiskNotifications=true`, `EnableDriveHealthNotifications=true`, warning 15%, critical 5%, persisted debounce maps |
 | Scheduler | `ScheduledTasksEnabled=false`, `ScheduledJobs=[]` |
 | Dedupe | `DuplicateMinimumSizeMb=1`, `DuplicateKeeperPolicy=Newest`, normalized/image/video toggles false, image threshold 6, video frame threshold 8, max video duration 1800 s, `FfmpegPath=""` |
 
@@ -150,7 +151,9 @@ Notable constraints/indexes: `FolderEntries UNIQUE(SessionId, FullPath)`, `FileE
 
 `IFileDeleter`: dry-run estimate, `RecycleBin`, `Permanent`, `Quarantine`, `DeleteManyAsync`. `DeletionRequest` includes optional `QuarantineRunId`; `DeletionOutcome` may include `QuarantinePath`.
 
-`IAdminService.RestartAsAdmin(enableDeepScan)` starts current EXE with `Verb="runas"`, optional `--deep-scan`, then calls `Environment.Exit(0)`.
+`IDriveHealthProvider.GetHealthAsync` returns read-only drive health snapshots from Windows WMI/storage telemetry. Unsupported/unknown telemetry must be explicit and must not be guessed as healthy. `IDriveHealthRepository` persists latest/history rows in schema v7.
+
+`IAdminService.TryStartElevated(arguments)` starts the current EXE with `Verb="runas"` while keeping the UI process unelevated. `RestartAsAdmin` is retained as a compatibility shim and no longer exits the UI process.
 
 `IScheduledTaskService` stores job definitions in `AppSettings.ScheduledJobs` and creates/deletes tasks through `schtasks.exe`. Task command is `<exe> --headless jobs run --id <job.Id>` with `/RL HIGHEST`.
 

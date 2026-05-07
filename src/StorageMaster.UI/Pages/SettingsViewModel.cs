@@ -97,6 +97,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     [ObservableProperty] private bool _minimizeToTray;
     [ObservableProperty] private bool _startTrayOnLogin;
     [ObservableProperty] private bool _enableLowDiskNotifications = true;
+    [ObservableProperty] private bool _enableDriveHealthNotifications = true;
     [ObservableProperty] private int _lowDiskWarningPercent = 15;
     [ObservableProperty] private int _lowDiskCriticalPercent = 5;
     [ObservableProperty] private bool _scheduledTasksEnabled;
@@ -170,11 +171,21 @@ public sealed partial class SettingsViewModel : ObservableObject
     public bool HasUpdateAvailable => AvailableUpdate is not null;
     public bool CanDownloadAndInstall => HasUpdateAvailable && !IsDownloadingUpdate && !IsCheckingForUpdates;
 
-    public string CurrentVersion => Assembly.GetEntryAssembly()
-        ?.GetName().Version?.ToString(3) ?? "Unknown";
+    public string CurrentVersion
+    {
+        get
+        {
+            var assembly = Assembly.GetEntryAssembly() ?? Assembly.GetExecutingAssembly();
+            return assembly
+                .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
+                ?.InformationalVersion
+                ?? assembly.GetName().Version?.ToString(3)
+                ?? "Unknown";
+        }
+    }
 
     public string UpdateAvailableText => AvailableUpdate is { } u
-        ? $"Version {u.Version.ToString(3)} is available  (released {u.PublishedAt:d MMMM yyyy})"
+        ? $"Version {u.TagName.TrimStart('v', 'V')} is available  (released {u.PublishedAt:d MMMM yyyy})"
         : string.Empty;
 
     public Uri? ReleaseNotesUri => AvailableUpdate is { } u
@@ -438,6 +449,7 @@ public sealed partial class SettingsViewModel : ObservableObject
                 MinimizeToTray = defaults.MinimizeToTray;
                 StartTrayOnLogin = defaults.StartTrayOnLogin;
                 EnableLowDiskNotifications = defaults.EnableLowDiskNotifications;
+                EnableDriveHealthNotifications = defaults.EnableDriveHealthNotifications;
                 LowDiskWarningPercent = defaults.LowDiskWarningPercent;
                 LowDiskCriticalPercent = defaults.LowDiskCriticalPercent;
                 break;
@@ -679,6 +691,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         settings.MinimizeToTray = MinimizeToTray;
         settings.StartTrayOnLogin = StartTrayOnLogin;
         settings.EnableLowDiskNotifications = EnableLowDiskNotifications;
+        settings.EnableDriveHealthNotifications = EnableDriveHealthNotifications;
         settings.LowDiskWarningPercent = Math.Clamp(LowDiskWarningPercent, 1, 99);
         settings.LowDiskCriticalPercent = Math.Clamp(LowDiskCriticalPercent, 1, 99);
         settings.ScheduledTasksEnabled = ScheduledTasksEnabled;
@@ -737,6 +750,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         MinimizeToTray = s.MinimizeToTray;
         StartTrayOnLogin = s.StartTrayOnLogin || _startupRegistration.IsEnabled();
         EnableLowDiskNotifications = s.EnableLowDiskNotifications;
+        EnableDriveHealthNotifications = s.EnableDriveHealthNotifications;
         LowDiskWarningPercent = s.LowDiskWarningPercent;
         LowDiskCriticalPercent = s.LowDiskCriticalPercent;
         ScheduledTasksEnabled = s.ScheduledTasksEnabled;

@@ -64,7 +64,7 @@ jobs:
           dotnet restore src/StorageMaster.UI/StorageMaster.UI.csproj
 
       - name: Run tests
-        run: dotnet test tests/StorageMaster.Tests/StorageMaster.Tests.csproj --verbosity normal --no-restore
+        run: dotnet test tests/StorageMaster.Tests/StorageMaster.Tests.csproj -c Release --verbosity normal --no-restore
 
       - name: Publish win-x64
         run: |
@@ -145,6 +145,26 @@ jobs:
         run: |
           $version = "${{ github.ref_name }}" -replace '^v', ''
           iscc installer\StorageMaster.iss /DAppVersion=$version
+
+      - name: Inspect release artifacts
+        shell: pwsh
+        run: |
+          $version = "${{ github.ref_name }}" -replace '^v', ''
+          $installer = "artifacts\installer\StorageMaster-$version-win-x64-Setup.exe"
+          if (-not (Test-Path $installer)) {
+            throw "Expected installer was not produced: $installer"
+          }
+          if (-not (Test-Path "artifacts\publish\win-x64\prereqs\Microsoft.WindowsAppRuntime.1.6.msix")) {
+            throw "Windows App Runtime 1.6 MSIX prereq is missing from publish output."
+          }
+          if (-not (Test-Path "artifacts\publish\win-x64\prereqs\Install-WindowsAppRuntime.ps1")) {
+            throw "Windows App Runtime prereq installer script is missing from publish output."
+          }
+          $sizeMb = (Get-Item $installer).Length / 1MB
+          if ($sizeMb -gt 80) {
+            throw "Installer is unexpectedly large: $([Math]::Round($sizeMb, 2)) MB"
+          }
+          Write-Host "Installer verified: $installer ($([Math]::Round($sizeMb, 2)) MB)"
 
       - name: Sign installer (optional)
         if: steps.signing.outputs.enabled == 'True'
@@ -253,4 +273,4 @@ jobs:
           body_path: artifacts/installer/release-notes.md
           generate_release_notes: false
           draft: false
-          prerelease: false
+          prerelease: ${{ contains(github.ref_name, '-') }}

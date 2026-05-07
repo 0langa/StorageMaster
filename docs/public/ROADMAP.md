@@ -1,7 +1,7 @@
 # StorageMaster — Development Roadmap
 
-> **Current release:** v1.9.6 (2026-05-07) — Space Map native treemap, Scan Delta Insights, schema v6 normalized path integrity, scanner/deletion/folder aggregation hardening, centralized version metadata, and runtime rollback to framework-dependent Windows App SDK 1.6 deployment.
-> **Previous baseline:** v1.8.0 — Settings redesign, accessibility annotations in Settings, UI preference layer, shared styles.
+> **Current release:** v2.0.0-prerelease (2026-05-07) — Drive Health & Storage Sentinel, schema v7 health snapshots, prerelease-safe versioning/updater/release flow, .NET Desktop Runtime setup check, elevated CLI deep-scan worker, and the v1.9 Space Map/runtime rollback baseline.
+> **Previous baseline:** v1.9.6 — runtime rollback to framework-dependent Windows App SDK 1.6 deployment.
 
 ---
 
@@ -245,7 +245,7 @@ Toast notifications via `Microsoft.Windows.AppNotifications` when any drive drop
 
 **Complexity:** M | **Impact:** High
 
-Schedule automatic scans from the Settings page (daily / weekly, time picker). Creates a Task Scheduler entry that launches `StorageMaster.UI.exe --headless --scan <drive> --no-window`.
+Schedule automatic scans from the Settings page (daily / weekly, time picker). Current implementation creates a Task Scheduler entry that launches `StorageMaster.UI.exe --headless jobs run --id <job-id>`.
 
 **NuGet:** `TaskScheduler` by dahall
 
@@ -257,9 +257,9 @@ Schedule automatic scans from the Settings page (daily / weekly, time picker). C
 
 ```powershell
 StorageMaster.UI.exe --cli scan --path C:\ --output report.json
-StorageMaster.UI.exe --cli top-files --count 20
-StorageMaster.UI.exe --cli cleanup --rules temp,browser-cache --dry-run
-StorageMaster.UI.exe --cli cleanup --rules temp,browser-cache --confirm
+StorageMaster.UI.exe --cli report last-scan --json report.json
+StorageMaster.UI.exe --cli cleanup analyze --session 12 --json cleanup.json
+StorageMaster.UI.exe --cli health report --json health.json
 ```
 
 **NuGet:** `System.CommandLine`

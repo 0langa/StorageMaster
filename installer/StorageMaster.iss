@@ -1,7 +1,7 @@
 #define AppName "StorageMaster"
 ; AppVersion can be overridden at build time: iscc /DAppVersion=1.2.3 StorageMaster.iss
 #ifndef AppVersion
-  #define AppVersion "1.9.6"
+  #define AppVersion "2.0.0-prerelease"
 #endif
 #define AppPublisher "StorageMaster"
 #define AppExeName "StorageMaster.UI.exe"
@@ -55,3 +55,33 @@ Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -Fil
 Filename: "{app}\{#AppExeName}"; Description: "Launch {#AppName}"; Flags: nowait postinstall skipifsilent
 
 ; User data is preserved on uninstall by default.
+
+[Code]
+function IsDotNetDesktopRuntime8Installed(): Boolean;
+var
+  ResultCode: Integer;
+  Command: String;
+begin
+  Command :=
+    '-NoProfile -ExecutionPolicy Bypass -Command "' +
+    '$fx = ''HKLM:\SOFTWARE\dotnet\Setup\InstalledVersions\x64\sharedfx\Microsoft.WindowsDesktop.App''; ' +
+    'if ((Test-Path $fx) -and ((Get-ItemProperty $fx).PSObject.Properties.Name | Where-Object { $_ -like ''8.*'' } | Select-Object -First 1)) { exit 0 }; exit 1"';
+
+  Result := Exec('powershell.exe', Command, '', SW_HIDE, ewWaitUntilTerminated, ResultCode) and (ResultCode = 0);
+end;
+
+function InitializeSetup(): Boolean;
+begin
+  if not IsDotNetDesktopRuntime8Installed() then
+  begin
+    MsgBox(
+      'StorageMaster requires the Microsoft .NET Desktop Runtime 8 x64.' + #13#10 + #13#10 +
+      'Install it from https://dotnet.microsoft.com/download/dotnet/8.0, then run this setup again.',
+      mbCriticalError,
+      MB_OK);
+    Result := False;
+    exit;
+  end;
+
+  Result := True;
+end;

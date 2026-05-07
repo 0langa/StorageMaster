@@ -7,7 +7,7 @@ namespace StorageMaster.Storage.Schema;
 /// </summary>
 internal static class DatabaseSchema
 {
-    internal const int CurrentVersion = 6;
+    internal const int CurrentVersion = 7;
 
     /// <summary>SQL executed once at version 1 creation.</summary>
     internal static readonly string[] V1Statements =
@@ -255,5 +255,31 @@ internal static class DatabaseSchema
         "UPDATE FolderEntries SET NormalizedFullPath = upper(FullPath) WHERE NormalizedFullPath IS NULL OR NormalizedFullPath = '';",
         "CREATE INDEX IF NOT EXISTS IX_FolderEntries_Session_NormalizedFullPath ON FolderEntries (SessionId, NormalizedFullPath);",
         "CREATE INDEX IF NOT EXISTS IX_FolderEntries_Session_PathNoCase ON FolderEntries (SessionId, FullPath COLLATE NOCASE);",
+    ];
+
+    internal static readonly string[] V7Statements =
+    [
+        """
+        CREATE TABLE IF NOT EXISTS DriveHealthSnapshots (
+            Id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+            DriveName          TEXT    NOT NULL,
+            VolumeLabel        TEXT    NOT NULL DEFAULT '',
+            DriveFormat        TEXT    NOT NULL DEFAULT '',
+            TotalBytes         INTEGER NOT NULL DEFAULT 0,
+            FreeBytes          INTEGER NOT NULL DEFAULT 0,
+            FreePercent        INTEGER NOT NULL DEFAULT 0,
+            Status             TEXT    NOT NULL,
+            Source             TEXT    NOT NULL DEFAULT '',
+            Message            TEXT    NOT NULL DEFAULT '',
+            Model              TEXT    NOT NULL DEFAULT '',
+            SerialNumber       TEXT    NOT NULL DEFAULT '',
+            MediaType          TEXT    NOT NULL DEFAULT '',
+            TemperatureCelsius INTEGER,
+            WearPercent        INTEGER,
+            CapturedUtc        TEXT    NOT NULL
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS IX_DriveHealthSnapshots_Drive_Captured ON DriveHealthSnapshots (DriveName, CapturedUtc DESC);",
+        "CREATE INDEX IF NOT EXISTS IX_DriveHealthSnapshots_Captured ON DriveHealthSnapshots (CapturedUtc DESC);",
     ];
 }

@@ -122,6 +122,57 @@ public sealed class GitHubUpdateServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task CheckAsync_CurrentPrerelease_DoesNotOfferSamePrereleaseAgain()
+    {
+        var service = CreateService(_ => Json("""
+            [
+              {
+                "tag_name": "v2.0.0-prerelease",
+                "prerelease": true,
+                "draft": false,
+                "published_at": "2026-05-01T12:00:00Z",
+                "assets": [
+                  {
+                    "name": "StorageMaster-2.0.0-prerelease-win-x64-Setup.exe",
+                    "browser_download_url": "https://example.test/v2.exe"
+                  }
+                ]
+              }
+            ]
+            """), currentVersionText: "2.0.0-prerelease");
+
+        var update = await service.CheckAsync(includePrerelease: true);
+
+        update.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task CheckAsync_CurrentPrerelease_OffersLaterStableRelease()
+    {
+        var service = CreateService(_ => Json("""
+            [
+              {
+                "tag_name": "v2.0.0",
+                "prerelease": false,
+                "draft": false,
+                "published_at": "2026-05-02T12:00:00Z",
+                "assets": [
+                  {
+                    "name": "StorageMaster-2.0.0-win-x64-Setup.exe",
+                    "browser_download_url": "https://example.test/v2.exe"
+                  }
+                ]
+              }
+            ]
+            """), currentVersionText: "2.0.0-prerelease");
+
+        var update = await service.CheckAsync(includePrerelease: true);
+
+        update.Should().NotBeNull();
+        update!.TagName.Should().Be("v2.0.0");
+    }
+
+    [Fact]
     public async Task CheckAsync_NoMatchingInstallerAsset_ReturnsNull()
     {
         var service = CreateService(_ => Json("""
@@ -288,6 +339,7 @@ public sealed class GitHubUpdateServiceTests : IDisposable
     private static GitHubUpdateService CreateService(
         Func<HttpRequestMessage, HttpResponseMessage> responder,
         Version? currentVersion = null,
+        string? currentVersionText = null,
         AppSettings? settings = null,
         InstallerTrustVerificationResult? trustResult = null)
     {
@@ -296,7 +348,7 @@ public sealed class GitHubUpdateServiceTests : IDisposable
 
         return new GitHubUpdateService(
             client,
-            currentVersion ?? new Version(1, 5, 0),
+            currentVersionText ?? (currentVersion ?? new Version(1, 5, 0)).ToString(3),
             NullLogger<GitHubUpdateService>.Instance,
             new StubSettingsRepository(settings ?? new AppSettings()),
             new StubInstallerTrustVerifier(trustResult ?? new InstallerTrustVerificationResult

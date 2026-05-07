@@ -414,6 +414,11 @@
                               AutomationProperties.Name="Enable low-disk notifications"
                               AutomationProperties.HelpText="Shows a tray balloon when a drive drops below the warning threshold." />
 
+                <ToggleSwitch Header="Enable drive-health notifications"
+                              IsOn="{x:Bind EnableDriveHealthNotifications, Mode=TwoWay}"
+                              AutomationProperties.Name="Enable drive-health notifications"
+                              AutomationProperties.HelpText="Shows a tray balloon when Windows storage telemetry reports a warning or unhealthy disk." />
+
                 <Grid ColumnDefinitions="*,*" ColumnSpacing="12">
                     <NumberBox Grid.Column="0"
                                Header="Warning at % free"
@@ -431,7 +436,7 @@
                                AutomationProperties.HelpText="Free-space percentage that triggers a critical notification." />
                 </Grid>
 
-                <TextBlock Text="Low-disk notifications are debounced per drive for 12 hours. Pause is also available from the tray menu."
+                <TextBlock Text="Low-disk and drive-health notifications are debounced per drive for 12 hours. Pause is also available from the tray menu."
                            Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.65" TextWrapping="Wrap" />
             </StackPanel>
         </DataTemplate>

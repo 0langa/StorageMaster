@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
+using System.Runtime.ExceptionServices;
 using System.Runtime.InteropServices;
 using Microsoft.Extensions.Logging;
 using StorageMaster.Core.Interfaces;
@@ -189,6 +190,38 @@ public sealed class FileDeleter : IFileDeleter
     /// with malware file deletion.
     /// </summary>
     private static void RecyclePathsViaIFileOperation(IReadOnlyList<string> paths)
+    {
+        if (Thread.CurrentThread.GetApartmentState() == ApartmentState.STA)
+        {
+            RecyclePathsViaIFileOperationCore(paths);
+            return;
+        }
+
+        Exception? failure = null;
+        var thread = new Thread(() =>
+        {
+            try
+            {
+                RecyclePathsViaIFileOperationCore(paths);
+            }
+            catch (Exception ex)
+            {
+                failure = ex;
+            }
+        })
+        {
+            Name = "StorageMaster.RecycleBinSta",
+            IsBackground = true,
+        };
+        thread.SetApartmentState(ApartmentState.STA);
+        thread.Start();
+        thread.Join();
+
+        if (failure is not null)
+            ExceptionDispatchInfo.Capture(failure).Throw();
+    }
+
+    private static void RecyclePathsViaIFileOperationCore(IReadOnlyList<string> paths)
     {
         var fo = FileOperationInterop.CreateFileOperation();
         try

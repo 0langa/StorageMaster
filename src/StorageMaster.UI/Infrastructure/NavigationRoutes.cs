@@ -11,6 +11,7 @@ internal static class NavigationRoutes
     internal const string Cleanup = "Cleanup";
     internal const string SmartCleaner = "SmartCleaner";
     internal const string SpaceMap = "SpaceMap";
+    internal const string DriveHealth = "DriveHealth";
     internal const string Settings = "Settings";
 
     internal static readonly IReadOnlyDictionary<string, Type> TagToPage = new Dictionary<string, Type>(StringComparer.Ordinal)
@@ -22,6 +23,7 @@ internal static class NavigationRoutes
         [Cleanup] = typeof(CleanupPage),
         [SmartCleaner] = typeof(SmartCleanerPage),
         [SpaceMap] = typeof(SpaceMapPage),
+        [DriveHealth] = typeof(DriveHealthPage),
         [Settings] = typeof(SettingsPage),
     };
 

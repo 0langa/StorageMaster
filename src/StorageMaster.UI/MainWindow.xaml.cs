@@ -18,7 +18,9 @@ public sealed partial class MainWindow : Window
     private readonly INavigationService _nav;
     private readonly ISettingsRepository _settingsRepository;
     private readonly IDriveInfoProvider _driveInfoProvider;
+    private readonly IDriveHealthProvider _driveHealthProvider;
     private readonly DesktopNotificationService _notificationService;
+    private readonly ILocalDiagnosticsService _diagnostics;
     private readonly TaskbarIcon _trayIcon;
     private bool _isUpdatingSelection;
     private bool _allowClose;
@@ -29,12 +31,16 @@ public sealed partial class MainWindow : Window
         INavigationService nav,
         ISettingsRepository settingsRepository,
         IDriveInfoProvider driveInfoProvider,
-        DesktopNotificationService notificationService)
+        IDriveHealthProvider driveHealthProvider,
+        DesktopNotificationService notificationService,
+        ILocalDiagnosticsService diagnostics)
     {
         _nav = nav;
         _settingsRepository = settingsRepository;
         _driveInfoProvider = driveInfoProvider;
+        _driveHealthProvider = driveHealthProvider;
         _notificationService = notificationService;
+        _diagnostics = diagnostics;
         _trayIcon = CreateTrayIcon();
         InitializeComponent();
         _nav.Initialize(ContentFrame);
@@ -203,9 +209,10 @@ public sealed partial class MainWindow : Window
             if (App.StartInTray || settings.MinimizeToTray)
                 HideToTray();
         }
-        catch
+        catch (Exception ex)
         {
             // Keep startup resilient even if tray bootstrap fails.
+            await RecordDiagnosticsAsync("startup-tray", ex);
         }
     }
 
@@ -214,12 +221,19 @@ public sealed partial class MainWindow : Window
         if (_allowClose)
             return;
 
-        var settings = await _settingsRepository.LoadAsync();
-        if (!settings.MinimizeToTray)
-            return;
+        try
+        {
+            var settings = await _settingsRepository.LoadAsync();
+            if (!settings.MinimizeToTray)
+                return;
 
-        args.Cancel = true;
-        HideToTray();
+            args.Cancel = true;
+            HideToTray();
+        }
+        catch (Exception ex)
+        {
+            await RecordDiagnosticsAsync("window-closing", ex);
+        }
     }
 
     private void HideToTray()
@@ -237,53 +251,98 @@ public sealed partial class MainWindow : Window
     private void ConfigureDiskMonitor(Core.Models.AppSettings settings)
     {
         _diskMonitorTimer?.Stop();
-        if (!settings.EnableLowDiskNotifications)
+        if (!settings.EnableLowDiskNotifications && !settings.EnableDriveHealthNotifications)
             return;
 
         _diskMonitorTimer = DispatcherQueue.GetForCurrentThread().CreateTimer();
         _diskMonitorTimer.Interval = TimeSpan.FromMinutes(15);
-        _diskMonitorTimer.Tick += async (_, _) => await CheckLowDiskAsync();
+        _diskMonitorTimer.Tick += DiskMonitorTimer_Tick;
         _diskMonitorTimer.Start();
         _ = CheckLowDiskAsync();
     }
 
+    private async void DiskMonitorTimer_Tick(DispatcherQueueTimer sender, object args)
+    {
+        try
+        {
+            await CheckLowDiskAsync();
+        }
+        catch (Exception ex)
+        {
+            await RecordDiagnosticsAsync("disk-monitor", ex);
+        }
+    }
+
     private async Task CheckLowDiskAsync()
     {
-        var settings = await _settingsRepository.LoadAsync();
-        if (!settings.EnableLowDiskNotifications)
-            return;
-
-        if (_notificationsPausedUntilUtc is { } pausedUntil && pausedUntil > DateTimeOffset.UtcNow)
-            return;
-
-        var state = settings.LowDiskNotificationState;
-        foreach (var drive in _driveInfoProvider.GetAvailableDrives())
+        try
         {
-            if (!drive.IsReady || drive.TotalBytes <= 0)
-                continue;
+            var settings = await _settingsRepository.LoadAsync();
+            if (!settings.EnableLowDiskNotifications && !settings.EnableDriveHealthNotifications)
+                return;
 
-            var freePercent = (int)Math.Round((double)drive.FreeBytes / drive.TotalBytes * 100.0);
-            string? level = freePercent <= settings.LowDiskCriticalPercent
-                ? "critical"
-                : freePercent <= settings.LowDiskWarningPercent
-                    ? "warning"
-                    : null;
-            if (level is null)
-                continue;
+            if (_notificationsPausedUntilUtc is { } pausedUntil && pausedUntil > DateTimeOffset.UtcNow)
+                return;
 
-            var stateKey = $"{drive.Name}|{level}";
-            if (state.TryGetValue(stateKey, out var lastText) &&
-                DateTimeOffset.TryParse(lastText, out var lastUtc) &&
-                lastUtc > DateTimeOffset.UtcNow.AddHours(-12))
+            if (settings.EnableLowDiskNotifications)
             {
-                continue;
+                var state = settings.LowDiskNotificationState;
+                foreach (var drive in _driveInfoProvider.GetAvailableDrives())
+                {
+                    if (!drive.IsReady || drive.TotalBytes <= 0)
+                        continue;
+
+                    var freePercent = (int)Math.Round((double)drive.FreeBytes / drive.TotalBytes * 100.0);
+                    string? level = freePercent <= settings.LowDiskCriticalPercent
+                        ? "critical"
+                        : freePercent <= settings.LowDiskWarningPercent
+                            ? "warning"
+                            : null;
+                    if (level is null)
+                        continue;
+
+                    var stateKey = $"{drive.Name}|{level}";
+                    if (state.TryGetValue(stateKey, out var lastText) &&
+                        DateTimeOffset.TryParse(lastText, out var lastUtc) &&
+                        lastUtc > DateTimeOffset.UtcNow.AddHours(-12))
+                    {
+                        continue;
+                    }
+
+                    state[stateKey] = DateTimeOffset.UtcNow.ToString("O");
+                    await _settingsRepository.SaveAsync(settings);
+                    await _notificationService.ShowWarningAsync(
+                        "Low disk space",
+                        $"{drive.Name} is down to {freePercent}% free ({drive.FreeBytes / 1024 / 1024 / 1024.0:F1} GB).");
+                }
             }
 
-            state[stateKey] = DateTimeOffset.UtcNow.ToString("O");
-            await _settingsRepository.SaveAsync(settings);
-            await _notificationService.ShowWarningAsync(
-                "Low disk space",
-                $"{drive.Name} is down to {freePercent}% free ({drive.FreeBytes / 1024 / 1024 / 1024.0:F1} GB).");
+            if (!settings.EnableDriveHealthNotifications)
+                return;
+
+            foreach (var snapshot in await _driveHealthProvider.GetHealthAsync())
+            {
+                if (snapshot.Status is not (Core.Models.DriveHealthStatus.Warning or Core.Models.DriveHealthStatus.Critical))
+                    continue;
+
+                var stateKey = $"{snapshot.DriveName}|{snapshot.Status}";
+                if (settings.DriveHealthNotificationState.TryGetValue(stateKey, out var lastText) &&
+                    DateTimeOffset.TryParse(lastText, out var lastUtc) &&
+                    lastUtc > DateTimeOffset.UtcNow.AddHours(-12))
+                {
+                    continue;
+                }
+
+                settings.DriveHealthNotificationState[stateKey] = DateTimeOffset.UtcNow.ToString("O");
+                await _settingsRepository.SaveAsync(settings);
+                await _notificationService.ShowWarningAsync(
+                    "Drive health needs attention",
+                    $"{snapshot.DriveName}: {snapshot.Message}");
+            }
+        }
+        catch (Exception ex)
+        {
+            await RecordDiagnosticsAsync("disk-monitor", ex);
         }
     }
 
@@ -363,5 +422,17 @@ public sealed partial class MainWindow : Window
         };
         item.Click += handler;
         return item;
+    }
+
+    private async Task RecordDiagnosticsAsync(string category, Exception ex)
+    {
+        try
+        {
+            await _diagnostics.RecordAsync(category, ex.ToString());
+        }
+        catch
+        {
+            // Diagnostics must never become a secondary startup/shutdown failure.
+        }
     }
 }

@@ -32,6 +32,11 @@
                     <FontIcon Glyph="&#xE9D2;" />
                 </NavigationViewItem.Icon>
             </NavigationViewItem>
+            <NavigationViewItem Tag="DriveHealth" Content="Drive Health" AutomationProperties.Name="Drive Health">
+                <NavigationViewItem.Icon>
+                    <FontIcon Glyph="&#xE95E;" />
+                </NavigationViewItem.Icon>
+            </NavigationViewItem>
         </NavigationView.MenuItems>
 
         <Frame x:Name="ContentFrame" />

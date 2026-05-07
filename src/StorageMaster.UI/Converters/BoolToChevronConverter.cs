@@ -13,5 +13,5 @@ public sealed class BoolToChevronConverter : IValueConverter
         => value is bool b && b ? "" : "";
 
     public object ConvertBack(object value, Type targetType, object parameter, string language)
-        => throw new NotImplementedException();
+        => value is string glyph && glyph == "";
 }

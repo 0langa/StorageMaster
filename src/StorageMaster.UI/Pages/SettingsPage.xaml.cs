@@ -55,14 +55,21 @@ public sealed partial class SettingsPage : Page
 
     private async void AddExcludedFolder_Click(object sender, RoutedEventArgs e)
     {
-        var picker = new FolderPicker();
-        picker.FileTypeFilter.Add("*");
+        try
+        {
+            var picker = new FolderPicker();
+            picker.FileTypeFilter.Add("*");
 
-        var hwnd = WindowNative.GetWindowHandle(App.Services.GetRequiredService<MainWindow>());
-        InitializeWithWindow.Initialize(picker, hwnd);
+            var hwnd = WindowNative.GetWindowHandle(App.Services.GetRequiredService<MainWindow>());
+            InitializeWithWindow.Initialize(picker, hwnd);
 
-        var folder = await picker.PickSingleFolderAsync();
-        if (folder is not null)
-            ViewModel.AddExcludedPath(folder.Path);
+            var folder = await picker.PickSingleFolderAsync();
+            if (folder is not null)
+                ViewModel.AddExcludedPath(folder.Path);
+        }
+        catch (Exception ex)
+        {
+            ViewModel.SavedMessage = $"Could not open folder picker: {ex.Message}";
+        }
     }
 }

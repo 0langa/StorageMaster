@@ -17,8 +17,10 @@ public sealed class CommandRunner(
     IDuplicateFinderService duplicateFinderService,
     IDuplicateRepository duplicateRepository,
     IScheduledTaskService scheduledTaskService,
+    IDriveHealthProvider driveHealthProvider,
+    IDriveHealthRepository driveHealthRepository,
     ILocalDiagnosticsService diagnostics,
-    Version currentVersion,
+    string currentVersion,
     ILogger<CommandRunner> logger) : ICommandRunner
 {
     public async Task<int> RunAsync(
@@ -74,7 +76,7 @@ public sealed class CommandRunner(
         if (args[0].Equals("version", StringComparison.OrdinalIgnoreCase) ||
             args[0].Equals("--version", StringComparison.OrdinalIgnoreCase))
         {
-            await output.WriteLineAsync($"StorageMaster {currentVersion.ToString(3)}");
+            await output.WriteLineAsync($"StorageMaster {currentVersion}");
             return 0;
         }
 
@@ -102,6 +104,11 @@ public sealed class CommandRunner(
             args[0].Equals("jobs", StringComparison.OrdinalIgnoreCase) &&
             args[1].Equals("run", StringComparison.OrdinalIgnoreCase))
             return await RunScheduledJobAsync(args[2..], headless, output, ct);
+
+        if (args.Length >= 2 &&
+            args[0].Equals("health", StringComparison.OrdinalIgnoreCase) &&
+            args[1].Equals("report", StringComparison.OrdinalIgnoreCase))
+            return await RunHealthReportAsync(args[2..], output, ct);
 
         throw new CommandLineException("Unknown command.", 2);
     }
@@ -346,6 +353,42 @@ public sealed class CommandRunner(
         }
     }
 
+    private async Task<int> RunHealthReportAsync(string[] args, TextWriter output, CancellationToken ct)
+    {
+        var options = ParseOptions(args);
+        var jsonPath = GetOptionalOption(options, "--json");
+        var snapshots = await driveHealthProvider.GetHealthAsync(ct);
+        await driveHealthRepository.SaveSnapshotsAsync(snapshots, ct);
+
+        var payload = new
+        {
+            CapturedUtc = DateTime.UtcNow,
+            Drives = snapshots.Select(static snapshot => new
+            {
+                snapshot.DriveName,
+                snapshot.VolumeLabel,
+                snapshot.DriveFormat,
+                snapshot.TotalBytes,
+                snapshot.FreeBytes,
+                snapshot.FreePercent,
+                Status = snapshot.Status.ToString(),
+                snapshot.Source,
+                snapshot.Message,
+                snapshot.Model,
+                snapshot.SerialNumber,
+                snapshot.MediaType,
+                snapshot.TemperatureCelsius,
+                snapshot.WearPercent,
+                snapshot.CapturedUtc,
+            }),
+        };
+
+        await MaybeWriteJsonAsync(jsonPath, payload, ct);
+        foreach (var snapshot in snapshots)
+            await output.WriteLineAsync($"{snapshot.DriveName}: {snapshot.Status} - {snapshot.Message}");
+        return snapshots.Any(static snapshot => snapshot.Status == DriveHealthStatus.Critical) ? 1 : 0;
+    }
+
     private async Task RunScanJobAsync(ScheduledJobDefinition job, TextWriter output, CancellationToken ct)
     {
         await RunNestedCommandAsync(["scan", "--path", job.TargetPath], output, ct);
@@ -534,6 +577,7 @@ public sealed class CommandRunner(
               StorageMaster.UI.exe --cli dedupe scan --session <id> --methods exact,text,image,video --min-size <mb> [--extensions ...] [--json <file>]
               StorageMaster.UI.exe --cli cleanup analyze --session <id> [--json <file>]
               StorageMaster.UI.exe --cli cleanup execute --session <id> --rules <csv> --recycle-bin|--quarantine --confirm
+              StorageMaster.UI.exe --cli health report [--json <file>]
               StorageMaster.UI.exe --cli version
             """);
 }

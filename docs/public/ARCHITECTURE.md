@@ -1,7 +1,7 @@
 # StorageMaster — Architecture Overview
 
-> **Version:** 1.9.6 | **Date:** 2026-05-07 | **Framework:** .NET 8 / WinUI 3 / Windows App SDK 1.6
-> **v1.9 update:** StorageMaster now includes a native WinUI Space Map treemap, Scan Delta Insights, schema v6 normalized path indexes, centralized version metadata in `Directory.Build.props`, scanner option validation, safer boundary-aware exclusions, hardened folder aggregation, deletion hardening, and a runtime rollback to the framework-dependent Windows App SDK 1.6 deployment path.
+> **Version:** 2.0.0-prerelease | **Date:** 2026-05-07 | **Framework:** .NET 8 / WinUI 3 / Windows App SDK 1.6
+> **v2 prerelease update:** StorageMaster now includes Drive Health & Storage Sentinel, schema v7 health snapshots, prerelease-safe versioning, .NET Desktop Runtime setup checks, elevated CLI deep-scan workers, and prerelease-aware GitHub release automation.
 
 ---
 
@@ -93,7 +93,7 @@ The heart of the system. Contains:
 
 | Component | Responsibility |
 |-----------|---------------|
-| **Models/** | Immutable data records (`FileEntry`, `FolderEntry`, `ScanSession`, `ScanProgress`, `CleanupSuggestion`, `CleanupResult`, `AppSettings`, `ScanError`, `ScheduledJobDefinition`, `DuplicatePreviewResult`, `QuarantinedFile`) |
+| **Models/** | Immutable data records (`FileEntry`, `FolderEntry`, `ScanSession`, `ScanProgress`, `CleanupSuggestion`, `CleanupResult`, `AppSettings`, `ScanError`, `ScheduledJobDefinition`, `DuplicatePreviewResult`, `QuarantinedFile`, `DriveHealthSnapshot`) |
 | **Interfaces/** | All cross-layer contracts (`IFileScanner`, `ICleanupRule`, `IFileDeleter`, `ISmartCleanerService`, `IInstalledProgramProvider`, `IScheduledTaskService`, `IDuplicatePreviewService`, `ICommandRunner`, `INotificationService`, etc.) |
 | **Scanner/FileScanner** | Parallel BFS directory walker; writes results via `IScanRepository` |
 | **Scanner/FileTypeCategorizor** | Extension → `FileTypeCategory` lookup (80+ mappings) |
@@ -149,7 +149,7 @@ WinUI 3 MVVM application (unpackaged, `WindowsPackageType=None`):
 | `*ViewModel` | `ObservableObject` + `[ObservableProperty]` + `[RelayCommand]` source-gen |
 | `*Page.xaml` | `{x:Bind}` compiled bindings; no logic in code-behind |
 | Converters | `ByteSizeConverter`, `BoolToVisibilityConverter`, `BoolNegationConverter`, `FilePathToBitmapImageConverter` |
-| `Infrastructure/CommandRunner` | CLI dispatcher; 6 subcommands; structured `CommandLineException` exit codes |
+| `Infrastructure/CommandRunner` | CLI dispatcher; scan/report/dedupe/cleanup/health/jobs commands; structured `CommandLineException` exit codes |
 | `Infrastructure/DesktopNotificationService` | Event-based notification hub; consumed by `MainWindow` for tray balloons |
 | `Infrastructure/DuplicatePreviewService` | Builds rich preview items per duplicate method; FFmpeg keyframe extraction for video |
 | `Infrastructure/ScheduledTaskService` | CRUD wrapper around `schtasks.exe`; safe `/TR` argument construction |
@@ -433,6 +433,8 @@ A single transaction wrapping N inserts reduces SQLite's fsync overhead by ~100�
 
 This is the most safety-critical part of the application. The design ensures a file cannot be deleted by accident.
 
+App-created temporary recursive deletes use a guarded `%TEMP%` direct-child sentinel so diagnostics and video-hash cleanup cannot accidentally target arbitrary directories.
+
 ### Three-stage safety model
 
 ```
@@ -583,7 +585,7 @@ SmartCleanerViewModel
 
 ### CLI dispatch
 
-`Program.Main()` runs before WinUI starts. When `--cli` or `--headless` is present, it allocates (or attaches) a console, calls `ICommandRunner.RunAsync()`, and exits — the WinUI application is never created. This keeps the GUI and the CLI entirely separate at runtime.
+`Program.Main()` runs before WinUI starts. When `--cli` or `--headless` is present, it allocates (or attaches) a console, calls `ICommandRunner.RunAsync()`, and exits — the WinUI application is never created. This keeps the GUI and the CLI entirely separate at runtime. Deep scans use this CLI path when elevation is required, so the WinUI shell stays unelevated.
 
 ### Tray and background
 

@@ -7,6 +7,17 @@ param(
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
+$logDir = Join-Path $env:LOCALAPPDATA "StorageMaster\logs"
+New-Item -ItemType Directory -Force -Path $logDir | Out-Null
+$logPath = Join-Path $logDir "installer-prereqs.log"
+
+function Write-PrereqLog {
+    param([Parameter(Mandatory = $true)][string]$Message)
+    $line = "[{0:O}] {1}" -f [DateTimeOffset]::Now, $Message
+    Add-Content -LiteralPath $logPath -Value $line -Encoding utf8
+    Write-Host $Message
+}
+
 if (-not (Test-Path -LiteralPath $MsixPath)) {
     throw "Windows App SDK runtime package was not found: $MsixPath"
 }
@@ -58,9 +69,16 @@ $installedPackage = Get-AppxPackage -Name "Microsoft.WindowsAppRuntime.1.6" -Err
     Select-Object -First 1
 
 if ($installedPackage -and ([version]$installedPackage.Version -ge $requiredVersion)) {
-    Write-Host "Windows App SDK runtime already present:" $installedPackage.Version
+    Write-PrereqLog "Windows App SDK runtime already present: $($installedPackage.Version)"
     exit 0
 }
 
-Write-Host "Installing Windows App SDK runtime from" $MsixPath
-Add-AppxPackage -Path $MsixPath -ForceUpdateFromAnyVersion -ErrorAction Stop
+Write-PrereqLog "Installing Windows App SDK runtime $requiredVersion from $MsixPath"
+try {
+    Add-AppxPackage -Path $MsixPath -ForceUpdateFromAnyVersion -ErrorAction Stop
+    Write-PrereqLog "Windows App SDK runtime install completed."
+}
+catch {
+    Write-PrereqLog "Windows App SDK runtime install failed: $($_.Exception.Message)"
+    throw
+}

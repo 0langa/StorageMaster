@@ -16,21 +16,24 @@ public sealed class AdminService : IAdminService
 
     public void RestartAsAdmin(bool enableDeepScan = false)
     {
+        var args = enableDeepScan ? "--cli scan --deep --path \"C:\\\"" : "--cli version";
+        _ = TryStartElevated(args);
+    }
+
+    public bool TryStartElevated(string arguments)
+    {
         var exePath = Environment.ProcessPath
             ?? Process.GetCurrentProcess().MainModule?.FileName
             ?? throw new InvalidOperationException("Cannot determine process path.");
 
-        var args = enableDeepScan ? "--deep-scan" : string.Empty;
-
-        Process.Start(new ProcessStartInfo
+        var process = Process.Start(new ProcessStartInfo
         {
             FileName = exePath,
-            Arguments = args,
+            Arguments = arguments,
             UseShellExecute = true,
             Verb = "runas",
         });
 
-        // Terminate this instance after handing off to the elevated process.
-        Environment.Exit(0);
+        return process is not null;
     }
 }

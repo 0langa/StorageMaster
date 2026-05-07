@@ -42,11 +42,13 @@ internal static class ServiceBootstrapper
         services.AddSingleton<DuplicateRepository>();
         services.AddSingleton<IDuplicateRepository>(sp => sp.GetRequiredService<DuplicateRepository>());
         services.AddSingleton<IDuplicateCandidateProvider>(sp => sp.GetRequiredService<DuplicateRepository>());
+        services.AddSingleton<IDriveHealthRepository, DriveHealthRepository>();
 
         services.AddSingleton(_ =>
             Assembly.GetEntryAssembly()?.GetName().Version
             ?? Assembly.GetExecutingAssembly().GetName().Version
             ?? new Version(0, 0, 0));
+        services.AddSingleton(_ => GetCurrentVersionText());
 
         services.AddSingleton(sp =>
         {
@@ -63,12 +65,13 @@ internal static class ServiceBootstrapper
         services.AddSingleton<IInstallerTrustVerifier, InstallerTrustVerifier>();
         services.AddSingleton<IUpdateService>(sp => new GitHubUpdateService(
             sp.GetRequiredService<HttpClient>(),
-            sp.GetRequiredService<Version>(),
+            sp.GetRequiredService<string>(),
             sp.GetRequiredService<ILogger<GitHubUpdateService>>(),
             sp.GetRequiredService<ISettingsRepository>(),
             sp.GetRequiredService<IInstallerTrustVerifier>()));
 
         services.AddSingleton<IDriveInfoProvider, DriveInfoProvider>();
+        services.AddSingleton<IDriveHealthProvider, DriveHealthProvider>();
         services.AddSingleton<IFileDeleter, FileDeleter>();
         services.AddSingleton<IRecycleBinInfoProvider, RecycleBinInfoProvider>();
         services.AddSingleton<IAdminService, AdminService>();
@@ -167,9 +170,20 @@ internal static class ServiceBootstrapper
         services.AddTransient<SettingsViewModel>();
         services.AddTransient<SmartCleanerViewModel>();
         services.AddTransient<SpaceMapViewModel>();
+        services.AddTransient<DriveHealthViewModel>();
 
         services.AddSingleton<MainWindow>();
 
         return services.BuildServiceProvider();
+    }
+
+    private static string GetCurrentVersionText()
+    {
+        var assembly = Assembly.GetEntryAssembly() ?? Assembly.GetExecutingAssembly();
+        return assembly
+            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
+            ?.InformationalVersion
+            ?? assembly.GetName().Version?.ToString(3)
+            ?? "0.0.0";
     }
 }

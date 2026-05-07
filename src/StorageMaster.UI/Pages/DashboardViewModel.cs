@@ -12,6 +12,8 @@ public sealed partial class DashboardViewModel : ObservableObject
 {
     private readonly IScanRepository _repo;
     private readonly IDriveInfoProvider _drives;
+    private readonly IDriveHealthProvider _driveHealthProvider;
+    private readonly IDriveHealthRepository _driveHealthRepository;
     private readonly INavigationService _nav;
 
     [ObservableProperty] private ScanSession? _lastSession;
@@ -20,6 +22,7 @@ public sealed partial class DashboardViewModel : ObservableObject
     [ObservableProperty] private string _statusMessage = "No scan yet. Start a scan to analyse your disk.";
     [ObservableProperty] private bool _hasLastSession;
     [ObservableProperty] private IReadOnlyList<DriveDetail> _drives2 = [];
+    [ObservableProperty] private IReadOnlyList<DriveHealthSnapshot> _driveHealthSnapshots = [];
     [ObservableProperty] private string _heroTitle = "Storage overview";
     [ObservableProperty] private string _heroSubtitle = "Pick a quick action to start scanning, cleanup, or duplicate review.";
     [ObservableProperty] private string _recommendedActionText = "Run a scan";
@@ -35,16 +38,21 @@ public sealed partial class DashboardViewModel : ObservableObject
     public DashboardViewModel(
         IScanRepository repo,
         IDriveInfoProvider drives,
+        IDriveHealthProvider driveHealthProvider,
+        IDriveHealthRepository driveHealthRepository,
         INavigationService nav)
     {
         _repo = repo;
         _drives = drives;
+        _driveHealthProvider = driveHealthProvider;
+        _driveHealthRepository = driveHealthRepository;
         _nav = nav;
     }
 
     public async Task LoadAsync()
     {
         Drives2 = _drives.GetAvailableDrives();
+        DriveHealthSnapshots = await LoadDriveHealthAsync();
         OnPropertyChanged(nameof(HasDrives));
         Recommendations.Clear();
 
@@ -58,9 +66,9 @@ public sealed partial class DashboardViewModel : ObservableObject
             .Where(static x => x.FreePercent <= 15)
             .ToList();
 
-        DriveHealthSummary = lowSpaceDrives.Count == 0
-            ? "No drives are currently under the low-space threshold."
-            : $"{lowSpaceDrives.Count:N0} drive(s) are running low on free space.";
+        var healthIssues = DriveHealthSnapshots.Count(static d =>
+            d.Status is DriveHealthStatus.Warning or DriveHealthStatus.Critical);
+        DriveHealthSummary = BuildDriveHealthSummary(lowSpaceDrives.Count, healthIssues);
 
         if (sessions.Count > 0)
         {
@@ -82,6 +90,8 @@ public sealed partial class DashboardViewModel : ObservableObject
                 Recommendations.Add("Run a fresh scan. The latest scan is stale.");
             if (lowSpaceDrives.Count > 0)
                 Recommendations.Add(DriveHealthSummary);
+            if (healthIssues > 0)
+                Recommendations.Add("Review drive health before running large cleanup or duplicate operations.");
             Recommendations.Add("Review duplicates before deleting anything large or old.");
         }
         else
@@ -98,6 +108,8 @@ public sealed partial class DashboardViewModel : ObservableObject
                 Recommendations.Add("Run a first scan so results, duplicate review, and cleanup can use real data.");
             if (lowSpaceDrives.Count > 0)
                 Recommendations.Add(DriveHealthSummary);
+            if (healthIssues > 0)
+                Recommendations.Add("Review drive health before starting your first cleanup.");
         }
 
         OnPropertyChanged(nameof(IsFirstRun));
@@ -146,5 +158,35 @@ public sealed partial class DashboardViewModel : ObservableObject
     }
 
     [RelayCommand]
+    private void GoToDriveHealth() => _nav.NavigateTo(typeof(DriveHealthPage));
+
+    [RelayCommand]
     private void GoToSettings() => _nav.NavigateTo(typeof(SettingsPage));
+
+    private async Task<IReadOnlyList<DriveHealthSnapshot>> LoadDriveHealthAsync()
+    {
+        try
+        {
+            var snapshots = await _driveHealthProvider.GetHealthAsync();
+            await _driveHealthRepository.SaveSnapshotsAsync(snapshots);
+            return snapshots;
+        }
+        catch
+        {
+            return await _driveHealthRepository.GetLatestSnapshotsAsync();
+        }
+    }
+
+    private static string BuildDriveHealthSummary(int lowSpaceCount, int healthIssueCount)
+    {
+        if (lowSpaceCount == 0 && healthIssueCount == 0)
+            return "No drives are currently under the low-space threshold or reporting health warnings.";
+
+        var parts = new List<string>();
+        if (lowSpaceCount > 0)
+            parts.Add($"{lowSpaceCount:N0} drive(s) are running low on free space");
+        if (healthIssueCount > 0)
+            parts.Add($"{healthIssueCount:N0} drive(s) report health warnings");
+        return string.Join("; ", parts) + ".";
+    }
 }

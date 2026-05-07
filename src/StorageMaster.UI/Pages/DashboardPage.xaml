@@ -85,7 +85,7 @@
                 </Grid.ColumnDefinitions>
                 <Button Grid.Column="0" Content="Smart Cleaner" Command="{x:Bind ViewModel.GoToSmartCleanerCommand}" />
                 <Button Grid.Column="1" Content="Space Map" Command="{x:Bind ViewModel.GoToSpaceMapCommand}" />
-                <Button Grid.Column="2" Content="Open latest scan" Command="{x:Bind ViewModel.GoToResultsCommand}" IsEnabled="{x:Bind ViewModel.HasLastSession, Mode=OneWay}" />
+                <Button Grid.Column="2" Content="Drive Health" Command="{x:Bind ViewModel.GoToDriveHealthCommand}" />
                 <Button Grid.Column="3" Content="Start new scan" Command="{x:Bind ViewModel.GoToScanCommand}" />
             </Grid>
 
@@ -97,7 +97,7 @@
                     <TextBlock Text="{x:Bind ViewModel.DriveHealthSummary, Mode=OneWay}"
                                Opacity="0.72"
                                TextWrapping="WrapWholeWords" />
-                    <ItemsControl ItemsSource="{x:Bind ViewModel.Drives2, Mode=OneWay}">
+                    <ItemsControl ItemsSource="{x:Bind ViewModel.DriveHealthSnapshots, Mode=OneWay}">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>
                                 <Border Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}"
@@ -106,15 +106,21 @@
                                         Margin="0,0,0,8">
                                     <StackPanel Spacing="8">
                                         <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-                                            <TextBlock Grid.Column="0" Text="{Binding Name}" FontWeight="SemiBold" />
+                                            <TextBlock Grid.Column="0" Text="{Binding DriveName}" FontWeight="SemiBold" />
                                             <TextBlock Grid.Column="1"
-                                                       Text="{Binding FreeBytes, Converter={StaticResource ByteSize}}" />
+                                                       Text="{Binding Status}" />
                                         </Grid>
-                                        <ProgressBar Value="{Binding UsedBytes}" Maximum="{Binding TotalBytes}" Height="8" />
+                                        <ProgressBar Value="{Binding FreeBytes}" Maximum="{Binding TotalBytes}" Height="8" />
+                                        <TextBlock Text="{Binding Message}"
+                                                   Opacity="0.78"
+                                                   TextWrapping="WrapWholeWords" />
                                         <TextBlock Opacity="0.7" Style="{StaticResource CaptionTextBlockStyle}">
                                             <Run Text="{Binding VolumeLabel}" />
                                             <Run Text=" • " />
                                             <Run Text="{Binding DriveFormat}" />
+                                            <Run Text=" • Free " />
+                                            <Run Text="{Binding FreePercent}" />
+                                            <Run Text="%" />
                                         </TextBlock>
                                     </StackPanel>
                                 </Border>

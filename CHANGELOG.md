@@ -4,6 +4,17 @@ All notable changes to StorageMaster are documented here.
 
 ---
 
+## [2.0.0-prerelease] — 2026-05-07 — Drive Health Sentinel And Prerelease Hardening
+
+- Split semantic product versioning from numeric assembly/file/manifest versions so prerelease tags such as `2.0.0-prerelease` build, display, and update-compare correctly.
+- Added Drive Health & Storage Sentinel: Core health contracts, Windows WMI/storage provider, SQLite schema v7 health snapshots, Dashboard warnings, dedicated Drive Health page, tray health notifications, and `--cli health report`.
+- Hardened release automation for prerelease tags: GitHub Releases are marked prerelease when the tag contains `-`, release tests run in Release configuration, and the workflow verifies installer size plus staged runtime prereqs.
+- Added installer .NET Desktop Runtime 8 x64 detection with an actionable setup failure message, while keeping the smaller framework-dependent Windows App SDK 1.6 deployment path.
+- Changed the deep-scan elevation path so the WinUI shell remains unelevated and protected scans start through an elevated CLI worker.
+- Hardened shell Recycle Bin deletion by forcing `IFileOperation` through an STA helper thread, removed a remaining `NotImplementedException` converter path, guarded app-created temporary recursive deletes, logged background tray monitor exceptions, and improved Windows App Runtime prereq logging.
+
+---
+
 ## [1.9.6] — 2026-05-07 — Runtime Rollback Release
 
 - Rolled WinUI deployment back to the proven framework-dependent Windows App SDK `1.6.250205002` runtime path while keeping the 1.9.x app features and hardening work.

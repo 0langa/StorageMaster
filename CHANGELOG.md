@@ -4,6 +4,22 @@ All notable changes to StorageMaster are documented here.
 
 ---
 
+## [2.1.3] — 2026-05-07 — Expanded Test Coverage
+
+### Added — test coverage
+- `CommandRunnerTests` (22 tests): all CLI exit codes — no-args, unknown command, version flags, scan path validation, `--deep` elevation check, JSON output mode, report last-scan with/without session, cleanup execute confirmation guard, both/neither deletion modes, rule matching, job run, health report, cancelled token.
+- `ScanViewModelTests` (18 tests): `CanStartScan`, `CanCancel`, `CanBrowse`, `NeedsElevation`, path validation (empty/whitespace/relative/nonexistent/valid), `IsRunningAsAdmin` delegation, `InitializeAsync` from settings/default/preselected, property-change notifications for `IsScanning`, `DeepScan`, and `ScanPathError`.
+- `SettingsViewModelTests` (19 tests): `SelectedCategoryTitle` for all 9 categories, `IsXSelected` mutual exclusion, `FilteredCategories` initial count, `SearchQuery` filter/restore/no-match, `CanCheckForUpdates`, `CanDownloadAndInstall`, `UpdateAvailableText`, `IsEditorOpen` default state, `HasUpdateAvailable`.
+- `ResultsViewModelTests` (13 tests): `HasSession` initial state, `LoadAsync` valid/zero/negative session, idempotent reload guard, `LoadMostRecentAsync` no session/completed/in-progress, `CancelBackgroundWork`, `HasErrors`, `HasCategoryFilter`, `HasSessionNote`.
+- `ScheduledTaskServiceTests` (9 tests): `GetJobAsync` find/miss/empty/case-insensitive, `UpdateRunOutcomeAsync` persists status+message+timestamp, leaves other jobs unchanged, skips save on missing ID, cancellation propagation.
+- `UpdateFailureModeTests` (11 tests): `CheckAsync` 404/malformed-JSON/empty-list/cancelled/same-version/older-version, `DownloadAsync` insecure URL/404-missing-asset/network-timeout/user-cancellation, `LastFailureKind` state after timeout.
+
+### Changed
+- `CommandRunner` constructor now accepts `IFileScanner` interfaces instead of concrete `FileScanner`/`TurboFileScanner` types — enables mocking in test context (production wiring unchanged).
+- Test project (`StorageMaster.Tests`) now references `StorageMaster.UI` with WinUI MRT tooling suppressed (`EnableCoreMrtTooling=false`, `GenerateAppxPackageRecipe=false`) so ViewModel classes can be tested without a WinUI host process.
+
+---
+
 ## [2.1.2] — 2026-05-07 — Deletion Safety Hardening
 
 - `FileDeleter` now refuses to operate on drive roots (`C:\`) and UNC share roots (`\\server\share`) — any such path returns a clear failure instead of silently wiping an entire volume.

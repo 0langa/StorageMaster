@@ -16,6 +16,8 @@ public sealed partial class SettingsPage : Page
     {
         ViewModel = App.Services.GetRequiredService<SettingsViewModel>();
         InitializeComponent();
+        ViewModel.PropertyChanged += OnViewModelPropertyChanged;
+        RefreshEditorTemplate();
     }
 
     protected override async void OnNavigatedTo(NavigationEventArgs e)
@@ -39,6 +41,19 @@ public sealed partial class SettingsPage : Page
             ViewModel.CancelCategoryCommand.Execute(null);
             e.Handled = true;
         }
+    }
+
+    private void OnViewModelPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName is nameof(SettingsViewModel.SelectedCategory)
+                           or nameof(SettingsViewModel.IsEditorOpen))
+            RefreshEditorTemplate();
+    }
+
+    private void RefreshEditorTemplate()
+    {
+        var selector = (SettingsCategoryTemplateSelector)Resources["CategorySelector"];
+        EditorContentControl.ContentTemplate = selector.SelectTemplate(ViewModel, EditorContentControl);
     }
 
     private void CategoriesGridView_ItemClick(object sender, ItemClickEventArgs e)

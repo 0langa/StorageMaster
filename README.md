@@ -1,6 +1,6 @@
 # StorageMaster    [![Release](https://github.com/0langa/StorageMaster/actions/workflows/release.yml/badge.svg)](https://github.com/0langa/StorageMaster/actions/workflows/release.yml) [![CI](https://github.com/0langa/StorageMaster/actions/workflows/ci.yml/badge.svg)](https://github.com/0langa/StorageMaster/actions/workflows/ci.yml)
 
-> **Current version:** 2.0.1 — Windows disk analyzer, junk cleaner, visual space map, drive health sentinel, and storage automation tool.
+> **Current version:** 2.1.0 — Windows disk analyzer, junk cleaner, visual space map, drive health sentinel, and storage automation tool.
 
 A Windows disk analyzer and storage cleaner built with **C# / .NET 8 / WinUI 3**, with an optional native Rust scan engine for maximum throughput on multi-core systems.
 

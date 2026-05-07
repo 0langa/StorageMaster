@@ -165,7 +165,7 @@ public sealed class TurboFileScanner : IFileScanner
 
                         TurboRecord? rec;
                         try { rec = JsonSerializer.Deserialize<TurboRecord>(line, JsonOpts); }
-                        catch { continue; }
+                        catch (Exception ex) { _logger.LogDebug(ex, "Skipping malformed TurboScanner line: {Line}", line); continue; }
                         if (rec is null) continue;
 
                         if (!options.DeepScan && IsExcluded(rec.Path, sortedExclusions)) continue;

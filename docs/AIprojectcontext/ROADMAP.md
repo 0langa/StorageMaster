@@ -1,6 +1,6 @@
 # StorageMaster Roadmap
 
-Current repository state: v2.0.1 on 2026-05-07. This roadmap replaces older speculative planning text with the actual shipped state.
+Current repository state: v2.1.0 on 2026-05-07. This roadmap replaces older speculative planning text with the actual shipped state.
 
 ## Shipped baseline
 
@@ -18,10 +18,11 @@ Current repository state: v2.0.1 on 2026-05-07. This roadmap replaces older spec
 | 1.9.6 | Runtime rollback: kept 1.9.x features while returning release builds to framework-dependent Windows App SDK 1.6 with staged runtime MSIX prereq |
 | 2.0.1 | Responsive UI/loading hotfix: auto-collapsing shell, scan ETA/live progress placement, coalesced Space Map rendering, faster folder-tree expansion, Duplicates advanced-options scrolling, Drive Health layout cleanup, Dashboard health-score descriptor |
 | 2.0.0 | Drive Health & Storage Sentinel, schema v7 health snapshots, stable/prerelease-safe versioning and release flow, .NET runtime setup check, elevated CLI deep-scan worker, and v2 visual foundation: shared style dictionaries, grouped shell with Mica fallback, Dashboard/Drive Health refresh, guided scan flow, Scan Workspace, Space Map tile control |
+| 2.1.0 | Settings page fix (ContentTemplateSelector only evaluated once — forced manual refresh on SelectedCategory change); removed duplicate ScanHistoryRetentionDays slider from Scanning category; added missing ClearEntireDownloads toggle to Cleanup category; DuplicatesViewModel event subscription unsubscribed before page rebuild; StorageDbContext schema-version catch now logs Warning; TurboFileScanner JSON parse catch now logs Debug; ROADMAP rewrite; GitHub issue/PR templates |
 
 ## Current feature inventory
 
-Present: WinUI shell; Dashboard/Scan/Results/Duplicates/Cleanup/Smart Cleaner/Space Map/Drive Health/Settings pages; managed scanner; Turbo scanner host; SQLite schema v7; 17 cleanup rules; Recycle Bin/permanent/delete and file quarantine deletion paths; Smart Cleaner; dedupe strategies exact/text/image/video; preview/export/restore UX; CLI/headless commands including health reports; tray; low-disk and drive-health monitor; scheduled jobs via `schtasks.exe`; GitHub release updater; optional signing in release workflow; 140+ tests.
+Present: WinUI shell; Dashboard/Scan/Results/Duplicates/Cleanup/Smart Cleaner/Space Map/Drive Health/Settings pages; managed scanner; Turbo scanner host; SQLite schema v7; 17 cleanup rules; Recycle Bin/permanent/delete and file quarantine deletion paths; Smart Cleaner; dedupe strategies exact/text/image/video; preview/export/restore UX; CLI/headless commands including health reports; tray; low-disk and drive-health monitor; scheduled jobs via `schtasks.exe`; GitHub release updater; optional signing in release workflow; GitHub issue/PR templates; 144 tests.
 
 Not present: WebView2/D3 visualization assets, Serilog rolling logs, broad ViewModel tests, app-local .NET runtime bootstrapper, dual-arch release assets, complete ARM64 installer flow.
 
@@ -41,8 +42,8 @@ Not present: WebView2/D3 visualization assets, Serilog rolling logs, broad ViewM
 
 | Target | Scope |
 |---|---|
-| 1.9.x | accessibility for remaining pages, Results/Duplicates/Space Map scale hardening, benchmark project |
-| 2.0.x | diagnostics/logging, first-run experience, broader export/reporting, optional ARM64 release support |
+| 2.2.x | Serilog rolling logs, ARM64 CI, Drive Health hardware-lab NVMe/SATA/USB/network validation, ViewModel/CLI test expansion |
+| 2.3.x | Keyboard navigation, screen reader (Narrator), high contrast, text-scaling, in-app what's-new panel |
 
 ## Implementation rules for future agents
 

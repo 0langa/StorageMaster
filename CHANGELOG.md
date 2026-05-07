@@ -4,6 +4,19 @@ All notable changes to StorageMaster are documented here.
 
 ---
 
+## [2.1.0] — 2026-05-07 — Code Hardening, Settings Fixes, And GitHub Infrastructure
+
+- Fixed Settings page so each category tile renders its own settings: `ContentTemplateSelector` was only evaluated once because `Content` was always the same ViewModel reference; code-behind now calls `SelectTemplate` manually whenever `SelectedCategory` or `IsEditorOpen` changes.
+- Removed the duplicate scan history retention slider that appeared in both the Scanning and Results & History categories; the slider now only appears in Results & History where it belongs.
+- Added the missing "Clear entire Downloads folder" toggle to the Cleanup settings category; the `ClearEntireDownloads` setting was already persisted and applied but had no UI control.
+- Fixed `DuplicatesViewModel` to unsubscribe `PropertyChanged` handlers from member items before rebuilding the group list on each page load; replaced anonymous lambda subscriptions with a named handler so unsubscription is correct.
+- `StorageDbContext.GetSchemaVersionAsync` now logs a Warning with the full exception before returning 0 when the schema version query fails, making database corruption visible in logs instead of silently treating the database as uninitialized.
+- `TurboFileScanner` now logs a Debug entry with the malformed line when JSON deserialization of a Rust scanner output line fails, aiding diagnosis of output contract mismatches between the Rust and C# layers.
+- Rewrote `docs/public/ROADMAP.md` and its AI context mirror: removed all stale v1.x milestone planning content and replaced with a v2.x roadmap covering structured logging, ARM64 CI, Drive Health hardware-lab validation, accessibility, and future phases.
+- Added GitHub issue templates (`bug_report.md`, `feature_request.md`) and a pull request template (`PULL_REQUEST_TEMPLATE.md`).
+
+---
+
 ## [2.0.1] — 2026-05-07 — Responsive UI And Loading Hotfix
 
 - Fixed narrow-window layout failures by letting the WinUI navigation pane auto-collapse, clamping page header text, and removing fragile fixed-width header behavior.

@@ -958,6 +958,10 @@ public sealed partial class DuplicatesViewModel : ObservableObject
         _hasMoreGroupPages = groups.Count > GroupPageSize;
         if (_hasMoreGroupPages)
             groups = groups.Take(GroupPageSize).ToList();
+        foreach (var g in _allGroups)
+            foreach (var m in g.Members)
+                m.PropertyChanged -= OnMemberPropertyChanged;
+
         Groups.Clear();
         PreviewItems.Clear();
         QuarantineItems.Clear();
@@ -970,7 +974,7 @@ public sealed partial class DuplicatesViewModel : ObservableObject
             var members = await _duplicateRepository.GetDuplicateGroupMembersAsync(group.Id, linkedToken);
             var item = new DuplicateGroupItem(group, members);
             foreach (var member in item.Members)
-                member.PropertyChanged += (_, _) => OnPropertyChanged(nameof(CanDeleteSelected));
+                member.PropertyChanged += OnMemberPropertyChanged;
             item.ApplyKeeperPolicy(KeeperPolicy);
             _allGroups.Add(item);
             Groups.Add(item);
@@ -979,6 +983,9 @@ public sealed partial class DuplicatesViewModel : ObservableObject
         SelectedGroup = Groups.FirstOrDefault();
         RaiseSummaryProperties();
     }
+
+    private void OnMemberPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+        => OnPropertyChanged(nameof(CanDeleteSelected));
 
     private async Task LoadErrorsPageAsync(int page, bool append)
     {

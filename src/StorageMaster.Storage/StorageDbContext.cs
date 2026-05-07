@@ -84,7 +84,7 @@ public sealed class StorageDbContext : IAsyncDisposable
 
     private async Task MigrateAsync(SqliteConnection conn, CancellationToken ct)
     {
-        int current = await GetSchemaVersionAsync(conn, ct);
+        int current = await GetSchemaVersionAsync(conn, _logger, ct);
 
         if (current < DatabaseSchema.CurrentVersion)
         {
@@ -117,7 +117,7 @@ public sealed class StorageDbContext : IAsyncDisposable
         }
     }
 
-    private static async Task<int> GetSchemaVersionAsync(SqliteConnection conn, CancellationToken ct)
+    private static async Task<int> GetSchemaVersionAsync(SqliteConnection conn, ILogger logger, CancellationToken ct)
     {
         // SchemaVersion table may not exist yet on first launch.
         try
@@ -127,7 +127,11 @@ public sealed class StorageDbContext : IAsyncDisposable
             var result = await cmd.ExecuteScalarAsync(ct);
             return result is DBNull or null ? 0 : Convert.ToInt32(result);
         }
-        catch { return 0; }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Could not read schema version; treating as uninitialized.");
+            return 0;
+        }
     }
 
     /// <summary>

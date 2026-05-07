@@ -1,6 +1,6 @@
 # StorageMaster v2 Plan
 
-Source of truth: current v2.0.1 stable repository snapshot. This file records remaining hardening work after the v2 release implementation, not older speculative audit.
+Source of truth: current v2.1.0 stable repository snapshot. This file records remaining hardening work after the v2 release implementation, not older speculative audit.
 
 ## Current strengths to preserve
 
@@ -22,7 +22,7 @@ The v2 UI foundation now includes shared style dictionaries, reusable controls (
 | H-08 | Done in v1.9.0: default excluded paths derive from `Environment.SpecialFolder.Windows` and use boundary-safe matching | No follow-up |
 | H-09 | `IRecycleBinInfoProvider` is declared inside `RecycleBinCleanupRule.cs` | move to `Core/Interfaces` and keep namespace stable |
 | H-10 | browser cache discovery is duplicated in cleanup rule and Smart Cleaner | extract shared path service |
-| H-11 | bare catches remain in filesystem helpers | keep best-effort behavior but avoid swallowing fatal exceptions; log where useful |
+| H-11 | Done in v2.1.0: `StorageDbContext` schema-version catch logs Warning; `TurboFileScanner` JSON parse catch logs Debug; filesystem best-effort catches have comments | keep best-effort behavior; add logging if new bare catches are introduced |
 | H-12 | Done in v1.9.0: schema v6 adds `NormalizedFullPath` and unique file path protection per session | Consider path identity columns in future |
 | H-13 | Partly done in v1.9.0: scan status parsing is tolerant | Extend tolerant parsing to every status enum field |
 | H-14 | Done in v1.9.0: session delete runs `PRAGMA optimize` | Consider manual vacuum prompt/maintenance path |
@@ -34,7 +34,7 @@ The v2 UI foundation now includes shared style dictionaries, reusable controls (
 
 | Area | Current state | v2 requirement |
 |---|---|---|
-| Settings | long stacked settings form | category tiles; clicking a tile opens overlay/flyout with focused settings, validation, descriptions, reset defaults per category |
+| Settings | Done in v2.1.0: category tiles with modal overlay, correct per-category template rendering, all settings accessible (duplicate slider removed, ClearEntireDownloads added) | accessibility and keyboard-nav pass remain |
 | Duplicates | feature-rich but dense | add in-app explanations for methods, thresholds, keeper policy, scope modes, quarantine/recycle/permanent consequences; improve empty and first-run guidance |
 | Cleanup | grouped category toggles exist | add explanation/help text for every category, risk, method, dry-run, and threshold; ensure full-screen alignment across all cards |
 | Dashboard | v2 command-center layout exists | keep tuning responsive behavior, real composition bars, and final visual QA |

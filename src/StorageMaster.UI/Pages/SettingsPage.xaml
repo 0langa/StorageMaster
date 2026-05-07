@@ -104,14 +104,6 @@
                               AutomationProperties.Name="Use Turbo Scanner by default"
                               AutomationProperties.HelpText="Uses the Rust-powered native scanner when available beside the executable." />
 
-                <StackPanel Spacing="4">
-                    <TextBlock Text="{x:Bind ScanHistoryRetentionLabel, Mode=OneWay}" Style="{StaticResource CaptionTextBlockStyle}" />
-                    <Slider Minimum="30" Maximum="1825" StepFrequency="30"
-                            Value="{x:Bind ScanHistoryRetentionDays, Mode=TwoWay}"
-                            AutomationProperties.Name="Scan history retention"
-                            AutomationProperties.HelpText="How long to keep past scan records before they can be purged." />
-                </StackPanel>
-
                 <StackPanel Spacing="12">
                     <TextBlock Text="Excluded Paths" Style="{StaticResource BodyStrongTextBlockStyle}" />
                     <TextBlock Text="These folders are skipped during every scan."
@@ -198,6 +190,11 @@
                     <ToggleSwitch Header="Prefetch files" IsOn="{x:Bind CleanPrefetchFiles, Mode=TwoWay}" />
                     <ToggleSwitch Header="Microsoft Store logs" IsOn="{x:Bind CleanStoreLogs, Mode=TwoWay}" />
                 </StackPanel>
+
+                <ToggleSwitch Header="Clear entire Downloads folder"
+                              IsOn="{x:Bind ClearEntireDownloads, Mode=TwoWay}"
+                              AutomationProperties.Name="Clear entire Downloads folder"
+                              AutomationProperties.HelpText="Clears all files in Downloads, not just installer files. Requires the Downloaded Installers rule to be enabled." />
             </StackPanel>
         </DataTemplate>
 
@@ -627,7 +624,8 @@
 
                     <!-- Body -->
                     <ScrollViewer Grid.Row="1" Padding="24">
-                        <ContentControl Content="{x:Bind ViewModel}"
+                        <ContentControl x:Name="EditorContentControl"
+                                        Content="{x:Bind ViewModel}"
                                         ContentTemplateSelector="{StaticResource CategorySelector}" />
                     </ScrollViewer>
 

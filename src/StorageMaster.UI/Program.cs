@@ -39,22 +39,31 @@ public static class Program
             return;
         }
 
-        // With WindowsAppSDKSelfContained=true and DISABLE_XAML_GENERATED_MAIN,
-        // the Bootstrap.Initialize() that the XAML-generated Main would call is
-        // absent. Without it, ms-appx:// URI resolution (used by WinUI 3 theme
-        // resources) is never registered, causing XamlParseException on startup.
-        Microsoft.Windows.ApplicationModel.DynamicDependency.Bootstrap.Initialize(0x00010008);
-
-        XamlCheckProcessRequirements();
-        WinRT.ComWrappersSupport.InitializeComWrappers();
-        App.SetServices(ServiceBootstrapper.BuildServices());
-
-        Application.Start(p =>
+        try
         {
-            var context = new DispatcherQueueSynchronizationContext(DispatcherQueue.GetForCurrentThread());
-            SynchronizationContext.SetSynchronizationContext(context);
-            _ = new App();
-        });
+            // Framework-dependent unpackaged WinUI 3 apps with a custom Main
+            // (DISABLE_XAML_GENERATED_MAIN) must register the system-installed
+            // Windows App SDK 1.8 runtime in the dynamic dependency graph before
+            // any WinUI/XAML calls. Without it, ms-appx:// URI resolution fails
+            // with XamlParseException on the very first XAML load.
+            Microsoft.Windows.ApplicationModel.DynamicDependency.Bootstrap.Initialize(0x00010008);
+
+            XamlCheckProcessRequirements();
+            WinRT.ComWrappersSupport.InitializeComWrappers();
+            App.SetServices(ServiceBootstrapper.BuildServices());
+
+            Application.Start(p =>
+            {
+                var context = new DispatcherQueueSynchronizationContext(DispatcherQueue.GetForCurrentThread());
+                SynchronizationContext.SetSynchronizationContext(context);
+                _ = new App();
+            });
+        }
+        catch (Exception ex)
+        {
+            LogStartupCrash(ex);
+            throw;
+        }
     }
 
     private static void EnsureConsole(bool allocateWhenMissing)
@@ -64,5 +73,22 @@ public static class Program
 
         if (allocateWhenMissing)
             _ = AllocConsole();
+    }
+
+    private static void LogStartupCrash(Exception ex)
+    {
+        try
+        {
+            var dir = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "StorageMaster", "logs");
+            Directory.CreateDirectory(dir);
+            var line = $"[{DateTimeOffset.Now:O}] Program.Main startup crash{Environment.NewLine}{ex}{Environment.NewLine}{Environment.NewLine}";
+            File.AppendAllText(Path.Combine(dir, "startup-errors.log"), line);
+        }
+        catch
+        {
+            // Logging is best-effort — never let it mask the original crash.
+        }
     }
 }

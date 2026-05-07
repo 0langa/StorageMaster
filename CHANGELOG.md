@@ -4,6 +4,12 @@ All notable changes to StorageMaster are documented here.
 
 ---
 
+## [1.9.3] — 2026-05-07 — Startup Diagnostic
+
+- Wrapped `Program.Main` GUI initialization in a top-level try/catch that writes the original exception to `%LOCALAPPDATA%\StorageMaster\logs\startup-errors.log` before rethrowing. Fixes a diagnostic gap where pre-`App` constructor crashes (e.g. `Bootstrap.Initialize` failures, `XamlCheckProcessRequirements` failures) bypassed the registered `Application.UnhandledException` handler and produced no log entry.
+
+---
+
 ## [1.9.2] — 2026-05-07 — Startup Fix (Corrected)
 
 - Fixed persistent launch failure introduced in 1.9.0 and incorrectly addressed in 1.9.1. Root cause: switching to `WindowsAppSDKSelfContained=true` (SDK 1.8) required the WinAppSDK MSIX to be installed on the system, but the installer no longer included it. `Bootstrap.Initialize()` (added in 1.9.1) compounded the failure by throwing on startup when the system MSIX was absent.

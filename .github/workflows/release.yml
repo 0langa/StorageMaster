@@ -64,7 +64,7 @@ jobs:
           dotnet restore src/StorageMaster.UI/StorageMaster.UI.csproj
 
       - name: Run tests
-        run: dotnet test tests/StorageMaster.Tests/StorageMaster.Tests.csproj -c Release --verbosity normal --no-restore
+        run: dotnet test tests/StorageMaster.Tests/StorageMaster.Tests.csproj -c Release --verbosity normal --no-restore -p:Platform=x64
 
       - name: Publish win-x64
         run: |

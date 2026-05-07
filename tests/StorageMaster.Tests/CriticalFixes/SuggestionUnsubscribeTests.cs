@@ -10,7 +10,7 @@ namespace StorageMaster.Tests.CriticalFixes;
 /// We test the pattern in isolation (no WinUI dependency) using a simple
 /// INotifyPropertyChanged implementation that mirrors SuggestionItem.
 /// </summary>
-public sealed class C8_SuggestionUnsubscribeTests
+public sealed class SuggestionUnsubscribeTests
 {
     private sealed class FakeObservable : INotifyPropertyChanged
     {

@@ -15,7 +15,7 @@ namespace StorageMaster.Tests.Update;
 /// bad HTTP responses, and user cancellation. Uses a fake HttpMessageHandler
 /// so no real network calls are made.
 /// </summary>
-public sealed class UpdateFailureModeTests
+public sealed class GitHubUpdateServiceFailureModeTests
 {
     // ── helpers ───────────────────────────────────────────────────────────────
 

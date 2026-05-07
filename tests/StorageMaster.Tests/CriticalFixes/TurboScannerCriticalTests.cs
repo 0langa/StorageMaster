@@ -18,11 +18,11 @@ namespace StorageMaster.Tests.CriticalFixes;
 /// exit-code-check logic is validated by code review + the test for the
 /// managed scanner cancellation path.
 /// </summary>
-public sealed class C2C3_TurboScannerTests
+public sealed class TurboScannerCriticalTests
 {
     private readonly Mock<IScanRepository> _repoMock = new();
 
-    public C2C3_TurboScannerTests()
+    public TurboScannerCriticalTests()
     {
         _repoMock.Setup(r => r.CreateSessionAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new ScanSession { Id = 1, RootPath = "C:\\", StartedUtc = DateTime.UtcNow, Status = ScanStatus.Running });

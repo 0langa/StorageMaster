@@ -8,7 +8,7 @@ namespace StorageMaster.Tests.CriticalFixes;
 /// C7: Verifies that DeletePermanently does NOT follow junctions/symlinks
 /// into their targets. Only the link itself should be removed.
 /// </summary>
-public sealed class C7_JunctionSafeDeleteTests
+public sealed class JunctionSafeDeleteTests
 {
     [Fact]
     public void DeletePermanently_Junction_RemovesLinkOnly_DoesNotDeleteTarget()

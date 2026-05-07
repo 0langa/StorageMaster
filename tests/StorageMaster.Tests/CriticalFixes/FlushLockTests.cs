@@ -12,7 +12,7 @@ namespace StorageMaster.Tests.CriticalFixes;
 /// Multiple consumer tasks can hit the flush threshold simultaneously — the
 /// SemaphoreSlim serialises drains so every entry is written exactly once.
 /// </summary>
-public sealed class C1_FlushLockTests
+public sealed class FlushLockTests
 {
     [Fact]
     public async Task ConcurrentFlushes_NoLostOrDuplicateEntries()

@@ -9,12 +9,12 @@ namespace StorageMaster.Tests.CriticalFixes;
 /// C5: Verifies that schema migrations stamp the version atomically with the DDL.
 /// After successful migration, the SchemaVersion table contains the expected version.
 /// </summary>
-public sealed class C5_AtomicMigrationTests : IAsyncDisposable
+public sealed class AtomicMigrationTests : IAsyncDisposable
 {
     private readonly string _dbPath;
     private StorageDbContext? _ctx;
 
-    public C5_AtomicMigrationTests()
+    public AtomicMigrationTests()
     {
         _dbPath = Path.Combine(Path.GetTempPath(), $"test_c5_{Guid.NewGuid():N}.db");
     }

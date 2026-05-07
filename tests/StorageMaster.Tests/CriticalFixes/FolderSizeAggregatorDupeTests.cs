@@ -14,7 +14,7 @@ namespace StorageMaster.Tests.CriticalFixes;
 /// the aggregator. However, we still test that the aggregator handles the
 /// case defensively.
 /// </summary>
-public sealed class C2_FolderSizeAggregatorDupeTests
+public sealed class FolderSizeAggregatorDupeTests
 {
     [Fact]
     public void Compute_WithNoDuplicates_ProducesCorrectTotals()

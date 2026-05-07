@@ -14,13 +14,13 @@ namespace StorageMaster.Tests.CriticalFixes;
 /// none throw. Without WriteLock, this reliably produces SQLITE_BUSY on
 /// a shared connection.
 /// </summary>
-public sealed class C4_WriteLockTests : IAsyncDisposable
+public sealed class WriteLockTests : IAsyncDisposable
 {
     private readonly string _dbPath;
     private readonly StorageDbContext _ctx;
     private readonly ScanRepository _repo;
 
-    public C4_WriteLockTests()
+    public WriteLockTests()
     {
         _dbPath = Path.Combine(Path.GetTempPath(), $"test_c4_{Guid.NewGuid():N}.db");
         _ctx = new StorageDbContext(_dbPath, NullLogger<StorageDbContext>.Instance);

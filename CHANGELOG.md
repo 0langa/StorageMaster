@@ -4,6 +4,13 @@ All notable changes to StorageMaster are documented here.
 
 ---
 
+## [1.9.5] — 2026-05-07 — Actual Real Startup Fix
+
+- **True root cause of the 1.9.0–1.9.4 launch failure identified.** WinAppSDK 1.8's `Microsoft.WindowsAppSDK.UndockedRegFreeWinRTCommon.targets` only auto-enables the `UndockedRegFreeWinRT` initializer when `WindowsAppSDKSelfContained=true`. This initializer is a `[ModuleInitializer]` that loads `Microsoft.WindowsAppRuntime.dll`, which in turn registers the SxS WinRT activation classes that make `ms-appx:///Microsoft.UI.Xaml/...` URIs resolvable. With our framework-dependent build (`WindowsAppSDKSelfContained=false`), the initializer was silently skipped, leaving WinRT activation contexts unregistered. `Bootstrap.Initialize` succeeded (registering the runtime in the package graph), but the WinRT URI handler chain was never set up — so the very first XAML load (`XamlControlsResources` → `themeresources.xaml`) threw `XamlParseException: Cannot locate resource from 'ms-appx:///Microsoft.UI.Xaml/Themes/themeresources.xaml'`.
+- Added `<WindowsAppSdkBootstrapInitialize>true</WindowsAppSdkBootstrapInitialize>` and `<WindowsAppSdkUndockedRegFreeWinRTInitialize>true</WindowsAppSdkUndockedRegFreeWinRTInitialize>` to `StorageMaster.UI.csproj`. Both initializers run via `[ModuleInitializer]` before `Main`, which also makes the JIT-order split from 1.9.4 belt-and-suspenders rather than load-bearing.
+
+---
+
 ## [1.9.4] — 2026-05-07 — Real Startup Fix
 
 - **Root cause of the 1.9.0–1.9.3 launch failure identified.** WinUI/WinAppSDK types in the body of `Program.Main` (e.g. `Application.Start`, `DispatcherQueueSynchronizationContext`) caused the CLR to resolve and load `Microsoft.UI.Xaml.dll` while JIT-compiling `Main` — *before* `Bootstrap.Initialize` could register the system-installed Windows App SDK 1.8 runtime in the dynamic dependency graph. The runtime DLL loaded from an unregistered location, `ms-appx://` URIs could not be resolved, and the first XAML load threw `XamlParseException: Cannot locate resource from 'ms-appx:///Microsoft.UI.Xaml/Themes/themeresources.xaml'`.

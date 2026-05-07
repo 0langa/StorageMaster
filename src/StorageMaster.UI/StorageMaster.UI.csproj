@@ -23,6 +23,20 @@
     <!-- Use the system-installed WinAppSDK 1.8 runtime (installed by the Inno setup prereq step). -->
     <WindowsAppSDKSelfContained>false</WindowsAppSDKSelfContained>
     <SelfContained>false</SelfContained>
+    <!--
+      Framework-dependent unpackaged apps must opt in to these auto-initializers.
+      They emit a [ModuleInitializer] (runs before Main) that:
+        - Bootstrap: registers the system-installed WinAppSDK runtime in the
+          process package graph (replaces the explicit Bootstrap.Initialize call).
+        - UndockedRegFreeWinRT: loads Microsoft.WindowsAppRuntime.dll so its SxS
+          activation classes are registered, which is what makes
+          ms-appx:///Microsoft.UI.Xaml/Themes/themeresources.xaml resolvable.
+      Without UndockedRegFreeWinRTInitialize, WinUI 3 fails on the first XAML
+      load with "Cannot locate resource from 'ms-appx:///...'" — both auto
+      initializers default to true ONLY when WindowsAppSDKSelfContained=true.
+    -->
+    <WindowsAppSdkBootstrapInitialize>true</WindowsAppSdkBootstrapInitialize>
+    <WindowsAppSdkUndockedRegFreeWinRTInitialize>true</WindowsAppSdkUndockedRegFreeWinRTInitialize>
   </PropertyGroup>
 
   <ItemGroup>

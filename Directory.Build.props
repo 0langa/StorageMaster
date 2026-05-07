@@ -1,6 +1,6 @@
 <Project>
   <PropertyGroup>
-    <StorageMasterVersion>1.9.4</StorageMasterVersion>
+    <StorageMasterVersion>1.9.5</StorageMasterVersion>
     <Version>$(StorageMasterVersion)</Version>
     <AssemblyVersion>$(StorageMasterVersion).0</AssemblyVersion>
     <FileVersion>$(StorageMasterVersion).0</FileVersion>

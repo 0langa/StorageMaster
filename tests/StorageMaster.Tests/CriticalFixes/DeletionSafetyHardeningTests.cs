@@ -439,20 +439,20 @@ public sealed class DeletionSafetyHardeningTests
 
     private static DuplicateGroupMember MakeMember(
         long id, long groupId, string path, bool isKeeper, bool isSelected) => new()
-    {
-        Id = id,
-        GroupId = groupId,
-        FileEntryId = id,
-        FullPath = path,
-        FileName = Path.GetFileName(path),
-        SizeBytes = 300,
-        ModifiedUtc = DateTime.UtcNow,
-        Score = 1.0,
-        IsKeeper = isKeeper,
-        IsSelected = isSelected,
-        RecommendationReason = isKeeper ? "Kept" : "Duplicate",
-        ExistsNow = true,
-    };
+        {
+            Id = id,
+            GroupId = groupId,
+            FileEntryId = id,
+            FullPath = path,
+            FileName = Path.GetFileName(path),
+            SizeBytes = 300,
+            ModifiedUtc = DateTime.UtcNow,
+            Score = 1.0,
+            IsKeeper = isKeeper,
+            IsSelected = isSelected,
+            RecommendationReason = isKeeper ? "Kept" : "Duplicate",
+            ExistsNow = true,
+        };
 
     private static Mock<IScanRepository> MockRepoWith(IEnumerable<FileEntry> files)
     {

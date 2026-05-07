@@ -30,7 +30,9 @@ assignees: ''
 
 ## Startup error log
 
-<!-- If the app failed to start, paste %LOCALAPPDATA%\StorageMaster\logs\startup-errors.log here -->
+<!-- If the app failed to start, open File Explorer and navigate to:
+     AppData\Local\StorageMaster\logs\startup-errors.log
+     (AppData is a hidden folder inside your user profile, e.g. C:\Users\YourName\AppData\Local) -->
 
 ```
 (paste log here or write "no startup log")

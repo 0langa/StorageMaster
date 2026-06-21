@@ -82,6 +82,15 @@ coverage.*/
 *.tmp
 *.temp
 
+# Local AI/tool state and archived generated output
+.aictx/
+.codex_memory/
+.kimi-code/
+DevDocsDownloader/
+archive/generated/
+archive/local/
+archive/external/
+
 # Rust build output
 target/
 **/target/

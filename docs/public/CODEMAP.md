@@ -34,10 +34,11 @@
 | `StorageMaster.slnx` | New-format solution file |
 | `global.json` | Pins SDK to 8.0.x; rollForward=latestPatch |
 | `README.md` | Quick-start, build instructions, architecture summary |
-| `docs/ARCHITECTURE.md` | Deep architecture reference |
-| `docs/CODEMAP.md` | This file |
-| `docs/DOCUMENTATION.md` | Full API and configuration reference |
-| `docs/ROADMAP.md` | v1.3 → v1.5 development plan |
+| `docs/public/ARCHITECTURE.md` | Deep architecture reference |
+| `docs/public/CODEMAP.md` | This file |
+| `docs/public/DOCUMENTATION.md` | Full API and configuration reference |
+| `docs/public/ROADMAP.md` | Current roadmap and shipped baseline |
+| `archive/` | Archived local clutter and historical planning notes; `archive/project-notes/AIprojectcontext/` preserves the retired agent context pack |
 | `.github/workflows/release.yml` | CI/CD: test → Rust build → publish → installer → Release |
 | `installer/StorageMaster.iss` | Inno Setup 6 script (per-user installer, checks .NET Desktop Runtime 8 x64, stages Windows App Runtime 1.6 prereq) |
 | `turbo-scanner/Cargo.toml` | Rust crate manifest |

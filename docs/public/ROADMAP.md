@@ -1,7 +1,6 @@
 # StorageMaster — Development Roadmap
 
-> **Current repository version:** v2.1.3 — updater failure-mode coverage, deletion hardening, and test naming cleanup.
-> **Unreleased hardening:** patched SQLite native bundle, fail-closed deletion traversal, Smart Cleaner cancellation, Rust contract tests, and documentation synchronization.
+> **Current repository version:** v2.1.4 — hardening, repository context cleanup, and versioned release packaging.
 
 ---
 
@@ -35,7 +34,7 @@ v3.0.0  [TBD]
 
 ---
 
-## Phase 0 — Shipped (v1.x – v2.1.3)
+## Phase 0 — Shipped (v1.x – v2.1.4)
 
 All features from the v1.x and v2.x development cycle are shipped. This includes:
 

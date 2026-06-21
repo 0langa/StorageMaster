@@ -1,7 +1,7 @@
-# StorageMaster — v2.1.3 Repository Status
+# StorageMaster — v2.1.4 Repository Status
 
-> **Baseline:** version metadata 2.1.3
-> **Status:** current repository state plus verified Unreleased presentation hardening; release publication and installer smoke tests are separate gates.
+> **Baseline:** version metadata 2.1.4
+> **Status:** current repository state plus verified hardening and repository context cleanup; release publication and installer smoke tests are separate gates.
 
 ## What v2.1.x includes
 
@@ -35,6 +35,6 @@
 
 - `dotnet restore`, `dotnet format --verify-no-changes`, `dotnet build -c Release`, `dotnet test -c Release`, `cargo fmt --check`, `cargo test`, and Rust release build pass.
 - 196 discovered .NET tests plus three Rust CLI/JSONL contract tests.
-- The configured WinUI publish and Inno installer output is `StorageMaster-2.1.3-win-x64-Setup.exe`; installer construction still requires an explicit release build.
+- The configured WinUI publish and Inno installer output is `StorageMaster-2.1.4-win-x64-Setup.exe`; installer construction still requires an explicit release build.
 - GitHub release publication, signing, and clean-machine installation remain separate release checks and are not implied by local unit-test success.
 - No new startup crash entry appears in `%LOCALAPPDATA%\StorageMaster\logs\startup-errors.log` during install smoke.

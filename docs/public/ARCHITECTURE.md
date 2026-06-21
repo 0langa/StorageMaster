@@ -1,6 +1,6 @@
 # StorageMaster — Architecture Overview
 
-> **Version:** 2.1.3 | **Current-state review:** 2026-06-21 | **Framework:** .NET 8 / WinUI 3 / Windows App SDK 1.6
+> **Version:** 2.1.4 | **Current-state review:** 2026-06-22 | **Framework:** .NET 8 / WinUI 3 / Windows App SDK 1.6
 > **v2 update:** StorageMaster now includes the v2 UI foundation, Drive Health & Storage Sentinel, schema v7 health snapshots, stable/prerelease-safe versioning, .NET Desktop Runtime setup checks, elevated CLI deep-scan workers, and GitHub release automation.
 
 ---

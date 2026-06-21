@@ -1,7 +1,7 @@
 # StorageMaster — Development Roadmap
 
-> **Current release:** v2.1.0 (2026-05-07) — Settings page fixes, event subscription hardening, structured logging, GitHub repo infrastructure.
-> **Previous:** v2.0.1 — Drive Health & Storage Sentinel, full v2 UI overhaul, hotfixes.
+> **Current repository version:** v2.1.3 — updater failure-mode coverage, deletion hardening, and test naming cleanup.
+> **Unreleased hardening:** patched SQLite native bundle, fail-closed deletion traversal, Smart Cleaner cancellation, Rust contract tests, and documentation synchronization.
 
 ---
 
@@ -35,7 +35,7 @@ v3.0.0  [TBD]
 
 ---
 
-## Phase 0 — Shipped (v1.x – v2.1.0)
+## Phase 0 — Shipped (v1.x – v2.1.3)
 
 All features from the v1.x and v2.x development cycle are shipped. This includes:
 

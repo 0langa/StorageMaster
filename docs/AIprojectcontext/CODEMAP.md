@@ -1,6 +1,6 @@
 # StorageMaster Codemap
 
-Version: 2.0.1. Compact source map for the deployed repository. Source code is authoritative.
+Version: 2.1.3. Compact source map for the deployed repository. Source code is authoritative.
 
 ## Root
 
@@ -8,20 +8,20 @@ Version: 2.0.1. Compact source map for the deployed repository. Source code is a
 |---|---|
 | `StorageMaster.sln`, `.slnx` | solution files |
 | `global.json` | .NET SDK 8.0 latest patch |
-| `Directory.Build.props` | centralized semantic version (`2.0.1`) plus numeric assembly version (`2.0.1.0`) |
+| `Directory.Build.props` | centralized semantic version (`2.1.3`) plus numeric assembly version (`2.1.3.0`) |
 | `Directory.Build.targets` | forces executable WinUI XAML compiler |
-| `README.md`, `CHANGELOG.md` | public docs; changelog current through 2.0.1 |
+| `README.md`, `CHANGELOG.md` | public docs; changelog current through 2.1.3 plus Unreleased hardening notes |
 | `.github/workflows/ci.yml` | PR/push build/test/format/Rust checks |
 | `.github/workflows/release.yml` | tag release pipeline, optional signing |
-| `installer/StorageMaster.iss` | Inno Setup, `AppVersion=2.0.1`, `PrivilegesRequired=lowest`, checks .NET Desktop Runtime 8 x64, stages Windows App Runtime 1.6 MSIX prereq, `DefaultDirName={localappdata}\Programs\StorageMaster` |
-| `turbo-scanner/` | Rust binary crate, package version 2.0.1 |
+| `installer/StorageMaster.iss` | Inno Setup, `AppVersion=2.1.3`, `PrivilegesRequired=lowest`, checks .NET Desktop Runtime 8 x64, stages Windows App Runtime 1.6 MSIX prereq, `DefaultDirName={localappdata}\Programs\StorageMaster` |
+| `turbo-scanner/` | Rust binary crate, package version 2.1.3; three CLI/JSONL contract tests |
 
 ## Project files and packages
 
 | Project | Target | Key packages |
 |---|---|---|
 | `StorageMaster.Core` | `net8.0` | CommunityToolkit.Mvvm 8.4.0, DI.Abstractions 10.0.0, Logging.Abstractions 10.0.0, SixLabors.ImageSharp 3.1.12 |
-| `StorageMaster.Storage` | `net8.0` | Microsoft.Data.Sqlite 9.0.4, Logging.Abstractions 10.0.0 |
+| `StorageMaster.Storage` | `net8.0` | Microsoft.Data.Sqlite 9.0.4, SQLitePCLRaw.bundle_e_sqlite3 3.0.3, Logging.Abstractions 10.0.0 |
 | `StorageMaster.Platform.Windows` | `net8.0-windows10.0.19041.0` | Logging.Abstractions 10.0.0, System.Management 9.0.5 |
 | `StorageMaster.UI` | `net8.0-windows10.0.19041.0` | WindowsAppSDK 1.6.250205002, SDK BuildTools 10.0.26100.1742, Toolkit.Mvvm, H.NotifyIcon.WinUI 2.3.1, Microsoft.Extensions.* 10.0.0, System.CommandLine 2.0.7 |
 | `StorageMaster.Tests` | `net8.0-windows10.0.19041.0` | xUnit 2.9.3, runner 3.1.4, Microsoft.NET.Test.Sdk 17.14.1, Moq 4.20.72, FluentAssertions 7.2.0 |
@@ -151,7 +151,7 @@ Cleanup rules and IDs:
 
 | File | Purpose |
 |---|---|
-| `FileDeleter.cs` | dry-run, Recycle Bin batch via `IFileOperation`, read-only permanent delete, file quarantine only, bounded size estimate, DNS flush, Recycle Bin empty |
+| `FileDeleter.cs` | dry-run, Recycle Bin batch via `IFileOperation`, fail-closed reparse-safe permanent delete, file quarantine only, bounded size estimate, DNS flush, Recycle Bin empty |
 | `TurboFileScanner.cs` | hidden Rust process host, shared scan option validation, JSONL parse, stderr scan errors, fallback to managed scanner |
 | `DriveInfoProvider.cs` | fixed/network/removable drive data |
 | `DriveHealthProvider.cs` | WMI/MSFT_PhysicalDisk/Win32_DiskDrive health snapshots with Unknown/Unsupported fallbacks |

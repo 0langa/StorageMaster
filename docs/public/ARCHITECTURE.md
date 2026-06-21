@@ -1,6 +1,6 @@
 # StorageMaster — Architecture Overview
 
-> **Version:** 2.0.1 | **Date:** 2026-05-07 | **Framework:** .NET 8 / WinUI 3 / Windows App SDK 1.6
+> **Version:** 2.1.3 | **Current-state review:** 2026-06-21 | **Framework:** .NET 8 / WinUI 3 / Windows App SDK 1.6
 > **v2 update:** StorageMaster now includes the v2 UI foundation, Drive Health & Storage Sentinel, schema v7 health snapshots, stable/prerelease-safe versioning, .NET Desktop Runtime setup checks, elevated CLI deep-scan workers, and GitHub release automation.
 
 ---
@@ -111,7 +111,7 @@ Windows-specific implementations behind Core interfaces:
 
 | Class | Interface | Notes |
 |-------|-----------|-------|
-| `FileDeleter` | `IFileDeleter` | Batch `SHFileOperation` for RecycleBin; `File.Delete` for permanent |
+| `FileDeleter` | `IFileDeleter` | Batch `IFileOperation` for Recycle Bin; fail-closed, reparse-safe permanent deletion |
 | `DriveInfoProvider` | `IDriveInfoProvider` | Wraps `System.IO.DriveInfo`; filters to Fixed/Network/Removable |
 | `RecycleBinInfoProvider` | `IRecycleBinInfoProvider` | `SHQueryRecycleBin` P/Invoke |
 | `AdminService` | `IAdminService` | `IsRunningAsAdmin`, `RestartAsAdmin(enableDeepScan)` |
@@ -482,7 +482,7 @@ private static readonly string[] ProtectedPrefixes =
 
 ### Batch deletion (SHFileOperation)
 
-`FileDeleter.DeleteManyAsync()` for RecycleBin paths does a **single** `SHFileOperation` call with all paths packed into a double-null-terminated native string buffer (`BuildPathListHGlobal`). This is faster than per-file calls and avoids the "Are you sure you want to move these N items to the Recycle Bin?" dialog per item.
+`FileDeleter.DeleteManyAsync()` submits an all-Recycle-Bin batch through one `IFileOperation` call, then verifies each source path disappeared so silent shell skips become per-path failures. Permanent directory deletion removes reparse points as links and refuses recursion when attributes cannot be classified safely.
 
 ### Audit log
 
@@ -673,7 +673,7 @@ User navigates to Results (parameter: sessionId)
 | Pre-compiled parameterized SQL commands | Avoids re-parse overhead per row in bulk inserts |
 | `volatile`/`Interlocked` for counters | Lock-free from parallel workers |
 | Rust + jwalk for Turbo Scanner | Work-stealing across all cores; I/O-bound parallelism better than managed |
-| Batch `SHFileOperation` for RecycleBin | One Win32 call for all paths; avoids per-file dialogs |
+| Batch `IFileOperation` for Recycle Bin | One shell operation for all paths, followed by per-path outcome verification |
 | Bottom-up `FolderSizeAggregator` | Correct folder totals in one O(n) pass after scan completes |
 
 ---
@@ -715,6 +715,6 @@ The `CleanupEngine` discovers all `IEnumerable<ICleanupRule>` from DI automatica
 | **Turbo Scanner folders** | Folder `DirectSizeBytes` not populated by jwalk | Mitigated by `FolderSizeAggregator` post-pass |
 | **Visualization scope** | Native Space Map treemap exists with CSV/HTML/PNG export; no WebView2/D3 dependency | Continue with scale polish and richer reports |
 | **Localization** | English only | v2.0 |
-| **Smart Cleaner log** | Smart Cleaner cleanup uses `IFileDeleter` directly; not routed through `CleanupEngine` | Entries still appear in `CleanupLog` via `FileDeleter` logging |
+| **Smart Cleaner log** | Smart Cleaner cleanup uses `IFileDeleter` directly; not routed through `CleanupEngine` | `SmartCleanerService` writes synthetic results to `CleanupLog` |
 | **pHash threshold changes** | Image/video pHash similarity thresholds require app restart to take effect (singleton snapshot at startup) | Known trade-off; settings UI notes this |
 | **FFmpeg for video previews** | Video preview keyframes require user to configure FFmpeg path in Settings | Clear guidance shown in UI when FFmpeg is absent |

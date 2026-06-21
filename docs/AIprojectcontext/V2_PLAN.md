@@ -1,6 +1,6 @@
 # StorageMaster v2 Plan
 
-Source of truth: current v2.1.0 stable repository snapshot. This file records remaining hardening work after the v2 release implementation, not older speculative audit.
+Source of truth: current v2.1.3 release metadata plus verified Unreleased hardening changes. This file records remaining work after the v2 implementation.
 
 ## Current strengths to preserve
 
@@ -39,7 +39,7 @@ The v2 UI foundation now includes shared style dictionaries, reusable controls (
 | Cleanup | grouped category toggles exist | add explanation/help text for every category, risk, method, dry-run, and threshold; ensure full-screen alignment across all cards |
 | Dashboard | v2 command-center layout exists | keep tuning responsive behavior, real composition bars, and final visual QA |
 | Results | paged files/folders/errors and lazy tree exist; workspace handoff added | keep paging; avoid any full-tree rebuild on navigation; add more explicit loading/empty/error states |
-| Accessibility | XAML has no `AutomationProperties.*` | add Name/HelpText to all interactive controls, focus restoration, Narrator verification, high contrast/text-scale pass |
+| Accessibility | Primary pages/navigation have automation names; Settings has extensive field-level Name/HelpText coverage | finish remaining interactive controls, focus restoration, Narrator verification, high contrast/text-scale pass |
 
 ## Performance/scale plan
 
@@ -55,7 +55,7 @@ Default deletion should remain Recycle Bin. Quarantine should remain preferred f
 
 ## Testing plan
 
-Current static count is above the 1.9.6 baseline and includes drive-health repository plus updater prerelease tests. Add ViewModel tests for Scan/Results/Duplicates/Cleanup/Settings/DriveHealth after UI test hosting is solved for WinUI output copying; direct UI project references currently require WinUI build output handling. CLI tests, scheduler tests with `schtasks.exe` mocked/wrapped, platform tests around deletion sentinels and Shell32 return handling, migration tests for schema v7+, and benchmark smoke tests remain needed.
+The Release suite discovers 196 .NET tests and the Rust scanner has three CLI/JSONL contract tests. Add ViewModel tests for Scan/Results/Duplicates/Cleanup/Settings/DriveHealth after those classes are extracted from the WinUI runtime assembly; directly loading `StorageMaster.UI.dll` from the current test host requires WinRT bootstrap initialization and previously prevented CI completion. CLI orchestration, scheduler tests with `schtasks.exe` wrapped, deeper shell abstraction tests, migration tests for schema v7+, and benchmark smoke tests remain needed.
 
 ## v2 acceptance criteria
 

@@ -1,6 +1,6 @@
 # StorageMaster Technical Reference
 
-Version: 2.0.1. This reference matches the current repository implementation.
+Version: 2.1.3. This reference matches the current repository implementation.
 
 ## Build prerequisites
 
@@ -145,11 +145,11 @@ Duplicates page supports whole session, included folders, or excluded folders; f
 
 `StorageDbContext` is a singleton; do not create competing app-level contexts for the same DB. Repositories use shared `WriteLock` for transactional writes.
 
-Tables in schema v5:
+Tables in schema v7:
 
-`SchemaVersion`, `ScanSessions`, `FileEntries`, `FolderEntries`, `CleanupLog`, `Settings`, `ScanErrors`, `DuplicateRuns`, `DuplicateSignatures`, `DuplicateGroups`, `DuplicateGroupMembers`, `DuplicateErrors`, `QuarantinedFiles`.
+`SchemaVersion`, `ScanSessions`, `FileEntries`, `FolderEntries`, `CleanupLog`, `Settings`, `ScanErrors`, `DuplicateRuns`, `DuplicateSignatures`, `DuplicateGroups`, `DuplicateGroupMembers`, `DuplicateErrors`, `QuarantinedFiles`, `DriveHealthSnapshots`.
 
-Notable constraints/indexes: `FolderEntries UNIQUE(SessionId, FullPath)`, `FileEntries(SessionId, SizeBytes DESC)`, `FileEntries(SessionId, Extension)`, `FolderEntries(SessionId, TotalSizeBytes DESC)`, duplicate indexes for run/reclaimable/method/confidence/member/error/signature-cache queries. `FileEntries` has no uniqueness constraint on `(SessionId, FullPath)`. Status columns are TEXT without CHECK constraints.
+Notable constraints/indexes: `FolderEntries UNIQUE(SessionId, FullPath)`, unique normalized file paths per session through `UX_FileEntries_Session_NormalizedFullPath`, file/folder size and path-search indexes, duplicate indexes for run/reclaimable/method/confidence/member/error/signature-cache queries, and latest/history drive-health indexes. Status columns are TEXT without CHECK constraints.
 
 ## Platform APIs
 
@@ -165,12 +165,12 @@ Notable constraints/indexes: `FolderEntries UNIQUE(SessionId, FullPath)`, `FileE
 
 ## UI implementation notes
 
-Pages use CommunityToolkit.Mvvm source generators (`ObservableObject`, `[ObservableProperty]`, `[RelayCommand]`) and a mix of `{x:Bind}` and `{Binding}`. Do not update WinUI state from background tasks without `DispatcherQueue`. Current XAML contains no `AutomationProperties.*`, so accessibility work should add names/help text rather than assuming they exist.
+Pages use CommunityToolkit.Mvvm source generators (`ObservableObject`, `[ObservableProperty]`, `[RelayCommand]`) and a mix of `{x:Bind}` and `{Binding}`. Do not update WinUI state from background tasks without `DispatcherQueue`. Primary pages and navigation have `AutomationProperties.Name`; Settings has extensive field-level Name/HelpText coverage. Rendered Narrator, high-contrast, keyboard-focus, and text-scaling QA remains incomplete.
 
 ## Testing
 
-Static count: 113 `[Fact]`/`[Theory]` tests across 25 files. CI also runs Rust format/tests/build. No ViewModel test suite exists in the current repo.
+The current Release suite discovers 196 .NET tests, and the Rust scanner has three CLI/JSONL contract tests. The .NET test project intentionally excludes `StorageMaster.UI`; broad ViewModel, CLI, scheduler, and UI-state coverage requires extracting those classes from the WinUI runtime assembly.
 
 ## Known gotchas
 
-`FileTypeCategorizor` is misspelled in source. `IRecycleBinInfoProvider` is not in `Core/Interfaces`. `CleanupEngine` is sequential, not concurrent. `FolderSizeAggregator` does not tolerate duplicate paths defensively. `FileDeleter.EstimateSize` is unbounded for large directories. Installer is per-user path but admin-required.
+`FileTypeCategorizor` is misspelled in source. `IRecycleBinInfoProvider` is not in `Core/Interfaces`. `CleanupEngine` is sequential, not concurrent. `FolderSizeAggregator` folds duplicate/mixed-case paths defensively. `FileDeleter.EstimateSize` is cancellable, reparse-aware, and capped at 100,000 entries; destructive traversal additionally fails closed when reparse status is unknown. Installer is per-user with `PrivilegesRequired=lowest`; selected operations request elevation separately.

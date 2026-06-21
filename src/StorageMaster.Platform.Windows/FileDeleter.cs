@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Runtime.ExceptionServices;
 using System.Runtime.InteropServices;
+using System.Security;
 using Microsoft.Extensions.Logging;
 using StorageMaster.Core.Interfaces;
 using StorageMaster.Platform.Windows.Interop;
@@ -46,6 +47,12 @@ public sealed class FileDeleter : IFileDeleter
         await Task.Yield();
         cancellationToken.ThrowIfCancellationRequested();
 
+        if (TryCreateValidationFailure(request, out var validationFailure))
+        {
+            _logger.LogError("Refused deletion request for {Path}: {Error}", request.Path, validationFailure.Error);
+            return validationFailure;
+        }
+
         if (request.DryRun)
         {
             long est = EstimateSize(request.Path, cancellationToken);
@@ -58,15 +65,6 @@ public sealed class FileDeleter : IFileDeleter
 
         if (request.Path == "::DnsFlush::")
             return await FlushDnsCacheAsync();
-
-        // Safety guard: refuse to operate on drive roots or UNC share roots
-        // (e.g. "C:\", "\\server\share") — these would wipe entire volumes.
-        if (IsRootOrUncPrefix(request.Path))
-        {
-            _logger.LogError("Refused to delete filesystem root or UNC prefix: {Path}", request.Path);
-            return new DeletionOutcome(request.Path, false, 0,
-                "Refusing to delete a filesystem root or UNC share prefix.");
-        }
 
         try
         {
@@ -99,22 +97,37 @@ public sealed class FileDeleter : IFileDeleter
     {
         if (requests.Count == 0) yield break;
 
+        var validRequests = new List<DeletionRequest>(requests.Count);
+        foreach (var request in requests)
+        {
+            if (TryCreateValidationFailure(request, out var validationFailure))
+            {
+                _logger.LogError("Refused deletion request for {Path}: {Error}", request.Path, validationFailure.Error);
+                yield return validationFailure;
+                continue;
+            }
+
+            validRequests.Add(request);
+        }
+
+        if (validRequests.Count == 0) yield break;
+
         // ── Fast path: batch all RecycleBin real deletions in one shell call ──
         // This is the common cleanup case and is dramatically faster than N calls.
-        bool allRecycleBin = requests.All(r => !r.DryRun
-                                                          && r.Method == DeletionMethod.RecycleBin
-                                                          && r.Path != "::RecycleBin::"
-                                                          && r.Path != "::DnsFlush::");
+        bool allRecycleBin = validRequests.All(r => !r.DryRun
+                                                             && r.Method == DeletionMethod.RecycleBin
+                                                             && r.Path != "::RecycleBin::"
+                                                             && r.Path != "::DnsFlush::");
         // Quarantine is per-file; falls through to normal path
-        if (allRecycleBin && requests.Count > 1)
+        if (allRecycleBin && validRequests.Count > 1)
         {
-            await foreach (var o in BatchRecycleBinAsync(requests, cancellationToken))
+            await foreach (var o in BatchRecycleBinAsync(validRequests, cancellationToken))
                 yield return o;
             yield break;
         }
 
         // ── Normal path: parallel per-file ───────────────────────────────────
-        await foreach (var o in ParallelDeleteAsync(requests, cancellationToken))
+        await foreach (var o in ParallelDeleteAsync(validRequests, cancellationToken))
             yield return o;
     }
 
@@ -298,18 +311,24 @@ public sealed class FileDeleter : IFileDeleter
     /// recursively deleted. This prevents destroying data outside the
     /// intended directory tree.
     /// </summary>
-    internal static void DeletePermanently(string path)
+    internal static void DeletePermanently(string path) =>
+        DeletePermanently(path, File.GetAttributes);
+
+    internal static void DeletePermanently(
+        string path,
+        Func<string, FileAttributes> getAttributes)
     {
         if (Directory.Exists(path))
         {
             // If the directory itself is a reparse point (junction/symlink),
             // delete the link only — never recurse into the target.
-            if (IsReparsePoint(path))
+            if (IsReparsePointForDeletion(path, getAttributes))
             {
                 Directory.Delete(path, recursive: false);
                 return;
             }
-            DeleteDirectoryRecursiveSafe(path);
+
+            DeleteDirectoryRecursiveSafe(path, getAttributes);
         }
         else
         {
@@ -327,7 +346,9 @@ public sealed class FileDeleter : IFileDeleter
     /// temp directories) produces a handled DirectoryNotFoundException rather than
     /// a partially-consumed enumerator exception.
     /// </summary>
-    private static void DeleteDirectoryRecursiveSafe(string dir)
+    private static void DeleteDirectoryRecursiveSafe(
+        string dir,
+        Func<string, FileAttributes> getAttributes)
     {
         string[] subDirs;
         string[] files;
@@ -340,14 +361,14 @@ public sealed class FileDeleter : IFileDeleter
 
         foreach (var subDir in subDirs)
         {
-            if (IsReparsePoint(subDir))
+            if (IsReparsePointForDeletion(subDir, getAttributes))
             {
                 try { Directory.Delete(subDir, recursive: false); } // remove link, not target
                 catch (DirectoryNotFoundException) { }              // link already gone
             }
             else
             {
-                DeleteDirectoryRecursiveSafe(subDir);
+                DeleteDirectoryRecursiveSafe(subDir, getAttributes);
             }
         }
 
@@ -379,6 +400,23 @@ public sealed class FileDeleter : IFileDeleter
         return string.Equals(normalized, rootNorm, StringComparison.OrdinalIgnoreCase);
     }
 
+    internal static bool TryCreateValidationFailure(
+        DeletionRequest request,
+        out DeletionOutcome failure)
+    {
+        if (request.Path != "::RecycleBin::"
+            && request.Path != "::DnsFlush::"
+            && IsRootOrUncPrefix(request.Path))
+        {
+            failure = new DeletionOutcome(request.Path, false, 0,
+                "Refusing to delete a filesystem root or UNC share prefix.");
+            return true;
+        }
+
+        failure = default!;
+        return false;
+    }
+
     private static void ClearReadOnly(string path)
     {
         try
@@ -400,6 +438,22 @@ public sealed class FileDeleter : IFileDeleter
             return (File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0;
         }
         catch { return false; }
+    }
+
+    private static bool IsReparsePointForDeletion(
+        string path,
+        Func<string, FileAttributes> getAttributes)
+    {
+        try
+        {
+            return (getAttributes(path) & FileAttributes.ReparsePoint) != 0;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or SecurityException)
+        {
+            throw new IOException(
+                $"Unable to verify whether the path is a reparse point: {path}",
+                ex);
+        }
     }
 
     // ── Quarantine ──────────────────────────────────────────────────────────

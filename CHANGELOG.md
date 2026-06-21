@@ -4,6 +4,16 @@ All notable changes to StorageMaster are documented here.
 
 ---
 
+## [Unreleased] — Presentation Hardening
+
+- Updated the bundled SQLite native dependency to remove `GHSA-2m69-gcr7-jv3q`.
+- Permanent recursive deletion now refuses paths whose reparse-point status cannot be verified.
+- Smart Cleaner now propagates cancellation during recursive analysis.
+- Added Turbo Scanner CLI and JSONL contract tests.
+- Synchronized README and technical documentation with version 2.1.3 and schema v7.
+
+---
+
 ## [2.1.3] — 2026-05-07 — Updater Failure-Mode Test Coverage & Test Naming Cleanup
 
 ### Added — test coverage

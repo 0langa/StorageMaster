@@ -128,3 +128,57 @@ fn main() {
     // Flush remaining buffered output before exit.
     let _ = writer.flush();
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::Parser;
+
+    #[test]
+    fn args_use_safe_defaults() {
+        let args = Args::try_parse_from(["turbo-scanner", "--path", r"C:\data"]).unwrap();
+
+        assert_eq!(args.path, r"C:\data");
+        assert_eq!(args.threads, 0);
+        assert_eq!(args.min_size, 0);
+        assert!(!args.skip_hidden);
+    }
+
+    #[test]
+    fn args_accept_explicit_scanner_controls() {
+        let args = Args::try_parse_from([
+            "turbo-scanner",
+            "--path",
+            r"C:\data",
+            "--threads",
+            "6",
+            "--min-size",
+            "4096",
+            "--skip-hidden",
+        ])
+        .unwrap();
+
+        assert_eq!(args.threads, 6);
+        assert_eq!(args.min_size, 4096);
+        assert!(args.skip_hidden);
+    }
+
+    #[test]
+    fn file_record_serializes_to_the_jsonl_contract() {
+        let record = FileRecord {
+            path: r"C:\data\file.txt",
+            size: 42,
+            modified_unix: 100,
+            created_unix: 90,
+            is_dir: false,
+        };
+
+        let value = serde_json::to_value(record).unwrap();
+
+        assert_eq!(value["path"], r"C:\data\file.txt");
+        assert_eq!(value["size"], 42);
+        assert_eq!(value["modified_unix"], 100);
+        assert_eq!(value["created_unix"], 90);
+        assert_eq!(value["is_dir"], false);
+    }
+}

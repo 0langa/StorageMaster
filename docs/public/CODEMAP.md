@@ -1,8 +1,8 @@
 # StorageMaster — Codemap
 
-> **Version:** 2.0.1 | **Date:** 2026-05-07
+> **Version:** 2.1.3 | **Current-state review:** 2026-06-21
 > Quick-reference for every file, type, method, and database table in the project.
-> **Current-state note:** v2.0.1 keeps the v1.9 Space Map/schema/scanner hardening work, adds Drive Health/schema v7/release hardening and the v2 UI foundation, and includes the responsive layout/loading hotfix after v2.0.0. It remains framework-dependent on Windows App SDK 1.6 with a staged runtime MSIX prereq. Source code is authoritative where older file-by-file sections differ.
+> **Current-state note:** v2.1.3 retains the v2 UI, Drive Health/schema v7, Space Map, scanner, cleanup, dedupe, and release hardening. Unreleased presentation hardening adds a patched SQLite native bundle, fail-closed permanent-deletion traversal, Smart Cleaner cancellation coverage, and Rust contract tests. It remains framework-dependent on Windows App SDK 1.6 with a staged runtime MSIX prerequisite.
 
 ---
 
@@ -508,11 +508,10 @@ Implements `IFileDeleter`.
 
 | Member | Behaviour |
 |--------|-----------|
-| `DeleteManyAsync` | Batches all RecycleBin paths into one `SHFileOperation` call; permanent paths deleted individually |
-| `BuildPathListHGlobal` | Packs paths into double-null-terminated native string buffer for `SHFileOperation` |
+| `DeleteManyAsync` | Batches real Recycle Bin paths into one `IFileOperation` call; other paths use bounded per-path execution |
 | `EmptyRecycleBin` | `SHEmptyRecycleBin` via `Shell32Interop` |
-| `DeletePermanently` | `File.Delete` / `Directory.Delete(recursive: true)` |
-| `EstimateSize` | `FileInfo.Length` or recursive `EnumerateFiles().Sum()` |
+| `DeletePermanently` | Removes reparse directories as links, recursively deletes ordinary directories, and refuses traversal when attribute classification fails |
+| `EstimateSize` | Cancellable, reparse-aware traversal capped at 100,000 entries |
 
 ---
 
@@ -586,7 +585,7 @@ Implements `IRecycleBinInfoProvider`. Calls `Shell32Interop.SHQueryRecycleBin(nu
 ## StorageMaster.Storage
 
 **Target:** `net8.0`
-**Package:** `Microsoft.Data.Sqlite 9.0.4`
+**Packages:** `Microsoft.Data.Sqlite 9.0.4`, `SQLitePCLRaw.bundle_e_sqlite3 3.0.3`
 
 ---
 
@@ -855,6 +854,7 @@ strip     = true
 ## StorageMaster.Tests
 
 **Target:** `net8.0-windows10.0.19041.0`
+**Current suite:** 196 discovered .NET tests. `turbo-scanner` separately has three Rust CLI/JSONL contract tests.
 
 | Test class | Tests |
 |------------|-------|
@@ -865,6 +865,8 @@ strip     = true
 | Additional rule tests | BrowserCache, CacheFolder, RecycleBin, DownloadedInstallers |
 | Additional engine tests | `CleanupEngine` orchestration, partial failure |
 | `SettingsRepositoryTests` | Settings round-trip |
+| `DeletionSafetyHardeningTests` | root guards, partial results, race handling, and fail-closed reparse classification |
+| `SmartCleanerServiceTests` | recursive-analysis cancellation propagation |
 
 ---
 
@@ -881,6 +883,9 @@ strip     = true
 | `ScanErrors` | `Id` (AUTOINCREMENT) | `SessionId → ScanSessions(Id)` CASCADE | Per-path scan errors |
 | `CleanupLog` | `Id` (AUTOINCREMENT) | — | Append-only deletion audit |
 | `Settings` | `Key` (TEXT) | — | JSON key-value store |
+| `DuplicateRuns`, `DuplicateSignatures`, `DuplicateGroups`, `DuplicateGroupMembers`, `DuplicateErrors` | integer IDs | scan/run/file relationships | Duplicate analysis, cached signatures, groups, members, and errors |
+| `QuarantinedFiles` | `Id` (AUTOINCREMENT) | `MemberId → DuplicateGroupMembers(Id)` CASCADE | Duplicate quarantine and restore records |
+| `DriveHealthSnapshots` | `Id` (AUTOINCREMENT) | — | Latest/history Windows drive-health telemetry |
 
 ### Indexes
 
@@ -893,6 +898,7 @@ strip     = true
 ### Unique constraints
 
 - `FolderEntries(SessionId, FullPath)` — enables ON CONFLICT upsert for parallel folder writes
+- `FileEntries(SessionId, NormalizedFullPath)` — migration v6 protects one normalized path per scan session
 
 ---
 
@@ -905,6 +911,7 @@ strip     = true
 | Core | `Microsoft.Extensions.Logging.Abstractions` | 10.0.0 | `ILogger<T>` |
 | Platform.Windows | `Microsoft.Extensions.Logging.Abstractions` | 10.0.0 | Logging |
 | Storage | `Microsoft.Data.Sqlite` | 9.0.4 | SQLite access |
+| Storage | `SQLitePCLRaw.bundle_e_sqlite3` | 3.0.3 | Patched native SQLite bundle |
 | Storage | `Microsoft.Extensions.Logging.Abstractions` | 10.0.0 | Logging |
 | UI | `Microsoft.WindowsAppSDK` | 1.6.250205002 | WinUI 3 runtime + XAML compiler |
 | UI | `Microsoft.Windows.SDK.BuildTools` | 10.0.26100.1742 | WinUI 3 build tools |

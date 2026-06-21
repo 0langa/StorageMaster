@@ -1,9 +1,9 @@
-# StorageMaster — v2.1.0 Release Status
+# StorageMaster — v2.1.3 Repository Status
 
-> **Baseline:** v2.1.0 (2026-05-07)
-> **Status:** stable release. Follows v2.0.1 hotfix with a full code-hardening and Settings bug-fix pass.
+> **Baseline:** version metadata 2.1.3
+> **Status:** current repository state plus verified Unreleased presentation hardening; release publication and installer smoke tests are separate gates.
 
-## What v2.1.0 includes
+## What v2.1.x includes
 
 - **Settings page fix:** `ContentTemplateSelector` was only evaluated once because `Content` was always the same ViewModel reference. Code-behind now calls `SelectTemplate` manually on `SelectedCategory` / `IsEditorOpen` change, so every category tile shows its correct settings template.
 - **Settings duplicate removed:** Scan history retention slider was in both the Scanning and Results & History categories. Removed from Scanning (it belongs in Results & History).
@@ -28,13 +28,13 @@
 
 - Finish hardware-lab validation for Drive Health across NVMe, SATA, removable USB, and network drives.
 - Run clean-machine install and upgrade smoke tests from v1.9.6 to verify .NET runtime messaging, Windows App Runtime 1.6 installation, Start Menu launch, installer launch, and CLI launch.
-- Expand ViewModel/CLI tests around Drive Health, scheduler commands, UI error states, and Scan Workspace once WinUI test-host output copying is solved.
+- Extract ViewModels, CLI orchestration, and scheduler logic from the WinUI runtime assembly before restoring their direct tests; loading `StorageMaster.UI.dll` in the current test host requires WinRT bootstrap initialization and previously prevented CI completion.
 - Keep release signing optional in CI, but verify signed-release behavior when signing secrets are configured.
 
 ## Release acceptance
 
 - `dotnet restore`, `dotnet format --verify-no-changes`, `dotnet build -c Release`, `dotnet test -c Release`, `cargo fmt --check`, `cargo test`, and Rust release build pass.
-- 144 passing tests, including Drive Health persistence/updater coverage and temp-delete sentinel regression tests.
-- WinUI publish and Inno installer build produce `StorageMaster-2.1.0-win-x64-Setup.exe`.
-- GitHub release for tag `v2.1.0` is a stable release and includes installer plus `checksums.txt`.
+- 196 discovered .NET tests plus three Rust CLI/JSONL contract tests.
+- The configured WinUI publish and Inno installer output is `StorageMaster-2.1.3-win-x64-Setup.exe`; installer construction still requires an explicit release build.
+- GitHub release publication, signing, and clean-machine installation remain separate release checks and are not implied by local unit-test success.
 - No new startup crash entry appears in `%LOCALAPPDATA%\StorageMaster\logs\startup-errors.log` during install smoke.

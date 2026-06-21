@@ -78,7 +78,101 @@ public sealed class DeletionSafetyHardeningTests
         outcome.Error.Should().Contain("Refusing to delete a filesystem root");
     }
 
+    [Fact]
+    public async Task DeleteAsync_DryRunDriveRoot_IsStillRefused()
+    {
+        var outcome = await _deleter.DeleteAsync(
+            new DeletionRequest(@"C:\", DeletionMethod.RecycleBin, DryRun: true));
+
+        outcome.Success.Should().BeFalse("dry-run must use same root guard as real deletion");
+        outcome.Error.Should().Contain("Refusing to delete a filesystem root");
+        outcome.BytesFreed.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task DeleteManyAsync_AllInvalidRecycleBinRoots_AllAreRefused()
+    {
+        var requests = new[]
+        {
+            new DeletionRequest(@"C:\", DeletionMethod.RecycleBin, DryRun: false),
+            new DeletionRequest(@"\\server\share", DeletionMethod.RecycleBin, DryRun: false),
+        };
+
+        var outcomes = await CollectOutcomesAsync(_deleter.DeleteManyAsync(requests));
+
+        outcomes.Should().HaveCount(2);
+        outcomes.Should().OnlyContain(o => !o.Success);
+        outcomes.Should().OnlyContain(o => o.Error!.Contains("Refusing to delete a filesystem root"));
+    }
+
+    [Fact]
+    public async Task DeleteManyAsync_MixedValidAndInvalidRecycleBinBatch_RefusesOnlyRootPath()
+    {
+        var file = Path.Combine(Path.GetTempPath(), $"smhard_batch_{Guid.NewGuid():N}.txt");
+        File.WriteAllText(file, "batch me");
+
+        try
+        {
+            var requests = new[]
+            {
+                new DeletionRequest(@"C:\", DeletionMethod.RecycleBin, DryRun: false),
+                new DeletionRequest(file, DeletionMethod.RecycleBin, DryRun: false),
+            };
+
+            var outcomes = await CollectOutcomesAsync(_deleter.DeleteManyAsync(requests));
+
+            outcomes.Should().HaveCount(2);
+            outcomes.Should().ContainSingle(o => o.Path == @"C:\" && !o.Success);
+            outcomes.Should().ContainSingle(o => o.Path == file && o.Success);
+        }
+        finally
+        {
+            if (File.Exists(file))
+                File.Delete(file);
+        }
+    }
+
+    [Fact]
+    public async Task DeleteManyAsync_UncChildPath_IsNotRejectedAsShareRoot()
+    {
+        var requests = new[]
+        {
+            new DeletionRequest(@"\\server\share\folder\file.txt", DeletionMethod.RecycleBin, DryRun: true),
+        };
+
+        var outcomes = await CollectOutcomesAsync(_deleter.DeleteManyAsync(requests));
+
+        outcomes.Should().ContainSingle();
+        outcomes[0].Success.Should().BeTrue("a UNC child path is below the share root and must not be blocked by root guard");
+        outcomes[0].Error.Should().BeNull();
+    }
+
     // ── DeletePermanently hardening ───────────────────────────────────────────
+
+    [Fact]
+    public void DeletePermanently_AttributeProbeFails_RefusesRecursiveDeletion()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), $"smhard_attrs_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        var protectedFile = Path.Combine(dir, "keep.txt");
+        File.WriteAllText(protectedFile, "must survive");
+
+        try
+        {
+            var act = () => FileDeleter.DeletePermanently(
+                dir,
+                _ => throw new UnauthorizedAccessException("simulated attribute failure"));
+
+            act.Should().Throw<IOException>()
+                .WithMessage("*verify whether the path is a reparse point*");
+            File.Exists(protectedFile).Should().BeTrue();
+        }
+        finally
+        {
+            if (Directory.Exists(dir))
+                Directory.Delete(dir, recursive: true);
+        }
+    }
 
     [Fact]
     public void DeletePermanently_ReadOnlyFilesInsideDirectory_DeletesAll()
@@ -484,6 +578,15 @@ public sealed class DeletionSafetyHardeningTests
         var list = new List<CleanupSuggestion>();
         await foreach (var s in source)
             list.Add(s);
+        return list;
+    }
+
+    private static async Task<List<DeletionOutcome>> CollectOutcomesAsync(
+        IAsyncEnumerable<DeletionOutcome> source)
+    {
+        var list = new List<DeletionOutcome>();
+        await foreach (var item in source)
+            list.Add(item);
         return list;
     }
 }

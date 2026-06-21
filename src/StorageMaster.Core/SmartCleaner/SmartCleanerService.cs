@@ -1,3 +1,4 @@
+using System.Security;
 using Microsoft.Extensions.Logging;
 using StorageMaster.Core.Interfaces;
 using StorageMaster.Core.Models;
@@ -269,7 +270,7 @@ public sealed class SmartCleanerService : ISmartCleanerService
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    private static void ScanDirectory(string dir, ref long totalBytes, List<string> paths, CancellationToken ct)
+    internal static void ScanDirectory(string dir, ref long totalBytes, List<string> paths, CancellationToken ct)
     {
         if (!Directory.Exists(dir)) return;
         try
@@ -282,10 +283,20 @@ public sealed class SmartCleanerService : ISmartCleanerService
                     totalBytes += new FileInfo(f).Length;
                     if (paths.Count < 100_000) paths.Add(f);
                 }
-                catch { /* best-effort */ }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or SecurityException)
+                {
+                    // Best-effort size analysis; inaccessible entries are omitted.
+                }
             }
         }
-        catch { /* skip inaccessible dirs */ }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or SecurityException)
+        {
+            // Best-effort analysis; inaccessible directories are omitted.
+        }
     }
 
     private static List<string> GetBrowserCachePaths()

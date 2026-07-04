@@ -45,14 +45,7 @@ public sealed class RecycleBinCleanupRule : ICleanupRule
     }
 #pragma warning restore CS1998
 
-    private static string FormatBytes(long bytes) =>
-        bytes switch
-        {
-            >= 1L << 30 => $"{bytes / (1L << 30):F1} GB",
-            >= 1L << 20 => $"{bytes / (1L << 20):F1} MB",
-            >= 1L << 10 => $"{bytes / (1L << 10):F1} KB",
-            _ => $"{bytes} B",
-        };
+    private static string FormatBytes(long bytes) => ByteFormat.Format(bytes);
 }
 
 /// <summary>Platform abstraction for querying Recycle Bin metadata.</summary>

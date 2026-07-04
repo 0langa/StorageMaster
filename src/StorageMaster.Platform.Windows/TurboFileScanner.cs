@@ -97,6 +97,13 @@ public sealed class TurboFileScanner : IFileScanner
         var sortedExclusions = options.ExcludedPaths.ToArray();
         var stderrErrors = new List<ScanError>();
 
+        // Declared outside the try so the cancellation path can persist partial
+        // totals (parity with the managed scanner).
+        long fileCount = 0;
+        long folderCount = 0;
+        long totalBytes = 0;
+        string lastPath = string.Empty;
+
         try
         {
             // Drain stderr in background so the process never blocks on a full pipe.
@@ -140,10 +147,10 @@ public sealed class TurboFileScanner : IFileScanner
                 FullMode = BoundedChannelFullMode.Wait,
             });
 
-            long fileCount = 0;
-            long folderCount = 0;
-            long totalBytes = 0;
-            string lastPath = string.Empty;
+            // A consumer fault (e.g. database failure) stops channel reads; the
+            // producer would then block forever on the bounded channel. The
+            // linked token lets the failing consumer abort the producer.
+            using var abort = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
 
             // ── Producer: read stdout at full speed, never awaits DB ──────────
             var producer = Task.Run(async () =>
@@ -159,9 +166,9 @@ public sealed class TurboFileScanner : IFileScanner
                     leaveOpen: true);
                 try
                 {
-                    while (await stdoutReader.ReadLineAsync(cancellationToken) is { } line)
+                    while (await stdoutReader.ReadLineAsync(abort.Token) is { } line)
                     {
-                        cancellationToken.ThrowIfCancellationRequested();
+                        abort.Token.ThrowIfCancellationRequested();
 
                         TurboRecord? rec;
                         try { rec = JsonSerializer.Deserialize<TurboRecord>(line, JsonOpts); }
@@ -171,14 +178,19 @@ public sealed class TurboFileScanner : IFileScanner
                         if (!options.DeepScan && IsExcluded(rec.Path, sortedExclusions)) continue;
                         if (!options.DeepScan && !options.IncludeHiddenFiles && IsHidden(rec.Path)) continue;
 
-                        await pipe.Writer.WriteAsync(rec, cancellationToken);
+                        await pipe.Writer.WriteAsync(rec, abort.Token);
                     }
+                }
+                catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+                {
+                    // Consumer faulted and aborted the producer; the consumer's
+                    // own exception is what should surface from the scan.
                 }
                 finally
                 {
                     pipe.Writer.Complete();
                 }
-            }, cancellationToken);
+            }, CancellationToken.None);
 
             // ── Consumer: batch + DB insert — runs concurrently with producer ─
             var fileBuffer = new List<FileEntry>(500);
@@ -188,91 +200,98 @@ public sealed class TurboFileScanner : IFileScanner
 
             var consumer = Task.Run(async () =>
             {
-                await foreach (var rec in pipe.Reader.ReadAllAsync(cancellationToken))
+                try
                 {
-                    lastPath = rec.Path;
-
-                    if (rec.IsDir)
+                    await foreach (var rec in pipe.Reader.ReadAllAsync(cancellationToken))
                     {
-                        var fe = new FolderEntry
-                        {
-                            Id = 0,
-                            SessionId = session.Id,
-                            FullPath = rec.Path,
-                            FolderName = ScanOptionValidator.GetDisplayName(rec.Path),
-                            DirectSizeBytes = 0,
-                            TotalSizeBytes = 0,
-                            FileCount = 0,
-                            SubFolderCount = 0,
-                            IsReparsePoint = false,
-                            WasAccessDenied = false,
-                        };
-                        folderBuffer.Add(fe);
-                        folderCount++;
+                        lastPath = rec.Path;
 
-                        if (folderBuffer.Count >= 100)
+                        if (rec.IsDir)
                         {
-                            await _repo.UpsertFolderEntriesAsync([.. folderBuffer], cancellationToken);
-                            folderBuffer.Clear();
+                            var fe = new FolderEntry
+                            {
+                                Id = 0,
+                                SessionId = session.Id,
+                                FullPath = rec.Path,
+                                FolderName = ScanOptionValidator.GetDisplayName(rec.Path),
+                                DirectSizeBytes = 0,
+                                TotalSizeBytes = 0,
+                                FileCount = 0,
+                                SubFolderCount = 0,
+                                IsReparsePoint = false,
+                                WasAccessDenied = false,
+                            };
+                            folderBuffer.Add(fe);
+                            folderCount++;
+
+                            if (folderBuffer.Count >= 100)
+                            {
+                                await _repo.UpsertFolderEntriesAsync([.. folderBuffer], cancellationToken);
+                                folderBuffer.Clear();
+                            }
+                        }
+                        else
+                        {
+                            var ext = Path.GetExtension(rec.Path);
+                            var modUtc = DateTimeOffset.FromUnixTimeSeconds(rec.ModifiedUnix).UtcDateTime;
+                            var createUtc = DateTimeOffset.FromUnixTimeSeconds(rec.CreatedUnix).UtcDateTime;
+
+                            var fe = new FileEntry
+                            {
+                                Id = 0,
+                                SessionId = session.Id,
+                                FullPath = rec.Path,
+                                FileName = Path.GetFileName(rec.Path),
+                                Extension = ext,
+                                SizeBytes = (long)rec.Size,
+                                CreatedUtc = createUtc,
+                                ModifiedUtc = modUtc,
+                                AccessedUtc = modUtc,
+                                Attributes = FileAttributes.Normal,
+                                Category = FileTypeCategorizor.Categorize(ext),
+                                IsReparsePoint = false,
+                            };
+                            fileBuffer.Add(fe);
+                            fileCount++;
+                            totalBytes += (long)rec.Size;
+
+                            var parentDir = Path.GetDirectoryName(rec.Path);
+                            if (parentDir is not null)
+                                parentSizes[parentDir] = parentSizes.GetValueOrDefault(parentDir) + (long)rec.Size;
+
+                            if (fileBuffer.Count >= 500)
+                            {
+                                await _repo.InsertFileEntriesAsync([.. fileBuffer], cancellationToken);
+                                fileBuffer.Clear();
+                            }
+                        }
+
+                        // Report progress every ~300 ms.
+                        if (stopwatch.ElapsedMilliseconds >= 300)
+                        {
+                            stopwatch.Restart();
+                            progress.Report(new ScanProgress
+                            {
+                                CurrentPath = lastPath,
+                                FilesScanned = fileCount,
+                                FoldersScanned = folderCount,
+                                BytesScanned = totalBytes,
+                                ErrorCount = 0,
+                                IsComplete = false,
+                            });
                         }
                     }
-                    else
-                    {
-                        var ext = Path.GetExtension(rec.Path);
-                        var modUtc = DateTimeOffset.FromUnixTimeSeconds(rec.ModifiedUnix).UtcDateTime;
-                        var createUtc = DateTimeOffset.FromUnixTimeSeconds(rec.CreatedUnix).UtcDateTime;
 
-                        var fe = new FileEntry
-                        {
-                            Id = 0,
-                            SessionId = session.Id,
-                            FullPath = rec.Path,
-                            FileName = Path.GetFileName(rec.Path),
-                            Extension = ext,
-                            SizeBytes = (long)rec.Size,
-                            CreatedUtc = createUtc,
-                            ModifiedUtc = modUtc,
-                            AccessedUtc = modUtc,
-                            Attributes = FileAttributes.Normal,
-                            Category = FileTypeCategorizor.Categorize(ext),
-                            IsReparsePoint = false,
-                        };
-                        fileBuffer.Add(fe);
-                        fileCount++;
-                        totalBytes += (long)rec.Size;
-
-                        var parentDir = Path.GetDirectoryName(rec.Path);
-                        if (parentDir is not null)
-                            parentSizes[parentDir] = parentSizes.GetValueOrDefault(parentDir) + (long)rec.Size;
-
-                        if (fileBuffer.Count >= 500)
-                        {
-                            await _repo.InsertFileEntriesAsync([.. fileBuffer], cancellationToken);
-                            fileBuffer.Clear();
-                        }
-                    }
-
-                    // Report progress every ~300 ms.
-                    if (stopwatch.ElapsedMilliseconds >= 300)
-                    {
-                        stopwatch.Restart();
-                        progress.Report(new ScanProgress
-                        {
-                            CurrentPath = lastPath,
-                            FilesScanned = fileCount,
-                            FoldersScanned = folderCount,
-                            BytesScanned = totalBytes,
-                            ErrorCount = 0,
-                            IsComplete = false,
-                        });
-                    }
+                    // Flush remaining buffers after the channel is drained.
+                    if (fileBuffer.Count > 0) await _repo.InsertFileEntriesAsync([.. fileBuffer], cancellationToken);
+                    if (folderBuffer.Count > 0) await _repo.UpsertFolderEntriesAsync([.. folderBuffer], cancellationToken);
                 }
-
-                // Flush remaining buffers after the channel is drained.
-                if (fileBuffer.Count > 0) await _repo.InsertFileEntriesAsync([.. fileBuffer], cancellationToken);
-                if (folderBuffer.Count > 0) await _repo.UpsertFolderEntriesAsync([.. folderBuffer], cancellationToken);
-
-            }, cancellationToken);
+                catch
+                {
+                    abort.Cancel();
+                    throw;
+                }
+            }, CancellationToken.None);
 
             // Run producer and consumer concurrently — this is the key fix.
             await Task.WhenAll(producer, consumer);
@@ -356,6 +375,9 @@ public sealed class TurboFileScanner : IFileScanner
             {
                 Status = ScanStatus.Cancelled,
                 CompletedUtc = DateTime.UtcNow,
+                TotalFiles = fileCount,
+                TotalFolders = folderCount,
+                TotalSizeBytes = totalBytes,
             };
             await _repo.UpdateSessionAsync(cancelled, CancellationToken.None);
             _logger.LogWarning("Turbo scan {Id} cancelled — process killed", session.Id);

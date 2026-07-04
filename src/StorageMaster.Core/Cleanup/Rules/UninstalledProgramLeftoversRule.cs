@@ -101,24 +101,26 @@ public sealed class UninstalledProgramLeftoversRule : ICleanupRule
             }
         }
 
-        if (candidates.Count == 0) yield break;
-
-        long totalBytes = candidates.Sum(c => c.size);
-
-        yield return new CleanupSuggestion
+        // One suggestion per folder: the match is heuristic, so the user must be
+        // able to review and deselect individual folders instead of getting a
+        // single all-or-nothing entry.
+        foreach (var candidate in candidates.OrderByDescending(static c => c.size))
         {
-            Id = Guid.NewGuid(),
-            RuleId = RuleId,
-            Title = $"Uninstalled program leftovers ({candidates.Count} folder(s))",
-            Description = $"AppData folders that appear to belong to programs no longer installed, " +
-                             $"unmodified for over 90 days. Review carefully before deleting. " +
-                             $"Estimated savings: {FormatBytes(totalBytes)}.",
-            Category = Category,
-            Risk = CleanupRisk.Medium,
-            EstimatedBytes = totalBytes,
-            TargetPaths = candidates.Select(c => c.path).ToList(),
-            IsSystemPath = false,
-        };
+            yield return new CleanupSuggestion
+            {
+                Id = Guid.NewGuid(),
+                RuleId = RuleId,
+                Title = $"Program leftover: {candidate.name}",
+                Description = $"AppData folder that appears to belong to a program no longer installed, " +
+                                 $"unmodified for over 90 days. Review carefully before deleting. " +
+                                 $"Path: {candidate.path}. Size: {FormatBytes(candidate.size)}.",
+                Category = Category,
+                Risk = CleanupRisk.Medium,
+                EstimatedBytes = candidate.size,
+                TargetPaths = [candidate.path],
+                IsSystemPath = false,
+            };
+        }
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────
@@ -162,11 +164,5 @@ public sealed class UninstalledProgramLeftoversRule : ICleanupRule
     private static IEnumerable<string> Tokenize(string name) =>
         name.Split([' ', '-', '_', '.', '(', ')', ',', '&'], StringSplitOptions.RemoveEmptyEntries);
 
-    private static string FormatBytes(long b) => b switch
-    {
-        >= 1L << 30 => $"{b / (1L << 30):F1} GB",
-        >= 1L << 20 => $"{b / (1L << 20):F1} MB",
-        >= 1L << 10 => $"{b / (1L << 10):F1} KB",
-        _ => $"{b} B",
-    };
+    private static string FormatBytes(long b) => ByteFormat.Format(b);
 }

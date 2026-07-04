@@ -31,13 +31,35 @@ public sealed class CleanupLogRepository : ICleanupLogRepository
             cmd.Parameters.AddWithValue("$status", result.Status.ToString());
             cmd.Parameters.AddWithValue("$executed", result.ExecutedUtc.ToString("O"));
             cmd.Parameters.AddWithValue("$error", (object?)result.ErrorMessage ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("$audit", (object?)suggestion.AuditDataJson ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$audit", (object?)BuildAuditJson(result, suggestion) ?? DBNull.Value);
             await cmd.ExecuteNonQueryAsync(ct);
         }
         finally
         {
             _db.WriteLock.Release();
         }
+    }
+
+    /// <summary>
+    /// Uses the suggestion's audit JSON verbatim; when files were quarantined the
+    /// original→quarantine path pairs are wrapped in so the destinations survive
+    /// in the append-only log and quarantined files stay recoverable.
+    /// </summary>
+    private static string? BuildAuditJson(CleanupResult result, CleanupSuggestion suggestion)
+    {
+        if (result.QuarantinedPaths.Count == 0)
+            return suggestion.AuditDataJson;
+
+        using var doc = suggestion.AuditDataJson is { Length: > 0 } existing
+            ? System.Text.Json.JsonDocument.Parse(existing)
+            : null;
+
+        return System.Text.Json.JsonSerializer.Serialize(new
+        {
+            QuarantinedFiles = result.QuarantinedPaths
+                .Select(static move => new { move.OriginalPath, move.QuarantinePath }),
+            SuggestionAudit = doc?.RootElement,
+        });
     }
 
     public async Task<IReadOnlyList<CleanupLogEntry>> GetRecentAsync(int count = 50, CancellationToken ct = default)

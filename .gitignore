@@ -91,6 +91,14 @@ archive/generated/
 archive/local/
 archive/external/
 
+# Local demo fixtures and generated presentation output
+demo/
+outputs/
+
+# Internal agent working files (not public documentation)
+PROJECT_STATE.md
+WORK_STATUS.md
+
 # Rust build output
 target/
 **/target/

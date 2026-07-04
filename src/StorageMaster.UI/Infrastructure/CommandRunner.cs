@@ -125,7 +125,10 @@ public sealed class CommandRunner(
             throw new CommandLineException("Scan path must be an existing absolute path.", 2);
 
         if (deep && !adminService.IsRunningAsAdmin)
+        {
+            await output.WriteLineAsync("Deep scan requires administrator privileges. Re-run from an elevated prompt.");
             return 4;
+        }
 
         var settings = await settingsRepository.LoadAsync(ct);
         var scanOptions = new ScanOptions
@@ -312,6 +315,18 @@ public sealed class CommandRunner(
 
         var results = await cleanupEngine.ExecuteAsync(selected, dryRun: false, method, null, ct);
         await output.WriteLineAsync($"Cleanup executed. {results.Count(static item => item.Status == CleanupResultStatus.Success):N0} succeeded.");
+
+        var quarantinedCount = results.Sum(static item => item.QuarantinedPaths.Count);
+        if (quarantinedCount > 0)
+        {
+            var quarantineRoot = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "StorageMaster", "Quarantine");
+            await output.WriteLineAsync(
+                $"Quarantined {quarantinedCount:N0} file(s) under {quarantineRoot}. " +
+                "Original and quarantine paths are recorded in the CleanupLog audit trail.");
+        }
+
         return results.All(static item => item.Status == CleanupResultStatus.Success) ? 0 : 1;
     }
 

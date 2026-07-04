@@ -310,7 +310,19 @@ public sealed partial class DuplicatesViewModel : ObservableObject
     partial void OnSelectedSessionChanged(ScanSession? value)
     {
         OnPropertyChanged(nameof(CanRun));
-        _ = LoadLatestRunAsync();
+        _ = LoadLatestRunSafeAsync();
+    }
+
+    private async Task LoadLatestRunSafeAsync()
+    {
+        try
+        {
+            await LoadLatestRunAsync();
+        }
+        catch (Exception ex)
+        {
+            StatusText = $"Could not load duplicate runs: {ex.Message}";
+        }
     }
 
     partial void OnKeeperPolicyChanged(KeeperPolicy value)
@@ -812,6 +824,7 @@ public sealed partial class DuplicatesViewModel : ObservableObject
         try
         {
             long freed = 0;
+            var groupErrors = new List<string>();
             foreach (var group in selectedGroups)
             {
                 var rawMembers = group.Members.Select(member => member.Member with
@@ -820,13 +833,24 @@ public sealed partial class DuplicatesViewModel : ObservableObject
                     IsKeeper = member.IsKeeper,
                 }).ToList();
 
-                freed += await _duplicateDeletionService.DeleteSelectedAsync(
-                    group.Group,
-                    rawMembers,
-                    deletionMethod);
+                // One group failing (e.g. its keeper vanished) must not abort
+                // the remaining reviewed groups.
+                try
+                {
+                    freed += await _duplicateDeletionService.DeleteSelectedAsync(
+                        group.Group,
+                        rawMembers,
+                        deletionMethod);
+                }
+                catch (Exception ex)
+                {
+                    groupErrors.Add($"Group {group.Group.Id}: {ex.Message}");
+                }
             }
 
-            StatusText = $"Deleted selected duplicates from page {_currentGroupPage:N0}. Reclaimed {ByteSizeConverter.Format(freed)}.";
+            StatusText = groupErrors.Count == 0
+                ? $"Deleted selected duplicates from page {_currentGroupPage:N0}. Reclaimed {ByteSizeConverter.Format(freed)}."
+                : $"Reclaimed {ByteSizeConverter.Format(freed)}; {groupErrors.Count:N0} group(s) failed. First error: {groupErrors[0]}";
             await LoadLatestRunAsync();
         }
         catch (Exception ex)
@@ -842,11 +866,21 @@ public sealed partial class DuplicatesViewModel : ObservableObject
     [RelayCommand]
     private async Task RestoreQuarantinedAsync(QuarantinedFile file)
     {
-        await _duplicateDeletionService.RestoreFromQuarantineAsync(file.Id);
-        _quarantineRunId = null;
-        _quarantineCache = [];
-        await LoadLatestRunAsync();
-        StatusText = $"Restored {file.OriginalPath}.";
+        try
+        {
+            await _duplicateDeletionService.RestoreFromQuarantineAsync(file.Id);
+            _quarantineRunId = null;
+            _quarantineCache = [];
+            await LoadLatestRunAsync();
+            StatusText = $"Restored {file.OriginalPath}.";
+        }
+        catch (Exception ex)
+        {
+            StatusText = $"Restore failed: {ex.Message}";
+            await _dialogs.ShowErrorAsync(
+                "Restore failed",
+                $"Could not restore \"{file.OriginalPath}\".\n\n{ex.Message}");
+        }
     }
 
     [RelayCommand]

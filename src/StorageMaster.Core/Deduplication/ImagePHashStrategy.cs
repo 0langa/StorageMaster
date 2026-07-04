@@ -172,6 +172,9 @@ public sealed class ImagePHashStrategy : IDuplicateDetectionStrategy
         if (items.Count < 2) yield break;
 
         var assigned = new bool[items.Count];
+        // Resolved once per clustering pass — the settings snapshot must not be
+        // consulted inside the O(n²) comparison loop.
+        var threshold = ResolveHammingThreshold();
 
         for (var i = 0; i < items.Count; i++)
         {
@@ -187,7 +190,6 @@ public sealed class ImagePHashStrategy : IDuplicateDetectionStrategy
                 if (assigned[j]) continue;
 
                 // Compare against the seed (items[i]) — single-linkage
-                var threshold = ResolveHammingThreshold();
                 var dist = HammingDistance(items[i].Hash, items[j].Hash);
                 if (dist <= threshold)
                 {
@@ -206,7 +208,7 @@ public sealed class ImagePHashStrategy : IDuplicateDetectionStrategy
             yield return new DuplicateStrategyMatch(
                 group.Select(static g => g.Candidate).ToList(),
                 confidence,
-                $"Perceptual image match (Hamming ≤ {ResolveHammingThreshold()})");
+                $"Perceptual image match (Hamming ≤ {threshold})");
         }
     }
 

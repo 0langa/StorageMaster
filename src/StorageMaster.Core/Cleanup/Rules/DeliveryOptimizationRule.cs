@@ -70,11 +70,5 @@ public sealed class DeliveryOptimizationRule : ICleanupRule
         };
     }
 
-    private static string FormatBytes(long b) => b switch
-    {
-        >= 1L << 30 => $"{b / (1L << 30):F1} GB",
-        >= 1L << 20 => $"{b / (1L << 20):F1} MB",
-        >= 1L << 10 => $"{b / (1L << 10):F1} KB",
-        _ => $"{b} B",
-    };
+    private static string FormatBytes(long b) => ByteFormat.Format(b);
 }

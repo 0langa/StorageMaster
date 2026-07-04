@@ -133,7 +133,7 @@ public sealed partial class ScanViewModel : ObservableObject
             return;
         }
 
-        var arguments = $"--cli scan --path {QuoteArgument(SelectedPath)} --deep" +
+        var arguments = $"--cli scan --path {CommandLineArguments.Quote(SelectedPath)} --deep" +
                         (UseTurboScanner && TurboScannerAvailable ? " --turbo" : string.Empty);
         if (_admin.TryStartElevated(arguments))
         {
@@ -180,7 +180,8 @@ public sealed partial class ScanViewModel : ObservableObject
         _scanStartedUtc = DateTime.UtcNow;
         _lastProgressUtc = _scanStartedUtc;
         _lastProgressBytes = 0;
-        _estimatedScanBytes = EstimateScanBytes(SelectedPath);
+        // The drive-usage estimate only bounds the scan when the whole drive is scanned.
+        _estimatedScanBytes = IsDriveRoot(SelectedPath) ? EstimateScanBytes(SelectedPath) : 0;
         _smoothedBytesPerSecond = 0;
 
         _cts = new CancellationTokenSource();
@@ -288,8 +289,35 @@ public sealed partial class ScanViewModel : ObservableObject
             ? "…" + p.CurrentPath[^77..]
             : p.CurrentPath;
         ProgressText = $"{ByteSizeConverter.Format(p.BytesScanned)} scanned · {p.FilesScanned:N0} files";
-        ProgressValue = 0;
-        IsProgressIndeterminate = true;
+
+        if (_estimatedScanBytes > 0)
+        {
+            ProgressValue = Math.Clamp((double)p.BytesScanned / _estimatedScanBytes * 100.0, 0.0, 100.0);
+            IsProgressIndeterminate = false;
+        }
+        else
+        {
+            ProgressValue = 0;
+            IsProgressIndeterminate = true;
+        }
+    }
+
+    private static bool IsDriveRoot(string path)
+    {
+        try
+        {
+            var full = Path.GetFullPath(path.Trim());
+            var root = Path.GetPathRoot(full);
+            return !string.IsNullOrEmpty(root) &&
+                   string.Equals(
+                       full.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+                       root.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+                       StringComparison.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     private void ValidateSelectedPath(string? path)
@@ -346,8 +374,6 @@ public sealed partial class ScanViewModel : ObservableObject
         ScanPathError = string.Empty;
         ScanStepText = "Step 1 of 4 · Choose scope";
     }
-
-    private static string QuoteArgument(string value) => "\"" + value.Replace("\"", "\\\"", StringComparison.Ordinal) + "\"";
 
     private static string FormatDuration(TimeSpan value)
     {

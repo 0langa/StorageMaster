@@ -98,6 +98,7 @@ public sealed class CleanupEngine : ICleanupEngine
 
         long totalFreed = 0;
         var failedPaths = new List<string>();
+        var quarantinedPaths = new List<QuarantineMove>();
         string? firstError = null;
 
         var requests = suggestion.TargetPaths.Select(path => new DeletionRequest(
@@ -110,6 +111,8 @@ public sealed class CleanupEngine : ICleanupEngine
             if (outcome.Success)
             {
                 totalFreed += outcome.BytesFreed;
+                if (outcome.QuarantinePath is not null)
+                    quarantinedPaths.Add(new QuarantineMove(outcome.Path, outcome.QuarantinePath));
             }
             else
             {
@@ -136,6 +139,7 @@ public sealed class CleanupEngine : ICleanupEngine
             WasDryRun = dryRun,
             FailedPaths = failedPaths,
             ErrorMessage = firstError,
+            QuarantinedPaths = quarantinedPaths,
         };
     }
 

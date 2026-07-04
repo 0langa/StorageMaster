@@ -88,6 +88,33 @@ public sealed class FileScannerTests
     }
 
     [Fact]
+    public async Task ScanAsync_DatabaseInsertFailure_FailsScanInsteadOfHanging()
+    {
+        _repoMock
+            .Setup(r => r.InsertFileEntriesAsync(It.IsAny<IReadOnlyList<FileEntry>>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new IOException("database is locked"));
+
+        var root = CreateTempDir(files: 40, subdirs: 3);
+        try
+        {
+            var options = new ScanOptions { RootPath = root, MaxParallelism = 2, DbBatchSize = 10 };
+            // Deadlock guard: a hung producer/consumer pair would exceed this window.
+            var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+
+            Func<Task> act = () => _scanner.ScanAsync(options, new Progress<ScanProgress>(), cts.Token);
+
+            await act.Should().ThrowAsync<IOException>();
+            _repoMock.Verify(r => r.UpdateSessionAsync(
+                It.Is<ScanSession>(s => s.Status == ScanStatus.Failed),
+                It.IsAny<CancellationToken>()), Times.Once);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task ScanAsync_InvalidPath_ThrowsArgumentException()
     {
         var options = new ScanOptions { RootPath = string.Empty };
@@ -141,6 +168,67 @@ public sealed class FileScannerTests
         finally
         {
             Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task ScanAsync_DeepScan_SurvivesAccessDeniedDirectory()
+    {
+        // Deep scan uses IgnoreInaccessible=false, so access errors surface
+        // lazily during enumeration. Regression: the producer previously
+        // iterated outside its try/catch and one denied directory failed the
+        // whole scan.
+        var root = CreateTempDir(files: 2, subdirs: 1);
+        var denied = Path.Combine(root, "denied");
+        Directory.CreateDirectory(denied);
+        await File.WriteAllTextAsync(Path.Combine(denied, "hidden.txt"), "x");
+
+        var user = $"{Environment.UserDomainName}\\{Environment.UserName}";
+        if (!RunIcacls($"\"{denied}\" /deny \"{user}:(OI)(CI)R\""))
+        {
+            // ACLs cannot be modified in this environment — nothing to verify.
+            Directory.Delete(root, recursive: true);
+            return;
+        }
+
+        try
+        {
+            var options = new ScanOptions { RootPath = root, MaxParallelism = 2, DeepScan = true };
+            var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+
+            var session = await _scanner.ScanAsync(options, new Progress<ScanProgress>(), cts.Token);
+
+            session.Status.Should().Be(ScanStatus.Completed);
+            session.TotalFiles.Should().BeGreaterThanOrEqualTo(2, "accessible files must still be scanned");
+            session.AccessDeniedCount.Should().BeGreaterThan(0,
+                "the denied directory must be recorded as access-denied, proving the deny ACL was effective");
+        }
+        finally
+        {
+            RunIcacls($"\"{denied}\" /remove:d \"{user}\"");
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    private static bool RunIcacls(string arguments)
+    {
+        try
+        {
+            using var process = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = "icacls",
+                Arguments = arguments,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+            });
+            process!.WaitForExit(10_000);
+            return process.HasExited && process.ExitCode == 0;
+        }
+        catch
+        {
+            return false;
         }
     }
 

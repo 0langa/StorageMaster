@@ -165,17 +165,35 @@ public sealed class FileScanner : IFileScanner
             SingleReader = false,
         });
 
+        // If a consumer faults (e.g. a database failure) it stops reading; the
+        // producer would then block forever on the bounded channel. The linked
+        // token lets a failing consumer abort the producer so the real error
+        // can propagate instead of deadlocking the scan.
+        using var abort = CancellationTokenSource.CreateLinkedTokenSource(ct);
+
         // Producer: walk the tree and feed directory paths into the channel.
-        var producerTask = ProduceDirectoriesAsync(rootPath, options, state, channel.Writer, ct);
+        var producerTask = ProduceDirectoriesAsync(rootPath, options, state, channel.Writer, ct, abort.Token);
 
         // Consumers: process directories in parallel up to MaxParallelism.
         var consumerTasks = Enumerable
             .Range(0, options.MaxParallelism)
-            .Select(_ => ConsumeDirectoriesAsync(options, state, channel.Reader, ct))
+            .Select(async _ =>
+            {
+                try
+                {
+                    await ConsumeDirectoriesAsync(options, state, channel.Reader, ct).ConfigureAwait(false);
+                }
+                catch
+                {
+                    abort.Cancel();
+                    throw;
+                }
+            })
             .ToArray();
 
-        await producerTask.ConfigureAwait(false);
-        await Task.WhenAll(consumerTasks).ConfigureAwait(false);
+        // Await everything together so the abort source stays alive until all
+        // tasks have finished, and a consumer fault surfaces as the scan error.
+        await Task.WhenAll([.. consumerTasks, producerTask]).ConfigureAwait(false);
     }
 
     private async Task ProduceDirectoriesAsync(
@@ -183,6 +201,7 @@ public sealed class FileScanner : IFileScanner
         ScanOptions options,
         ScanState state,
         ChannelWriter<string> writer,
+        CancellationToken externalCt,
         CancellationToken ct)
     {
         var queue = new Queue<string>();
@@ -214,10 +233,14 @@ public sealed class FileScanner : IFileScanner
 
                 await writer.WriteAsync(dir, ct).ConfigureAwait(false);
 
-                IEnumerable<string> subDirs;
+                // EnumerateDirectories is lazy: with IgnoreInaccessible=false
+                // (deep scan) access errors surface during iteration, not at the
+                // call site — so the iteration itself must stay inside the try.
+                var subDirs = new List<string>();
                 try
                 {
-                    subDirs = Directory.EnumerateDirectories(dir, "*", enumOptions);
+                    foreach (var sub in Directory.EnumerateDirectories(dir, "*", enumOptions))
+                        subDirs.Add(sub);
                 }
                 catch (UnauthorizedAccessException)
                 {
@@ -238,6 +261,11 @@ public sealed class FileScanner : IFileScanner
                     queue.Enqueue(sub);
                 }
             }
+        }
+        catch (OperationCanceledException) when (!externalCt.IsCancellationRequested)
+        {
+            // A consumer faulted and aborted the producer; the consumer's own
+            // exception is what should surface from the scan.
         }
         finally
         {

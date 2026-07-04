@@ -403,7 +403,12 @@ public sealed partial class ResultsViewModel : ObservableObject
 
         var outcome = await _resultDeletionService.DeleteAsync(file, DeletionMethod.RecycleBin);
         if (!outcome.Success)
+        {
+            await _dialogs.ShowErrorAsync(
+                "Could not delete file",
+                $"\"{file.FileName}\" was not moved to the Recycle Bin.\n\n{outcome.Error ?? "The file may be locked or access was denied."}");
             return;
+        }
 
         LargestFiles.Remove(file);
         TotalFiles = Math.Max(0, TotalFiles - 1);

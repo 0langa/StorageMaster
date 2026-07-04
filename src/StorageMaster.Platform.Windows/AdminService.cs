@@ -1,6 +1,8 @@
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Security.Principal;
 using StorageMaster.Core.Interfaces;
+using StorageMaster.Core.Models;
 
 namespace StorageMaster.Platform.Windows;
 
@@ -16,7 +18,9 @@ public sealed class AdminService : IAdminService
 
     public void RestartAsAdmin(bool enableDeepScan = false)
     {
-        var args = enableDeepScan ? "--cli scan --deep --path \"C:\\\"" : "--cli version";
+        var args = enableDeepScan
+            ? CommandLineArguments.Join("--cli", "scan", "--deep", "--path", @"C:\")
+            : "--cli version";
         _ = TryStartElevated(args);
     }
 
@@ -26,14 +30,23 @@ public sealed class AdminService : IAdminService
             ?? Process.GetCurrentProcess().MainModule?.FileName
             ?? throw new InvalidOperationException("Cannot determine process path.");
 
-        var process = Process.Start(new ProcessStartInfo
+        try
         {
-            FileName = exePath,
-            Arguments = arguments,
-            UseShellExecute = true,
-            Verb = "runas",
-        });
+            var process = Process.Start(new ProcessStartInfo
+            {
+                FileName = exePath,
+                Arguments = arguments,
+                UseShellExecute = true,
+                Verb = "runas",
+            });
 
-        return process is not null;
+            return process is not null;
+        }
+        catch (Win32Exception)
+        {
+            // ERROR_CANCELLED (1223): the user declined the UAC prompt.
+            // Any other launch failure is equally non-fatal for the caller.
+            return false;
+        }
     }
 }

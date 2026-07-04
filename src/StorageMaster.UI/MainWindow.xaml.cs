@@ -240,7 +240,9 @@ public sealed partial class MainWindow : Window
             var settings = await _settingsRepository.LoadAsync();
             ConfigureDiskMonitor(settings);
             await RefreshGlobalStatusAsync();
-            if (App.StartInTray || settings.MinimizeToTray)
+            // MinimizeToTray only changes close-button behavior; a normal launch
+            // must stay visible. Only the explicit --start-in-tray flag hides here.
+            if (App.StartInTray)
                 HideToTray();
         }
         catch (Exception ex)
@@ -465,16 +467,22 @@ public sealed partial class MainWindow : Window
         menu.Items.Add(new MenuFlyoutSeparator());
         menu.Items.Add(MakeMenuItem("Exit", TrayExit_Click));
 
-        return new TaskbarIcon
+        var trayIcon = new TaskbarIcon
         {
             ToolTipText = "StorageMaster",
             ContextFlyout = menu,
             MenuActivation = PopupActivationMode.LeftOrRightClick,
-            IconSource = new GeneratedIconSource
-            {
-                Text = "SM",
-            },
         };
+
+        // Prefer the shipped application icon; the generated "SM" glyph is only
+        // a fallback for builds where the asset is missing.
+        var iconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "storagemaster.ico");
+        if (File.Exists(iconPath))
+            trayIcon.IconSource = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(new Uri(iconPath));
+        else
+            trayIcon.IconSource = new GeneratedIconSource { Text = "SM" };
+
+        return trayIcon;
     }
 
     private static MenuFlyoutItem MakeMenuItem(string text, RoutedEventHandler handler)

@@ -52,9 +52,9 @@ public sealed partial class CleanupPage : Page
         string title = isDryRun ? "Confirm Dry Run Preview" : "Confirm Cleanup";
         string message = isDryRun
             ? $"This will simulate the cleanup for {size} of selected items without deleting anything. Continue?"
-            : $"This will delete {size} of selected files and folders. " +
-              "Items will be sent to the Recycle Bin if that setting is enabled, " +
-              "otherwise they will be permanently deleted. Continue?";
+            : ViewModel.UseRecycleBin
+                ? $"This will send {size} of selected files and folders to the Recycle Bin (recoverable). Continue?"
+                : $"This will PERMANENTLY delete {size} of selected files and folders. This cannot be undone. Continue?";
 
         var confirm = new ContentDialog
         {
@@ -100,11 +100,6 @@ public sealed partial class CleanupPage : Page
             else if (choice == ContentDialogResult.Secondary && wasDry)
             {
                 // "Delete Permanently" — skip recycle bin altogether
-                await ViewModel.RunCleanupWithMethodAsync(dryRun: false, DeletionMethod.Permanent);
-            }
-            else if (choice == ContentDialogResult.Primary && !wasDry && wasMethod == DeletionMethod.RecycleBin)
-            {
-                // "Delete Permanently" — upgrade from recycle-bin run
                 await ViewModel.RunCleanupWithMethodAsync(dryRun: false, DeletionMethod.Permanent);
             }
             else
@@ -242,18 +237,16 @@ public sealed partial class CleanupPage : Page
             DefaultButton = ContentDialogButton.Close,
         };
 
-        // Add action buttons depending on what the last run was.
+        // Add action buttons depending on what the last run was. After a real
+        // run the files are no longer at their original paths, so a follow-up
+        // "Delete Permanently" pass would only report meaningless successes —
+        // real runs get Close only.
         if (isDryRun)
         {
             dialog.PrimaryButtonText = "Delete (Recycle Bin)";
             dialog.SecondaryButtonText = "Delete Permanently";
             dialog.DefaultButton = ContentDialogButton.Primary;
         }
-        else if (method == DeletionMethod.RecycleBin)
-        {
-            dialog.PrimaryButtonText = "Delete Permanently";
-        }
-        // Permanent run: no further action buttons — only Close.
 
         return dialog;
     }

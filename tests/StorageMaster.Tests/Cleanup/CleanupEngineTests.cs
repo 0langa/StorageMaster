@@ -181,6 +181,38 @@ public sealed class CleanupEngineTests
     }
 
     [Fact]
+    public async Task ExecuteAsync_Quarantine_RecordsQuarantinedPathsOnResult()
+    {
+        _deleter
+            .Setup(d => d.DeleteManyAsync(
+                It.IsAny<IReadOnlyList<DeletionRequest>>(),
+                It.IsAny<CancellationToken>()))
+            .Returns<IReadOnlyList<DeletionRequest>, CancellationToken>(
+                (reqs, _) => MakeQuarantineOutcomes(reqs));
+        var suggestion = MakeSuggestion("rule.q", "Quarantine test", [@"C:\Temp\a.tmp", @"C:\Temp\b.tmp"]);
+        var engine = BuildEngine([]);
+
+        var results = await engine.ExecuteAsync([suggestion], dryRun: false, DeletionMethod.Quarantine);
+
+        results.Should().ContainSingle();
+        results[0].QuarantinedPaths.Should().HaveCount(2);
+        results[0].QuarantinedPaths[0].OriginalPath.Should().Be(@"C:\Temp\a.tmp");
+        results[0].QuarantinedPaths[0].QuarantinePath.Should().Be(@"Q:\quarantine\a.tmp");
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_RecycleBin_LeavesQuarantinedPathsEmpty()
+    {
+        SetupDeleterSuccess();
+        var suggestion = MakeSuggestion("rule.x", "Recycle test", [@"C:\Temp\a.tmp"]);
+        var engine = BuildEngine([]);
+
+        var results = await engine.ExecuteAsync([suggestion], dryRun: false, DeletionMethod.RecycleBin);
+
+        results[0].QuarantinedPaths.Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task ExecuteAsync_LogsEachResultToAuditLog()
     {
         SetupDeleterSuccess();
@@ -277,6 +309,18 @@ public sealed class CleanupEngineTests
     {
         foreach (var r in reqs)
             yield return new DeletionOutcome(r.Path, Success: false, BytesFreed: 0, Error: "Access denied");
+        await Task.CompletedTask;
+    }
+
+    private static async IAsyncEnumerable<DeletionOutcome> MakeQuarantineOutcomes(
+        IReadOnlyList<DeletionRequest> reqs)
+    {
+        foreach (var r in reqs)
+        {
+            yield return new DeletionOutcome(
+                r.Path, Success: true, BytesFreed: 1024L,
+                QuarantinePath: @"Q:\quarantine\" + Path.GetFileName(r.Path));
+        }
         await Task.CompletedTask;
     }
 

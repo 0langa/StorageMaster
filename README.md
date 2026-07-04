@@ -16,10 +16,10 @@ A Windows disk analyzer and storage cleaner built with **C# / .NET 8 / WinUI 3**
 | **17 cleanup rules** | Temp files, browser caches, Windows Update, WER, Delivery Optimization, downloaded installers, app caches, program leftovers, Recycle Bin, large old files, thumbnail cache, icon cache, font cache, DNS cache, prefetch files, Microsoft Store logs, duplicate files |
 | **Deep scan worker** | Protected-directory scans launch through an elevated CLI worker so the WinUI shell remains unelevated |
 | **Recycle Bin integration** | All deletions go to Recycle Bin by default (recoverable) |
-| **Quarantine** | Duplicate deletions can be quarantined with one-click restore from the UI |
+| **Quarantine + recovery journal** | Duplicate deletions can be quarantined with one-click restore from the UI; duplicate cleanup writes operation intent/outcome records before and after filesystem changes |
 | **Audit trail** | Every deletion logged to SQLite `CleanupLog` — forever |
 | **Scan history** | Every scan session stored; browse and compare historical results |
-| **Duplicate analysis** | Pluggable dedupe engine with exact SHA-256, normalized-text review, image pHash, optional video pHash (auto-detects bundled or PATH FFmpeg), quarantine/recycle deletion, and audit trail |
+| **Duplicate analysis** | Pluggable dedupe engine with exact SHA-256, normalized-text review, image pHash, optional video pHash (auto-detects bundled or PATH FFmpeg), quarantine/recycle deletion, cleanup audit trail, and recovery journal |
 | **Duplicate previews** | Inline previews for image and video groups; first-difference highlight for text duplicates |
 | **Results visualization** | Largest files, largest folders, file-type breakdown, error log, category filters, scan workspace handoff, and paged loading |
 | **Visual Space Map** | Interactive treemap for completed scans, with native tile controls, folder drill-down, category colors, size filters, CSV/HTML/PNG export, and safe review-only actions |
@@ -244,6 +244,18 @@ Files are **never deleted without explicit user confirmation**:
 
 Duplicate cleanup follows the same audit path. Quarantine moves files to a safe directory; the Duplicates page lists all quarantined files with a **Restore** button that moves them back to their original paths.
 
+StorageMaster 3.0 adds a duplicate-operation recovery journal. Duplicate cleanup records planned operations before the filesystem is touched and records completed, quarantined, restored, or failed outcomes afterward. This makes partial failures and crash-restart recovery states inspectable instead of ambiguous. See `docs/public/SAFETY_RECOVERY.md`.
+
+### Benchmarks and visual regression
+
+Performance benchmarks live in `benchmarks/StorageMaster.Benchmarks`:
+
+```powershell
+dotnet run -c Release --project benchmarks/StorageMaster.Benchmarks/StorageMaster.Benchmarks.csproj -- --filter *
+```
+
+The WinUI visual regression plan is documented in `docs/public/VISUAL_REGRESSION.md`. The xUnit readiness test is intentionally skipped unless an interactive Windows desktop screenshot harness is available.
+
 ---
 
 ## Cleanup rules
@@ -288,6 +300,7 @@ Schema auto-migrates on first launch. Key tables:
 | `DuplicateSignatures` | Cached method signatures with source-size/mtime/identity validity metadata |
 | `DuplicateErrors` | Per-file dedupe errors and skipped reasons |
 | `QuarantinedFiles` | Original-to-quarantine path mapping for restore |
+| `DuplicateOperationJournal` | Planned and completed duplicate cleanup/restore operations for recovery inspection |
 | `DiagnosticsLog` | Internal event log for scheduler and CLI operations |
 
 Uninstall keeps `%LOCALAPPDATA%\StorageMaster` by default, so the database and settings survive reinstall/upgrade cycles.

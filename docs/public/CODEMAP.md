@@ -38,6 +38,9 @@
 | `docs/public/CODEMAP.md` | This file |
 | `docs/public/DOCUMENTATION.md` | Full API and configuration reference |
 | `docs/public/ROADMAP.md` | Current roadmap and shipped baseline |
+| `docs/public/STORAGEMASTER_3_AUDIT.md` | StorageMaster 3.0 current-state audit and safety gap summary |
+| `docs/public/SAFETY_RECOVERY.md` | Deletion, quarantine, recovery journal, and undo/restore model |
+| `docs/public/VISUAL_REGRESSION.md` | WinUI visual regression scenario matrix and desktop harness requirements |
 | `archive/` | Archived local clutter and historical planning notes; `archive/project-notes/AIprojectcontext/` preserves the retired agent context pack |
 | `.github/workflows/release.yml` | CI/CD: test → Rust build → publish → installer → Release |
 | `installer/StorageMaster.iss` | Inno Setup 6 script (per-user installer, checks .NET Desktop Runtime 8 x64, stages Windows App Runtime 1.6 prereq) |
@@ -886,6 +889,7 @@ strip     = true
 | `Settings` | `Key` (TEXT) | — | JSON key-value store |
 | `DuplicateRuns`, `DuplicateSignatures`, `DuplicateGroups`, `DuplicateGroupMembers`, `DuplicateErrors` | integer IDs | scan/run/file relationships | Duplicate analysis, cached signatures, groups, members, and errors |
 | `QuarantinedFiles` | `Id` (AUTOINCREMENT) | `MemberId → DuplicateGroupMembers(Id)` CASCADE | Duplicate quarantine and restore records |
+| `DuplicateOperationJournal` | `Id` (AUTOINCREMENT), `OperationId` (unique) | Run/group/member/quarantine IDs where available | Crash-recovery journal for duplicate cleanup and restore intent/outcome |
 | `DriveHealthSnapshots` | `Id` (AUTOINCREMENT) | — | Latest/history Windows drive-health telemetry |
 
 ### Indexes

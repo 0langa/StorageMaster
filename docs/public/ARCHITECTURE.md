@@ -93,7 +93,7 @@ The heart of the system. Contains:
 
 | Component | Responsibility |
 |-----------|---------------|
-| **Models/** | Immutable data records (`FileEntry`, `FolderEntry`, `ScanSession`, `ScanProgress`, `CleanupSuggestion`, `CleanupResult`, `AppSettings`, `ScanError`, `ScheduledJobDefinition`, `DuplicatePreviewResult`, `QuarantinedFile`, `DriveHealthSnapshot`) |
+| **Models/** | Immutable data records (`FileEntry`, `FolderEntry`, `ScanSession`, `ScanProgress`, `CleanupSuggestion`, `CleanupResult`, `AppSettings`, `ScanError`, `ScheduledJobDefinition`, `DuplicatePreviewResult`, `QuarantinedFile`, `DuplicateOperationJournalEntry`, `DriveHealthSnapshot`) |
 | **Interfaces/** | All cross-layer contracts (`IFileScanner`, `ICleanupRule`, `IFileDeleter`, `ISmartCleanerService`, `IInstalledProgramProvider`, `IScheduledTaskService`, `IDuplicatePreviewService`, `ICommandRunner`, `INotificationService`, etc.) |
 | **Scanner/FileScanner** | Parallel BFS directory walker; writes results via `IScanRepository` |
 | **Scanner/FileTypeCategorizor** | Extension → `FileTypeCategory` lookup (80+ mappings) |
@@ -134,6 +134,8 @@ Pure SQLite persistence:
 | `ScanErrorRepository` | Per-path scan error logging and retrieval |
 | `CleanupLogRepository` | Append-only audit log |
 | `SettingsRepository` | JSON-serialized `AppSettings` as a key-value row |
+
+Schema v8 adds `DuplicateOperationJournal`, an append/update recovery ledger for duplicate cleanup and quarantine restore. Duplicate deletion writes intent before filesystem operations and records final state afterward, so interrupted or partial duplicate operations can be inspected after restart.
 
 ### StorageMaster.UI
 

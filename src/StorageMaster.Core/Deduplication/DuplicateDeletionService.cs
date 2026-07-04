@@ -37,7 +37,7 @@ public sealed class DuplicateDeletionService(
         if (selected.Count == 0)
             return 0L;
 
-        var validated = new List<(DuplicateGroupMember Member, DeletionRequest Request)>(selected.Count);
+        var validated = new List<(DuplicateGroupMember Member, DeletionRequest Request, DuplicateOperationJournalEntry Journal)>(selected.Count);
         foreach (var member in selected)
         {
             ct.ThrowIfCancellationRequested();
@@ -45,11 +45,16 @@ public sealed class DuplicateDeletionService(
             if (!IsSafeToDelete(member))
                 continue;
 
-            validated.Add((member, new DeletionRequest(
+            var request = new DeletionRequest(
                 member.FullPath,
                 method,
                 DryRun: false,
-                QuarantineRunId: group.RunId)));
+                QuarantineRunId: group.RunId);
+            var journal = await duplicateRepository.RecordDuplicateOperationIntentAsync(
+                CreateDeleteJournal(group, member, method),
+                ct);
+
+            validated.Add((member, request, journal));
         }
 
         if (validated.Count == 0)
@@ -59,13 +64,26 @@ public sealed class DuplicateDeletionService(
         var deletedMemberIds = new List<long>(validated.Count);
         var membersByPath = validated.ToDictionary(
             static item => item.Member.FullPath,
-            static item => item.Member,
+            static item => (item.Member, item.Journal),
             StringComparer.OrdinalIgnoreCase);
 
         await foreach (var outcome in deleter.DeleteManyAsync(validated.Select(static item => item.Request).ToList(), ct))
         {
-            if (!outcome.Success || !membersByPath.TryGetValue(outcome.Path, out var member))
+            if (!membersByPath.TryGetValue(outcome.Path, out var tracked))
                 continue;
+
+            var (member, journal) = tracked;
+            if (!outcome.Success)
+            {
+                await duplicateRepository.UpdateDuplicateOperationOutcomeAsync(
+                    journal.Id,
+                    DuplicateOperationStatus.Failed,
+                    outcome.QuarantinePath,
+                    outcome.BytesFreed,
+                    outcome.Error ?? "Deletion failed.",
+                    ct);
+                continue;
+            }
 
             freed += outcome.BytesFreed;
             deletedMemberIds.Add(member.Id);
@@ -77,6 +95,13 @@ public sealed class DuplicateDeletionService(
                     member.FullPath, outcome.QuarantinePath, ct);
             }
 
+            await duplicateRepository.UpdateDuplicateOperationOutcomeAsync(
+                journal.Id,
+                method == DeletionMethod.Quarantine ? DuplicateOperationStatus.Quarantined : DuplicateOperationStatus.Completed,
+                outcome.QuarantinePath,
+                outcome.BytesFreed,
+                outcome.Error,
+                ct);
             await LogAuditAsync(group, member, keeper, method, outcome, ct);
         }
 
@@ -108,11 +133,85 @@ public sealed class DuplicateDeletionService(
         if (File.Exists(restorePath))
             throw new IOException($"Restore target already exists: {restorePath}");
 
-        File.Move(record.QuarantinePath, restorePath);
-        await duplicateRepository.MarkRestoredAsync(quarantineId, restorePath, ct);
+        var journal = await duplicateRepository.RecordDuplicateOperationIntentAsync(
+            CreateRestoreJournal(record, restorePath),
+            ct);
+
+        try
+        {
+            File.Move(record.QuarantinePath, restorePath);
+            await duplicateRepository.MarkRestoredAsync(quarantineId, restorePath, ct);
+            await duplicateRepository.UpdateDuplicateOperationOutcomeAsync(
+                journal.Id,
+                DuplicateOperationStatus.Restored,
+                restorePath,
+                0,
+                null,
+                ct);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            await duplicateRepository.UpdateDuplicateOperationOutcomeAsync(
+                journal.Id,
+                DuplicateOperationStatus.Failed,
+                restorePath,
+                null,
+                ex.Message,
+                ct);
+            throw;
+        }
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private static DuplicateOperationJournalEntry CreateDeleteJournal(
+        DuplicateGroup group,
+        DuplicateGroupMember member,
+        DeletionMethod method) => new()
+        {
+            OperationId = Guid.NewGuid(),
+            Kind = DuplicateOperationKind.Delete,
+            Status = DuplicateOperationStatus.Planned,
+            RunId = group.RunId,
+            GroupId = group.Id,
+            MemberId = member.Id,
+            Method = method,
+            SourcePath = member.FullPath,
+            SourceSizeBytes = member.SizeBytes,
+            SourceModifiedUtc = member.ModifiedUtc.ToUniversalTime(),
+            PlannedUtc = DateTime.UtcNow,
+            MetadataJson = JsonSerializer.Serialize(new
+            {
+                group.Method,
+                group.Algorithm,
+                group.Confidence,
+                member.FileEntryId,
+                member.RecommendationReason,
+            }),
+        };
+
+    private static DuplicateOperationJournalEntry CreateRestoreJournal(
+        QuarantinedFile record,
+        string restorePath) => new()
+        {
+            OperationId = Guid.NewGuid(),
+            Kind = DuplicateOperationKind.Restore,
+            Status = DuplicateOperationStatus.Planned,
+            RunId = record.RunId,
+            MemberId = record.MemberId,
+            QuarantineId = record.Id,
+            Method = DeletionMethod.Quarantine,
+            SourcePath = record.QuarantinePath,
+            DestinationPath = restorePath,
+            SourceSizeBytes = File.Exists(record.QuarantinePath) ? new FileInfo(record.QuarantinePath).Length : 0,
+            SourceModifiedUtc = File.Exists(record.QuarantinePath) ? File.GetLastWriteTimeUtc(record.QuarantinePath) : null,
+            PlannedUtc = DateTime.UtcNow,
+            MetadataJson = JsonSerializer.Serialize(new
+            {
+                record.OriginalPath,
+                RestorePath = restorePath,
+            }),
+        };
 
     private static bool IsSafeToDelete(DuplicateGroupMember member)
     {

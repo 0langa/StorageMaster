@@ -84,4 +84,22 @@ public interface IDuplicateRepository
         long quarantineId,
         string restoredPath,
         CancellationToken ct = default);
+
+    // ── Recovery journal ───────────────────────────────────────────────────
+
+    Task<DuplicateOperationJournalEntry> RecordDuplicateOperationIntentAsync(
+        DuplicateOperationJournalEntry entry,
+        CancellationToken ct = default);
+
+    Task UpdateDuplicateOperationOutcomeAsync(
+        long journalId,
+        DuplicateOperationStatus status,
+        string? destinationPath,
+        long? bytesFreed,
+        string? errorMessage,
+        CancellationToken ct = default);
+
+    Task<IReadOnlyList<DuplicateOperationJournalEntry>> GetDuplicateOperationJournalAsync(
+        long runId,
+        CancellationToken ct = default);
 }

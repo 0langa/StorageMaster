@@ -7,7 +7,7 @@ namespace StorageMaster.Storage.Schema;
 /// </summary>
 internal static class DatabaseSchema
 {
-    internal const int CurrentVersion = 7;
+    internal const int CurrentVersion = 8;
 
     /// <summary>SQL executed once at version 1 creation.</summary>
     internal static readonly string[] V1Statements =
@@ -281,5 +281,36 @@ internal static class DatabaseSchema
         """,
         "CREATE INDEX IF NOT EXISTS IX_DriveHealthSnapshots_Drive_Captured ON DriveHealthSnapshots (DriveName, CapturedUtc DESC);",
         "CREATE INDEX IF NOT EXISTS IX_DriveHealthSnapshots_Captured ON DriveHealthSnapshots (CapturedUtc DESC);",
+    ];
+
+    internal static readonly string[] V8Statements =
+    [
+        """
+        CREATE TABLE IF NOT EXISTS DuplicateOperationJournal (
+            Id                INTEGER PRIMARY KEY AUTOINCREMENT,
+            OperationId       TEXT    NOT NULL UNIQUE,
+            Kind              TEXT    NOT NULL,
+            Status            TEXT    NOT NULL,
+            RunId             INTEGER NOT NULL,
+            GroupId           INTEGER,
+            MemberId          INTEGER,
+            QuarantineId      INTEGER,
+            Method            TEXT    NOT NULL,
+            SourcePath        TEXT    NOT NULL,
+            SourceIdentity    TEXT,
+            DestinationPath   TEXT,
+            SourceSizeBytes   INTEGER NOT NULL DEFAULT 0,
+            SourceModifiedUtc TEXT,
+            PlannedUtc        TEXT    NOT NULL,
+            CompletedUtc      TEXT,
+            BytesFreed        INTEGER,
+            ErrorMessage      TEXT,
+            MetadataJson      TEXT
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS IX_DuplicateOperationJournal_RunId_Planned ON DuplicateOperationJournal (RunId, PlannedUtc DESC);",
+        "CREATE INDEX IF NOT EXISTS IX_DuplicateOperationJournal_Status ON DuplicateOperationJournal (Status);",
+        "CREATE INDEX IF NOT EXISTS IX_DuplicateOperationJournal_MemberId ON DuplicateOperationJournal (MemberId);",
+        "CREATE INDEX IF NOT EXISTS IX_DuplicateOperationJournal_QuarantineId ON DuplicateOperationJournal (QuarantineId);",
     ];
 }

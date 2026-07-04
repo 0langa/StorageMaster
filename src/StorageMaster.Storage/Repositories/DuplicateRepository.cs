@@ -790,7 +790,140 @@ public sealed class DuplicateRepository(StorageDbContext db) : IDuplicateReposit
         }
     }
 
+    // ── IDuplicateRepository — recovery journal ─────────────────────────────
+
+    public async Task<DuplicateOperationJournalEntry> RecordDuplicateOperationIntentAsync(
+        DuplicateOperationJournalEntry entry,
+        CancellationToken ct = default)
+    {
+        await _db.WriteLock.WaitAsync(ct);
+        try
+        {
+            var conn = await _db.GetConnectionAsync(ct);
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = """
+                INSERT INTO DuplicateOperationJournal
+                    (OperationId, Kind, Status, RunId, GroupId, MemberId, QuarantineId,
+                     Method, SourcePath, SourceIdentity, DestinationPath, SourceSizeBytes,
+                     SourceModifiedUtc, PlannedUtc, CompletedUtc, BytesFreed, ErrorMessage, MetadataJson)
+                VALUES
+                    ($operation, $kind, $status, $run, $group, $member, $quarantine,
+                     $method, $source, $identity, $destination, $size,
+                     $modified, $planned, $completed, $bytes, $error, $metadata);
+                SELECT last_insert_rowid();
+                """;
+            AddJournalParameters(cmd, entry);
+            var id = Convert.ToInt64(await cmd.ExecuteScalarAsync(ct));
+            return entry with { Id = id };
+        }
+        finally
+        {
+            _db.WriteLock.Release();
+        }
+    }
+
+    public async Task UpdateDuplicateOperationOutcomeAsync(
+        long journalId,
+        DuplicateOperationStatus status,
+        string? destinationPath,
+        long? bytesFreed,
+        string? errorMessage,
+        CancellationToken ct = default)
+    {
+        await _db.WriteLock.WaitAsync(ct);
+        try
+        {
+            var conn = await _db.GetConnectionAsync(ct);
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = """
+                UPDATE DuplicateOperationJournal
+                SET Status = $status,
+                    DestinationPath = COALESCE($destination, DestinationPath),
+                    CompletedUtc = $completed,
+                    BytesFreed = $bytes,
+                    ErrorMessage = $error
+                WHERE Id = $id;
+                """;
+            cmd.Parameters.AddWithValue("$status", status.ToString());
+            cmd.Parameters.AddWithValue("$destination", (object?)destinationPath ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$completed", DateTime.UtcNow.ToString("O"));
+            cmd.Parameters.AddWithValue("$bytes", (object?)bytesFreed ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$error", (object?)errorMessage ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$id", journalId);
+            await cmd.ExecuteNonQueryAsync(ct);
+        }
+        finally
+        {
+            _db.WriteLock.Release();
+        }
+    }
+
+    public async Task<IReadOnlyList<DuplicateOperationJournalEntry>> GetDuplicateOperationJournalAsync(
+        long runId,
+        CancellationToken ct = default)
+    {
+        var conn = await _db.GetConnectionAsync(ct);
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            SELECT *
+            FROM DuplicateOperationJournal
+            WHERE RunId = $run
+            ORDER BY PlannedUtc ASC, Id ASC;
+            """;
+        cmd.Parameters.AddWithValue("$run", runId);
+        using var reader = await cmd.ExecuteReaderAsync(ct);
+        var list = new List<DuplicateOperationJournalEntry>();
+        while (await reader.ReadAsync(ct))
+            list.Add(ReadJournalEntry(reader));
+        return list;
+    }
+
     // ── Readers ───────────────────────────────────────────────────────────────
+
+    private static void AddJournalParameters(SqliteCommand cmd, DuplicateOperationJournalEntry entry)
+    {
+        cmd.Parameters.AddWithValue("$operation", entry.OperationId.ToString("N"));
+        cmd.Parameters.AddWithValue("$kind", entry.Kind.ToString());
+        cmd.Parameters.AddWithValue("$status", entry.Status.ToString());
+        cmd.Parameters.AddWithValue("$run", entry.RunId);
+        cmd.Parameters.AddWithValue("$group", (object?)entry.GroupId ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$member", (object?)entry.MemberId ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$quarantine", (object?)entry.QuarantineId ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$method", entry.Method.ToString());
+        cmd.Parameters.AddWithValue("$source", entry.SourcePath);
+        cmd.Parameters.AddWithValue("$identity", (object?)entry.SourceIdentity ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$destination", (object?)entry.DestinationPath ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$size", entry.SourceSizeBytes);
+        cmd.Parameters.AddWithValue("$modified", entry.SourceModifiedUtc is null ? DBNull.Value : entry.SourceModifiedUtc.Value.ToString("O"));
+        cmd.Parameters.AddWithValue("$planned", entry.PlannedUtc.ToString("O"));
+        cmd.Parameters.AddWithValue("$completed", entry.CompletedUtc is null ? DBNull.Value : entry.CompletedUtc.Value.ToString("O"));
+        cmd.Parameters.AddWithValue("$bytes", (object?)entry.BytesFreed ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$error", (object?)entry.ErrorMessage ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$metadata", (object?)entry.MetadataJson ?? DBNull.Value);
+    }
+
+    private static DuplicateOperationJournalEntry ReadJournalEntry(SqliteDataReader r) => new()
+    {
+        Id = r.GetInt64(r.GetOrdinal("Id")),
+        OperationId = Guid.Parse(r.GetString(r.GetOrdinal("OperationId"))),
+        Kind = Enum.Parse<DuplicateOperationKind>(r.GetString(r.GetOrdinal("Kind"))),
+        Status = Enum.Parse<DuplicateOperationStatus>(r.GetString(r.GetOrdinal("Status"))),
+        RunId = r.GetInt64(r.GetOrdinal("RunId")),
+        GroupId = r.IsDBNull(r.GetOrdinal("GroupId")) ? null : r.GetInt64(r.GetOrdinal("GroupId")),
+        MemberId = r.IsDBNull(r.GetOrdinal("MemberId")) ? null : r.GetInt64(r.GetOrdinal("MemberId")),
+        QuarantineId = r.IsDBNull(r.GetOrdinal("QuarantineId")) ? null : r.GetInt64(r.GetOrdinal("QuarantineId")),
+        Method = Enum.Parse<DeletionMethod>(r.GetString(r.GetOrdinal("Method"))),
+        SourcePath = r.GetString(r.GetOrdinal("SourcePath")),
+        SourceIdentity = r.IsDBNull(r.GetOrdinal("SourceIdentity")) ? null : r.GetString(r.GetOrdinal("SourceIdentity")),
+        DestinationPath = r.IsDBNull(r.GetOrdinal("DestinationPath")) ? null : r.GetString(r.GetOrdinal("DestinationPath")),
+        SourceSizeBytes = r.GetInt64(r.GetOrdinal("SourceSizeBytes")),
+        SourceModifiedUtc = r.IsDBNull(r.GetOrdinal("SourceModifiedUtc")) ? null : DateTime.Parse(r.GetString(r.GetOrdinal("SourceModifiedUtc"))),
+        PlannedUtc = DateTime.Parse(r.GetString(r.GetOrdinal("PlannedUtc"))),
+        CompletedUtc = r.IsDBNull(r.GetOrdinal("CompletedUtc")) ? null : DateTime.Parse(r.GetString(r.GetOrdinal("CompletedUtc"))),
+        BytesFreed = r.IsDBNull(r.GetOrdinal("BytesFreed")) ? null : r.GetInt64(r.GetOrdinal("BytesFreed")),
+        ErrorMessage = r.IsDBNull(r.GetOrdinal("ErrorMessage")) ? null : r.GetString(r.GetOrdinal("ErrorMessage")),
+        MetadataJson = r.IsDBNull(r.GetOrdinal("MetadataJson")) ? null : r.GetString(r.GetOrdinal("MetadataJson")),
+    };
 
     private static DuplicateSignature ReadSignature(SqliteDataReader r) => new()
     {

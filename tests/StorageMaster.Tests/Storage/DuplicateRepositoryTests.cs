@@ -172,6 +172,47 @@ public sealed class DuplicateRepositoryTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task RecoveryJournal_RoundTripsIntentAndOutcome()
+    {
+        var session = await _scanRepository.CreateSessionAsync(@"C:\scope");
+        var run = await _repo.CreateRunAsync(new DuplicateScanOptions { SessionId = session.Id });
+
+        var planned = await _repo.RecordDuplicateOperationIntentAsync(new DuplicateOperationJournalEntry
+        {
+            OperationId = Guid.NewGuid(),
+            Kind = DuplicateOperationKind.Delete,
+            Status = DuplicateOperationStatus.Planned,
+            RunId = run.Id,
+            GroupId = 42,
+            MemberId = 99,
+            Method = DeletionMethod.Quarantine,
+            SourcePath = @"C:\scope\dupe.bin",
+            SourceIdentity = "volume:file:index",
+            SourceSizeBytes = 1234,
+            SourceModifiedUtc = DateTime.UtcNow.AddMinutes(-5),
+            PlannedUtc = DateTime.UtcNow,
+            MetadataJson = "{\"reason\":\"test\"}",
+        });
+
+        await _repo.UpdateDuplicateOperationOutcomeAsync(
+            planned.Id,
+            DuplicateOperationStatus.Quarantined,
+            @"C:\quarantine\dupe.bin",
+            1234,
+            null);
+
+        var entries = await _repo.GetDuplicateOperationJournalAsync(run.Id);
+
+        entries.Should().ContainSingle();
+        entries[0].Id.Should().Be(planned.Id);
+        entries[0].Status.Should().Be(DuplicateOperationStatus.Quarantined);
+        entries[0].DestinationPath.Should().Be(@"C:\quarantine\dupe.bin");
+        entries[0].BytesFreed.Should().Be(1234);
+        entries[0].CompletedUtc.Should().NotBeNull();
+        entries[0].MetadataJson.Should().Contain("test");
+    }
+
+    [Fact]
     public async Task PagedGroupAndErrorQueries_ReturnExpectedSlices()
     {
         var session = await _scanRepository.CreateSessionAsync(@"C:\scope");

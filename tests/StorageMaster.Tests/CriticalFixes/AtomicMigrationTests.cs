@@ -30,12 +30,12 @@ public sealed class AtomicMigrationTests : IAsyncDisposable
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "SELECT MAX(Version) FROM SchemaVersion;";
         var version = Convert.ToInt32(await cmd.ExecuteScalarAsync());
-        version.Should().Be(7, "all migrations should stamp their versions");
+        version.Should().Be(8, "all migrations should stamp their versions");
 
-        // Verify there are exactly 7 version rows (one per migration).
+        // Verify there are exactly 8 version rows (one per migration).
         cmd.CommandText = "SELECT COUNT(*) FROM SchemaVersion;";
         var count = Convert.ToInt32(await cmd.ExecuteScalarAsync());
-        count.Should().Be(7, "each migration level stamps its own row");
+        count.Should().Be(8, "each migration level stamps its own row");
 
         cmd.CommandText = "SELECT COUNT(*) FROM pragma_table_info('CleanupLog') WHERE name = 'AuditDataJson';";
         var auditColumnCount = Convert.ToInt32(await cmd.ExecuteScalarAsync());
@@ -44,6 +44,10 @@ public sealed class AtomicMigrationTests : IAsyncDisposable
         cmd.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'DriveHealthSnapshots';";
         var driveHealthTableCount = Convert.ToInt32(await cmd.ExecuteScalarAsync());
         driveHealthTableCount.Should().Be(1, "drive health snapshots should exist after v7");
+
+        cmd.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'DuplicateOperationJournal';";
+        var journalTableCount = Convert.ToInt32(await cmd.ExecuteScalarAsync());
+        journalTableCount.Should().Be(1, "duplicate operation recovery journal should exist after v8");
     }
 
     [Fact]
@@ -58,11 +62,11 @@ public sealed class AtomicMigrationTests : IAsyncDisposable
         _ctx = new StorageDbContext(_dbPath, NullLogger<StorageDbContext>.Instance);
         var conn = await _ctx.GetConnectionAsync();
 
-        // Should still have exactly 7 version rows (not 14).
+        // Should still have exactly 8 version rows (not 16).
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "SELECT COUNT(*) FROM SchemaVersion;";
         var count = Convert.ToInt32(await cmd.ExecuteScalarAsync());
-        count.Should().Be(7, "migrations must not re-run on second open");
+        count.Should().Be(8, "migrations must not re-run on second open");
     }
 
     public async ValueTask DisposeAsync()

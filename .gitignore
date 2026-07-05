@@ -113,3 +113,4 @@ docs/AIprojectcontext/
 BenchmarkDotNet.Artifacts/
 MANUAL_TESTING_HANDOFF.md
 testing/
+.handoff/

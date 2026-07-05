@@ -42,6 +42,7 @@ internal static class ServiceBootstrapper
         services.AddSingleton<DuplicateRepository>();
         services.AddSingleton<IDuplicateRepository>(sp => sp.GetRequiredService<DuplicateRepository>());
         services.AddSingleton<IDuplicateCandidateProvider>(sp => sp.GetRequiredService<DuplicateRepository>());
+        services.AddSingleton<IQuarantineRecorder>(sp => sp.GetRequiredService<DuplicateRepository>());
         services.AddSingleton<IDriveHealthRepository, DriveHealthRepository>();
 
         services.AddSingleton(_ =>

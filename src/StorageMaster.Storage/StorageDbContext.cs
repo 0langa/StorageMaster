@@ -117,6 +117,9 @@ public sealed class StorageDbContext : IAsyncDisposable
 
             if (current < 8)
                 await ApplyMigrationAsync(conn, DatabaseSchema.V8Statements, 8, ct);
+
+            if (current < 9)
+                await ApplyMigrationAsync(conn, DatabaseSchema.V9Statements, 9, ct);
         }
     }
 

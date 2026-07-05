@@ -347,8 +347,11 @@ public sealed partial class MainWindow : Window
                         continue;
                     }
 
-                    state[stateKey] = DateTimeOffset.UtcNow.ToString("O");
-                    await _settingsRepository.SaveAsync(settings);
+                    var stamp = DateTimeOffset.UtcNow.ToString("O");
+                    state[stateKey] = stamp;
+                    // Targeted mutation: a concurrent settings-page save must not
+                    // be clobbered by this monitor's whole-snapshot write.
+                    await _settingsRepository.UpdateAsync(s => s.LowDiskNotificationState[stateKey] = stamp);
                     await _notificationService.ShowWarningAsync(
                         "Low disk space",
                         $"{drive.Name} is down to {freePercent}% free ({drive.FreeBytes / 1024 / 1024 / 1024.0:F1} GB).");
@@ -376,8 +379,9 @@ public sealed partial class MainWindow : Window
                     continue;
                 }
 
-                settings.DriveHealthNotificationState[stateKey] = DateTimeOffset.UtcNow.ToString("O");
-                await _settingsRepository.SaveAsync(settings);
+                var healthStamp = DateTimeOffset.UtcNow.ToString("O");
+                settings.DriveHealthNotificationState[stateKey] = healthStamp;
+                await _settingsRepository.UpdateAsync(s => s.DriveHealthNotificationState[stateKey] = healthStamp);
                 await _notificationService.ShowWarningAsync(
                     "Drive health needs attention",
                     $"{snapshot.DriveName}: {snapshot.Message}");

@@ -172,6 +172,38 @@ public sealed class DuplicateRepositoryTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task GenericCleanupQuarantine_RoundTripsWithNullMemberId()
+    {
+        // Schema v9: generic-cleanup quarantines have no duplicate group member.
+        var record = await _repo.RecordQuarantineAsync(
+            memberId: null,
+            IQuarantineRecorder.GenericCleanupRunId,
+            @"C:\temp\junk.log",
+            @"C:\q\0\C_temp_junk.log");
+
+        var loaded = await _repo.GetQuarantinedFileAsync(record.Id);
+
+        loaded.Should().NotBeNull();
+        loaded!.MemberId.Should().BeNull();
+        loaded.RunId.Should().Be(IQuarantineRecorder.GenericCleanupRunId);
+        loaded.OriginalPath.Should().Be(@"C:\temp\junk.log");
+    }
+
+    [Fact]
+    public async Task GetUnrestoredQuarantinedFiles_ExcludesRestored_AndSpansAllRuns()
+    {
+        var generic = await _repo.RecordQuarantineAsync(null, 0, @"C:\a.log", @"C:\q\0\a.log");
+        var restored = await _repo.RecordQuarantineAsync(null, 0, @"C:\b.log", @"C:\q\0\b.log");
+        await _repo.MarkRestoredAsync(restored.Id, @"C:\b.log");
+
+        var unrestored = await _repo.GetUnrestoredQuarantinedFilesAsync();
+
+        unrestored.Select(static q => q.Id).Should().Contain(generic.Id);
+        unrestored.Select(static q => q.Id).Should().NotContain(restored.Id,
+            "restored files must disappear from the restorable list");
+    }
+
+    [Fact]
     public async Task RecoveryJournal_RoundTripsIntentAndOutcome()
     {
         var session = await _scanRepository.CreateSessionAsync(@"C:\scope");

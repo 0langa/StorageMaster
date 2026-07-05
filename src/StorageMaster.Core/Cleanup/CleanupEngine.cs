@@ -15,17 +15,20 @@ public sealed class CleanupEngine : ICleanupEngine
     private readonly IFileDeleter _deleter;
     private readonly ICleanupLogRepository _log;
     private readonly ILogger<CleanupEngine> _logger;
+    private readonly IQuarantineRecorder? _quarantineRecorder;
 
     public CleanupEngine(
         IEnumerable<ICleanupRule> rules,
         IFileDeleter deleter,
         ICleanupLogRepository log,
-        ILogger<CleanupEngine> logger)
+        ILogger<CleanupEngine> logger,
+        IQuarantineRecorder? quarantineRecorder = null)
     {
         _rules = rules;
         _deleter = deleter;
         _log = log;
         _logger = logger;
+        _quarantineRecorder = quarantineRecorder;
     }
 
     public async IAsyncEnumerable<CleanupSuggestion> GetSuggestionsAsync(
@@ -112,7 +115,11 @@ public sealed class CleanupEngine : ICleanupEngine
             {
                 totalFreed += outcome.BytesFreed;
                 if (outcome.QuarantinePath is not null)
+                {
                     quarantinedPaths.Add(new QuarantineMove(outcome.Path, outcome.QuarantinePath));
+                    if (!dryRun)
+                        await RecordQuarantineRestorePointAsync(outcome.Path, outcome.QuarantinePath, ct);
+                }
             }
             else
             {
@@ -141,6 +148,34 @@ public sealed class CleanupEngine : ICleanupEngine
             ErrorMessage = firstError,
             QuarantinedPaths = quarantinedPaths,
         };
+    }
+
+    /// <summary>
+    /// Writes a QuarantinedFiles restore record (MemberId=null, generic-cleanup
+    /// run) so the file shows up in the app's quarantine view. A recording
+    /// failure must not fail the cleanup — the move already succeeded and the
+    /// paths are still captured in the CleanupLog audit JSON.
+    /// </summary>
+    private async Task RecordQuarantineRestorePointAsync(string originalPath, string quarantinePath, CancellationToken ct)
+    {
+        if (_quarantineRecorder is null)
+            return;
+
+        try
+        {
+            await _quarantineRecorder.RecordQuarantineAsync(
+                memberId: null,
+                IQuarantineRecorder.GenericCleanupRunId,
+                originalPath,
+                quarantinePath,
+                ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex,
+                "Quarantine restore record failed for {Path}; file remains restorable manually from {QuarantinePath}",
+                originalPath, quarantinePath);
+        }
     }
 
     private static string? ValidateDeletionPolicy(CleanupSuggestion suggestion, DeletionMethod deletionMethod)

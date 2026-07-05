@@ -31,15 +31,16 @@ public sealed class ScheduledTaskService(
         var normalized = Normalize(job);
         await CreateOrUpdateTaskAsync(normalized, ct);
 
-        var settings = await settingsRepository.LoadAsync(ct);
-        var jobs = settings.ScheduledJobs
-            .Where(existing => !string.Equals(existing.Id, normalized.Id, StringComparison.OrdinalIgnoreCase))
-            .Append(normalized)
-            .OrderBy(static item => item.Name, StringComparer.OrdinalIgnoreCase)
-            .ToList();
-        settings.ScheduledJobs = jobs;
-        settings.ScheduledTasksEnabled = jobs.Any(static item => item.Enabled);
-        await settingsRepository.SaveAsync(settings, ct);
+        await settingsRepository.UpdateAsync(settings =>
+        {
+            var jobs = settings.ScheduledJobs
+                .Where(existing => !string.Equals(existing.Id, normalized.Id, StringComparison.OrdinalIgnoreCase))
+                .Append(normalized)
+                .OrderBy(static item => item.Name, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            settings.ScheduledJobs = jobs;
+            settings.ScheduledTasksEnabled = jobs.Any(static item => item.Enabled);
+        }, ct);
 
         await diagnostics.RecordAsync("scheduler", $"upserted|{normalized.Id}|{normalized.Name}", ct);
         return await ReadTaskInfoAsync(normalized, ct);
@@ -55,11 +56,13 @@ public sealed class ScheduledTaskService(
 
         await RunSchtasksAsync($"/Delete /TN \"{GetTaskName(job)}\" /F", ct, tolerateFailure: true);
 
-        settings.ScheduledJobs = settings.ScheduledJobs
-            .Where(existing => !string.Equals(existing.Id, jobId, StringComparison.OrdinalIgnoreCase))
-            .ToList();
-        settings.ScheduledTasksEnabled = settings.ScheduledJobs.Any(static item => item.Enabled);
-        await settingsRepository.SaveAsync(settings, ct);
+        await settingsRepository.UpdateAsync(settings =>
+        {
+            settings.ScheduledJobs = settings.ScheduledJobs
+                .Where(existing => !string.Equals(existing.Id, jobId, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+            settings.ScheduledTasksEnabled = settings.ScheduledJobs.Any(static item => item.Enabled);
+        }, ct);
         await diagnostics.RecordAsync("scheduler", $"deleted|{job.Id}|{job.Name}", ct);
     }
 
@@ -71,19 +74,19 @@ public sealed class ScheduledTaskService(
         if (job is null)
             return;
 
-        var updated = settings.ScheduledJobs
-            .Select(existing => string.Equals(existing.Id, jobId, StringComparison.OrdinalIgnoreCase)
-                ? existing with
-                {
-                    LastRunUtc = DateTime.UtcNow,
-                    LastStatus = status,
-                    LastMessage = message,
-                }
-                : existing)
-            .ToList();
-
-        settings.ScheduledJobs = updated;
-        await settingsRepository.SaveAsync(settings, ct);
+        await settingsRepository.UpdateAsync(settings =>
+        {
+            settings.ScheduledJobs = settings.ScheduledJobs
+                .Select(existing => string.Equals(existing.Id, jobId, StringComparison.OrdinalIgnoreCase)
+                    ? existing with
+                    {
+                        LastRunUtc = DateTime.UtcNow,
+                        LastStatus = status,
+                        LastMessage = message,
+                    }
+                    : existing)
+                .ToList();
+        }, ct);
         await diagnostics.RecordAsync("scheduler", $"run|{jobId}|{status}|{message}", ct);
     }
 

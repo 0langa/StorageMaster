@@ -11,6 +11,11 @@ public sealed class SettingsRepository : ISettingsRepository, ISettingsSnapshotP
     private const string Key = "AppSettings";
     private AppSettings _current = new();
 
+    // Serializes whole-settings writers within the process. The DB WriteLock
+    // only guards the SQLite write itself; this lock closes the wider
+    // load-modify-save window so one writer cannot drop another's change.
+    private readonly SemaphoreSlim _mutationLock = new(1, 1);
+
     public SettingsRepository(StorageDbContext db) => _db = db;
 
     public AppSettings Current => Clone(_current);
@@ -36,6 +41,35 @@ public sealed class SettingsRepository : ISettingsRepository, ISettingsSnapshotP
     }
 
     public async Task SaveAsync(AppSettings settings, CancellationToken ct = default)
+    {
+        await _mutationLock.WaitAsync(ct);
+        try
+        {
+            await SaveCoreAsync(settings, ct);
+        }
+        finally
+        {
+            _mutationLock.Release();
+        }
+    }
+
+    public async Task<AppSettings> UpdateAsync(Action<AppSettings> mutate, CancellationToken ct = default)
+    {
+        await _mutationLock.WaitAsync(ct);
+        try
+        {
+            var settings = await LoadAsync(ct);
+            mutate(settings);
+            await SaveCoreAsync(settings, ct);
+            return settings;
+        }
+        finally
+        {
+            _mutationLock.Release();
+        }
+    }
+
+    private async Task SaveCoreAsync(AppSettings settings, CancellationToken ct)
     {
         await _db.WriteLock.WaitAsync(ct);
         try

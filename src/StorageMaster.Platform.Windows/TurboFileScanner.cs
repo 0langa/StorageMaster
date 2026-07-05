@@ -81,6 +81,9 @@ public sealed class TurboFileScanner : IFileScanner
 
         var psi = new ProcessStartInfo(BinaryPath)
         {
+            // --skip-hidden prunes hidden files AND hidden directory subtrees
+            // during native enumeration (contract v2), matching the managed
+            // scanner's EnumerationOptions.AttributesToSkip semantics.
             ArgumentList = { "--path", options.RootPath, "--threads", options.MaxParallelism.ToString() },
             RedirectStandardOutput = true,
             RedirectStandardError = true,
@@ -89,6 +92,9 @@ public sealed class TurboFileScanner : IFileScanner
             // Disable the default StreamReader wrapping — we create our own with a 1 MB buffer below.
             StandardOutputEncoding = Encoding.UTF8,
         };
+
+        if (!options.DeepScan && !options.IncludeHiddenFiles)
+            psi.ArgumentList.Add("--skip-hidden");
 
         using var process = new Process { StartInfo = psi };
         process.Start();
@@ -176,7 +182,7 @@ public sealed class TurboFileScanner : IFileScanner
                         if (rec is null) continue;
 
                         if (!options.DeepScan && IsExcluded(rec.Path, sortedExclusions)) continue;
-                        if (!options.DeepScan && !options.IncludeHiddenFiles && IsHidden(rec.Path)) continue;
+                        if (!options.DeepScan && !options.IncludeHiddenFiles && IsRecordHidden(rec)) continue;
 
                         await pipe.Writer.WriteAsync(rec, abort.Token);
                     }
@@ -247,7 +253,7 @@ public sealed class TurboFileScanner : IFileScanner
                                 CreatedUtc = createUtc,
                                 ModifiedUtc = modUtc,
                                 AccessedUtc = modUtc,
-                                Attributes = FileAttributes.Normal,
+                                Attributes = rec.IsHidden == true ? FileAttributes.Hidden : FileAttributes.Normal,
                                 Category = FileTypeCategorizor.Categorize(ext),
                                 IsReparsePoint = false,
                             };
@@ -444,11 +450,21 @@ public sealed class TurboFileScanner : IFileScanner
         return false;
     }
 
-    private static bool IsHidden(string path)
+    /// <summary>
+    /// Contract v2 binaries emit is_hidden and prune hidden subtrees natively
+    /// when --skip-hidden is passed — no syscall needed here. A null IsHidden
+    /// means a v1 binary is paired with this build (partial upgrade / stale
+    /// exe); fall back to the per-file attribute check so hidden files cannot
+    /// silently leak into results.
+    /// </summary>
+    private static bool IsRecordHidden(TurboRecord rec)
     {
+        if (rec.IsHidden is { } hidden)
+            return hidden;
+
         try
         {
-            return (File.GetAttributes(path) & FileAttributes.Hidden) != 0;
+            return (File.GetAttributes(rec.Path) & FileAttributes.Hidden) != 0;
         }
         catch
         {
@@ -463,5 +479,7 @@ public sealed class TurboFileScanner : IFileScanner
         [JsonPropertyName("modified_unix")] public long ModifiedUnix { get; set; }
         [JsonPropertyName("created_unix")] public long CreatedUnix { get; set; }
         [JsonPropertyName("is_dir")] public bool IsDir { get; set; }
+        // Contract v2; null when a v1 binary produced the record.
+        [JsonPropertyName("is_hidden")] public bool? IsHidden { get; set; }
     }
 }

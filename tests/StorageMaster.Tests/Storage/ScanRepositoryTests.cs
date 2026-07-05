@@ -62,7 +62,7 @@ public sealed class ScanRepositoryTests : IAsyncDisposable
     }
 
     [Fact]
-    public async Task SchemaVersion_IsCurrentV8()
+    public async Task SchemaVersion_IsCurrentV9()
     {
         var conn = await _ctx.GetConnectionAsync();
         using var cmd = conn.CreateCommand();
@@ -70,7 +70,7 @@ public sealed class ScanRepositoryTests : IAsyncDisposable
 
         var version = Convert.ToInt32(await cmd.ExecuteScalarAsync());
 
-        version.Should().Be(8);
+        version.Should().Be(9);
     }
 
     [Fact]

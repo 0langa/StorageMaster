@@ -478,8 +478,10 @@ public sealed partial class SettingsViewModel : ObservableObject
             return;
         }
 
-        var settings = BuildSettings();
-        await _repo.SaveAsync(settings);
+        // Atomic update: applies only the editor-owned properties onto the
+        // freshest stored settings, so concurrent writers (low-disk monitor,
+        // scheduler run-outcomes) are not clobbered by a stale whole snapshot.
+        var settings = await _repo.UpdateAsync(ApplyEditsTo);
         _startupRegistration.SetEnabled(StartTrayOnLogin);
         _loadedSettings = CloneSettings(settings);
         _editorSnapshot = CloneSettings(settings);
@@ -648,6 +650,13 @@ public sealed partial class SettingsViewModel : ObservableObject
     private AppSettings BuildSettings()
     {
         var settings = CloneSettings(_loadedSettings);
+        ApplyEditsTo(settings);
+        return settings;
+    }
+
+    /// <summary>Applies every editor-owned property onto <paramref name="settings"/>.</summary>
+    private void ApplyEditsTo(AppSettings settings)
+    {
         settings.PreferRecycleBin = PreferRecycleBin;
         settings.DryRunByDefault = DryRunByDefault;
         settings.LargeFileSizeMb = LargeFileSizeMb;
@@ -702,7 +711,6 @@ public sealed partial class SettingsViewModel : ObservableObject
         settings.DefaultResultsPageSize = Math.Clamp(DefaultResultsPageSize, 10, 1000);
         settings.DefaultDuplicatesReviewMode = DefaultDuplicatesReviewMode;
         settings.ExpandAdvancedOptionsByDefault = ExpandAdvancedOptionsByDefault;
-        return settings;
     }
 
     private void ApplySettings(AppSettings s)

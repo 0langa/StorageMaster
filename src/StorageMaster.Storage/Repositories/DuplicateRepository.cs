@@ -687,7 +687,7 @@ public sealed class DuplicateRepository(StorageDbContext db) : IDuplicateReposit
     // ── IDuplicateRepository — quarantine ─────────────────────────────────────
 
     public async Task<QuarantinedFile> RecordQuarantineAsync(
-        long memberId,
+        long? memberId,
         long runId,
         string originalPath,
         string quarantinePath,
@@ -706,7 +706,7 @@ public sealed class DuplicateRepository(StorageDbContext db) : IDuplicateReposit
                 SELECT last_insert_rowid();
                 """;
             var now = DateTime.UtcNow;
-            cmd.Parameters.AddWithValue("$member", memberId);
+            cmd.Parameters.AddWithValue("$member", (object?)memberId ?? DBNull.Value);
             cmd.Parameters.AddWithValue("$run", runId);
             cmd.Parameters.AddWithValue("$orig", originalPath);
             cmd.Parameters.AddWithValue("$qpath", quarantinePath);
@@ -740,6 +740,23 @@ public sealed class DuplicateRepository(StorageDbContext db) : IDuplicateReposit
             ORDER BY QuarantinedUtc ASC;
             """;
         cmd.Parameters.AddWithValue("$run", runId);
+        using var reader = await cmd.ExecuteReaderAsync(ct);
+        var list = new List<QuarantinedFile>();
+        while (await reader.ReadAsync(ct))
+            list.Add(ReadQuarantinedFile(reader));
+        return list;
+    }
+
+    public async Task<IReadOnlyList<QuarantinedFile>> GetUnrestoredQuarantinedFilesAsync(
+        CancellationToken ct = default)
+    {
+        var conn = await _db.GetConnectionAsync(ct);
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            SELECT * FROM QuarantinedFiles
+            WHERE RestoredUtc IS NULL
+            ORDER BY QuarantinedUtc DESC;
+            """;
         using var reader = await cmd.ExecuteReaderAsync(ct);
         var list = new List<QuarantinedFile>();
         while (await reader.ReadAsync(ct))
@@ -949,7 +966,7 @@ public sealed class DuplicateRepository(StorageDbContext db) : IDuplicateReposit
     private static QuarantinedFile ReadQuarantinedFile(SqliteDataReader r) => new()
     {
         Id = r.GetInt64(r.GetOrdinal("Id")),
-        MemberId = r.GetInt64(r.GetOrdinal("MemberId")),
+        MemberId = r.IsDBNull(r.GetOrdinal("MemberId")) ? null : r.GetInt64(r.GetOrdinal("MemberId")),
         RunId = r.GetInt64(r.GetOrdinal("RunId")),
         OriginalPath = r.GetString(r.GetOrdinal("OriginalPath")),
         QuarantinePath = r.GetString(r.GetOrdinal("QuarantinePath")),

@@ -14,6 +14,10 @@ public sealed partial class DuplicatesPage : Page
         InitializeComponent();
     }
 
+    /// <summary>x:Bind helper: labels where a quarantined file came from.</summary>
+    public static string DescribeQuarantineSource(long? memberId) =>
+        memberId is null ? "· Cleanup quarantine" : "· Duplicate quarantine";
+
     protected override async void OnNavigatedTo(NavigationEventArgs e)
     {
         base.OnNavigatedTo(e);

@@ -16,10 +16,13 @@
         <converters:FilePathToBitmapImageConverter x:Key="FilePathToImage" />
     </Page.Resources>
 
+    <!-- The content below the command bar scrolls as one surface. Star-sized
+         panels used to starve to zero height on short logical viewports
+         (e.g. 200% display scale), leaving member rows and quarantine restore
+         buttons without usable bounds; the lists carry Min/MaxHeights instead
+         and scroll internally. -->
     <Grid Padding="{StaticResource PagePadding}" RowSpacing="16">
         <Grid.RowDefinitions>
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
@@ -70,10 +73,9 @@
         </CommandBar>
 
         <ScrollViewer Grid.Row="1"
-                      MaxHeight="380"
                       VerticalScrollBarVisibility="Auto"
                       HorizontalScrollBarVisibility="Disabled">
-        <StackPanel Spacing="12">
+        <StackPanel Spacing="16">
             <InfoBar IsOpen="True"
                      Severity="Informational"
                      Title="Safety first"
@@ -241,10 +243,8 @@
                 </Grid>
             </Grid>
         </Border>
-        </StackPanel>
-        </ScrollViewer>
 
-        <Grid Grid.Row="2" ColumnSpacing="12">
+        <Grid ColumnSpacing="12">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="*" />
@@ -293,7 +293,7 @@
             </Border>
         </Grid>
 
-        <Grid Grid.Row="3" ColumnSpacing="16">
+        <Grid ColumnSpacing="16">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="2*" />
                 <ColumnDefinition Width="3*" />
@@ -373,7 +373,9 @@
                     <ListView Grid.Row="2"
                               ItemsSource="{x:Bind ViewModel.Groups}"
                               SelectedItem="{x:Bind ViewModel.SelectedGroup, Mode=TwoWay}"
-                              SelectionMode="Single">
+                              SelectionMode="Single"
+                              MinHeight="160"
+                              MaxHeight="520">
                         <ListView.ItemTemplate>
                             <DataTemplate x:DataType="local:DuplicateGroupItem">
                                 <Border Padding="10" Margin="0,0,0,8"
@@ -484,6 +486,8 @@
                         <ListView Grid.Row="3"
                                   ItemsSource="{x:Bind ViewModel.SelectedGroup.Members, Mode=OneWay}"
                                   SelectionMode="None"
+                                  MinHeight="120"
+                                  MaxHeight="320"
                                   Visibility="{x:Bind ViewModel.HasSelectedGroup, Mode=OneWay, Converter={StaticResource BoolVis}}">
                             <ListView.ItemTemplate>
                                 <DataTemplate x:DataType="local:DuplicateMemberItem">
@@ -523,6 +527,7 @@
                                    Style="{StaticResource BodyStrongTextBlockStyle}" />
                         <ListView Grid.Row="1"
                                   ItemsSource="{x:Bind ViewModel.Errors}"
+                                  MaxHeight="180"
                                   Visibility="{x:Bind ViewModel.HasErrors, Mode=OneWay, Converter={StaticResource BoolVis}}">
                             <ListView.ItemTemplate>
                                 <DataTemplate x:DataType="models:DuplicateError">
@@ -549,8 +554,11 @@
                         Padding="12"
                         Visibility="{x:Bind ViewModel.HasQuarantineItems, Mode=OneWay, Converter={StaticResource BoolVis}}">
                     <StackPanel Spacing="8">
-                        <TextBlock Text="Quarantine — restorable files"
+                        <TextBlock Text="All quarantined files — restorable"
                                    Style="{StaticResource BodyStrongTextBlockStyle}" />
+                        <TextBlock Text="Includes duplicate-run quarantines and generic cleanup quarantines."
+                                   Style="{StaticResource CaptionTextBlockStyle}"
+                                   Opacity="0.6" />
                         <ListView ItemsSource="{x:Bind ViewModel.QuarantineItems, Mode=OneWay}"
                                   MaxHeight="150"
                                   SelectionMode="None">
@@ -561,9 +569,14 @@
                                             <TextBlock Text="{x:Bind OriginalPath}"
                                                        TextWrapping="WrapWholeWords"
                                                        Opacity="0.9" />
-                                            <TextBlock Text="{x:Bind QuarantinedUtc}"
-                                                       Style="{StaticResource CaptionTextBlockStyle}"
-                                                       Opacity="0.6" />
+                                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                                <TextBlock Text="{x:Bind QuarantinedUtc}"
+                                                           Style="{StaticResource CaptionTextBlockStyle}"
+                                                           Opacity="0.6" />
+                                                <TextBlock Text="{x:Bind local:DuplicatesPage.DescribeQuarantineSource(MemberId)}"
+                                                           Style="{StaticResource CaptionTextBlockStyle}"
+                                                           Opacity="0.6" />
+                                            </StackPanel>
                                         </StackPanel>
                                         <Button Grid.Column="1"
                                                 Content="Restore"
@@ -578,5 +591,7 @@
                 </Border>
             </Grid>
         </Grid>
+        </StackPanel>
+        </ScrollViewer>
     </Grid>
 </Page>

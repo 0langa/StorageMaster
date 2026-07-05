@@ -108,3 +108,8 @@ target/
 
 #misc
 docs/AIprojectcontext/
+
+# Internal working/session artifacts
+BenchmarkDotNet.Artifacts/
+MANUAL_TESTING_HANDOFF.md
+testing/

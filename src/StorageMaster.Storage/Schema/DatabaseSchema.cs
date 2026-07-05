@@ -7,7 +7,7 @@ namespace StorageMaster.Storage.Schema;
 /// </summary>
 internal static class DatabaseSchema
 {
-    internal const int CurrentVersion = 8;
+    internal const int CurrentVersion = 9;
 
     /// <summary>SQL executed once at version 1 creation.</summary>
     internal static readonly string[] V1Statements =
@@ -312,5 +312,39 @@ internal static class DatabaseSchema
         "CREATE INDEX IF NOT EXISTS IX_DuplicateOperationJournal_Status ON DuplicateOperationJournal (Status);",
         "CREATE INDEX IF NOT EXISTS IX_DuplicateOperationJournal_MemberId ON DuplicateOperationJournal (MemberId);",
         "CREATE INDEX IF NOT EXISTS IX_DuplicateOperationJournal_QuarantineId ON DuplicateOperationJournal (QuarantineId);",
+    ];
+
+    /// <summary>
+    /// V9: QuarantinedFiles.MemberId becomes nullable so generic-cleanup
+    /// quarantines (no duplicate group member) get first-class restore records.
+    /// SQLite cannot alter a column constraint, so the table is rebuilt in
+    /// place; ids and rows are preserved. QuarantinedFiles is a leaf table
+    /// (nothing references it), so drop + rename is safe with foreign_keys=ON.
+    /// </summary>
+    internal static readonly string[] V9Statements =
+    [
+        """
+        CREATE TABLE IF NOT EXISTS QuarantinedFiles_v9 (
+            Id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            MemberId        INTEGER REFERENCES DuplicateGroupMembers(Id) ON DELETE CASCADE,
+            RunId           INTEGER NOT NULL,
+            OriginalPath    TEXT    NOT NULL,
+            QuarantinePath  TEXT    NOT NULL,
+            QuarantinedUtc  TEXT    NOT NULL,
+            RestoredUtc     TEXT,
+            RestoredPath    TEXT
+        );
+        """,
+        """
+        INSERT INTO QuarantinedFiles_v9
+            (Id, MemberId, RunId, OriginalPath, QuarantinePath, QuarantinedUtc, RestoredUtc, RestoredPath)
+        SELECT Id, MemberId, RunId, OriginalPath, QuarantinePath, QuarantinedUtc, RestoredUtc, RestoredPath
+        FROM QuarantinedFiles;
+        """,
+        "DROP TABLE QuarantinedFiles;",
+        "ALTER TABLE QuarantinedFiles_v9 RENAME TO QuarantinedFiles;",
+        "CREATE INDEX IF NOT EXISTS IX_QuarantinedFiles_RunId ON QuarantinedFiles (RunId);",
+        "CREATE INDEX IF NOT EXISTS IX_QuarantinedFiles_MemberId ON QuarantinedFiles (MemberId);",
+        "CREATE INDEX IF NOT EXISTS IX_QuarantinedFiles_Unrestored ON QuarantinedFiles (QuarantinedUtc DESC) WHERE RestoredUtc IS NULL;",
     ];
 }

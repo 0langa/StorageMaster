@@ -201,6 +201,76 @@ public sealed class CleanupEngineTests
     }
 
     [Fact]
+    public async Task ExecuteAsync_Quarantine_WritesRestoreRecordsWithNullMemberId()
+    {
+        _deleter
+            .Setup(d => d.DeleteManyAsync(
+                It.IsAny<IReadOnlyList<DeletionRequest>>(),
+                It.IsAny<CancellationToken>()))
+            .Returns<IReadOnlyList<DeletionRequest>, CancellationToken>(
+                (reqs, _) => MakeQuarantineOutcomes(reqs));
+        var recorder = new Mock<IQuarantineRecorder>();
+        var suggestion = MakeSuggestion("rule.q", "Quarantine restore records", [@"C:\Temp\a.tmp"]);
+        var engine = new CleanupEngine(
+            [], _deleter.Object, _log.Object, NullLogger<CleanupEngine>.Instance, recorder.Object);
+
+        await engine.ExecuteAsync([suggestion], dryRun: false, DeletionMethod.Quarantine);
+
+        recorder.Verify(r => r.RecordQuarantineAsync(
+            null,
+            IQuarantineRecorder.GenericCleanupRunId,
+            @"C:\Temp\a.tmp",
+            @"Q:\quarantine\a.tmp",
+            It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_DryRunQuarantine_WritesNoRestoreRecords()
+    {
+        _deleter
+            .Setup(d => d.DeleteManyAsync(
+                It.IsAny<IReadOnlyList<DeletionRequest>>(),
+                It.IsAny<CancellationToken>()))
+            .Returns<IReadOnlyList<DeletionRequest>, CancellationToken>(
+                (reqs, _) => MakeQuarantineOutcomes(reqs));
+        var recorder = new Mock<IQuarantineRecorder>();
+        var suggestion = MakeSuggestion("rule.q", "Dry run", [@"C:\Temp\a.tmp"]);
+        var engine = new CleanupEngine(
+            [], _deleter.Object, _log.Object, NullLogger<CleanupEngine>.Instance, recorder.Object);
+
+        await engine.ExecuteAsync([suggestion], dryRun: true, DeletionMethod.Quarantine);
+
+        recorder.Verify(r => r.RecordQuarantineAsync(
+            It.IsAny<long?>(), It.IsAny<long>(), It.IsAny<string>(), It.IsAny<string>(),
+            It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_RestoreRecordFailure_DoesNotFailCleanup()
+    {
+        _deleter
+            .Setup(d => d.DeleteManyAsync(
+                It.IsAny<IReadOnlyList<DeletionRequest>>(),
+                It.IsAny<CancellationToken>()))
+            .Returns<IReadOnlyList<DeletionRequest>, CancellationToken>(
+                (reqs, _) => MakeQuarantineOutcomes(reqs));
+        var recorder = new Mock<IQuarantineRecorder>();
+        recorder.Setup(r => r.RecordQuarantineAsync(
+                It.IsAny<long?>(), It.IsAny<long>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new IOException("db unavailable"));
+        var suggestion = MakeSuggestion("rule.q", "Record failure", [@"C:\Temp\a.tmp"]);
+        var engine = new CleanupEngine(
+            [], _deleter.Object, _log.Object, NullLogger<CleanupEngine>.Instance, recorder.Object);
+
+        var results = await engine.ExecuteAsync([suggestion], dryRun: false, DeletionMethod.Quarantine);
+
+        results[0].Status.Should().Be(CleanupResultStatus.Success,
+            "the file was moved successfully; a missing restore record must not fail the cleanup");
+        results[0].QuarantinedPaths.Should().ContainSingle();
+    }
+
+    [Fact]
     public async Task ExecuteAsync_RecycleBin_LeavesQuarantinedPathsEmpty()
     {
         SetupDeleterSuccess();

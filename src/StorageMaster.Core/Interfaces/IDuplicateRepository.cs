@@ -2,7 +2,7 @@ using StorageMaster.Core.Models;
 
 namespace StorageMaster.Core.Interfaces;
 
-public interface IDuplicateRepository
+public interface IDuplicateRepository : IQuarantineRecorder
 {
     Task<DuplicateRun> CreateRunAsync(DuplicateScanOptions options, CancellationToken ct = default);
 
@@ -64,16 +64,17 @@ public interface IDuplicateRepository
         CancellationToken ct = default);
 
     // ── Quarantine ───────────────────────────────────────────────────────────
-
-    Task<QuarantinedFile> RecordQuarantineAsync(
-        long memberId,
-        long runId,
-        string originalPath,
-        string quarantinePath,
-        CancellationToken ct = default);
+    // RecordQuarantineAsync is inherited from IQuarantineRecorder.
 
     Task<IReadOnlyList<QuarantinedFile>> GetQuarantinedFilesAsync(
         long runId,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// All quarantined files not yet restored, across duplicate runs and
+    /// generic cleanup, newest first — backs the "All quarantined files" view.
+    /// </summary>
+    Task<IReadOnlyList<QuarantinedFile>> GetUnrestoredQuarantinedFilesAsync(
         CancellationToken ct = default);
 
     Task<QuarantinedFile?> GetQuarantinedFileAsync(

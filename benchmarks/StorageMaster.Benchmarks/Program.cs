@@ -10,7 +10,7 @@ using StorageMaster.Storage.Repositories;
 BenchmarkSwitcher.FromAssembly(typeof(Program).Assembly).Run(args);
 
 [MemoryDiagnoser]
-public sealed class DuplicateHashBenchmarks
+public class DuplicateHashBenchmarks
 {
     private readonly FileContentHasher _hasher = new();
     private string _tempDir = string.Empty;
@@ -70,7 +70,7 @@ public sealed class DuplicateHashBenchmarks
 }
 
 [MemoryDiagnoser]
-public sealed class DuplicateStorageBenchmarks
+public class DuplicateStorageBenchmarks
 {
     private string _dbPath = string.Empty;
     private StorageDbContext _db = null!;
@@ -112,6 +112,7 @@ public sealed class DuplicateStorageBenchmarks
     public async Task Cleanup()
     {
         await _db.DisposeAsync();
+        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
         if (File.Exists(_dbPath))
             File.Delete(_dbPath);
     }

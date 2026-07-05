@@ -324,7 +324,8 @@ public sealed class CommandRunner(
                 "StorageMaster", "Quarantine");
             await output.WriteLineAsync(
                 $"Quarantined {quarantinedCount:N0} file(s) under {quarantineRoot}. " +
-                "Original and quarantine paths are recorded in the CleanupLog audit trail.");
+                "Restore records were written; use the app's \"All quarantined files\" section on the Duplicates page for one-click restore. " +
+                "Original and quarantine paths are also recorded in the CleanupLog audit trail.");
         }
 
         return results.All(static item => item.Status == CleanupResultStatus.Success) ? 0 : 1;

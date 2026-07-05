@@ -155,8 +155,6 @@ public sealed partial class DuplicatesViewModel : ObservableObject
     private CancellationTokenSource? _previewLoadCts;
     private CancellationTokenSource? _filterDebounceCts;
     private CancellationTokenSource? _exportCts;
-    private long? _quarantineRunId;
-    private IReadOnlyList<QuarantinedFile> _quarantineCache = [];
 
     [ObservableProperty] private bool _isLoading;
     [ObservableProperty] private bool _isRunning;
@@ -454,7 +452,11 @@ public sealed partial class DuplicatesViewModel : ObservableObject
     private async Task RunAnalysisAsync()
     {
         if (SelectedSession is null || SelectedCategory is null)
+        {
+            // Never no-op silently on an enabled button.
+            StatusText = "Select a scan session and file type before running duplicate analysis.";
             return;
+        }
 
         var extensions = ParsePaths(CustomExtensionsText)
             .Select(static e => e.StartsWith('.') ? e : "." + e)
@@ -869,8 +871,6 @@ public sealed partial class DuplicatesViewModel : ObservableObject
         try
         {
             await _duplicateDeletionService.RestoreFromQuarantineAsync(file.Id);
-            _quarantineRunId = null;
-            _quarantineCache = [];
             await LoadLatestRunAsync();
             StatusText = $"Restored {file.OriginalPath}.";
         }
@@ -920,6 +920,10 @@ public sealed partial class DuplicatesViewModel : ObservableObject
         _hasMoreErrorPages = false;
         RaiseSummaryProperties();
 
+        // Quarantine is global (duplicate runs AND generic cleanup), so it is
+        // shown even before a session or duplicate run exists.
+        await LoadQuarantineAsync(CancellationToken.None);
+
         if (SelectedSession is null)
         {
             StatusText = "Choose a completed scan session to review duplicates.";
@@ -937,14 +941,25 @@ public sealed partial class DuplicatesViewModel : ObservableObject
         }
 
         _runSummary = await _duplicateRepository.GetDuplicateRunSummaryAsync(LatestRun.Id);
-        _quarantineRunId = null;
-        _quarantineCache = [];
         await LoadGroupsPageAsync(1, CancellationToken.None);
         await LoadErrorsPageAsync(1, append: false);
 
         StatusText = _runSummary.GroupCount > 0
             ? $"Loaded page {_currentGroupPage:N0} of duplicate groups ({_runSummary.GroupCount:N0} total)."
             : "Latest duplicate analysis completed without duplicate groups.";
+    }
+
+    /// <summary>
+    /// Loads every not-yet-restored quarantined file — duplicate runs and
+    /// generic cleanup (MemberId=null) alike — newest first.
+    /// </summary>
+    private async Task LoadQuarantineAsync(CancellationToken ct)
+    {
+        var items = await _duplicateRepository.GetUnrestoredQuarantinedFilesAsync(ct);
+        QuarantineItems.Clear();
+        foreach (var item in items)
+            QuarantineItems.Add(item);
+        OnPropertyChanged(nameof(HasQuarantineItems));
     }
 
     private async Task ReloadCurrentGroupPageAsync(CancellationToken ct)
@@ -1067,14 +1082,7 @@ public sealed partial class DuplicatesViewModel : ObservableObject
             foreach (var item in preview.Items)
                 PreviewItems.Add(item);
 
-            if (_quarantineRunId != LatestRun.Id)
-            {
-                _quarantineCache = await _duplicateRepository.GetQuarantinedFilesAsync(LatestRun.Id, ct);
-                _quarantineRunId = LatestRun.Id;
-            }
-
-            foreach (var item in _quarantineCache)
-                QuarantineItems.Add(item);
+            await LoadQuarantineAsync(ct);
         }
         catch (OperationCanceledException)
         {

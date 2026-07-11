@@ -1,6 +1,6 @@
 # StorageMaster — Full Technical Documentation
 
-> **Version:** 2.1.4 | **Current-state review:** 2026-06-22 | **.NET 8 / WinUI 3 / Windows App SDK 1.6**
+> **Version:** 2.2.0 | **Current-state review:** 2026-06-22 | **.NET 8 / WinUI 3 / Windows App SDK 1.6**
 > **v2 update:** Storage schema v7 adds Drive Health snapshots. Drive Health reads Windows WMI/storage telemetry with explicit Unknown/Unsupported fallbacks, surfaces Dashboard/Drive Health UI warnings, and supports `--cli health report`. The WinUI shell now uses shared v2 styles, grouped navigation, a guided Scan flow, Scan Workspace, and Space Map tile controls. Product versioning separates semantic stable/prerelease display from numeric assembly/manifest versions.
 
 ---
@@ -579,7 +579,7 @@ v2 adds shared visual tokens/styles, reusable page/state/gauge/badge/card contro
 - **Deletion Behaviour:** RecycleBin toggle, dry-run default toggle
 - **Cleanup Options:** All 10 rule enable/disable toggles, Downloads full-clear toggle
 - **Large & Old File Thresholds:** Size (MB) and age (days) sliders
-- **About:** Current app version from informational assembly metadata (`2.1.4`), diagnostics export, update settings
+- **About:** Current app version from informational assembly metadata (`2.2.0`), diagnostics export, update settings
 
 **Save behaviour:** All settings written to SQLite on "Save Settings" click.
 

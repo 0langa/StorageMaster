@@ -1,6 +1,6 @@
 # StorageMaster — Codemap
 
-> **Version:** 2.1.4 | **Current-state review:** 2026-06-22
+> **Version:** 2.2.0 | **Current-state review:** 2026-06-22
 > Quick-reference for every file, type, method, and database table in the project.
 > **Current-state note:** v2.1.4 retains the v2 UI, Drive Health/schema v7, Space Map, scanner, cleanup, dedupe, and release hardening. It adds a patched SQLite native bundle, fail-closed permanent-deletion traversal, Smart Cleaner cancellation coverage, Rust contract tests, and repository context cleanup. It remains framework-dependent on Windows App SDK 1.6 with a staged runtime MSIX prerequisite.
 

@@ -4,6 +4,19 @@ All notable changes to StorageMaster are documented here.
 
 ---
 
+## [2.2.0] — 2026-07-11 — Quarantine Restore, Turbo Scanner Parity, And Deletion-Safety Hardening
+
+- Quarantine restore now works for generic cleanup, not just duplicate cleanup: schema v9 adds a new "All quarantined files" restorable view on the Duplicates page with one-click restore for every quarantined file. Verified live end-to-end (5/5 restores).
+- Turbo Scanner (Rust) now honors hidden-file/folder skipping to match the managed scanner, with a safe fallback for older scanner binaries that predate the flag.
+- Settings writes are now atomic, fixing a race where concurrent writers — the low-disk monitor, the scheduler, and the settings editor — could silently drop each other's changes.
+- Fixed the Duplicates page collapsing to zero height at 200% display scaling.
+- Fixed several launch/runtime defects: cancelling the UAC elevation prompt no longer crashes the app; elevated deep-scan of drive roots like `C:\` no longer fails on argument-quoting; a database failure during scanning no longer deadlocks the scan; enabling "minimize to tray" no longer hides the window on normal launch; and quarantine-restore / per-group deletion failures now show an error dialog instead of crashing.
+- Deep scan without elevation now explains why it can't proceed instead of failing silently.
+- Fixed byte-size formatting truncation (e.g., 1.9 GB no longer displayed as "1.0 GB").
+- Added a duplicate-file recovery journal and beta safety documentation.
+
+---
+
 ## [2.1.4] — 2026-06-22 — Hardening & Repository Context Cleanup
 
 - Updated the bundled SQLite native dependency to remove `GHSA-2m69-gcr7-jv3q`.

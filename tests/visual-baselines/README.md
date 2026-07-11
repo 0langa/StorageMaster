@@ -1,6 +1,6 @@
 # Visual baselines
 
-First captured set: 2026-07-05, StorageMaster v2.1.4 + schema-v9/turbo-v2 changes (pre-commit working tree).
+First captured set: 2026-07-05, StorageMaster v2.1.4 + schema-v9/turbo-v2 changes (later committed on `main`).
 
 ## Capture metadata
 

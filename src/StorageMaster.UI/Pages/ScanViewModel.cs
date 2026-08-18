@@ -20,8 +20,12 @@ public sealed partial class ScanViewModel : ObservableObject
     private readonly ISettingsRepository _settings;
 
     private CancellationTokenSource? _cts;
+    private long _initializationGeneration;
+    private long _scanGeneration;
+    private long _activeScanGeneration;
 
     [ObservableProperty] private string _selectedPath = @"C:\";
+    [ObservableProperty] private bool _isInitializing;
     [ObservableProperty] private bool _isScanning;
     [ObservableProperty] private bool _scanComplete;
     [ObservableProperty] private string _progressText = string.Empty;
@@ -54,12 +58,17 @@ public sealed partial class ScanViewModel : ObservableObject
     /// </summary>
     public bool NeedsElevation => DeepScan && !IsRunningAsAdmin;
     public bool HasScanPathError => !string.IsNullOrWhiteSpace(ScanPathError);
-    public bool CanStartScan => !IsScanning && string.IsNullOrWhiteSpace(ScanPathError);
-    public bool CanBrowse => !IsScanning;
+    public bool CanStartScan => !IsInitializing && !IsScanning && string.IsNullOrWhiteSpace(ScanPathError);
+    public bool CanBrowse => !IsInitializing && !IsScanning;
     public bool CanCancel => IsScanning;
 
     partial void OnDeepScanChanged(bool value) => OnPropertyChanged(nameof(NeedsElevation));
     partial void OnSelectedPathChanged(string value) => ValidateSelectedPath(value);
+    partial void OnIsInitializingChanged(bool value)
+    {
+        OnPropertyChanged(nameof(CanStartScan));
+        OnPropertyChanged(nameof(CanBrowse));
+    }
     partial void OnIsScanningChanged(bool value)
     {
         OnPropertyChanged(nameof(CanStartScan));
@@ -95,26 +104,54 @@ public sealed partial class ScanViewModel : ObservableObject
         _settings = settings;
     }
 
-    public async Task InitializeAsync(bool autoEnableDeepScan = false, string? preselectedPath = null)
+    public async Task InitializeAsync(
+        bool autoEnableDeepScan = false,
+        string? preselectedPath = null,
+        CancellationToken cancellationToken = default)
     {
-        var settings = await _settings.LoadAsync();
-        AvailableDrives = _drives.GetAvailableDrives();
-        ScanComplete = false;
-        HasError = false;
-        ErrorMessage = string.Empty;
-        SelectedPath = string.IsNullOrWhiteSpace(preselectedPath)
-            ? (string.IsNullOrWhiteSpace(settings.DefaultScanPath) ? @"C:\" : settings.DefaultScanPath)
-            : preselectedPath;
-        UseTurboScanner = settings.UseTurboScanner;
-        TurboScannerAvailable = StorageMaster.Platform.Windows.TurboFileScanner.IsAvailable;
-        if (autoEnableDeepScan)
-            DeepScan = true;
-        ValidateSelectedPath(SelectedPath);
+        if (IsScanning)
+            return;
+
+        var generation = Interlocked.Increment(ref _initializationGeneration);
+        IsInitializing = true;
+        try
+        {
+            var settings = await _settings.LoadAsync(cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+            var availableDrives = _drives.GetAvailableDrives();
+
+            // ScanViewModel is a singleton. A page that navigated away must not
+            // overwrite a newer route, and initialization must never rewrite a
+            // scan configuration after a scan has started.
+            if (generation != Volatile.Read(ref _initializationGeneration) || IsScanning)
+                return;
+
+            AvailableDrives = availableDrives;
+            ScanComplete = false;
+            HasError = false;
+            ErrorMessage = string.Empty;
+            SelectedPath = string.IsNullOrWhiteSpace(preselectedPath)
+                ? (string.IsNullOrWhiteSpace(settings.DefaultScanPath) ? @"C:\" : settings.DefaultScanPath)
+                : preselectedPath;
+            UseTurboScanner = settings.UseTurboScanner;
+            TurboScannerAvailable = StorageMaster.Platform.Windows.TurboFileScanner.IsAvailable;
+            if (autoEnableDeepScan)
+                DeepScan = true;
+            ValidateSelectedPath(SelectedPath);
+        }
+        finally
+        {
+            if (generation == Volatile.Read(ref _initializationGeneration))
+                IsInitializing = false;
+        }
     }
 
     [RelayCommand]
     private void SelectScanMode(string? mode)
     {
+        if (!CanBrowse)
+            return;
+
         SelectedScanMode = string.IsNullOrWhiteSpace(mode) ? "Standard Scan" : mode;
         DeepScan = SelectedScanMode == "Deep Scan";
         if (SelectedScanMode == "Quick Scan")
@@ -125,6 +162,9 @@ public sealed partial class ScanViewModel : ObservableObject
     [RelayCommand]
     private void RequestElevation()
     {
+        if (!CanBrowse)
+            return;
+
         ValidateSelectedPath(SelectedPath);
         if (HasScanPathError)
         {
@@ -151,7 +191,7 @@ public sealed partial class ScanViewModel : ObservableObject
     [RelayCommand]
     private async Task StartScanAsync()
     {
-        if (IsScanning) return;
+        if (IsInitializing || IsScanning) return;
 
         ValidateSelectedPath(SelectedPath);
         if (!CanStartScan)
@@ -161,8 +201,21 @@ public sealed partial class ScanViewModel : ObservableObject
             return;
         }
 
+        // Freeze every user-editable input before the first state change or
+        // await. The displayed scope, estimate, scanner choice, and persisted
+        // options must all describe the same scan.
+        var rootPath = SelectedPath.Trim();
+        var deepScan = DeepScan;
+        var useTurboScanner = UseTurboScanner && TurboScannerAvailable;
+        Interlocked.Increment(ref _initializationGeneration);
+        var scanGeneration = Interlocked.Increment(ref _scanGeneration);
+        Interlocked.Exchange(ref _activeScanGeneration, scanGeneration);
+        var scanCancellation = new CancellationTokenSource();
+        _cts = scanCancellation;
+
         IsScanning = true;
         ScanComplete = false;
+        _lastSessionId = 0;
         HasError = false;
         ErrorMessage = string.Empty;
         FilesScanned = 0;
@@ -172,7 +225,7 @@ public sealed partial class ScanViewModel : ObservableObject
         ProgressValue = 0;
         IsProgressIndeterminate = true;
         ProgressText = "Preparing scan...";
-        CurrentFile = SelectedPath;
+        CurrentFile = rootPath;
         ElapsedTime = "0s";
         ScanSpeed = "Calculating";
         EstimatedRemainingTime = "Calculating";
@@ -181,60 +234,91 @@ public sealed partial class ScanViewModel : ObservableObject
         _lastProgressUtc = _scanStartedUtc;
         _lastProgressBytes = 0;
         // The drive-usage estimate only bounds the scan when the whole drive is scanned.
-        _estimatedScanBytes = IsDriveRoot(SelectedPath) ? EstimateScanBytes(SelectedPath) : 0;
+        _estimatedScanBytes = IsDriveRoot(rootPath) ? EstimateScanBytes(rootPath) : 0;
         _smoothedBytesPerSecond = 0;
-
-        _cts = new CancellationTokenSource();
-
-        // Let the UI render the scanning state before the scanner starts heavy I/O work.
-        await Task.Yield();
-
-        var settings = await _settings.LoadAsync();
-        var options = new ScanOptions
-        {
-            RootPath = SelectedPath,
-            MaxParallelism = Math.Clamp(settings.ScanParallelism, 1, 16),
-            DbBatchSize = 500,
-            FollowSymlinks = false,
-            IncludeHiddenFiles = settings.ShowHiddenFiles || DeepScan,
-            DeepScan = DeepScan,
-            ExcludedPaths = ScanScopeResolver.BuildExcludedPaths(settings, DeepScan),
-        };
-
-        // Capture the UI dispatcher before entering Task.Run so that progress
-        // callbacks are always marshalled back to the UI thread, even if
-        // SynchronizationContext is not installed (unpackaged WinUI 3).
-        var dq = DispatcherQueue.GetForCurrentThread();
-        var progress = new Progress<ScanProgress>(p =>
-        {
-            if (dq is null || dq.HasThreadAccess)
-                OnProgress(p);
-            else
-                dq.TryEnqueue(() => OnProgress(p));
-        });
-
-        // Use Turbo Scanner if the user has opted in and the binary is available.
-        var activeScanner = (UseTurboScanner && TurboScannerAvailable)
-            ? _turboScanner
-            : _scanner;
 
         try
         {
+            // Let the UI render the scanning state before the scanner starts heavy I/O work.
+            await Task.Yield();
+
+            var settings = await _settings.LoadAsync(scanCancellation.Token);
+            var options = new ScanOptions
+            {
+                RootPath = rootPath,
+                MaxParallelism = Math.Clamp(settings.ScanParallelism, 1, 16),
+                DbBatchSize = 500,
+                FollowSymlinks = false,
+                IncludeHiddenFiles = settings.ShowHiddenFiles || deepScan,
+                DeepScan = deepScan,
+                ExcludedPaths = ScanScopeResolver.BuildExcludedPaths(settings, deepScan),
+            };
+
+            // Capture the UI dispatcher before entering Task.Run so that progress
+            // callbacks are always marshalled back to the UI thread, even if
+            // SynchronizationContext is not installed (unpackaged WinUI 3).
+            var dq = DispatcherQueue.GetForCurrentThread();
+            var progress = new Progress<ScanProgress>(p =>
+            {
+                void ApplyIfCurrent()
+                {
+                    if (scanGeneration == Volatile.Read(ref _activeScanGeneration))
+                        OnProgress(p);
+                }
+
+                if (dq is null || dq.HasThreadAccess)
+                    ApplyIfCurrent();
+                else
+                    dq.TryEnqueue(ApplyIfCurrent);
+            });
+
+            var activeScanner = useTurboScanner ? _turboScanner : _scanner;
             var session = await Task.Run(
-                () => activeScanner.ScanAsync(options, progress, _cts.Token),
-                _cts.Token);
-            _lastSessionId = session.Id;
-            ScanComplete = true;
-            ScanStepText = "Step 4 of 4 · Review results";
-            ProgressText = $"Scan complete — {ByteSizeConverter.Format(session.TotalSizeBytes)} in {session.TotalFiles:N0} files";
+                () => activeScanner.ScanAsync(options, progress, scanCancellation.Token),
+                scanCancellation.Token);
+            Interlocked.CompareExchange(ref _activeScanGeneration, 0, scanGeneration);
+            switch (session.Status)
+            {
+                case ScanStatus.Completed:
+                    _lastSessionId = session.Id;
+                    ScanComplete = true;
+                    ScanStepText = "Step 4 of 4 · Review results";
+                    ProgressText = $"Scan complete — {ByteSizeConverter.Format(session.TotalSizeBytes)} in {session.TotalFiles:N0} files";
+                    break;
+                case ScanStatus.Cancelled:
+                    ScanComplete = false;
+                    ProgressText = "Scan cancelled.";
+                    ScanStepText = "Scan cancelled";
+                    break;
+                case ScanStatus.Failed:
+                    ScanComplete = false;
+                    HasError = true;
+                    ErrorMessage = string.IsNullOrWhiteSpace(session.ErrorMessage)
+                        ? "The scanner reported a failure without additional details."
+                        : session.ErrorMessage;
+                    ProgressText = "Scan failed.";
+                    ScanStepText = "Scan failed";
+                    break;
+                default:
+                    ScanComplete = false;
+                    HasError = true;
+                    ErrorMessage = $"The scanner returned non-terminal status {session.Status}.";
+                    ProgressText = "Scan did not complete.";
+                    ScanStepText = "Scan failed";
+                    break;
+            }
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (scanCancellation.IsCancellationRequested)
         {
+            ScanComplete = false;
+            _lastSessionId = 0;
             ProgressText = "Scan cancelled.";
             ScanStepText = "Scan cancelled";
         }
         catch (Exception ex)
         {
+            ScanComplete = false;
+            _lastSessionId = 0;
             HasError = true;
             ErrorMessage = ex.Message;
             ProgressText = "Scan failed.";
@@ -242,9 +326,11 @@ public sealed partial class ScanViewModel : ObservableObject
         }
         finally
         {
+            Interlocked.CompareExchange(ref _activeScanGeneration, 0, scanGeneration);
             IsScanning = false;
-            _cts?.Dispose();
-            _cts = null;
+            if (ReferenceEquals(_cts, scanCancellation))
+                _cts = null;
+            scanCancellation.Dispose();
         }
     }
 

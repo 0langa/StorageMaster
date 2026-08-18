@@ -77,6 +77,10 @@ public sealed class ExactSha256Strategy(
                     : null,
             };
         }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             return ErrorSignature(candidate, "HashError", ex.Message);
@@ -137,6 +141,10 @@ public sealed class ExactSha256Strategy(
             {
                 var ph = await hasher.ComputePartialHashAsync(candidate.File.FullPath, token);
                 partialGroups.GetOrAdd(ph, static _ => []).Add(candidate);
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                throw;
             }
             catch (Exception ex)
             {

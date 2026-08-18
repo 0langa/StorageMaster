@@ -39,6 +39,7 @@
                                TextWrapping="Wrap" />
                     <ComboBox ItemsSource="{x:Bind ViewModel.RecentSessions}"
                               SelectedItem="{x:Bind ViewModel.SelectedSession, Mode=TwoWay}"
+                              IsEnabled="{x:Bind ViewModel.CanChangeAnalysisScope, Mode=OneWay}"
                               HorizontalAlignment="Stretch">
                         <ComboBox.ItemTemplate>
                             <DataTemplate>
@@ -71,16 +72,19 @@
                     <Grid ColumnDefinitions="*,*" ColumnSpacing="20">
                         <ToggleSwitch Grid.Column="0"
                                       Header="Send to Recycle Bin (recommended)"
+                                      IsEnabled="{x:Bind ViewModel.CanChangeAnalysisScope, Mode=OneWay}"
                                       IsOn="{x:Bind ViewModel.UseRecycleBin, Mode=TwoWay}" />
                         <ToggleSwitch Grid.Column="1"
                                       Header="Clear entire Downloads folder (sub-option)"
+                                      IsEnabled="{x:Bind ViewModel.CanChangeAnalysisScope, Mode=OneWay}"
                                       IsOn="{x:Bind ViewModel.ClearEntireDownloads, Mode=TwoWay}" />
                     </Grid>
 
                     <TextBlock Text="Categories to include:" Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.7" />
 
                     <!-- ── Grouped category list ──────────────────────────── -->
-                    <ItemsControl ItemsSource="{x:Bind ViewModel.CategoryGroups}">
+                    <ItemsControl ItemsSource="{x:Bind ViewModel.CategoryGroups}"
+                                  IsEnabled="{x:Bind ViewModel.CanChangeAnalysisScope, Mode=OneWay}">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate x:DataType="local:CleanupCategoryGroup">
                                 <Border Background="{ThemeResource ControlFillColorDefaultBrush}"
@@ -164,12 +168,14 @@
                             <TextBlock Text="{x:Bind ViewModel.LargeFileSizeLabel, Mode=OneWay}"
                                        Style="{StaticResource CaptionTextBlockStyle}" Margin="0,0,0,4"/>
                             <Slider Minimum="50" Maximum="5000" StepFrequency="50"
+                                    IsEnabled="{x:Bind ViewModel.CanChangeAnalysisScope, Mode=OneWay}"
                                     Value="{x:Bind ViewModel.LargeFileSizeMb, Mode=TwoWay}" />
                         </StackPanel>
                         <StackPanel>
                             <TextBlock Text="{x:Bind ViewModel.OldFileAgeLabel, Mode=OneWay}"
                                        Style="{StaticResource CaptionTextBlockStyle}" Margin="0,0,0,4"/>
                             <Slider Minimum="30" Maximum="3650" StepFrequency="30"
+                                    IsEnabled="{x:Bind ViewModel.CanChangeAnalysisScope, Mode=OneWay}"
                                     Value="{x:Bind ViewModel.OldFileAgeDays, Mode=TwoWay}" />
                         </StackPanel>
                     </StackPanel>
@@ -204,7 +210,9 @@
 
                 <TextBlock Text="Suggestions" Style="{StaticResource SubtitleTextBlockStyle}" />
 
-                <ListView ItemsSource="{x:Bind ViewModel.Suggestions}" SelectionMode="None">
+                <ListView ItemsSource="{x:Bind ViewModel.Suggestions}"
+                          SelectionMode="None"
+                          IsEnabled="{x:Bind ViewModel.CanChangeAnalysisScope, Mode=OneWay}">
                     <ListView.ItemContainerStyle>
                         <Style TargetType="ListViewItem">
                             <Setter Property="HorizontalContentAlignment" Value="Stretch" />
@@ -276,6 +284,7 @@
                                 <Run Text="{x:Bind ViewModel.TotalSelectedSize, Mode=OneWay}" FontWeight="SemiBold"/>
                             </TextBlock>
                             <CheckBox Content="Dry run (preview only)"
+                                      IsEnabled="{x:Bind ViewModel.CanChangeAnalysisScope, Mode=OneWay}"
                                       IsChecked="{x:Bind ViewModel.IsDryRun, Mode=TwoWay}" />
                         </StackPanel>
                         <Button Grid.Column="1"

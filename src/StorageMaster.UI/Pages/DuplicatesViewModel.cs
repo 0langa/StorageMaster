@@ -135,6 +135,26 @@ public sealed partial class DuplicatesViewModel : ObservableObject
     private const int GroupPageSize = 100;
     private const int ErrorPageSize = 100;
 
+    private sealed record GroupPageResult(
+        int Page,
+        bool HasMore,
+        IReadOnlyList<DuplicateGroupItem> Items);
+
+    private sealed record ErrorPageResult(
+        int Page,
+        bool HasMore,
+        IReadOnlyList<DuplicateError> Items);
+
+    private sealed record DuplicateDeletionGroupPlan(
+        DuplicateGroup Group,
+        IReadOnlyList<DuplicateGroupMember> Members);
+
+    private sealed record DuplicateDeletionPlan(
+        int Page,
+        DeletionMethod Method,
+        int SelectedMemberCount,
+        IReadOnlyList<DuplicateDeletionGroupPlan> Groups);
+
     private readonly IScanRepository _scanRepository;
     private readonly ISettingsRepository _settingsRepository;
     private readonly IDuplicateFinderService _duplicateFinderService;
@@ -151,12 +171,25 @@ public sealed partial class DuplicatesViewModel : ObservableObject
     private bool _hasMoreErrorPages;
 
     private CancellationTokenSource? _analysisCts;
+    private CancellationTokenSource? _lifetimeCts;
+    private CancellationTokenSource? _latestRunCts;
     private CancellationTokenSource? _groupReloadCts;
+    private CancellationTokenSource? _errorReloadCts;
     private CancellationTokenSource? _previewLoadCts;
     private CancellationTokenSource? _filterDebounceCts;
     private CancellationTokenSource? _exportCts;
+    private long _lifetimeVersion;
+    private long _latestRunVersion;
+    private long _groupReloadVersion;
+    private long _errorReloadVersion;
+    private long _previewLoadVersion;
+    private bool _groupReloadPending;
+    private bool _suppressReactiveLoads;
 
     [ObservableProperty] private bool _isLoading;
+    [ObservableProperty] private bool _isRunLoading;
+    [ObservableProperty] private bool _isGroupLoading;
+    [ObservableProperty] private bool _isErrorLoading;
     [ObservableProperty] private bool _isRunning;
     [ObservableProperty] private bool _isDeleting;
     [ObservableProperty] private bool _isExporting;
@@ -231,13 +264,15 @@ public sealed partial class DuplicatesViewModel : ObservableObject
     public bool IsIncludedScopeMode => SelectedScopeMode == DuplicateScopeMode.IncludedFolders;
     public bool IsExcludedScopeMode => SelectedScopeMode == DuplicateScopeMode.ExcludedFolders;
     public bool IsCustomCategorySelected => SelectedCategory?.UsesCustomExtensions == true;
-    public bool CanRun => SelectedSession is not null && !IsRunning && !IsDeleting;
+    public bool CanRun => SelectedSession is not null && !IsRunning && !IsDeleting && !IsRunLoading;
     public bool CanCancel => IsRunning;
-    public bool CanDeleteSelected => _allGroups.Any(static group => group.SelectedCount > 0) && !IsDeleting && !IsRunning && !IsExporting;
-    public bool CanLoadPreviousGroups => _currentGroupPage > 1 && !IsLoading && !IsRunning;
-    public bool CanLoadNextGroups => _hasMoreGroupPages && !IsLoading && !IsRunning;
-    public bool CanLoadMoreErrors => _hasMoreErrorPages && !IsLoading;
+    public bool CanDeleteSelected => _allGroups.Any(static group => group.SelectedCount > 0) && !IsDeleting && !IsRunning && !IsExporting && !IsRunLoading && !IsGroupLoading;
+    public bool CanLoadPreviousGroups => _currentGroupPage > 1 && !IsLoading && !IsRunLoading && !IsGroupLoading && !IsRunning && !IsDeleting;
+    public bool CanLoadNextGroups => _hasMoreGroupPages && !IsLoading && !IsRunLoading && !IsGroupLoading && !IsRunning && !IsDeleting;
+    public bool CanLoadMoreErrors => _hasMoreErrorPages && !IsLoading && !IsRunLoading && !IsErrorLoading;
     public bool CanCancelExport => IsExporting;
+    public bool CanChangeSession => !IsLoading && !IsRunLoading && !IsRunning && !IsDeleting && !IsExporting;
+    public bool CanModifyDeletionPlan => !IsDeleting;
     public bool CanOpenExportFolder => !string.IsNullOrWhiteSpace(LastExportDirectory) && Directory.Exists(LastExportDirectory);
     public bool IsImagePHashAvailable => IsMethodAvailable(DuplicateMethod.ImagePHash);
     public bool IsVideoPHashAvailable => IsMethodAvailable(DuplicateMethod.VideoPHash);
@@ -308,18 +343,24 @@ public sealed partial class DuplicatesViewModel : ObservableObject
     partial void OnSelectedSessionChanged(ScanSession? value)
     {
         OnPropertyChanged(nameof(CanRun));
-        _ = LoadLatestRunSafeAsync();
+        if (!_suppressReactiveLoads)
+            _ = LoadLatestRunSafeAsync(value?.Id, CurrentLifetimeToken);
     }
 
-    private async Task LoadLatestRunSafeAsync()
+    private async Task LoadLatestRunSafeAsync(long? sessionId, CancellationToken cancellationToken)
     {
         try
         {
-            await LoadLatestRunAsync();
+            await LoadLatestRunAsync(sessionId, cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
         }
         catch (Exception ex)
         {
-            StatusText = $"Could not load duplicate runs: {ex.Message}";
+            if (!cancellationToken.IsCancellationRequested && SelectedSession?.Id == sessionId)
+                StatusText = $"Could not load duplicate runs: {ex.Message}";
+            Debug.WriteLine(ex);
         }
     }
 
@@ -336,12 +377,17 @@ public sealed partial class DuplicatesViewModel : ObservableObject
         OnPropertyChanged(nameof(CanRun));
         OnPropertyChanged(nameof(CanCancel));
         OnPropertyChanged(nameof(CanDeleteSelected));
+        OnPropertyChanged(nameof(CanChangeSession));
     }
 
     partial void OnIsDeletingChanged(bool value)
     {
         OnPropertyChanged(nameof(CanRun));
         OnPropertyChanged(nameof(CanDeleteSelected));
+        OnPropertyChanged(nameof(CanChangeSession));
+        OnPropertyChanged(nameof(CanModifyDeletionPlan));
+        OnPropertyChanged(nameof(CanLoadPreviousGroups));
+        OnPropertyChanged(nameof(CanLoadNextGroups));
     }
 
     partial void OnIsExportingChanged(bool value)
@@ -349,7 +395,13 @@ public sealed partial class DuplicatesViewModel : ObservableObject
         OnPropertyChanged(nameof(CanDeleteSelected));
         OnPropertyChanged(nameof(CanCancelExport));
         OnPropertyChanged(nameof(CanOpenExportFolder));
+        OnPropertyChanged(nameof(CanChangeSession));
     }
+
+    partial void OnIsLoadingChanged(bool value) => RaiseLoadingProperties();
+    partial void OnIsRunLoadingChanged(bool value) => RaiseLoadingProperties();
+    partial void OnIsGroupLoadingChanged(bool value) => RaiseLoadingProperties();
+    partial void OnIsErrorLoadingChanged(bool value) => RaiseLoadingProperties();
 
     partial void OnUseRecycleBinChanged(bool value)
     {
@@ -387,15 +439,26 @@ public sealed partial class DuplicatesViewModel : ObservableObject
     partial void OnSelectedGroupChanged(DuplicateGroupItem? value)
     {
         OnPropertyChanged(nameof(HasSelectedGroup));
-        _ = LoadSelectedGroupDetailAsync();
+        if (!_suppressReactiveLoads)
+            _ = LoadSelectedGroupDetailAsync(value);
     }
 
     partial void OnLastExportDirectoryChanged(string value) => OnPropertyChanged(nameof(CanOpenExportFolder));
 
     private void QueueGroupReload()
     {
-        _filterDebounceCts?.Cancel();
-        _filterDebounceCts = new CancellationTokenSource();
+        if (_suppressReactiveLoads || LatestRun is null || IsRunning)
+            return;
+
+        if (IsRunLoading)
+        {
+            _groupReloadPending = true;
+            return;
+        }
+
+        _groupReloadPending = false;
+        CancelAndDispose(ref _filterDebounceCts);
+        _filterDebounceCts = CancellationTokenSource.CreateLinkedTokenSource(CurrentLifetimeToken);
         _ = DebouncedGroupReloadAsync(_filterDebounceCts.Token);
     }
 
@@ -409,14 +472,36 @@ public sealed partial class DuplicatesViewModel : ObservableObject
         catch (OperationCanceledException)
         {
         }
+        catch (Exception ex)
+        {
+            if (!token.IsCancellationRequested)
+                StatusText = $"Could not apply duplicate filters: {ex.Message}";
+            Debug.WriteLine(ex);
+        }
     }
 
-    public async Task InitializeAsync(long? preselectedSessionId = null)
+    public async Task InitializeAsync(
+        long? preselectedSessionId = null,
+        CancellationToken cancellationToken = default)
     {
+        CancelBackgroundWork();
+        var lifetimeVersion = ++_lifetimeVersion;
+        _lifetimeCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var ct = _lifetimeCts.Token;
+
         IsLoading = true;
         try
         {
-            var settings = await _settingsRepository.LoadAsync();
+            var settingsTask = _settingsRepository.LoadAsync(ct);
+            var sessionsTask = _scanRepository.GetRecentSessionsAsync(50, ct);
+            await Task.WhenAll(settingsTask, sessionsTask);
+            ct.ThrowIfCancellationRequested();
+            if (!IsCurrentLifetime(lifetimeVersion, ct))
+                return;
+
+            var settings = await settingsTask;
+            var sessions = await sessionsTask;
+            _suppressReactiveLoads = true;
             MinimumSizeMb = settings.DuplicateMinimumSizeMb;
             KeeperPolicy = settings.DuplicateKeeperPolicy;
             IncludeNormalizedText = settings.DuplicateUseNormalizedText && IsMethodAvailable(DuplicateMethod.NormalizedText);
@@ -432,26 +517,30 @@ public sealed partial class DuplicatesViewModel : ObservableObject
                 ?? MethodFilterOptions.FirstOrDefault();
 
             Sessions.Clear();
-            var sessions = await _scanRepository.GetRecentSessionsAsync(50);
             foreach (var session in sessions.Where(static session => session.Status == ScanStatus.Completed))
                 Sessions.Add(session);
 
             SelectedSession = preselectedSessionId is long selectedId
                 ? Sessions.FirstOrDefault(session => session.Id == selectedId) ?? Sessions.FirstOrDefault()
                 : Sessions.FirstOrDefault();
+            _suppressReactiveLoads = false;
 
-            await LoadLatestRunAsync();
+            await LoadLatestRunAsync(SelectedSession?.Id, ct);
         }
         finally
         {
-            IsLoading = false;
+            _suppressReactiveLoads = false;
+            if (IsCurrentLifetime(lifetimeVersion))
+                IsLoading = false;
         }
     }
 
     [RelayCommand]
     private async Task RunAnalysisAsync()
     {
-        if (SelectedSession is null || SelectedCategory is null)
+        var selectedSession = SelectedSession;
+        var selectedCategory = SelectedCategory;
+        if (selectedSession is null || selectedCategory is null)
         {
             // Never no-op silently on an enabled button.
             StatusText = "Select a scan session and file type before running duplicate analysis.";
@@ -463,78 +552,95 @@ public sealed partial class DuplicatesViewModel : ObservableObject
             .Select(static e => e.ToLowerInvariant())
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
-        if (SelectedCategory.UsesCustomExtensions && extensions.Count == 0)
+        if (selectedCategory.UsesCustomExtensions && extensions.Count == 0)
         {
             StatusText = "Enter at least one custom extension for custom-scope dedupe.";
             return;
         }
 
-        var includedPaths = SelectedScopeMode == DuplicateScopeMode.IncludedFolders
+        var selectedScopeMode = SelectedScopeMode;
+        var includedPaths = selectedScopeMode == DuplicateScopeMode.IncludedFolders
             ? ParsePaths(ScopePathsText)
             : [];
-        if (SelectedScopeMode == DuplicateScopeMode.IncludedFolders && includedPaths.Count == 0)
+        if (selectedScopeMode == DuplicateScopeMode.IncludedFolders && includedPaths.Count == 0)
         {
             StatusText = "Add one or more folder prefixes for included-folder scope.";
             return;
         }
 
-        _analysisCts = new CancellationTokenSource();
+        var includeNormalizedText = IncludeNormalizedText;
+        var includeImagePHash = IncludeImagePHash;
+        var includeVideoPHash = IncludeVideoPHash;
+        var includeHiddenFiles = IncludeHiddenFiles;
+        var includeReparsePoints = IncludeReparsePoints;
+        var minimumSizeMb = MinimumSizeMb;
+        var keeperPolicy = KeeperPolicy;
+        var excludedScopePathsText = ExcludedScopePathsText;
+        var lifetimeVersion = _lifetimeVersion;
+
+        CancelReviewLoads();
+        var analysisCts = CancellationTokenSource.CreateLinkedTokenSource(CurrentLifetimeToken);
+        _analysisCts = analysisCts;
         IsRunning = true;
         ProgressProcessed = 0;
         ProgressTotal = 0;
         ProgressPhase = string.Empty;
         StatusText = "Starting duplicate analysis…";
-        Groups.Clear();
-        Errors.Clear();
-        PreviewItems.Clear();
-        QuarantineItems.Clear();
-        PreviewSummary = string.Empty;
-        _allGroups.Clear();
-        RaiseSummaryProperties();
+        ClearRunState();
 
         try
         {
-            var settings = await _settingsRepository.LoadAsync();
+            var settings = await _settingsRepository.LoadAsync(analysisCts.Token);
 
             var methods = new List<DuplicateMethod> { DuplicateMethod.ExactSha256 };
-            if (IncludeNormalizedText && IsMethodAvailable(DuplicateMethod.NormalizedText))
+            if (includeNormalizedText && IsMethodAvailable(DuplicateMethod.NormalizedText))
                 methods.Add(DuplicateMethod.NormalizedText);
-            if (IncludeImagePHash && IsImagePHashAvailable)
+            if (includeImagePHash && IsImagePHashAvailable)
                 methods.Add(DuplicateMethod.ImagePHash);
-            if (IncludeVideoPHash && IsVideoPHashAvailable)
+            if (includeVideoPHash && IsVideoPHashAvailable)
                 methods.Add(DuplicateMethod.VideoPHash);
 
             var excludedPaths = settings.ExcludedPaths.ToList();
-            if (SelectedScopeMode == DuplicateScopeMode.ExcludedFolders)
-                excludedPaths.AddRange(ParsePaths(ExcludedScopePathsText));
+            if (selectedScopeMode == DuplicateScopeMode.ExcludedFolders)
+                excludedPaths.AddRange(ParsePaths(excludedScopePathsText));
 
-            LatestRun = await _duplicateFinderService.RunAsync(
+            var completedRun = await _duplicateFinderService.RunAsync(
                 new DuplicateScanOptions
                 {
-                    SessionId = SelectedSession.Id,
-                    MinimumSizeBytes = Math.Max(0, MinimumSizeMb) * 1024L * 1024L,
+                    SessionId = selectedSession.Id,
+                    MinimumSizeBytes = Math.Max(0, minimumSizeMb) * 1024L * 1024L,
                     Methods = methods,
-                    KeeperPolicy = KeeperPolicy,
+                    KeeperPolicy = keeperPolicy,
                     MaxConcurrency = Math.Max(1, settings.ScanParallelism),
                     PerDriveConcurrency = Math.Max(1, Math.Min(4, settings.ScanParallelism / 2)),
                     IncludeExtensions = extensions,
-                    IncludeCategories = SelectedCategory.Categories,
+                    IncludeCategories = selectedCategory.Categories,
                     IncludedPaths = includedPaths,
                     ExcludedPaths = excludedPaths,
-                    IncludeHiddenFiles = IncludeHiddenFiles,
-                    IncludeReparsePoints = IncludeReparsePoints,
+                    IncludeHiddenFiles = includeHiddenFiles,
+                    IncludeReparsePoints = includeReparsePoints,
                 },
                 new Progress<DuplicateDetectionProgress>(p =>
                 {
+                    if (!IsCurrentAnalysis(lifetimeVersion, analysisCts, selectedSession.Id))
+                        return;
+
                     ProgressPhase = p.Phase;
                     ProgressProcessed = p.Processed;
                     ProgressTotal = Math.Max(p.Total, 1);
                     StatusText = $"{p.Phase}: {p.Processed:N0} / {p.Total:N0} ({p.GroupsFound:N0} groups, {p.Errors:N0} errors)";
                 }),
-                _analysisCts.Token);
+                analysisCts.Token);
 
-            await LoadLatestRunAsync();
-            StatusText = LatestRun?.Status == DuplicateRunStatus.Cancelled
+            analysisCts.Token.ThrowIfCancellationRequested();
+            if (!IsCurrentAnalysis(lifetimeVersion, analysisCts, selectedSession.Id))
+                return;
+
+            await LoadLatestRunAsync(selectedSession.Id, CurrentLifetimeToken);
+            if (!IsCurrentAnalysis(lifetimeVersion, analysisCts, selectedSession.Id))
+                return;
+
+            StatusText = completedRun.Status == DuplicateRunStatus.Cancelled
                 ? "Analysis cancelled."
                 : _runSummary.GroupCount > 0
                     ? $"Loaded page {_currentGroupPage:N0} of {_runSummary.GroupCount:N0} duplicate group(s). Review before deleting."
@@ -542,17 +648,23 @@ public sealed partial class DuplicatesViewModel : ObservableObject
         }
         catch (OperationCanceledException)
         {
-            StatusText = "Analysis cancelled.";
+            if (IsCurrentAnalysis(lifetimeVersion, analysisCts, selectedSession.Id))
+                StatusText = "Analysis cancelled.";
         }
         catch (Exception ex)
         {
-            StatusText = $"Duplicate analysis failed: {ex.Message}";
+            if (IsCurrentAnalysis(lifetimeVersion, analysisCts, selectedSession.Id))
+                StatusText = $"Duplicate analysis failed: {ex.Message}";
         }
         finally
         {
-            IsRunning = false;
-            _analysisCts?.Dispose();
-            _analysisCts = null;
+            if (ReferenceEquals(_analysisCts, analysisCts))
+            {
+                if (IsCurrentLifetime(lifetimeVersion))
+                    IsRunning = false;
+                _analysisCts = null;
+            }
+            analysisCts.Dispose();
         }
     }
 
@@ -566,30 +678,63 @@ public sealed partial class DuplicatesViewModel : ObservableObject
     [RelayCommand]
     private async Task PreviousGroupsPageAsync()
     {
-        if (_currentGroupPage <= 1 || LatestRun is null)
+        if (_currentGroupPage <= 1 || LatestRun is null || IsGroupLoading || IsDeleting)
             return;
 
-        await LoadGroupsPageAsync(_currentGroupPage - 1, CancellationToken.None);
-        StatusText = $"Loaded page {_currentGroupPage:N0}.";
+        try
+        {
+            await LoadGroupsPageAsync(_currentGroupPage - 1, CurrentLifetimeToken);
+            StatusText = $"Loaded page {_currentGroupPage:N0}.";
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception ex)
+        {
+            StatusText = $"Could not load the previous duplicate page: {ex.Message}";
+            Debug.WriteLine(ex);
+        }
     }
 
     [RelayCommand]
     private async Task NextGroupsPageAsync()
     {
-        if (!_hasMoreGroupPages || LatestRun is null)
+        if (!_hasMoreGroupPages || LatestRun is null || IsGroupLoading || IsDeleting)
             return;
 
-        await LoadGroupsPageAsync(_currentGroupPage + 1, CancellationToken.None);
-        StatusText = $"Loaded page {_currentGroupPage:N0}.";
+        try
+        {
+            await LoadGroupsPageAsync(_currentGroupPage + 1, CurrentLifetimeToken);
+            StatusText = $"Loaded page {_currentGroupPage:N0}.";
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception ex)
+        {
+            StatusText = $"Could not load the next duplicate page: {ex.Message}";
+            Debug.WriteLine(ex);
+        }
     }
 
     [RelayCommand]
     private async Task LoadMoreErrorsAsync()
     {
-        if (!_hasMoreErrorPages || LatestRun is null)
+        if (!_hasMoreErrorPages || LatestRun is null || IsErrorLoading)
             return;
 
-        await LoadErrorsPageAsync(_currentErrorPage + 1, append: true);
+        try
+        {
+            await LoadErrorsPageAsync(_currentErrorPage + 1, append: true, CurrentLifetimeToken);
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception ex)
+        {
+            StatusText = $"Could not load more duplicate errors: {ex.Message}";
+            Debug.WriteLine(ex);
+        }
     }
 
     [RelayCommand]
@@ -633,7 +778,7 @@ public sealed partial class DuplicatesViewModel : ObservableObject
                 }
 
                 page++;
-                ExportStatusText = $"Exporting CSV page {page - 1:N0}…";
+                UpdateExportProgress(ct, $"Exporting CSV page {page - 1:N0}…");
             }
         });
     }
@@ -682,7 +827,7 @@ public sealed partial class DuplicatesViewModel : ObservableObject
                 }
 
                 page++;
-                ExportStatusText = $"Exporting JSON page {page - 1:N0}…";
+                UpdateExportProgress(ct, $"Exporting JSON page {page - 1:N0}…");
                 await writer.FlushAsync(ct);
             }
 
@@ -736,7 +881,7 @@ public sealed partial class DuplicatesViewModel : ObservableObject
                 }
 
                 page++;
-                ExportStatusText = $"Exporting HTML page {page - 1:N0}…";
+                UpdateExportProgress(ct, $"Exporting HTML page {page - 1:N0}…");
             }
 
             await writer.WriteLineAsync("</tbody></table></body></html>");
@@ -746,6 +891,9 @@ public sealed partial class DuplicatesViewModel : ObservableObject
     [RelayCommand]
     private void KeepNewest(DuplicateGroupItem group)
     {
+        if (!CanModifyDeletionPlan)
+            return;
+
         group.ApplyKeeperPolicy(KeeperPolicy.Newest);
         OnPropertyChanged(nameof(CanDeleteSelected));
     }
@@ -753,6 +901,9 @@ public sealed partial class DuplicatesViewModel : ObservableObject
     [RelayCommand]
     private void KeepOldest(DuplicateGroupItem group)
     {
+        if (!CanModifyDeletionPlan)
+            return;
+
         group.ApplyKeeperPolicy(KeeperPolicy.Oldest);
         OnPropertyChanged(nameof(CanDeleteSelected));
     }
@@ -760,6 +911,9 @@ public sealed partial class DuplicatesViewModel : ObservableObject
     [RelayCommand]
     private void KeepShortestPath(DuplicateGroupItem group)
     {
+        if (!CanModifyDeletionPlan)
+            return;
+
         group.ApplyKeeperPolicy(KeeperPolicy.ShortestPath);
         OnPropertyChanged(nameof(CanDeleteSelected));
     }
@@ -767,6 +921,9 @@ public sealed partial class DuplicatesViewModel : ObservableObject
     [RelayCommand]
     private void KeepLongestPath(DuplicateGroupItem group)
     {
+        if (!CanModifyDeletionPlan)
+            return;
+
         group.ApplyKeeperPolicy(KeeperPolicy.LongestPath);
         OnPropertyChanged(nameof(CanDeleteSelected));
     }
@@ -774,6 +931,9 @@ public sealed partial class DuplicatesViewModel : ObservableObject
     [RelayCommand]
     private void SelectSafeExactDuplicatesOnPage()
     {
+        if (!CanModifyDeletionPlan)
+            return;
+
         foreach (var group in _allGroups.Where(static item => item.Group.Method == DuplicateMethod.ExactSha256))
         {
             foreach (var member in group.Members)
@@ -787,6 +947,9 @@ public sealed partial class DuplicatesViewModel : ObservableObject
     [RelayCommand]
     private void DeselectCurrentPage()
     {
+        if (!CanModifyDeletionPlan)
+            return;
+
         foreach (var group in _allGroups)
         {
             foreach (var member in group.Members)
@@ -800,69 +963,114 @@ public sealed partial class DuplicatesViewModel : ObservableObject
     [RelayCommand]
     private async Task DeleteSelectedAsync()
     {
-        var selectedGroups = _allGroups.Where(static group => group.SelectedCount > 0).ToList();
-        if (selectedGroups.Count == 0)
+        var plan = CaptureDeletionPlan();
+        if (plan is null)
             return;
 
-        var selectedMembers = selectedGroups.SelectMany(static group => group.Members).Count(static member => member.IsSelected && !member.IsKeeper);
-        var deletionMethod = UseQuarantine ? DeletionMethod.Quarantine
-                           : UseRecycleBin ? DeletionMethod.RecycleBin
-                           : DeletionMethod.Permanent;
-        var methodLabel = deletionMethod switch
+        var lifetimeVersion = _lifetimeVersion;
+        var selectedSessionId = SelectedSession?.Id;
+        var methodLabel = plan.Method switch
         {
             DeletionMethod.Quarantine => "quarantine (restorable)",
             DeletionMethod.RecycleBin => "Recycle Bin",
             _ => "permanent deletion",
         };
 
-        var confirmed = await _dialogs.ConfirmAsync(
-            "Delete selected duplicates from current page",
-            $"Delete {selectedMembers:N0} duplicate file(s) from page {_currentGroupPage:N0}?\n\nOne keeper per group stays untouched. Method: {methodLabel}.",
-            $"Delete via {methodLabel}");
-        if (!confirmed)
-            return;
-
+        // Freeze the exact member/keeper/method plan and disable every editor before
+        // yielding to the confirmation dialog. Execution never rereads mutable UI state.
         IsDeleting = true;
         try
         {
-            long freed = 0;
-            var groupErrors = new List<string>();
-            foreach (var group in selectedGroups)
-            {
-                var rawMembers = group.Members.Select(member => member.Member with
-                {
-                    IsSelected = member.IsSelected,
-                    IsKeeper = member.IsKeeper,
-                }).ToList();
+            var confirmed = await _dialogs.ConfirmAsync(
+                "Delete selected duplicates from current page",
+                $"Delete {plan.SelectedMemberCount:N0} duplicate file(s) from page {plan.Page:N0}?\n\nOne keeper per group stays untouched. Method: {methodLabel}.",
+                $"Delete via {methodLabel}");
+            if (!confirmed || !IsCurrentLifetime(lifetimeVersion))
+                return;
 
+            long processedBytes = 0;
+            var processedFileCount = 0;
+            var groupErrors = new List<string>();
+            var persistenceWarnings = new List<string>();
+            foreach (var groupPlan in plan.Groups)
+            {
                 // One group failing (e.g. its keeper vanished) must not abort
                 // the remaining reviewed groups.
                 try
                 {
-                    freed += await _duplicateDeletionService.DeleteSelectedAsync(
-                        group.Group,
-                        rawMembers,
-                        deletionMethod);
+                    var result = await _duplicateDeletionService.DeleteSelectedWithResultAsync(
+                        groupPlan.Group,
+                        groupPlan.Members,
+                        plan.Method);
+                    processedBytes += result.ProcessedBytes;
+                    processedFileCount += result.DeletedFileCount;
+                    persistenceWarnings.AddRange(result.Warnings.Select(warning =>
+                        $"Group {groupPlan.Group.Id}, {warning.Path}: {warning.Message}"));
                 }
                 catch (Exception ex)
                 {
-                    groupErrors.Add($"Group {group.Group.Id}: {ex.Message}");
+                    groupErrors.Add($"Group {groupPlan.Group.Id}: {ex.Message}");
                 }
             }
 
-            StatusText = groupErrors.Count == 0
-                ? $"Deleted selected duplicates from page {_currentGroupPage:N0}. Reclaimed {ByteSizeConverter.Format(freed)}."
-                : $"Reclaimed {ByteSizeConverter.Format(freed)}; {groupErrors.Count:N0} group(s) failed. First error: {groupErrors[0]}";
-            await LoadLatestRunAsync();
+            if (!IsCurrentLifetime(lifetimeVersion))
+                return;
+
+            var processedSize = ByteSizeConverter.Format(processedBytes);
+            var operationSummary = plan.Method switch
+            {
+                DeletionMethod.Quarantine => $"Moved {processedSize} across {processedFileCount:N0} file(s) to quarantine",
+                DeletionMethod.RecycleBin => $"Moved {processedSize} across {processedFileCount:N0} file(s) to the Recycle Bin",
+                _ => $"Permanently deleted {processedSize} across {processedFileCount:N0} file(s)",
+            };
+            StatusText = (groupErrors.Count, persistenceWarnings.Count) switch
+            {
+                (0, 0) => $"{operationSummary} from page {plan.Page:N0}.",
+                (0, _) => $"{operationSummary}; {persistenceWarnings.Count:N0} bookkeeping warning(s). First warning: {persistenceWarnings[0]}",
+                (_, 0) => $"{operationSummary}; {groupErrors.Count:N0} group(s) failed. First error: {groupErrors[0]}",
+                _ => $"{operationSummary}; {groupErrors.Count:N0} group(s) failed and {persistenceWarnings.Count:N0} bookkeeping warning(s). First issue: {groupErrors[0]}",
+            };
+            await LoadLatestRunAsync(selectedSessionId, CurrentLifetimeToken);
+        }
+        catch (OperationCanceledException)
+        {
         }
         catch (Exception ex)
         {
-            StatusText = $"Duplicate deletion failed: {ex.Message}";
+            if (IsCurrentLifetime(lifetimeVersion))
+                StatusText = $"Duplicate deletion failed: {ex.Message}";
         }
         finally
         {
-            IsDeleting = false;
+            if (IsCurrentLifetime(lifetimeVersion))
+                IsDeleting = false;
         }
+    }
+
+    private DuplicateDeletionPlan? CaptureDeletionPlan()
+    {
+        var groups = _allGroups
+            .Select(group => new DuplicateDeletionGroupPlan(
+                group.Group,
+                group.Members
+                    .Select(member => member.Member with
+                    {
+                        IsSelected = member.IsSelected,
+                        IsKeeper = member.IsKeeper,
+                    })
+                    .ToArray()))
+            .Where(static group => group.Members.Any(static member => member.IsSelected && !member.IsKeeper))
+            .ToArray();
+
+        var selectedMemberCount = groups.Sum(static group =>
+            group.Members.Count(static member => member.IsSelected && !member.IsKeeper));
+        if (selectedMemberCount == 0)
+            return null;
+
+        var method = UseQuarantine ? DeletionMethod.Quarantine
+            : UseRecycleBin ? DeletionMethod.RecycleBin
+            : DeletionMethod.Permanent;
+        return new DuplicateDeletionPlan(_currentGroupPage, method, selectedMemberCount, groups);
     }
 
     [RelayCommand]
@@ -871,7 +1079,7 @@ public sealed partial class DuplicatesViewModel : ObservableObject
         try
         {
             await _duplicateDeletionService.RestoreFromQuarantineAsync(file.Id);
-            await LoadLatestRunAsync();
+            await LoadLatestRunAsync(SelectedSession?.Id, CurrentLifetimeToken);
             StatusText = $"Restored {file.OriginalPath}.";
         }
         catch (Exception ex)
@@ -902,64 +1110,77 @@ public sealed partial class DuplicatesViewModel : ObservableObject
         });
     }
 
-    private async Task LoadLatestRunAsync()
+    private async Task LoadLatestRunAsync(long? sessionId, CancellationToken callerToken)
     {
-        _groupReloadCts?.Cancel();
-        _previewLoadCts?.Cancel();
-        Groups.Clear();
-        Errors.Clear();
-        PreviewItems.Clear();
-        QuarantineItems.Clear();
-        PreviewSummary = string.Empty;
-        _allGroups.Clear();
-        LatestRun = null;
-        _runSummary = new DuplicateRunSummary();
-        _currentGroupPage = 1;
-        _hasMoreGroupPages = false;
-        _currentErrorPage = 1;
-        _hasMoreErrorPages = false;
-        RaiseSummaryProperties();
+        _exportCts?.Cancel();
+        CancelAndDispose(ref _latestRunCts);
+        var lifetimeVersion = _lifetimeVersion;
+        var loadVersion = ++_latestRunVersion;
+        _latestRunCts = CreateLifetimeLinkedTokenSource(callerToken);
+        var ct = _latestRunCts.Token;
 
-        // Quarantine is global (duplicate runs AND generic cleanup), so it is
-        // shown even before a session or duplicate run exists.
-        await LoadQuarantineAsync(CancellationToken.None);
-
-        if (SelectedSession is null)
+        CancelReviewLoads();
+        ClearRunState();
+        IsRunLoading = true;
+        StatusText = "Loading duplicate review data…";
+        try
         {
-            StatusText = "Choose a completed scan session to review duplicates.";
-            return;
-        }
+            // Quarantine is global (duplicate runs AND generic cleanup), so it is
+            // shown even before a session or duplicate run exists.
+            var quarantine = await _duplicateRepository.GetUnrestoredQuarantinedFilesAsync(ct);
+            ct.ThrowIfCancellationRequested();
+            if (!IsCurrentLatestRunLoad(lifetimeVersion, loadVersion, sessionId, ct))
+                return;
+            ReplaceQuarantine(quarantine);
 
-        var runs = await _duplicateRepository.GetRunsForSessionAsync(SelectedSession.Id);
-        LatestRun = runs.FirstOrDefault();
-        OnPropertyChanged(nameof(HasLatestRun));
-        OnPropertyChanged(nameof(LatestRunSummary));
-        if (LatestRun is null)
+            if (sessionId is null)
+            {
+                StatusText = "Choose a completed scan session to review duplicates.";
+                return;
+            }
+
+            var runs = await _duplicateRepository.GetRunsForSessionAsync(sessionId.Value, ct);
+            ct.ThrowIfCancellationRequested();
+            if (!IsCurrentLatestRunLoad(lifetimeVersion, loadVersion, sessionId, ct))
+                return;
+
+            var latestRun = runs.FirstOrDefault();
+            if (latestRun is null)
+            {
+                StatusText = "No duplicate analysis has been run for this scan yet.";
+                return;
+            }
+
+            var summary = await _duplicateRepository.GetDuplicateRunSummaryAsync(latestRun.Id, ct);
+            ct.ThrowIfCancellationRequested();
+            if (!IsCurrentLatestRunLoad(lifetimeVersion, loadVersion, sessionId, ct))
+                return;
+
+            LatestRun = latestRun;
+            _runSummary = summary;
+            OnPropertyChanged(nameof(HasLatestRun));
+            OnPropertyChanged(nameof(LatestRunSummary));
+            RaiseSummaryProperties();
+
+            await LoadGroupsPageAsync(1, ct);
+            await LoadErrorsPageAsync(1, append: false, ct);
+            ct.ThrowIfCancellationRequested();
+            if (!IsCurrentLatestRunLoad(lifetimeVersion, loadVersion, sessionId, ct))
+                return;
+
+            StatusText = _runSummary.GroupCount > 0
+                ? $"Loaded page {_currentGroupPage:N0} of duplicate groups ({_runSummary.GroupCount:N0} total)."
+                : "Latest duplicate analysis completed without duplicate groups.";
+        }
+        finally
         {
-            StatusText = "No duplicate analysis has been run for this scan yet.";
-            return;
+            if (IsCurrentLatestRunLoad(lifetimeVersion, loadVersion, sessionId))
+            {
+                IsRunLoading = false;
+                if (_groupReloadPending)
+                    QueueGroupReload();
+            }
         }
-
-        _runSummary = await _duplicateRepository.GetDuplicateRunSummaryAsync(LatestRun.Id);
-        await LoadGroupsPageAsync(1, CancellationToken.None);
-        await LoadErrorsPageAsync(1, append: false);
-
-        StatusText = _runSummary.GroupCount > 0
-            ? $"Loaded page {_currentGroupPage:N0} of duplicate groups ({_runSummary.GroupCount:N0} total)."
-            : "Latest duplicate analysis completed without duplicate groups.";
-    }
-
-    /// <summary>
-    /// Loads every not-yet-restored quarantined file — duplicate runs and
-    /// generic cleanup (MemberId=null) alike — newest first.
-    /// </summary>
-    private async Task LoadQuarantineAsync(CancellationToken ct)
-    {
-        var items = await _duplicateRepository.GetUnrestoredQuarantinedFilesAsync(ct);
-        QuarantineItems.Clear();
-        foreach (var item in items)
-            QuarantineItems.Add(item);
-        OnPropertyChanged(nameof(HasQuarantineItems));
     }
 
     private async Task ReloadCurrentGroupPageAsync(CancellationToken ct)
@@ -972,11 +1193,14 @@ public sealed partial class DuplicatesViewModel : ObservableObject
 
     private async Task LoadGroupsPageAsync(int page, CancellationToken ct)
     {
-        if (LatestRun is null)
+        var latestRun = LatestRun;
+        if (latestRun is null)
             return;
 
-        _groupReloadCts?.Cancel();
-        _groupReloadCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        CancelAndDispose(ref _groupReloadCts);
+        var lifetimeVersion = _lifetimeVersion;
+        var loadVersion = ++_groupReloadVersion;
+        _groupReloadCts = CreateLifetimeLinkedTokenSource(ct);
         var linkedToken = _groupReloadCts.Token;
 
         var filter = new DuplicateGroupQueryFilter
@@ -988,84 +1212,86 @@ public sealed partial class DuplicatesViewModel : ObservableObject
             ExistsNow = FilterMissingOnly ? false : null,
             IncludeErroredOnly = FilterErroredOnly,
         };
+        var sortBy = GroupSortBy;
+        var keeperPolicy = KeeperPolicy;
 
-        var groups = (await _duplicateRepository.GetDuplicateGroupsPageAsync(
-            LatestRun.Id,
-            page,
-            GroupPageSize + 1,
-            filter,
-            GroupSortBy,
-            linkedToken)).ToList();
-
-        if (groups.Count == 0 && page > 1)
+        IsGroupLoading = true;
+        try
         {
-            await LoadGroupsPageAsync(1, linkedToken);
-            return;
-        }
-
-        _currentGroupPage = Math.Max(1, page);
-        _hasMoreGroupPages = groups.Count > GroupPageSize;
-        if (_hasMoreGroupPages)
-            groups = groups.Take(GroupPageSize).ToList();
-        foreach (var g in _allGroups)
-            foreach (var m in g.Members)
-                m.PropertyChanged -= OnMemberPropertyChanged;
-
-        Groups.Clear();
-        PreviewItems.Clear();
-        QuarantineItems.Clear();
-        PreviewSummary = string.Empty;
-        _allGroups.Clear();
-
-        foreach (var group in groups)
-        {
+            var result = await FetchGroupPageAsync(
+                latestRun.Id,
+                page,
+                filter,
+                sortBy,
+                keeperPolicy,
+                linkedToken);
             linkedToken.ThrowIfCancellationRequested();
-            var members = await _duplicateRepository.GetDuplicateGroupMembersAsync(group.Id, linkedToken);
-            var item = new DuplicateGroupItem(group, members);
-            foreach (var member in item.Members)
-                member.PropertyChanged += OnMemberPropertyChanged;
-            item.ApplyKeeperPolicy(KeeperPolicy);
-            _allGroups.Add(item);
-            Groups.Add(item);
-        }
+            if (!IsCurrentGroupLoad(lifetimeVersion, loadVersion, latestRun.Id, linkedToken))
+                return;
 
-        SelectedGroup = Groups.FirstOrDefault();
-        RaiseSummaryProperties();
+            ApplyGroupPage(result);
+        }
+        finally
+        {
+            if (IsCurrentGroupLoad(lifetimeVersion, loadVersion, latestRun.Id))
+                IsGroupLoading = false;
+        }
     }
 
     private void OnMemberPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
         => OnPropertyChanged(nameof(CanDeleteSelected));
 
-    private async Task LoadErrorsPageAsync(int page, bool append)
+    private async Task LoadErrorsPageAsync(
+        int page,
+        bool append,
+        CancellationToken callerToken = default)
     {
-        if (LatestRun is null)
+        var latestRun = LatestRun;
+        if (latestRun is null)
             return;
 
-        var errors = (await _duplicateRepository.GetDuplicateErrorsPageAsync(LatestRun.Id, page, ErrorPageSize + 1)).ToList();
-        _currentErrorPage = Math.Max(1, page);
-        _hasMoreErrorPages = errors.Count > ErrorPageSize;
-        if (_hasMoreErrorPages)
-            errors = errors.Take(ErrorPageSize).ToList();
+        CancelAndDispose(ref _errorReloadCts);
+        var lifetimeVersion = _lifetimeVersion;
+        var loadVersion = ++_errorReloadVersion;
+        _errorReloadCts = CreateLifetimeLinkedTokenSource(callerToken);
+        var ct = _errorReloadCts.Token;
 
-        if (!append)
-            Errors.Clear();
-        foreach (var error in errors)
-            Errors.Add(error);
+        IsErrorLoading = true;
+        try
+        {
+            var result = await FetchErrorPageAsync(latestRun.Id, page, ct);
+            ct.ThrowIfCancellationRequested();
+            if (!IsCurrentErrorLoad(lifetimeVersion, loadVersion, latestRun.Id, ct))
+                return;
 
-        RaiseSummaryProperties();
+            _currentErrorPage = result.Page;
+            _hasMoreErrorPages = result.HasMore;
+            if (!append)
+                Errors.Clear();
+            foreach (var error in result.Items)
+                Errors.Add(error);
+            RaiseSummaryProperties();
+        }
+        finally
+        {
+            if (IsCurrentErrorLoad(lifetimeVersion, loadVersion, latestRun.Id))
+                IsErrorLoading = false;
+        }
     }
 
-    private async Task LoadSelectedGroupDetailAsync()
+    private async Task LoadSelectedGroupDetailAsync(DuplicateGroupItem? selectedGroup)
     {
-        _previewLoadCts?.Cancel();
-        _previewLoadCts = new CancellationTokenSource();
+        CancelAndDispose(ref _previewLoadCts);
+        var lifetimeVersion = _lifetimeVersion;
+        var loadVersion = ++_previewLoadVersion;
+        _previewLoadCts = CreateLifetimeLinkedTokenSource(CancellationToken.None);
         var ct = _previewLoadCts.Token;
 
         PreviewItems.Clear();
-        QuarantineItems.Clear();
         PreviewSummary = string.Empty;
 
-        if (SelectedGroup is null || LatestRun is null)
+        var latestRun = LatestRun;
+        if (selectedGroup is null || latestRun is null)
         {
             RaiseSummaryProperties();
             return;
@@ -1075,23 +1301,164 @@ public sealed partial class DuplicatesViewModel : ObservableObject
         try
         {
             var preview = await _previewService.BuildPreviewAsync(
-                SelectedGroup.Group.Method,
-                SelectedGroup.Members.Select(static member => member.Member).ToList(),
+                selectedGroup.Group.Method,
+                selectedGroup.Members.Select(static member => member.Member).ToList(),
                 ct);
+            ct.ThrowIfCancellationRequested();
+            if (!IsCurrentPreviewLoad(
+                    lifetimeVersion,
+                    loadVersion,
+                    latestRun.Id,
+                    selectedGroup,
+                    ct))
+                return;
+
             PreviewSummary = preview.Summary;
             foreach (var item in preview.Items)
                 PreviewItems.Add(item);
-
-            await LoadQuarantineAsync(ct);
         }
         catch (OperationCanceledException)
         {
         }
+        catch (Exception ex)
+        {
+            if (IsCurrentPreviewLoad(lifetimeVersion, loadVersion, latestRun.Id, selectedGroup))
+                PreviewSummary = $"Could not load preview: {ex.Message}";
+            Debug.WriteLine(ex);
+        }
         finally
         {
-            IsPreviewLoading = false;
-            RaiseSummaryProperties();
+            if (IsCurrentPreviewLoad(lifetimeVersion, loadVersion, latestRun.Id, selectedGroup))
+            {
+                IsPreviewLoading = false;
+                RaiseSummaryProperties();
+            }
         }
+    }
+
+    private async Task<GroupPageResult> FetchGroupPageAsync(
+        long runId,
+        int requestedPage,
+        DuplicateGroupQueryFilter filter,
+        DuplicateGroupSortBy sortBy,
+        KeeperPolicy keeperPolicy,
+        CancellationToken ct)
+    {
+        var page = Math.Max(1, requestedPage);
+        var groups = (await _duplicateRepository.GetDuplicateGroupsPageAsync(
+            runId,
+            page,
+            GroupPageSize + 1,
+            filter,
+            sortBy,
+            ct)).ToList();
+
+        if (groups.Count == 0 && page > 1)
+        {
+            page = 1;
+            groups = (await _duplicateRepository.GetDuplicateGroupsPageAsync(
+                runId,
+                page,
+                GroupPageSize + 1,
+                filter,
+                sortBy,
+                ct)).ToList();
+        }
+
+        var hasMore = groups.Count > GroupPageSize;
+        if (hasMore)
+            groups = groups.Take(GroupPageSize).ToList();
+
+        var items = new List<DuplicateGroupItem>(groups.Count);
+        foreach (var group in groups)
+        {
+            ct.ThrowIfCancellationRequested();
+            var members = await _duplicateRepository.GetDuplicateGroupMembersAsync(group.Id, ct);
+            var item = new DuplicateGroupItem(group, members);
+            item.ApplyKeeperPolicy(keeperPolicy);
+            items.Add(item);
+        }
+
+        return new GroupPageResult(page, hasMore, items);
+    }
+
+    private async Task<ErrorPageResult> FetchErrorPageAsync(
+        long runId,
+        int requestedPage,
+        CancellationToken ct)
+    {
+        var page = Math.Max(1, requestedPage);
+        var errors = (await _duplicateRepository.GetDuplicateErrorsPageAsync(
+            runId,
+            page,
+            ErrorPageSize + 1,
+            ct)).ToList();
+        var hasMore = errors.Count > ErrorPageSize;
+        if (hasMore)
+            errors = errors.Take(ErrorPageSize).ToList();
+        return new ErrorPageResult(page, hasMore, errors);
+    }
+
+    private void ApplyGroupPage(GroupPageResult result)
+    {
+        DetachGroupHandlers();
+        Groups.Clear();
+        PreviewItems.Clear();
+        PreviewSummary = string.Empty;
+        _allGroups.Clear();
+
+        _currentGroupPage = result.Page;
+        _hasMoreGroupPages = result.HasMore;
+        foreach (var item in result.Items)
+        {
+            foreach (var member in item.Members)
+                member.PropertyChanged += OnMemberPropertyChanged;
+            _allGroups.Add(item);
+            Groups.Add(item);
+        }
+
+        SelectedGroup = Groups.FirstOrDefault();
+        RaiseSummaryProperties();
+    }
+
+    private void ReplaceQuarantine(IReadOnlyList<QuarantinedFile> items)
+    {
+        QuarantineItems.Clear();
+        foreach (var item in items)
+            QuarantineItems.Add(item);
+        OnPropertyChanged(nameof(HasQuarantineItems));
+    }
+
+    private void ClearRunState()
+    {
+        DetachGroupHandlers();
+        var wasSuppressing = _suppressReactiveLoads;
+        _suppressReactiveLoads = true;
+        SelectedGroup = null;
+        _suppressReactiveLoads = wasSuppressing;
+
+        Groups.Clear();
+        Errors.Clear();
+        PreviewItems.Clear();
+        QuarantineItems.Clear();
+        PreviewSummary = string.Empty;
+        _allGroups.Clear();
+        LatestRun = null;
+        _runSummary = new DuplicateRunSummary();
+        _currentGroupPage = 1;
+        _hasMoreGroupPages = false;
+        _currentErrorPage = 1;
+        _hasMoreErrorPages = false;
+        OnPropertyChanged(nameof(HasLatestRun));
+        OnPropertyChanged(nameof(LatestRunSummary));
+        RaiseSummaryProperties();
+    }
+
+    private void DetachGroupHandlers()
+    {
+        foreach (var group in _allGroups)
+            foreach (var member in group.Members)
+                member.PropertyChanged -= OnMemberPropertyChanged;
     }
 
     private async Task RunExportAsync(string extension, Func<string, CancellationToken, Task> exportAction)
@@ -1099,6 +1466,7 @@ public sealed partial class DuplicatesViewModel : ObservableObject
         if (LatestRun is null || IsExporting)
             return;
 
+        var lifetimeVersion = _lifetimeVersion;
         var exportDir = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "StorageMaster",
@@ -1107,32 +1475,193 @@ public sealed partial class DuplicatesViewModel : ObservableObject
         var filePath = Path.Combine(exportDir, $"dedupe-{LatestRun.Id}-report.{extension}");
 
         _exportCts?.Cancel();
-        _exportCts = new CancellationTokenSource();
-        var ct = _exportCts.Token;
+        var exportCts = CancellationTokenSource.CreateLinkedTokenSource(CurrentLifetimeToken);
+        _exportCts = exportCts;
+        var ct = exportCts.Token;
 
         IsExporting = true;
         ExportStatusText = $"Exporting {extension.ToUpperInvariant()} report…";
         try
         {
             await exportAction(filePath, ct);
+            ct.ThrowIfCancellationRequested();
+            if (!IsCurrentExport(lifetimeVersion, exportCts))
+                return;
+
             LastExportDirectory = exportDir;
             ExportStatusText = $"{extension.ToUpperInvariant()} export saved to {filePath}.";
             StatusText = ExportStatusText;
         }
         catch (OperationCanceledException)
         {
-            ExportStatusText = "Export cancelled.";
-            StatusText = ExportStatusText;
+            if (IsCurrentExport(lifetimeVersion, exportCts))
+            {
+                ExportStatusText = "Export cancelled.";
+                StatusText = ExportStatusText;
+            }
         }
         catch (Exception ex)
         {
-            ExportStatusText = $"Export failed: {ex.Message}";
-            StatusText = ExportStatusText;
+            if (IsCurrentExport(lifetimeVersion, exportCts))
+            {
+                ExportStatusText = $"Export failed: {ex.Message}";
+                StatusText = ExportStatusText;
+            }
         }
         finally
         {
-            IsExporting = false;
+            if (ReferenceEquals(_exportCts, exportCts))
+            {
+                if (IsCurrentLifetime(lifetimeVersion))
+                    IsExporting = false;
+                _exportCts = null;
+            }
+            exportCts.Dispose();
         }
+    }
+
+    private void UpdateExportProgress(CancellationToken ct, string status)
+    {
+        if (!ct.IsCancellationRequested && _exportCts?.Token == ct)
+            ExportStatusText = status;
+    }
+
+    public void CancelBackgroundWork()
+    {
+        _lifetimeVersion++;
+        _latestRunVersion++;
+        CancelReviewLoads();
+        CancelAndDispose(ref _latestRunCts);
+        CancelAndDispose(ref _lifetimeCts);
+        _analysisCts?.Cancel();
+        _exportCts?.Cancel();
+        IsLoading = false;
+        IsRunLoading = false;
+        IsRunning = false;
+        IsDeleting = false;
+        IsExporting = false;
+    }
+
+    private void CancelReviewLoads()
+    {
+        _groupReloadVersion++;
+        _errorReloadVersion++;
+        _previewLoadVersion++;
+        _groupReloadPending = false;
+        CancelAndDispose(ref _filterDebounceCts);
+        CancelAndDispose(ref _groupReloadCts);
+        CancelAndDispose(ref _errorReloadCts);
+        CancelAndDispose(ref _previewLoadCts);
+        IsGroupLoading = false;
+        IsErrorLoading = false;
+        IsPreviewLoading = false;
+    }
+
+    private CancellationToken CurrentLifetimeToken =>
+        _lifetimeCts?.Token ?? CancellationToken.None;
+
+    private CancellationTokenSource CreateLifetimeLinkedTokenSource(CancellationToken callerToken) =>
+        CancellationTokenSource.CreateLinkedTokenSource(CurrentLifetimeToken, callerToken);
+
+    private bool IsCurrentLifetime(long lifetimeVersion) =>
+        lifetimeVersion == _lifetimeVersion;
+
+    private bool IsCurrentLifetime(long lifetimeVersion, CancellationToken ct) =>
+        !ct.IsCancellationRequested && IsCurrentLifetime(lifetimeVersion);
+
+    private bool IsCurrentAnalysis(
+        long lifetimeVersion,
+        CancellationTokenSource analysisCts,
+        long sessionId) =>
+        IsCurrentLifetime(lifetimeVersion) &&
+        ReferenceEquals(_analysisCts, analysisCts) &&
+        SelectedSession?.Id == sessionId;
+
+    private bool IsCurrentExport(long lifetimeVersion, CancellationTokenSource exportCts) =>
+        IsCurrentLifetime(lifetimeVersion) && ReferenceEquals(_exportCts, exportCts);
+
+    private bool IsCurrentLatestRunLoad(
+        long lifetimeVersion,
+        long loadVersion,
+        long? sessionId) =>
+        IsCurrentLifetime(lifetimeVersion) &&
+        loadVersion == _latestRunVersion &&
+        SelectedSession?.Id == sessionId;
+
+    private bool IsCurrentLatestRunLoad(
+        long lifetimeVersion,
+        long loadVersion,
+        long? sessionId,
+        CancellationToken ct) =>
+        !ct.IsCancellationRequested &&
+        IsCurrentLatestRunLoad(lifetimeVersion, loadVersion, sessionId);
+
+    private bool IsCurrentGroupLoad(
+        long lifetimeVersion,
+        long loadVersion,
+        long runId) =>
+        IsCurrentLifetime(lifetimeVersion) &&
+        loadVersion == _groupReloadVersion &&
+        LatestRun?.Id == runId;
+
+    private bool IsCurrentGroupLoad(
+        long lifetimeVersion,
+        long loadVersion,
+        long runId,
+        CancellationToken ct) =>
+        !ct.IsCancellationRequested &&
+        IsCurrentGroupLoad(lifetimeVersion, loadVersion, runId);
+
+    private bool IsCurrentErrorLoad(
+        long lifetimeVersion,
+        long loadVersion,
+        long runId) =>
+        IsCurrentLifetime(lifetimeVersion) &&
+        loadVersion == _errorReloadVersion &&
+        LatestRun?.Id == runId;
+
+    private bool IsCurrentErrorLoad(
+        long lifetimeVersion,
+        long loadVersion,
+        long runId,
+        CancellationToken ct) =>
+        !ct.IsCancellationRequested &&
+        IsCurrentErrorLoad(lifetimeVersion, loadVersion, runId);
+
+    private bool IsCurrentPreviewLoad(
+        long lifetimeVersion,
+        long loadVersion,
+        long runId,
+        DuplicateGroupItem selectedGroup) =>
+        IsCurrentLifetime(lifetimeVersion) &&
+        loadVersion == _previewLoadVersion &&
+        LatestRun?.Id == runId &&
+        ReferenceEquals(SelectedGroup, selectedGroup);
+
+    private bool IsCurrentPreviewLoad(
+        long lifetimeVersion,
+        long loadVersion,
+        long runId,
+        DuplicateGroupItem selectedGroup,
+        CancellationToken ct) =>
+        !ct.IsCancellationRequested &&
+        IsCurrentPreviewLoad(lifetimeVersion, loadVersion, runId, selectedGroup);
+
+    private void RaiseLoadingProperties()
+    {
+        OnPropertyChanged(nameof(CanRun));
+        OnPropertyChanged(nameof(CanDeleteSelected));
+        OnPropertyChanged(nameof(CanLoadPreviousGroups));
+        OnPropertyChanged(nameof(CanLoadNextGroups));
+        OnPropertyChanged(nameof(CanLoadMoreErrors));
+        OnPropertyChanged(nameof(CanChangeSession));
+    }
+
+    private static void CancelAndDispose(ref CancellationTokenSource? source)
+    {
+        source?.Cancel();
+        source?.Dispose();
+        source = null;
     }
 
     private bool IsMethodAvailable(DuplicateMethod method) =>

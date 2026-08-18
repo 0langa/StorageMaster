@@ -2,7 +2,6 @@ using System.Collections.ObjectModel;
 using System.Diagnostics;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
-using Microsoft.UI.Dispatching;
 using StorageMaster.Core.Interfaces;
 using StorageMaster.Core.Models;
 using StorageMaster.UI.Converters;
@@ -16,21 +15,32 @@ public sealed partial class ResultsViewModel : ObservableObject
     private const int FolderPageSize = 100;
     private const int ErrorPageSize = 100;
 
+    private readonly record struct PrimaryLoadOperation(
+        long SessionVersion,
+        long LoadVersion,
+        long SessionId,
+        CancellationToken Token);
+
     private readonly IScanRepository _repo;
     private readonly IScanErrorRepository _errorRepo;
     private readonly IScanResultDeletionService _resultDeletionService;
     private readonly INavigationService _nav;
     private readonly IDialogService _dialogs;
-    private readonly DispatcherQueue _dispatcherQueue;
 
     private CancellationTokenSource? _filterDebounce;
-    private CancellationTokenSource? _activeLoadCts;
+    private CancellationTokenSource? _sessionLoadCts;
+    private CancellationTokenSource? _primaryLoadCts;
+    private CancellationTokenSource? _categoryLoadCts;
     private CancellationTokenSource? _errorLoadCts;
-    private CancellationTokenSource? _treeLoadCts;
+    private Task? _errorsLoadTask;
+    private Task? _folderTreeLoadTask;
     private int _loadedFileCount;
     private int _loadedFolderCount;
     private int _loadedErrorCount;
-    private long _cachedSessionId;
+    private long _sessionLoadVersion;
+    private long _primaryLoadVersion;
+    private long _errorLoadVersion;
+    private int _activeTreeLoads;
     private bool _errorsLoaded;
     private bool _folderTreeLoaded;
 
@@ -95,28 +105,27 @@ public sealed partial class ResultsViewModel : ObservableObject
         IScanErrorRepository errorRepo,
         IScanResultDeletionService resultDeletionService,
         INavigationService nav,
-        IDialogService dialogs,
-        DispatcherQueue? dispatcherQueue = null)
+        IDialogService dialogs)
     {
         _repo = repo;
         _errorRepo = errorRepo;
         _resultDeletionService = resultDeletionService;
         _nav = nav;
         _dialogs = dialogs;
-        _dispatcherQueue = dispatcherQueue ?? DispatcherQueue.GetForCurrentThread();
     }
 
-    public async Task LoadMostRecentAsync()
+    public async Task LoadMostRecentAsync(CancellationToken cancellationToken = default)
     {
-        var sessions = await _repo.GetRecentSessionsAsync(10);
+        var sessions = await _repo.GetRecentSessionsAsync(10, cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
         var latest = sessions.FirstOrDefault(static s => s.Status == ScanStatus.Completed);
         if (latest is not null)
-            await LoadAsync(latest.Id);
+            await LoadAsync(latest.Id, cancellationToken);
         else
             ResetForNoSession();
     }
 
-    public async Task LoadAsync(long sessionId)
+    public async Task LoadAsync(long sessionId, CancellationToken cancellationToken = default)
     {
         if (sessionId <= 0)
         {
@@ -124,12 +133,10 @@ public sealed partial class ResultsViewModel : ObservableObject
             return;
         }
 
-        if (_cachedSessionId == sessionId && HasSession)
-            return;
-
         CancelBackgroundWork();
-        _activeLoadCts = new CancellationTokenSource();
-        var ct = _activeLoadCts.Token;
+        var sessionVersion = ++_sessionLoadVersion;
+        _sessionLoadCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var ct = _sessionLoadCts.Token;
 
         ResetForSessionSwitch(sessionId);
         IsLoading = true;
@@ -140,11 +147,15 @@ public sealed partial class ResultsViewModel : ObservableObject
             var session = await _repo.GetSessionAsync(sessionId, ct);
             if (session is null)
             {
-                ResetForNoSession();
+                if (IsCurrentSession(sessionVersion, sessionId, ct))
+                    ResetForNoSession();
                 return;
             }
 
-            _cachedSessionId = sessionId;
+            ct.ThrowIfCancellationRequested();
+            if (!IsCurrentSession(sessionVersion, sessionId, ct))
+                return;
+
             HasSession = true;
             ScanRoot = session.RootPath;
             ScanDate = session.CompletedUtc?.ToString("g") ?? session.StartedUtc.ToString("g");
@@ -154,46 +165,103 @@ public sealed partial class ResultsViewModel : ObservableObject
 
             await LoadPrimaryListsAsync(reset: true, ct);
 
-            ErrorCount = (int)await _errorRepo.CountErrorsForSessionAsync(sessionId, ct);
+            var errorCount = (int)await _errorRepo.CountErrorsForSessionAsync(sessionId, ct);
+            ct.ThrowIfCancellationRequested();
+            if (!IsCurrentSession(sessionVersion, sessionId, ct))
+                return;
+
+            ErrorCount = errorCount;
             OnPropertyChanged(nameof(HasErrors));
             ErrorsStatusText = ErrorCount == 0
                 ? "No scan errors were recorded for this session."
                 : "Open Errors to load paged scan issues.";
             FolderTreeStatusText = "Open Folder Tree to build the hierarchy on demand.";
 
-            _ = RunSecondaryLoadAsync(ct);
+            StartSecondaryLoad(sessionVersion, sessionId, ct);
         }
         catch (OperationCanceledException)
         {
         }
+        catch (Exception ex)
+        {
+            if (IsCurrentSession(sessionVersion, sessionId, ct))
+                FilterCountLabel = $"Could not load scan results: {ex.Message}";
+            Debug.WriteLine(ex);
+        }
         finally
         {
-            IsLoading = false;
+            if (IsCurrentSession(sessionVersion, sessionId))
+                IsLoading = false;
         }
     }
 
     public void CancelBackgroundWork()
     {
-        _filterDebounce?.Cancel();
-        _activeLoadCts?.Cancel();
-        _errorLoadCts?.Cancel();
-        _treeLoadCts?.Cancel();
+        _sessionLoadVersion++;
+        _primaryLoadVersion++;
+        _errorLoadVersion++;
+        CancelAndDispose(ref _filterDebounce);
+        CancelAndDispose(ref _categoryLoadCts);
+        CancelAndDispose(ref _primaryLoadCts);
+        CancelAndDispose(ref _errorLoadCts);
+        CancelAndDispose(ref _sessionLoadCts);
+        _errorsLoadTask = null;
+        _folderTreeLoadTask = null;
+        _activeTreeLoads = 0;
+        IsLoading = false;
+        IsFilesLoading = false;
+        IsFoldersLoading = false;
+        IsCategoriesLoading = false;
+        IsErrorsLoading = false;
+        IsFolderTreeLoading = false;
     }
 
-    public async Task EnsureErrorsLoadedAsync()
+    public Task EnsureErrorsLoadedAsync()
     {
         if (_errorsLoaded || _sessionId <= 0)
-            return;
+            return Task.CompletedTask;
 
-        _errorLoadCts?.Cancel();
-        _errorLoadCts = new CancellationTokenSource();
-        var ct = _errorLoadCts.Token;
+        if (_errorsLoadTask is { IsCompleted: false })
+            return _errorsLoadTask;
 
+        var sessionVersion = _sessionLoadVersion;
+        var sessionId = _sessionId;
+        var loadVersion = ++_errorLoadVersion;
+        CancelAndDispose(ref _errorLoadCts);
+        _errorLoadCts = CreateSessionLinkedTokenSource();
+        _errorsLoadTask = EnsureErrorsLoadedCoreAsync(
+            sessionVersion,
+            sessionId,
+            loadVersion,
+            _errorLoadCts.Token);
+        return _errorsLoadTask;
+    }
+
+    private async Task EnsureErrorsLoadedCoreAsync(
+        long sessionVersion,
+        long sessionId,
+        long loadVersion,
+        CancellationToken ct)
+    {
         IsErrorsLoading = true;
         ErrorsStatusText = "Loading scan issues…";
+
         try
         {
-            await LoadErrorsPageAsync(reset: true, ct);
+            var page = await _errorRepo.GetErrorsPageForSessionAsync(
+                sessionId,
+                0,
+                ErrorPageSize,
+                ct);
+            ct.ThrowIfCancellationRequested();
+            if (!IsCurrentErrorLoad(sessionVersion, sessionId, loadVersion, ct))
+                return;
+
+            ScanErrors.Clear();
+            foreach (var error in page)
+                ScanErrors.Add(error);
+            _loadedErrorCount = page.Count;
+            CanLoadMoreErrors = _loadedErrorCount < ErrorCount;
             _errorsLoaded = true;
             ErrorsStatusText = ScanErrors.Count == 0
                 ? "No scan issues were recorded for this session."
@@ -202,26 +270,54 @@ public sealed partial class ResultsViewModel : ObservableObject
         catch (OperationCanceledException)
         {
         }
+        catch (Exception ex)
+        {
+            if (IsCurrentErrorLoad(sessionVersion, sessionId, loadVersion))
+                ErrorsStatusText = $"Could not load scan issues: {ex.Message}";
+            Debug.WriteLine(ex);
+        }
         finally
         {
-            IsErrorsLoading = false;
+            if (IsCurrentErrorLoad(sessionVersion, sessionId, loadVersion))
+            {
+                IsErrorsLoading = false;
+                _errorsLoadTask = null;
+            }
         }
     }
 
-    public async Task EnsureFolderTreeLoadedAsync()
+    public Task EnsureFolderTreeLoadedAsync()
     {
         if (_folderTreeLoaded || _sessionId <= 0)
-            return;
+            return Task.CompletedTask;
 
-        _treeLoadCts?.Cancel();
-        _treeLoadCts = new CancellationTokenSource();
-        var ct = _treeLoadCts.Token;
+        if (_folderTreeLoadTask is { IsCompleted: false })
+            return _folderTreeLoadTask;
 
-        IsFolderTreeLoading = true;
+        var sessionVersion = _sessionLoadVersion;
+        var sessionId = _sessionId;
+        _folderTreeLoadTask = EnsureFolderTreeLoadedCoreAsync(
+            sessionVersion,
+            sessionId,
+            _sessionLoadCts?.Token ?? CancellationToken.None);
+        return _folderTreeLoadTask;
+    }
+
+    private async Task EnsureFolderTreeLoadedCoreAsync(
+        long sessionVersion,
+        long sessionId,
+        CancellationToken ct)
+    {
+        BeginTreeLoad(sessionVersion, sessionId);
         FolderTreeStatusText = "Loading top-level folders…";
+
         try
         {
-            var roots = await _repo.GetFolderTreeRootsAsync(_sessionId, ct);
+            var roots = await _repo.GetFolderTreeRootsAsync(sessionId, ct);
+            ct.ThrowIfCancellationRequested();
+            if (!IsCurrentSession(sessionVersion, sessionId, ct))
+                return;
+
             var nodes = new List<FolderTreeNode>(roots.Count);
             foreach (var root in roots)
                 nodes.Add(new FolderTreeNode(root, Math.Max(0, root.SubFolderCount)));
@@ -237,27 +333,39 @@ public sealed partial class ResultsViewModel : ObservableObject
         catch (OperationCanceledException)
         {
         }
+        catch (Exception ex)
+        {
+            if (IsCurrentSession(sessionVersion, sessionId))
+                FolderTreeStatusText = $"Could not load folder tree: {ex.Message}";
+            Debug.WriteLine(ex);
+        }
         finally
         {
-            IsFolderTreeLoading = false;
+            EndTreeLoad(sessionVersion, sessionId);
+            if (IsCurrentSession(sessionVersion, sessionId))
+                _folderTreeLoadTask = null;
         }
     }
 
     public async Task LoadFolderChildrenAsync(FolderTreeNode node)
     {
-        if (node.AreChildrenLoaded || _sessionId <= 0)
+        if (node.AreChildrenLoaded || node.IsLoadingChildren || _sessionId <= 0)
             return;
 
-        _treeLoadCts?.Cancel();
-        _treeLoadCts = new CancellationTokenSource();
-        var ct = _treeLoadCts.Token;
+        var sessionVersion = _sessionLoadVersion;
+        var sessionId = _sessionId;
+        var ct = _sessionLoadCts?.Token ?? CancellationToken.None;
 
-        IsFolderTreeLoading = true;
+        BeginTreeLoad(sessionVersion, sessionId);
         node.IsLoadingChildren = true;
         FolderTreeStatusText = $"Loading children of {node.DisplayName}…";
         try
         {
-            var children = await _repo.GetFolderChildrenAsync(_sessionId, node.Folder.FullPath, ct);
+            var children = await _repo.GetFolderChildrenAsync(sessionId, node.Folder.FullPath, ct);
+            ct.ThrowIfCancellationRequested();
+            if (!IsCurrentSession(sessionVersion, sessionId, ct))
+                return;
+
             var nodes = new List<FolderTreeNode>(children.Count);
             foreach (var child in children)
                 nodes.Add(new FolderTreeNode(child, Math.Max(0, child.SubFolderCount)));
@@ -270,24 +378,43 @@ public sealed partial class ResultsViewModel : ObservableObject
         catch (OperationCanceledException)
         {
         }
+        catch (Exception ex)
+        {
+            if (IsCurrentSession(sessionVersion, sessionId))
+                FolderTreeStatusText = $"Could not load children of {node.DisplayName}: {ex.Message}";
+            Debug.WriteLine(ex);
+        }
         finally
         {
-            node.IsLoadingChildren = false;
-            IsFolderTreeLoading = false;
+            if (IsCurrentSession(sessionVersion, sessionId))
+                node.IsLoadingChildren = false;
+            EndTreeLoad(sessionVersion, sessionId);
         }
     }
 
     partial void OnFilterTextChanged(string value)
     {
-        _filterDebounce?.Cancel();
-        _filterDebounce = new CancellationTokenSource();
-        var token = _filterDebounce.Token;
+        CancelAndDispose(ref _filterDebounce);
+        _filterDebounce = CreateSessionLinkedTokenSource();
+        _ = DebounceFilterAsync(_filterDebounce.Token);
+    }
 
-        _ = Task.Delay(300, token).ContinueWith(
-            _ => _dispatcherQueue.TryEnqueue(async () => await ApplyFilterAsync()),
-            token,
-            TaskContinuationOptions.OnlyOnRanToCompletion,
-            TaskScheduler.Default);
+    private async Task DebounceFilterAsync(CancellationToken ct)
+    {
+        try
+        {
+            await Task.Delay(300, ct);
+            await ApplyFilterAsync(ct);
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception ex)
+        {
+            if (!ct.IsCancellationRequested)
+                FilterCountLabel = $"Could not filter scan results: {ex.Message}";
+            Debug.WriteLine(ex);
+        }
     }
 
     partial void OnSelectedCategoryFilterChanged(string value) =>
@@ -296,9 +423,10 @@ public sealed partial class ResultsViewModel : ObservableObject
     [RelayCommand]
     private async Task ClearFilterAsync()
     {
-        _filterDebounce?.Cancel();
+        CancelAndDispose(ref _filterDebounce);
         FilterText = string.Empty;
         SelectedCategoryFilter = string.Empty;
+        CancelAndDispose(ref _filterDebounce);
         await ApplyFilterAsync();
     }
 
@@ -362,7 +490,7 @@ public sealed partial class ResultsViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private void SortFilesBy(string column)
+    private async Task SortFilesByAsync(string column)
     {
         if (_fileSortColumn == column)
             _fileSortDesc = !_fileSortDesc;
@@ -373,11 +501,11 @@ public sealed partial class ResultsViewModel : ObservableObject
         }
 
         RefreshFileSortHeaders();
-        _ = ApplyFilterAsync();
+        await ApplyFilterAsync();
     }
 
     [RelayCommand]
-    private void SortFoldersBy(string column)
+    private async Task SortFoldersByAsync(string column)
     {
         if (_folderSortColumn == column)
             _folderSortDesc = !_folderSortDesc;
@@ -388,7 +516,7 @@ public sealed partial class ResultsViewModel : ObservableObject
         }
 
         RefreshFolderSortHeaders();
-        _ = ApplyFilterAsync();
+        await ApplyFilterAsync();
     }
 
     [RelayCommand]
@@ -414,24 +542,31 @@ public sealed partial class ResultsViewModel : ObservableObject
         TotalFiles = Math.Max(0, TotalFiles - 1);
         _loadedFileCount = Math.Max(0, _loadedFileCount - 1);
         UpdateFilterCountLabel();
+
+        if (!string.IsNullOrWhiteSpace(outcome.Error))
+        {
+            await _dialogs.ShowErrorAsync(
+                "File moved with a bookkeeping warning",
+                outcome.Error);
+        }
     }
 
-    [RelayCommand]
-    private async Task ApplyFilterAsync()
+    private async Task ApplyFilterAsync(CancellationToken cancellationToken = default)
     {
         if (_sessionId <= 0)
             return;
 
-        _activeLoadCts?.Cancel();
-        _activeLoadCts = new CancellationTokenSource();
-        var ct = _activeLoadCts.Token;
-
         try
         {
-            await LoadPrimaryListsAsync(reset: true, ct);
+            await LoadPrimaryListsAsync(reset: true, cancellationToken);
         }
         catch (OperationCanceledException)
         {
+        }
+        catch (Exception ex)
+        {
+            FilterCountLabel = $"Could not load scan results: {ex.Message}";
+            Debug.WriteLine(ex);
         }
     }
 
@@ -456,9 +591,18 @@ public sealed partial class ResultsViewModel : ObservableObject
         if (!CanLoadMoreFiles || _sessionId <= 0)
             return;
 
-        _activeLoadCts?.Cancel();
-        _activeLoadCts = new CancellationTokenSource();
-        await ReloadFilesAsync(reset: false, _activeLoadCts.Token);
+        try
+        {
+            await ReloadFilesAsync(reset: false, CancellationToken.None);
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception ex)
+        {
+            FilterCountLabel = $"Could not load more files: {ex.Message}";
+            Debug.WriteLine(ex);
+        }
     }
 
     [RelayCommand]
@@ -467,9 +611,18 @@ public sealed partial class ResultsViewModel : ObservableObject
         if (!CanLoadMoreFolders || _sessionId <= 0)
             return;
 
-        _activeLoadCts?.Cancel();
-        _activeLoadCts = new CancellationTokenSource();
-        await ReloadFoldersAsync(reset: false, _activeLoadCts.Token);
+        try
+        {
+            await ReloadFoldersAsync(reset: false, CancellationToken.None);
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception ex)
+        {
+            FilterCountLabel = $"Could not load more folders: {ex.Message}";
+            Debug.WriteLine(ex);
+        }
     }
 
     [RelayCommand]
@@ -478,17 +631,70 @@ public sealed partial class ResultsViewModel : ObservableObject
         if (!CanLoadMoreErrors || _sessionId <= 0)
             return;
 
-        _errorLoadCts?.Cancel();
-        _errorLoadCts = new CancellationTokenSource();
-        await LoadErrorsPageAsync(reset: false, _errorLoadCts.Token);
-    }
+        var sessionVersion = _sessionLoadVersion;
+        var sessionId = _sessionId;
+        var loadVersion = ++_errorLoadVersion;
+        CancelAndDispose(ref _errorLoadCts);
+        _errorLoadCts = CreateSessionLinkedTokenSource();
+        var ct = _errorLoadCts.Token;
 
-    private async Task RunSecondaryLoadAsync(CancellationToken ct)
-    {
-        IsCategoriesLoading = true;
+        IsErrorsLoading = true;
         try
         {
-            var breakdown = await _repo.GetCategoryBreakdownAsync(_sessionId, ct);
+            var page = await _errorRepo.GetErrorsPageForSessionAsync(
+                sessionId,
+                _loadedErrorCount,
+                ErrorPageSize,
+                ct);
+            ct.ThrowIfCancellationRequested();
+            if (!IsCurrentErrorLoad(sessionVersion, sessionId, loadVersion, ct))
+                return;
+
+            foreach (var error in page)
+                ScanErrors.Add(error);
+            _loadedErrorCount += page.Count;
+            CanLoadMoreErrors = _loadedErrorCount < ErrorCount;
+            ErrorsStatusText = $"Loaded {ScanErrors.Count:N0} of {ErrorCount:N0} scan issue(s).";
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception ex)
+        {
+            if (IsCurrentErrorLoad(sessionVersion, sessionId, loadVersion))
+                ErrorsStatusText = $"Could not load more scan issues: {ex.Message}";
+            Debug.WriteLine(ex);
+        }
+        finally
+        {
+            if (IsCurrentErrorLoad(sessionVersion, sessionId, loadVersion))
+                IsErrorsLoading = false;
+        }
+    }
+
+    private void StartSecondaryLoad(long sessionVersion, long sessionId, CancellationToken callerToken)
+    {
+        CancelAndDispose(ref _categoryLoadCts);
+        _categoryLoadCts = CancellationTokenSource.CreateLinkedTokenSource(callerToken);
+        IsCategoriesLoading = true;
+        _ = RunSecondaryLoadAsync(
+            sessionVersion,
+            sessionId,
+            _categoryLoadCts.Token);
+    }
+
+    private async Task RunSecondaryLoadAsync(
+        long sessionVersion,
+        long sessionId,
+        CancellationToken ct)
+    {
+        try
+        {
+            var breakdown = await _repo.GetCategoryBreakdownAsync(sessionId, ct);
+            ct.ThrowIfCancellationRequested();
+            if (!IsCurrentSession(sessionVersion, sessionId, ct))
+                return;
+
             CategoryBreakdown.Clear();
             foreach (var (cat, (count, bytes)) in breakdown.OrderByDescending(static x => x.Value.Bytes))
                 CategoryBreakdown.Add(new CategoryRow(cat.ToString(), count, ByteSizeConverter.Format(bytes)));
@@ -498,17 +704,96 @@ public sealed partial class ResultsViewModel : ObservableObject
         catch (OperationCanceledException)
         {
         }
+        catch (Exception ex)
+        {
+            Debug.WriteLine(ex);
+        }
         finally
         {
-            IsCategoriesLoading = false;
+            if (IsCurrentSession(sessionVersion, sessionId))
+                IsCategoriesLoading = false;
         }
     }
 
     private async Task LoadPrimaryListsAsync(bool reset, CancellationToken ct)
     {
-        var fileTask = ReloadFilesAsync(reset, ct);
-        var folderTask = ReloadFoldersAsync(reset, ct);
-        await Task.WhenAll(fileTask, folderTask);
+        var operation = BeginPrimaryLoad(ct);
+        var filter = FilterText.Trim();
+        var category = SelectedCategoryFilter;
+        var fileSortColumn = _fileSortColumn;
+        var fileSortDesc = _fileSortDesc;
+        var folderSortColumn = _folderSortColumn;
+        var folderSortDesc = _folderSortDesc;
+        var fileOffset = reset ? 0 : _loadedFileCount;
+        var folderOffset = reset ? 0 : _loadedFolderCount;
+
+        IsFilesLoading = true;
+        IsFoldersLoading = true;
+        try
+        {
+            var filePageTask = _repo.SearchFilesAsync(
+                operation.SessionId,
+                filter,
+                category,
+                fileSortColumn,
+                fileSortDesc,
+                fileOffset,
+                FilePageSize,
+                operation.Token);
+            var fileCountTask = _repo.CountFilesAsync(
+                operation.SessionId,
+                filter,
+                category,
+                operation.Token);
+            var folderPageTask = _repo.SearchFoldersAsync(
+                operation.SessionId,
+                filter,
+                folderSortColumn,
+                folderSortDesc,
+                folderOffset,
+                FolderPageSize,
+                operation.Token);
+            var folderCountTask = _repo.CountFoldersAsync(
+                operation.SessionId,
+                filter,
+                operation.Token);
+
+            await Task.WhenAll(filePageTask, fileCountTask, folderPageTask, folderCountTask);
+            operation.Token.ThrowIfCancellationRequested();
+            if (!IsCurrentPrimaryLoad(operation))
+                return;
+
+            var filePage = await filePageTask;
+            var folderPage = await folderPageTask;
+            if (reset)
+            {
+                LargestFiles.Clear();
+                LargestFolders.Clear();
+                _loadedFileCount = 0;
+                _loadedFolderCount = 0;
+            }
+
+            foreach (var file in filePage)
+                LargestFiles.Add(file);
+            foreach (var folder in folderPage)
+                LargestFolders.Add(folder);
+
+            _loadedFileCount += filePage.Count;
+            _loadedFolderCount += folderPage.Count;
+            TotalFiles = await fileCountTask;
+            TotalFolderMatches = await folderCountTask;
+            CanLoadMoreFiles = _loadedFileCount < TotalFiles;
+            CanLoadMoreFolders = _loadedFolderCount < TotalFolderMatches;
+            UpdateFilterCountLabel();
+        }
+        finally
+        {
+            if (IsCurrentPrimaryLoad(operation))
+            {
+                IsFilesLoading = false;
+                IsFoldersLoading = false;
+            }
+        }
     }
 
     private async Task ReloadFilesAsync(bool reset, CancellationToken ct)
@@ -516,19 +801,36 @@ public sealed partial class ResultsViewModel : ObservableObject
         if (_sessionId <= 0)
             return;
 
+        var operation = BeginPrimaryLoad(ct);
+        var filter = FilterText.Trim();
+        var category = SelectedCategoryFilter;
+        var sortColumn = _fileSortColumn;
+        var sortDescending = _fileSortDesc;
+        var offset = reset ? 0 : _loadedFileCount;
+
         IsFilesLoading = true;
         try
         {
-            var offset = reset ? 0 : _loadedFileCount;
-            var page = await _repo.SearchFilesAsync(
-                _sessionId,
-                FilterText.Trim(),
-                SelectedCategoryFilter,
-                _fileSortColumn,
-                _fileSortDesc,
+            var pageTask = _repo.SearchFilesAsync(
+                operation.SessionId,
+                filter,
+                category,
+                sortColumn,
+                sortDescending,
                 offset,
                 FilePageSize,
-                ct);
+                operation.Token);
+            var countTask = _repo.CountFilesAsync(
+                operation.SessionId,
+                filter,
+                category,
+                operation.Token);
+            await Task.WhenAll(pageTask, countTask);
+            operation.Token.ThrowIfCancellationRequested();
+            if (!IsCurrentPrimaryLoad(operation))
+                return;
+
+            var page = await pageTask;
 
             if (reset)
             {
@@ -540,13 +842,14 @@ public sealed partial class ResultsViewModel : ObservableObject
                 LargestFiles.Add(file);
 
             _loadedFileCount += page.Count;
-            TotalFiles = await _repo.CountFilesAsync(_sessionId, FilterText.Trim(), SelectedCategoryFilter, ct);
+            TotalFiles = await countTask;
             CanLoadMoreFiles = _loadedFileCount < TotalFiles;
             UpdateFilterCountLabel();
         }
         finally
         {
-            IsFilesLoading = false;
+            if (IsCurrentPrimaryLoad(operation))
+                IsFilesLoading = false;
         }
     }
 
@@ -555,18 +858,30 @@ public sealed partial class ResultsViewModel : ObservableObject
         if (_sessionId <= 0)
             return;
 
+        var operation = BeginPrimaryLoad(ct);
+        var filter = FilterText.Trim();
+        var sortColumn = _folderSortColumn;
+        var sortDescending = _folderSortDesc;
+        var offset = reset ? 0 : _loadedFolderCount;
+
         IsFoldersLoading = true;
         try
         {
-            var offset = reset ? 0 : _loadedFolderCount;
-            var page = await _repo.SearchFoldersAsync(
-                _sessionId,
-                FilterText.Trim(),
-                _folderSortColumn,
-                _folderSortDesc,
+            var pageTask = _repo.SearchFoldersAsync(
+                operation.SessionId,
+                filter,
+                sortColumn,
+                sortDescending,
                 offset,
                 FolderPageSize,
-                ct);
+                operation.Token);
+            var countTask = _repo.CountFoldersAsync(operation.SessionId, filter, operation.Token);
+            await Task.WhenAll(pageTask, countTask);
+            operation.Token.ThrowIfCancellationRequested();
+            if (!IsCurrentPrimaryLoad(operation))
+                return;
+
+            var page = await pageTask;
 
             if (reset)
             {
@@ -578,35 +893,14 @@ public sealed partial class ResultsViewModel : ObservableObject
                 LargestFolders.Add(folder);
 
             _loadedFolderCount += page.Count;
-            TotalFolderMatches = await _repo.CountFoldersAsync(_sessionId, FilterText.Trim(), ct);
+            TotalFolderMatches = await countTask;
             CanLoadMoreFolders = _loadedFolderCount < TotalFolderMatches;
         }
         finally
         {
-            IsFoldersLoading = false;
+            if (IsCurrentPrimaryLoad(operation))
+                IsFoldersLoading = false;
         }
-    }
-
-    private async Task LoadErrorsPageAsync(bool reset, CancellationToken ct)
-    {
-        if (_sessionId <= 0)
-            return;
-
-        var offset = reset ? 0 : _loadedErrorCount;
-        var page = await _errorRepo.GetErrorsPageForSessionAsync(_sessionId, offset, ErrorPageSize, ct);
-
-        if (reset)
-        {
-            ScanErrors.Clear();
-            _loadedErrorCount = 0;
-        }
-
-        foreach (var error in page)
-            ScanErrors.Add(error);
-
-        _loadedErrorCount += page.Count;
-        CanLoadMoreErrors = _loadedErrorCount < ErrorCount;
-        OnPropertyChanged(nameof(CanLoadMoreErrors));
     }
 
     private void ResetForSessionSwitch(long sessionId)
@@ -638,7 +932,6 @@ public sealed partial class ResultsViewModel : ObservableObject
     {
         CancelBackgroundWork();
         _sessionId = 0;
-        _cachedSessionId = 0;
         ResetForSessionSwitch(0);
         ScanRoot = string.Empty;
         ScanDate = string.Empty;
@@ -647,6 +940,73 @@ public sealed partial class ResultsViewModel : ObservableObject
         SessionNote = string.Empty;
         FilterCountLabel = "No completed scan sessions yet.";
         HasSession = false;
+    }
+
+    private PrimaryLoadOperation BeginPrimaryLoad(CancellationToken callerToken)
+    {
+        CancelAndDispose(ref _primaryLoadCts);
+        var sessionToken = _sessionLoadCts?.Token ?? CancellationToken.None;
+        _primaryLoadCts = CancellationTokenSource.CreateLinkedTokenSource(sessionToken, callerToken);
+        return new PrimaryLoadOperation(
+            _sessionLoadVersion,
+            ++_primaryLoadVersion,
+            _sessionId,
+            _primaryLoadCts.Token);
+    }
+
+    private CancellationTokenSource CreateSessionLinkedTokenSource() =>
+        CancellationTokenSource.CreateLinkedTokenSource(
+            _sessionLoadCts?.Token ?? CancellationToken.None);
+
+    private bool IsCurrentSession(long sessionVersion, long sessionId) =>
+        sessionVersion == _sessionLoadVersion && sessionId == _sessionId;
+
+    private bool IsCurrentSession(
+        long sessionVersion,
+        long sessionId,
+        CancellationToken ct) =>
+        !ct.IsCancellationRequested && IsCurrentSession(sessionVersion, sessionId);
+
+    private bool IsCurrentPrimaryLoad(PrimaryLoadOperation operation) =>
+        operation.LoadVersion == _primaryLoadVersion &&
+        IsCurrentSession(operation.SessionVersion, operation.SessionId, operation.Token);
+
+    private bool IsCurrentErrorLoad(
+        long sessionVersion,
+        long sessionId,
+        long loadVersion) =>
+        loadVersion == _errorLoadVersion && IsCurrentSession(sessionVersion, sessionId);
+
+    private bool IsCurrentErrorLoad(
+        long sessionVersion,
+        long sessionId,
+        long loadVersion,
+        CancellationToken ct) =>
+        !ct.IsCancellationRequested && IsCurrentErrorLoad(sessionVersion, sessionId, loadVersion);
+
+    private void BeginTreeLoad(long sessionVersion, long sessionId)
+    {
+        if (!IsCurrentSession(sessionVersion, sessionId))
+            return;
+
+        _activeTreeLoads++;
+        IsFolderTreeLoading = true;
+    }
+
+    private void EndTreeLoad(long sessionVersion, long sessionId)
+    {
+        if (!IsCurrentSession(sessionVersion, sessionId))
+            return;
+
+        _activeTreeLoads = Math.Max(0, _activeTreeLoads - 1);
+        IsFolderTreeLoading = _activeTreeLoads > 0;
+    }
+
+    private static void CancelAndDispose(ref CancellationTokenSource? source)
+    {
+        source?.Cancel();
+        source?.Dispose();
+        source = null;
     }
 
     private void RefreshFileSortHeaders()

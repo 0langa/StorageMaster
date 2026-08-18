@@ -34,6 +34,7 @@ public sealed class DownloadedInstallersRuleTests
         suggestions.Should().ContainSingle();
         suggestions[0].Category.Should().Be(CleanupCategory.DownloadedInstallers);
         suggestions[0].TargetPaths.Should().Contain(installer.FullPath);
+        suggestions[0].ExpectedFileSnapshots[installer.FullPath].Identity.Should().Be(installer.Identity);
     }
 
     [Fact]
@@ -97,6 +98,56 @@ public sealed class DownloadedInstallersRuleTests
         suggestions.Should().BeEmpty();
     }
 
+    [Fact]
+    public async Task AnalyzeAsync_LegacyInstallerWithoutIdentity_RequiresRescan()
+    {
+        var installer = MakeFile($@"{FakeDownloads}\setup.exe", sizeBytes: 50_000_000L) with
+        {
+            Identity = null,
+        };
+        _repoMock
+            .Setup(r => r.GetLargestFilesAsync(1, It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync([installer]);
+
+        var suggestions = new List<CleanupSuggestion>();
+        await foreach (var suggestion in _rule.AnalyzeAsync(1, _settings))
+            suggestions.Add(suggestion);
+
+        suggestions.Should().BeEmpty("identity-less historical rows must be rescanned before deletion");
+    }
+
+    [Fact]
+    public async Task AnalyzeAsync_ClearEntireDownloads_WithAnyLegacyRow_RequiresRescan()
+    {
+        var downloads = Path.Combine(Path.GetTempPath(), $"sm_downloads_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(downloads);
+        try
+        {
+            var trusted = MakeFile(Path.Combine(downloads, "trusted.txt"), 100);
+            var legacy = MakeFile(Path.Combine(downloads, "legacy.txt"), 200) with { Identity = null };
+            _repoMock
+                .Setup(r => r.GetLargestFilesAsync(1, It.IsAny<int>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync([trusted, legacy]);
+            var rule = new DownloadedInstallersRule(_repoMock.Object, () => downloads);
+
+            var suggestions = new List<CleanupSuggestion>();
+            await foreach (var suggestion in rule.AnalyzeAsync(1, new AppSettings
+            {
+                ClearEntireDownloads = true,
+            }))
+            {
+                suggestions.Add(suggestion);
+            }
+
+            suggestions.Should().NotContain(static suggestion =>
+                suggestion.RuleId == "core.clear-downloads-folder");
+        }
+        finally
+        {
+            Directory.Delete(downloads);
+        }
+    }
+
     private static FileEntry MakeFile(string path, long sizeBytes) => new()
     {
         Id = 1,
@@ -110,5 +161,6 @@ public sealed class DownloadedInstallersRuleTests
         AccessedUtc = DateTime.UtcNow,
         Attributes = FileAttributes.Normal,
         Category = FileTypeCategory.Unknown,
+        Identity = new FileIdentity("TESTVOL", 1),
     };
 }

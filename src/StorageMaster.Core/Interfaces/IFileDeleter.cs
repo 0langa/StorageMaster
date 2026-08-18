@@ -1,3 +1,5 @@
+using StorageMaster.Core.Models;
+
 namespace StorageMaster.Core.Interfaces;
 
 public enum DeletionMethod
@@ -17,7 +19,12 @@ public sealed record DeletionRequest(
     DeletionMethod Method,
     bool DryRun,
     /// <summary>Optional run ID required when Method == Quarantine.</summary>
-    long? QuarantineRunId = null);
+    long? QuarantineRunId = null,
+    /// <summary>
+    /// Optional live snapshot that must still match immediately before deletion.
+    /// A mismatch fails closed instead of deleting a replaced/changed file.
+    /// </summary>
+    FileSnapshot? ExpectedSnapshot = null);
 
 public sealed record DeletionOutcome(
     string Path,

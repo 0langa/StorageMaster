@@ -47,10 +47,12 @@
             <CommandBar.SecondaryCommands>
                 <AppBarButton Icon="SelectAll"
                               Label="Select safe exact (page)"
-                              Command="{x:Bind ViewModel.SelectSafeExactDuplicatesOnPageCommand}" />
+                              Command="{x:Bind ViewModel.SelectSafeExactDuplicatesOnPageCommand}"
+                              IsEnabled="{x:Bind ViewModel.CanModifyDeletionPlan, Mode=OneWay}" />
                 <AppBarButton Icon="ClearSelection"
                               Label="Deselect page"
-                              Command="{x:Bind ViewModel.DeselectCurrentPageCommand}" />
+                              Command="{x:Bind ViewModel.DeselectCurrentPageCommand}"
+                              IsEnabled="{x:Bind ViewModel.CanModifyDeletionPlan, Mode=OneWay}" />
                 <AppBarSeparator />
                 <AppBarButton Icon="Save"
                               Label="Export CSV"
@@ -120,6 +122,7 @@
                                   Header="Scan session"
                                   ItemsSource="{x:Bind ViewModel.Sessions}"
                                   SelectedItem="{x:Bind ViewModel.SelectedSession, Mode=TwoWay}"
+                                  IsEnabled="{x:Bind ViewModel.CanChangeSession, Mode=OneWay}"
                                   DisplayMemberPath="RootPath" />
 
                         <ComboBox Grid.Row="0" Grid.Column="1"
@@ -143,7 +146,8 @@
                         <ComboBox Grid.Row="1" Grid.Column="1"
                                   Header="Keep one file by"
                                   ItemsSource="{x:Bind ViewModel.KeeperPolicyOptions, Mode=OneWay}"
-                                  SelectedItem="{x:Bind ViewModel.KeeperPolicy, Mode=TwoWay}" />
+                                  SelectedItem="{x:Bind ViewModel.KeeperPolicy, Mode=TwoWay}"
+                                  IsEnabled="{x:Bind ViewModel.CanModifyDeletionPlan, Mode=OneWay}" />
                         </Grid>
 
                         <TextBlock Text="{x:Bind ViewModel.ScopeHelpText, Mode=OneWay}"
@@ -209,9 +213,11 @@
                                 <ToggleSwitch Header="Include reparse points"
                                               IsOn="{x:Bind ViewModel.IncludeReparsePoints, Mode=TwoWay}" />
                                 <ToggleSwitch Header="Use Recycle Bin"
-                                              IsOn="{x:Bind ViewModel.UseRecycleBin, Mode=TwoWay}" />
+                                              IsOn="{x:Bind ViewModel.UseRecycleBin, Mode=TwoWay}"
+                                              IsEnabled="{x:Bind ViewModel.CanModifyDeletionPlan, Mode=OneWay}" />
                                 <ToggleSwitch Header="Use quarantine"
-                                              IsOn="{x:Bind ViewModel.UseQuarantine, Mode=TwoWay}" />
+                                              IsOn="{x:Bind ViewModel.UseQuarantine, Mode=TwoWay}"
+                                              IsEnabled="{x:Bind ViewModel.CanModifyDeletionPlan, Mode=OneWay}" />
                                 <TextBlock Text="{x:Bind ViewModel.DeleteModeSummary, Mode=OneWay}"
                                            Style="{StaticResource CaptionTextBlockStyle}"
                                            Opacity="0.72"
@@ -319,6 +325,7 @@
                         </Grid.ColumnDefinitions>
                         <TextBox Grid.Column="0"
                                  PlaceholderText="Search filename or path"
+                                 IsEnabled="{x:Bind ViewModel.CanModifyDeletionPlan, Mode=OneWay}"
                                  Text="{x:Bind ViewModel.SearchText, Mode=TwoWay}" />
                         <Button Grid.Column="1"
                                 Content="Previous"
@@ -333,7 +340,9 @@
                                 IsEnabled="{x:Bind ViewModel.CanLoadNextGroups, Mode=OneWay}" />
                     </Grid>
 
-                    <Expander Grid.Row="1" Header="More filters">
+                    <Expander Grid.Row="1"
+                              Header="More filters"
+                              IsEnabled="{x:Bind ViewModel.CanModifyDeletionPlan, Mode=OneWay}">
                         <StackPanel Spacing="12" Padding="0,12,0,0">
                             <Grid ColumnSpacing="12">
                                 <Grid.ColumnDefinitions>
@@ -373,6 +382,7 @@
                     <ListView Grid.Row="2"
                               ItemsSource="{x:Bind ViewModel.Groups}"
                               SelectedItem="{x:Bind ViewModel.SelectedGroup, Mode=TwoWay}"
+                              IsEnabled="{x:Bind ViewModel.CanModifyDeletionPlan, Mode=OneWay}"
                               SelectionMode="Single"
                               MinHeight="160"
                               MaxHeight="520">
@@ -441,7 +451,8 @@
                                       Header="Keep one file by"
                                       Margin="8,0,0,0"
                                       ItemsSource="{x:Bind ViewModel.KeeperPolicyOptions, Mode=OneWay}"
-                                      SelectedItem="{x:Bind ViewModel.KeeperPolicy, Mode=TwoWay}" />
+                                      SelectedItem="{x:Bind ViewModel.KeeperPolicy, Mode=TwoWay}"
+                                      IsEnabled="{x:Bind ViewModel.CanModifyDeletionPlan, Mode=OneWay}" />
                         </Grid>
 
                         <TextBlock Grid.Row="1"
@@ -485,6 +496,7 @@
 
                         <ListView Grid.Row="3"
                                   ItemsSource="{x:Bind ViewModel.SelectedGroup.Members, Mode=OneWay}"
+                                  IsEnabled="{x:Bind ViewModel.CanModifyDeletionPlan, Mode=OneWay}"
                                   SelectionMode="None"
                                   MinHeight="120"
                                   MaxHeight="320"

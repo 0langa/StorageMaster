@@ -7,7 +7,7 @@ namespace StorageMaster.Storage.Schema;
 /// </summary>
 internal static class DatabaseSchema
 {
-    internal const int CurrentVersion = 9;
+    internal const int CurrentVersion = 12;
 
     /// <summary>SQL executed once at version 1 creation.</summary>
     internal static readonly string[] V1Statements =
@@ -346,5 +346,129 @@ internal static class DatabaseSchema
         "CREATE INDEX IF NOT EXISTS IX_QuarantinedFiles_RunId ON QuarantinedFiles (RunId);",
         "CREATE INDEX IF NOT EXISTS IX_QuarantinedFiles_MemberId ON QuarantinedFiles (MemberId);",
         "CREATE INDEX IF NOT EXISTS IX_QuarantinedFiles_Unrestored ON QuarantinedFiles (QuarantinedUtc DESC) WHERE RestoredUtc IS NULL;",
+    ];
+
+    /// <summary>
+    /// V10: quarantine restore records outlive duplicate and scan-history rows.
+    /// Deleting a duplicate member now detaches MemberId instead of cascading
+    /// into QuarantinedFiles and orphaning the physical quarantine file.
+    /// </summary>
+    internal static readonly string[] V10Statements =
+    [
+        """
+        CREATE TABLE IF NOT EXISTS QuarantinedFiles_v10 (
+            Id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            MemberId        INTEGER REFERENCES DuplicateGroupMembers(Id) ON DELETE SET NULL,
+            RunId           INTEGER NOT NULL,
+            OriginalPath    TEXT    NOT NULL,
+            QuarantinePath  TEXT    NOT NULL,
+            QuarantinedUtc  TEXT    NOT NULL,
+            RestoredUtc     TEXT,
+            RestoredPath    TEXT
+        );
+        """,
+        """
+        INSERT INTO QuarantinedFiles_v10
+            (Id, MemberId, RunId, OriginalPath, QuarantinePath, QuarantinedUtc, RestoredUtc, RestoredPath)
+        SELECT Id, MemberId, RunId, OriginalPath, QuarantinePath, QuarantinedUtc, RestoredUtc, RestoredPath
+        FROM QuarantinedFiles;
+        """,
+        "DROP TABLE QuarantinedFiles;",
+        "ALTER TABLE QuarantinedFiles_v10 RENAME TO QuarantinedFiles;",
+        "CREATE INDEX IF NOT EXISTS IX_QuarantinedFiles_RunId ON QuarantinedFiles (RunId);",
+        "CREATE INDEX IF NOT EXISTS IX_QuarantinedFiles_MemberId ON QuarantinedFiles (MemberId);",
+        "CREATE INDEX IF NOT EXISTS IX_QuarantinedFiles_Unrestored ON QuarantinedFiles (QuarantinedUtc DESC) WHERE RestoredUtc IS NULL;",
+    ];
+
+    /// <summary>
+    /// V11: FolderEntries uses the same normalized Windows path identity as
+    /// FileEntries. Historical case-only duplicates are alternate observations
+    /// of one folder, so the oldest row survives and numeric snapshots use the
+    /// greatest observed value instead of being summed and double-counted.
+    /// </summary>
+    internal static readonly string[] V11Statements =
+    [
+        """
+        CREATE TABLE IF NOT EXISTS FolderEntries_v11 (
+            Id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+            SessionId          INTEGER NOT NULL REFERENCES ScanSessions(Id) ON DELETE CASCADE,
+            FullPath           TEXT    NOT NULL,
+            FolderName         TEXT    NOT NULL,
+            DirectSizeBytes    INTEGER NOT NULL DEFAULT 0,
+            TotalSizeBytes     INTEGER NOT NULL DEFAULT 0,
+            FileCount          INTEGER NOT NULL DEFAULT 0,
+            SubFolderCount     INTEGER NOT NULL DEFAULT 0,
+            IsReparsePoint     INTEGER NOT NULL DEFAULT 0,
+            WasAccessDenied    INTEGER NOT NULL DEFAULT 0,
+            NormalizedFullPath TEXT    NOT NULL,
+            UNIQUE (SessionId, NormalizedFullPath)
+        );
+        """,
+        """
+        WITH NormalizedFolders AS (
+            SELECT
+                Id,
+                SessionId,
+                upper(COALESCE(NULLIF(NormalizedFullPath, ''), FullPath)) AS NormalizedFullPath,
+                DirectSizeBytes,
+                TotalSizeBytes,
+                FileCount,
+                SubFolderCount,
+                IsReparsePoint,
+                WasAccessDenied
+            FROM FolderEntries
+        ),
+        AggregatedFolders AS (
+            SELECT
+                SessionId,
+                NormalizedFullPath,
+                MIN(Id) AS SurvivorId,
+                MAX(DirectSizeBytes) AS DirectSizeBytes,
+                CASE
+                    WHEN MAX(TotalSizeBytes) >= MAX(DirectSizeBytes) THEN MAX(TotalSizeBytes)
+                    ELSE MAX(DirectSizeBytes)
+                END AS TotalSizeBytes,
+                MAX(FileCount) AS FileCount,
+                MAX(SubFolderCount) AS SubFolderCount,
+                MAX(IsReparsePoint) AS IsReparsePoint,
+                MAX(WasAccessDenied) AS WasAccessDenied
+            FROM NormalizedFolders
+            GROUP BY SessionId, NormalizedFullPath
+        )
+        INSERT INTO FolderEntries_v11
+            (Id, SessionId, FullPath, FolderName, DirectSizeBytes, TotalSizeBytes,
+             FileCount, SubFolderCount, IsReparsePoint, WasAccessDenied, NormalizedFullPath)
+        SELECT
+            merged.SurvivorId,
+            merged.SessionId,
+            survivor.FullPath,
+            survivor.FolderName,
+            merged.DirectSizeBytes,
+            merged.TotalSizeBytes,
+            merged.FileCount,
+            merged.SubFolderCount,
+            merged.IsReparsePoint,
+            merged.WasAccessDenied,
+            merged.NormalizedFullPath
+        FROM AggregatedFolders merged
+        INNER JOIN FolderEntries survivor ON survivor.Id = merged.SurvivorId;
+        """,
+        "DROP TABLE FolderEntries;",
+        "ALTER TABLE FolderEntries_v11 RENAME TO FolderEntries;",
+        "CREATE INDEX IF NOT EXISTS IX_FolderEntries_Session_Size ON FolderEntries (SessionId, TotalSizeBytes DESC);",
+        "CREATE UNIQUE INDEX IF NOT EXISTS UX_FolderEntries_Session_NormalizedFullPath ON FolderEntries (SessionId, NormalizedFullPath);",
+        "CREATE INDEX IF NOT EXISTS IX_FolderEntries_Session_NormalizedFullPath ON FolderEntries (SessionId, NormalizedFullPath);",
+        "CREATE INDEX IF NOT EXISTS IX_FolderEntries_Session_PathNoCase ON FolderEntries (SessionId, FullPath COLLATE NOCASE);",
+    ];
+
+    /// <summary>
+    /// V12: persist scan-time stable file identity. Existing rows remain null
+    /// and are intentionally ineligible for scan-backed destructive actions
+    /// until the user runs a fresh scan.
+    /// </summary>
+    internal static readonly string[] V12Statements =
+    [
+        "ALTER TABLE FileEntries ADD COLUMN IdentityVolumeSerial TEXT;",
+        "ALTER TABLE FileEntries ADD COLUMN IdentityFileIndex TEXT;",
     ];
 }

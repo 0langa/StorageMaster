@@ -15,8 +15,8 @@ namespace StorageMaster.Core.Cleanup.Rules;
 ///      modified in the past 90 days (reduces false positives on active software).
 ///   4. Also checks %ProgramData% for orphaned vendor directories.
 ///
-/// Risk: Medium — heuristic matching can produce false positives. Suggestions
-/// are shown individually so the user can review before acting.
+/// Risk: High — registry absence is not proof of uninstallation. Suggestions
+/// are disabled by default, never auto-selected, and restricted to Recycle Bin.
 /// </summary>
 public sealed class UninstalledProgramLeftoversRule : ICleanupRule
 {
@@ -48,6 +48,9 @@ public sealed class UninstalledProgramLeftoversRule : ICleanupRule
 
         // Build token set from installed program names for fast fuzzy lookup.
         var installed = _programProvider.GetInstalledPrograms();
+        if (installed.Count == 0)
+            yield break; // provider failure/empty inventory must fail closed
+
         var knownTokens = BuildKnownTokens(installed);
 
         var local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
@@ -73,6 +76,16 @@ public sealed class UninstalledProgramLeftoversRule : ICleanupRule
                 var folderName = Path.GetFileName(dir);
                 if (SafelistFolderNames.Contains(folderName)) continue;
 
+                try
+                {
+                    if (new DirectoryInfo(dir).Attributes.HasFlag(FileAttributes.ReparsePoint))
+                        continue;
+                }
+                catch
+                {
+                    continue;
+                }
+
                 // Skip recently-modified folders — likely still in use.
                 try
                 {
@@ -84,15 +97,19 @@ public sealed class UninstalledProgramLeftoversRule : ICleanupRule
                 // Check if this folder's name matches any known installed program.
                 if (IsKnownProgram(folderName, knownTokens)) continue;
 
-                // Compute size (best-effort).
-                long size = 0;
-                try
+                // An old top-level directory can contain recently active files.
+                // Inspect without following reparse points; any access failure
+                // makes the heuristic incomplete and therefore non-actionable.
+                if (!TryInspectDirectoryTree(
+                        dir,
+                        cutoff,
+                        cancellationToken,
+                        out var size,
+                        out var hasRecentDescendant) ||
+                    hasRecentDescendant)
                 {
-                    size = Directory
-                        .EnumerateFiles(dir, "*", SearchOption.AllDirectories)
-                        .Sum(f => { try { return new FileInfo(f).Length; } catch { return 0L; } });
+                    continue;
                 }
-                catch { /* skip inaccessible */ }
 
                 // Only surface folders with at least 10 MB — smaller ones aren't worth the noise.
                 if (size < 10L * 1024 * 1024) continue;
@@ -115,8 +132,12 @@ public sealed class UninstalledProgramLeftoversRule : ICleanupRule
                                  $"unmodified for over 90 days. Review carefully before deleting. " +
                                  $"Path: {candidate.path}. Size: {FormatBytes(candidate.size)}.",
                 Category = Category,
-                Risk = CleanupRisk.Medium,
+                Risk = CleanupRisk.High,
                 EstimatedBytes = candidate.size,
+                SupportsPermanentDelete = false,
+                SupportsQuarantine = false,
+                Confidence = 0.25,
+                SafetyNotes = "Heuristic only. Not proof of uninstallation. Review path and restore from Recycle Bin if needed.",
                 TargetPaths = [candidate.path],
                 IsSystemPath = false,
             };
@@ -163,6 +184,64 @@ public sealed class UninstalledProgramLeftoversRule : ICleanupRule
 
     private static IEnumerable<string> Tokenize(string name) =>
         name.Split([' ', '-', '_', '.', '(', ')', ',', '&'], StringSplitOptions.RemoveEmptyEntries);
+
+    internal static bool TryInspectDirectoryTree(
+        string root,
+        DateTime recentCutoffUtc,
+        CancellationToken cancellationToken,
+        out long sizeBytes,
+        out bool hasRecentDescendant)
+    {
+        sizeBytes = 0;
+        hasRecentDescendant = false;
+        var pending = new Stack<DirectoryInfo>();
+        pending.Push(new DirectoryInfo(root));
+
+        try
+        {
+            while (pending.Count > 0)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var directory = pending.Pop();
+                foreach (var entry in directory.EnumerateFileSystemInfos())
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    if (entry.Attributes.HasFlag(FileAttributes.ReparsePoint))
+                        continue;
+
+                    if (entry.LastWriteTimeUtc > recentCutoffUtc)
+                    {
+                        hasRecentDescendant = true;
+                        return true;
+                    }
+
+                    if (entry is DirectoryInfo childDirectory)
+                    {
+                        pending.Push(childDirectory);
+                    }
+                    else if (entry is FileInfo file)
+                    {
+                        checked { sizeBytes += file.Length; }
+                    }
+                }
+            }
+
+            return true;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex) when (ex is IOException
+                                   or UnauthorizedAccessException
+                                   or System.Security.SecurityException
+                                   or OverflowException)
+        {
+            sizeBytes = 0;
+            hasRecentDescendant = false;
+            return false;
+        }
+    }
 
     private static string FormatBytes(long b) => ByteFormat.Format(b);
 }

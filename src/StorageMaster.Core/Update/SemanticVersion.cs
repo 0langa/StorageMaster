@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.RegularExpressions;
 
 namespace StorageMaster.Core.Update;
@@ -28,10 +29,17 @@ internal readonly partial record struct SemanticVersion(
         if (!match.Success)
             return false;
 
+        if (!int.TryParse(match.Groups["major"].Value, NumberStyles.None, CultureInfo.InvariantCulture, out var major) ||
+            !int.TryParse(match.Groups["minor"].Value, NumberStyles.None, CultureInfo.InvariantCulture, out var minor) ||
+            !int.TryParse(match.Groups["patch"].Value, NumberStyles.None, CultureInfo.InvariantCulture, out var patch))
+        {
+            return false;
+        }
+
         version = new SemanticVersion(
-            int.Parse(match.Groups["major"].Value),
-            int.Parse(match.Groups["minor"].Value),
-            int.Parse(match.Groups["patch"].Value),
+            major,
+            minor,
+            patch,
             match.Groups["prerelease"].Success ? match.Groups["prerelease"].Value : null);
 
         return true;
@@ -99,7 +107,7 @@ internal readonly partial record struct SemanticVersion(
     }
 
     [GeneratedRegex(
-        "^(?<major>0|[1-9]\\d*)\\.(?<minor>0|[1-9]\\d*)\\.(?<patch>0|[1-9]\\d*)(?:-(?<prerelease>[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*))?$",
+        "^(?<major>0|[1-9][0-9]*)\\.(?<minor>0|[1-9][0-9]*)\\.(?<patch>0|[1-9][0-9]*)(?:-(?<prerelease>[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*))?$",
         RegexOptions.CultureInvariant)]
     private static partial Regex SemverRegex();
 }

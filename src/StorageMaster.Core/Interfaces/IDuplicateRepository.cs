@@ -100,6 +100,20 @@ public interface IDuplicateRepository : IQuarantineRecorder
         string? errorMessage,
         CancellationToken ct = default);
 
+    /// <summary>
+    /// Atomically terminalizes a successful quarantine journal entry and records the
+    /// restorable source/destination pair. The operation is idempotent for an existing
+    /// matching quarantine record.
+    /// </summary>
+    Task<QuarantinedFile> CompleteQuarantineMoveAsync(
+        long journalId,
+        long? memberId,
+        long runId,
+        string originalPath,
+        string quarantinePath,
+        long bytesFreed,
+        CancellationToken ct = default);
+
     Task<IReadOnlyList<DuplicateOperationJournalEntry>> GetDuplicateOperationJournalAsync(
         long runId,
         CancellationToken ct = default);

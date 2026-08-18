@@ -25,10 +25,11 @@ public sealed class ScanErrorRepositoryTests : IAsyncDisposable
     public async Task GetErrorsPageForSessionAsync_ReturnsPagedNewestFirstResults()
     {
         var session = await _scanRepository.CreateSessionAsync(@"C:\Root");
+        var occurredUtc = new DateTime(2025, 8, 17, 12, 34, 56, DateTimeKind.Utc).AddTicks(7_654_321);
         await _repo.LogErrorsAsync(session.Id, [
-            new ScanError { Id = 0, SessionId = session.Id, Path = @"C:\Root\a", ErrorType = "Denied", Message = "1", OccurredAt = DateTime.UtcNow.AddMinutes(-3) },
-            new ScanError { Id = 0, SessionId = session.Id, Path = @"C:\Root\b", ErrorType = "Denied", Message = "2", OccurredAt = DateTime.UtcNow.AddMinutes(-2) },
-            new ScanError { Id = 0, SessionId = session.Id, Path = @"C:\Root\c", ErrorType = "Denied", Message = "3", OccurredAt = DateTime.UtcNow.AddMinutes(-1) },
+            new ScanError { Id = 0, SessionId = session.Id, Path = @"C:\Root\a", ErrorType = "Denied", Message = "1", OccurredAt = occurredUtc.AddMinutes(-3) },
+            new ScanError { Id = 0, SessionId = session.Id, Path = @"C:\Root\b", ErrorType = "Denied", Message = "2", OccurredAt = occurredUtc.AddMinutes(-2) },
+            new ScanError { Id = 0, SessionId = session.Id, Path = @"C:\Root\c", ErrorType = "Denied", Message = "3", OccurredAt = occurredUtc.AddMinutes(-1) },
         ]);
 
         var firstPage = await _repo.GetErrorsPageForSessionAsync(session.Id, 0, 2);
@@ -38,6 +39,8 @@ public sealed class ScanErrorRepositoryTests : IAsyncDisposable
         firstPage.Should().HaveCount(2);
         firstPage[0].Path.Should().Be(@"C:\Root\c");
         firstPage[1].Path.Should().Be(@"C:\Root\b");
+        AssertUtcTimestamp(firstPage[0].OccurredAt, occurredUtc.AddMinutes(-1));
+        AssertUtcTimestamp(firstPage[1].OccurredAt, occurredUtc.AddMinutes(-2));
     }
 
     public async ValueTask DisposeAsync()
@@ -45,5 +48,11 @@ public sealed class ScanErrorRepositoryTests : IAsyncDisposable
         await _ctx.DisposeAsync();
         if (File.Exists(_dbPath))
             File.Delete(_dbPath);
+    }
+
+    private static void AssertUtcTimestamp(DateTime actual, DateTime expected)
+    {
+        actual.Kind.Should().Be(DateTimeKind.Utc);
+        actual.Ticks.Should().Be(expected.Ticks);
     }
 }

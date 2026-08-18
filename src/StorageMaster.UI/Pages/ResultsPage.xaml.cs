@@ -6,6 +6,8 @@ namespace StorageMaster.UI.Pages;
 
 public sealed partial class ResultsPage : Page
 {
+    private CancellationTokenSource? _navigationCts;
+
     private static readonly FolderTreeNode PlaceholderFolderNode = new(new StorageMaster.Core.Models.FolderEntry
     {
         Id = -1,
@@ -26,18 +28,27 @@ public sealed partial class ResultsPage : Page
     {
         ViewModel = App.Services.GetRequiredService<ResultsViewModel>();
         InitializeComponent();
-        ViewModel.CategoryFilterApplied += OnCategoryFilterApplied;
     }
 
     protected override async void OnNavigatedTo(NavigationEventArgs e)
     {
         base.OnNavigatedTo(e);
+        _navigationCts?.Cancel();
+        _navigationCts?.Dispose();
+        _navigationCts = new CancellationTokenSource();
+        var ct = _navigationCts.Token;
+
+        ViewModel.CategoryFilterApplied -= OnCategoryFilterApplied;
+        ViewModel.CategoryFilterApplied += OnCategoryFilterApplied;
         try
         {
             if (e.Parameter is long sessionId && sessionId > 0)
-                await ViewModel.LoadAsync(sessionId);
+                await ViewModel.LoadAsync(sessionId, ct);
             else
-                await ViewModel.LoadMostRecentAsync();
+                await ViewModel.LoadMostRecentAsync(ct);
+        }
+        catch (OperationCanceledException)
+        {
         }
         catch (Exception ex)
         {
@@ -48,6 +59,9 @@ public sealed partial class ResultsPage : Page
     protected override void OnNavigatedFrom(NavigationEventArgs e)
     {
         ViewModel.CategoryFilterApplied -= OnCategoryFilterApplied;
+        _navigationCts?.Cancel();
+        _navigationCts?.Dispose();
+        _navigationCts = null;
         ViewModel.CancelBackgroundWork();
         base.OnNavigatedFrom(e);
     }
@@ -88,6 +102,13 @@ public sealed partial class ResultsPage : Page
         try
         {
             await ViewModel.LoadFolderChildrenAsync(model);
+            if (!model.AreChildrenLoaded)
+            {
+                if (args.Node.Children.Count == 0)
+                    args.Node.Children.Add(CreatePlaceholderTreeNode());
+                return;
+            }
+
             args.Node.Children.Clear();
             foreach (var child in model.Children)
                 args.Node.Children.Add(ToTreeViewNode(child));
@@ -115,10 +136,7 @@ public sealed partial class ResultsPage : Page
 
         if (node.HasChildren && !node.AreChildrenLoaded)
         {
-            treeNode.Children.Add(new TreeViewNode
-            {
-                Content = PlaceholderFolderNode,
-            });
+            treeNode.Children.Add(CreatePlaceholderTreeNode());
         }
         else
         {
@@ -128,4 +146,9 @@ public sealed partial class ResultsPage : Page
 
         return treeNode;
     }
+
+    private static TreeViewNode CreatePlaceholderTreeNode() => new()
+    {
+        Content = PlaceholderFolderNode,
+    };
 }

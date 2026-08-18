@@ -14,7 +14,7 @@ public sealed class DriveHealthRepository(StorageDbContext db) : IDriveHealthRep
         await db.WriteLock.WaitAsync(ct);
         try
         {
-            var conn = await db.GetConnectionAsync(ct);
+            await using var conn = await db.GetConnectionAsync(ct);
             using var tx = await conn.BeginTransactionAsync(ct);
             using var cmd = conn.CreateCommand();
             cmd.Transaction = (SqliteTransaction)tx;
@@ -76,7 +76,7 @@ public sealed class DriveHealthRepository(StorageDbContext db) : IDriveHealthRep
 
     public async Task<IReadOnlyList<DriveHealthSnapshot>> GetLatestSnapshotsAsync(CancellationToken ct = default)
     {
-        var conn = await db.GetConnectionAsync(ct);
+        await using var conn = await db.GetConnectionAsync(ct);
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
             SELECT d.*
@@ -102,7 +102,7 @@ public sealed class DriveHealthRepository(StorageDbContext db) : IDriveHealthRep
         int limit = 100,
         CancellationToken ct = default)
     {
-        var conn = await db.GetConnectionAsync(ct);
+        await using var conn = await db.GetConnectionAsync(ct);
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
             SELECT *
@@ -142,9 +142,6 @@ public sealed class DriveHealthRepository(StorageDbContext db) : IDriveHealthRep
         WearPercent = reader.IsDBNull(reader.GetOrdinal("WearPercent"))
             ? null
             : reader.GetInt32(reader.GetOrdinal("WearPercent")),
-        CapturedUtc = DateTime.Parse(
-            reader.GetString(reader.GetOrdinal("CapturedUtc")),
-            null,
-            System.Globalization.DateTimeStyles.RoundtripKind),
+        CapturedUtc = UtcTimestamp.Parse(reader.GetString(reader.GetOrdinal("CapturedUtc"))),
     };
 }

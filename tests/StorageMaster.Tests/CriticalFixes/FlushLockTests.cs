@@ -44,7 +44,14 @@ public sealed class FlushLockTests
         repoMock.Setup(r => r.UpdateFolderTotalsAsync(It.IsAny<long>(), It.IsAny<IReadOnlyDictionary<string, long>>(), It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
 
-        var scanner = new FileScanner(repoMock.Object, NullLogger<FileScanner>.Instance);
+        var identityProvider = new Mock<IFileIdentityProvider>();
+        identityProvider
+            .Setup(provider => provider.GetIdentityAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new FileIdentity("TESTVOL", 1));
+        var scanner = new FileScanner(
+            repoMock.Object,
+            NullLogger<FileScanner>.Instance,
+            identityProvider.Object);
 
         // Create a directory with enough files to trigger multiple flushes under concurrency.
         var root = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));

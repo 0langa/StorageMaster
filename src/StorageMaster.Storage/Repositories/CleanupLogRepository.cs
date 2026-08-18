@@ -15,7 +15,7 @@ public sealed class CleanupLogRepository : ICleanupLogRepository
         await _db.WriteLock.WaitAsync(ct);
         try
         {
-            var conn = await _db.GetConnectionAsync(ct);
+            await using var conn = await _db.GetConnectionAsync(ct);
             using var cmd = conn.CreateCommand();
             cmd.CommandText = """
                 INSERT INTO CleanupLog
@@ -64,7 +64,7 @@ public sealed class CleanupLogRepository : ICleanupLogRepository
 
     public async Task<IReadOnlyList<CleanupLogEntry>> GetRecentAsync(int count = 50, CancellationToken ct = default)
     {
-        var conn = await _db.GetConnectionAsync(ct);
+        await using var conn = await _db.GetConnectionAsync(ct);
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
             SELECT * FROM CleanupLog ORDER BY ExecutedUtc DESC LIMIT $n;
@@ -83,7 +83,7 @@ public sealed class CleanupLogRepository : ICleanupLogRepository
                 BytesFreed = reader.GetInt64(reader.GetOrdinal("BytesFreed")),
                 WasDryRun = reader.GetInt32(reader.GetOrdinal("WasDryRun")) == 1,
                 Status = reader.GetString(reader.GetOrdinal("Status")),
-                ExecutedUtc = DateTime.Parse(reader.GetString(reader.GetOrdinal("ExecutedUtc"))),
+                ExecutedUtc = UtcTimestamp.Parse(reader.GetString(reader.GetOrdinal("ExecutedUtc"))),
                 ErrorMessage = reader.IsDBNull(reader.GetOrdinal("ErrorMessage")) ? null
                                : reader.GetString(reader.GetOrdinal("ErrorMessage")),
                 AuditDataJson = reader.IsDBNull(reader.GetOrdinal("AuditDataJson")) ? null

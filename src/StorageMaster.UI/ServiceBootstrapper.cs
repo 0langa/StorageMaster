@@ -82,6 +82,7 @@ internal static class ServiceBootstrapper
         services.AddSingleton<FileScanner>(sp => new FileScanner(
             sp.GetRequiredService<IScanRepository>(),
             sp.GetRequiredService<ILogger<FileScanner>>(),
+            sp.GetRequiredService<IFileIdentityProvider>(),
             sp.GetRequiredService<IScanErrorRepository>()));
         services.AddSingleton<TurboFileScanner>(sp => new TurboFileScanner(
             sp.GetRequiredService<IScanRepository>(),
@@ -110,13 +111,12 @@ internal static class ServiceBootstrapper
         services.AddSingleton<ICleanupRule>(sp => new PrefetchFilesRule(
             sp.GetRequiredService<IAdminService>()));
         services.AddSingleton<ICleanupRule, MicrosoftStoreLogsRule>();
-        services.AddSingleton<ICleanupRule, DuplicateFilesCleanupRule>();
-
         services.AddSingleton<ICleanupEngine, CleanupEngine>();
         services.AddSingleton<IScanResultDeletionService, ScanResultDeletionService>();
-        services.AddSingleton<ISmartCleanerService, SmartCleanerService>();
         services.AddSingleton<IFileContentHasher, FileContentHasher>();
         services.AddSingleton<IFileSnapshotProvider, FileSnapshotProvider>();
+        services.AddSingleton<INoFollowFileEnumerator, NoFollowFileEnumerator>();
+        services.AddSingleton<ISmartCleanerService, SmartCleanerService>();
 
         services.AddSingleton<IDuplicateDetectionStrategy>(sp =>
             new ExactSha256Strategy(
@@ -144,7 +144,8 @@ internal static class ServiceBootstrapper
                 sp.GetRequiredService<IFileContentHasher>(),
                 sp.GetServices<IDuplicateDetectionStrategy>(),
                 sp.GetRequiredService<IDuplicateKeeperPolicy>(),
-                sp.GetRequiredService<ILogger<DuplicateFinderService>>()));
+                sp.GetRequiredService<ILogger<DuplicateFinderService>>(),
+                sp.GetRequiredService<IFileSnapshotProvider>()));
         services.AddSingleton<IDuplicateDeletionService, DuplicateDeletionService>();
 
         services.AddSingleton<INavigationService, NavigationService>();

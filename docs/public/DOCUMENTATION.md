@@ -1,7 +1,7 @@
 # StorageMaster — Full Technical Documentation
 
-> **Version:** 2.2.0 | **Current-state review:** 2026-06-22 | **.NET 8 / WinUI 3 / Windows App SDK 1.6**
-> **v2 update:** Storage schema v7 adds Drive Health snapshots. Drive Health reads Windows WMI/storage telemetry with explicit Unknown/Unsupported fallbacks, surfaces Dashboard/Drive Health UI warnings, and supports `--cli health report`. The WinUI shell now uses shared v2 styles, grouped navigation, a guided Scan flow, Scan Workspace, and Space Map tile controls. Product versioning separates semantic stable/prerelease display from numeric assembly/manifest versions.
+> **Version:** 2.2.1 | **Current-state review:** 2026-08-18 | **.NET 8 / WinUI 3 / Windows App SDK 1.6**
+> **Current storage/safety state:** schema v12 uses independent SQLite connection leases, normalized file/folder identity, exact UTC timestamp reads, duplicate recovery journals, and nullable stable scan-time file identity. Historical identity-less rows stay readable but require rescan before destructive scan-backed actions.
 
 ---
 
@@ -32,7 +32,7 @@
 
 | Requirement | Minimum version | Notes |
 |-------------|----------------|-------|
-| Windows | 10 1809 (build 17763) | Minimum target used by the unpackaged WinUI app |
+| Windows | Configured minimum: 10 1809 (build 17763) | The full supported-build matrix still requires release/lab validation |
 | .NET SDK | 8.0.x | `global.json` pins this |
 | .NET Desktop Runtime | 8.0.x x64 | Required on installed machines; setup blocks with guidance when missing |
 | Visual Studio | 2022 17.9+ | For building the WinUI 3 UI project |
@@ -123,8 +123,14 @@ All settings are persisted in the SQLite `Settings` table as JSON under the key 
 | `CleanWindowsUpdateCache` | `true` | WindowsUpdateCacheRule |
 | `CleanDeliveryOptimization` | `true` | DeliveryOptimizationRule |
 | `CleanWindowsErrorReports` | `true` | WindowsErrorReportingRule |
-| `CleanProgramLeftovers` | `true` | UninstalledProgramLeftoversRule |
+| `CleanProgramLeftovers` | `false` | UninstalledProgramLeftoversRule (high-risk heuristic; opt-in) |
 | `CleanLargeOldFiles` | `false` | LargeOldFilesCleanupRule (medium risk — off by default) |
+| `CleanThumbnailCache` | `true` | ThumbnailCacheRule |
+| `CleanIconCache` | `true` | IconCacheRule |
+| `CleanFontCache` | `false` | FontCacheRule (opt-in) |
+| `CleanDnsCache` | `true` | DnsClientCacheRule |
+| `CleanPrefetchFiles` | `false` | PrefetchFilesRule (medium risk; elevation required) |
+| `CleanStoreLogs` | `true` | MicrosoftStoreLogsRule |
 
 #### Large file thresholds (used by LargeOldFilesCleanupRule)
 
@@ -153,7 +159,8 @@ Passed programmatically to `IFileScanner.ScanAsync`.
 | `DbBatchSize` | `500` | Flush file entries to DB every N entries |
 | `ExcludedPaths` | Windows `WinSxS` and `Installer` under the actual Windows folder | Case-insensitive, normalized, boundary-aware exclusions |
 | `FollowSymlinks` | `false` | Follow reparse points |
-| `DeepScan` | `false` | When true: empty exclusions, uses max CPU parallelism |
+| `IncludeHiddenFiles` | `false` | Include entries marked hidden |
+| `DeepScan` | `false` | When true: empty exclusions and include hidden/system entries; configured parallelism still applies |
 
 **Parallelism tuning:**
 - HDD: `1–4` to avoid random-seek thrashing
@@ -189,7 +196,7 @@ Starts a new scan session:
 5. Reports progress every 300ms via the `progress` callback
 6. Returns the final `ScanSession`
 
-**Thread safety:** Safe to call from any thread. Progress callbacks should marshal to the UI thread via `DispatcherQueue.TryEnqueue()` in WinUI 3 unpackaged apps (no SynchronizationContext).
+**Thread safety:** Scanner implementations are designed to be called from any thread. `Program.Main()` installs a `DispatcherQueueSynchronizationContext` for the WinUI thread; `Progress<T>` created there posts back to it, and the scan ViewModel also uses explicit `DispatcherQueue.TryEnqueue()` marshalling.
 
 **Example:**
 
@@ -210,11 +217,11 @@ var session = await scanner.ScanAsync(
 #### `GetLargestFilesAsync` / `GetLargestFoldersAsync`
 
 ```csharp
-IAsyncEnumerable<FileEntry>   GetLargestFilesAsync(long sessionId, int topN = 100, CancellationToken ct = default)
-IAsyncEnumerable<FolderEntry> GetLargestFoldersAsync(long sessionId, int topN = 100, CancellationToken ct = default)
+Task<IReadOnlyList<FileEntry>> GetLargestFilesAsync(long sessionId, int topN, CancellationToken ct = default)
+Task<IReadOnlyList<FolderEntry>> GetLargestFoldersAsync(long sessionId, int topN, CancellationToken ct = default)
 ```
 
-Stream top-N results from the database. Can be called during an in-progress scan (WAL mode ensures no reader/writer conflict).
+Return deterministic top-N snapshots from the database. The UI uses separate paged search/count APIs for incremental result browsing. Reads can run while a scan writes; WAL reduces reader/writer interference but does not make every read a final scan snapshot.
 
 ---
 
@@ -237,12 +244,14 @@ If `turbo-scanner.exe` is absent, `TurboFileScanner.ScanAsync()` immediately del
 
 ### Output format
 
-The Rust binary outputs one JSON line per file/folder on stdout. Errors go to stderr as `WARN: <message>`.
+The Rust binary outputs one JSON line per file/folder on stdout. Errors go to stderr as `WARN: <message>`; the managed host drains and persists those warnings to `ScanErrors` when a scan-error repository is available.
 
 ```json
-{"path":"C:\\Users\\Alice\\file.txt","size":12345,"modified_unix":1700000000,"created_unix":1690000000,"is_dir":false}
-{"path":"C:\\Users\\Alice","size":0,"modified_unix":1700000000,"created_unix":1690000000,"is_dir":true}
+{"path":"C:\\Users\\Alice\\file.txt","size":12345,"modified_unix":1700000000,"created_unix":1690000000,"modified_utc_ticks":638355968000000000,"created_utc_ticks":638269568000000000,"attributes":32,"volume_serial":305419896,"file_index":123456789,"is_dir":false,"is_hidden":false}
+{"path":"C:\\Users\\Alice","size":0,"modified_unix":1700000000,"created_unix":1690000000,"modified_utc_ticks":638355968000000000,"created_utc_ticks":638269568000000000,"attributes":16,"volume_serial":null,"file_index":null,"is_dir":true,"is_hidden":false}
 ```
+
+Contract v3 preserves exact Windows UTC ticks, raw attributes, and stable volume/file identity. File metadata and identity come from one handle. Link following is off unless `--follow-links` is passed; the managed host also validates and, where Windows permissions permit, locks every root ancestor against replacement for the scan lifetime.
 
 ### CLI usage (standalone)
 
@@ -250,6 +259,7 @@ The Rust binary outputs one JSON line per file/folder on stdout. Errors go to st
 turbo-scanner.exe --path "C:\Users\Alice" --threads 8
 turbo-scanner.exe --path "D:\" --min-size 1048576  # only files ≥ 1 MB
 turbo-scanner.exe --path "C:\Projects" --skip-hidden
+turbo-scanner.exe --path "C:\Projects" --follow-links  # explicit opt-in
 ```
 
 ### Building from source
@@ -272,38 +282,42 @@ The Smart Cleaner provides a one-click scan-and-clean path that does **not** req
 #### `AnalyzeAsync`
 
 ```csharp
-Task<IReadOnlyList<SmartCleanGroup>> AnalyzeAsync(
+Task<SmartCleanAnalysisResult> AnalyzeAsync(
     IProgress<string>? progress = null,
     CancellationToken  ct = default)
 ```
 
-Scans all known junk locations directly on the filesystem and returns a list of `SmartCleanGroup` objects.
+Scans all known junk locations directly on the filesystem and returns groups plus path-specific warnings. `IsPartial` is true when any required source/branch could not be safely inspected.
 
 ```csharp
 record SmartCleanGroup(
+    SmartCleanSource Source,
     string Category,
     string Description,
     string IconGlyph,
     long   EstimatedBytes,
     IReadOnlyList<string> Paths,
+    IReadOnlyDictionary<string, FileSnapshot> ExpectedFileSnapshots,
     bool   IsSelected = true)
 ```
 
-**Scanned sources:** Temp files, browser caches (Chrome/Edge/Firefox/Brave/Opera), Windows Update cache, Windows Error Reports, Delivery Optimization, thumbnail and shader caches, Recycle Bin.
+Analysis requests strong no-follow guards from each trusted source boundary through the enumerated branch. A weak guard is reported as partial and cannot authorize cleanup; required boundary/scan-root reparse points are explicit warnings, and descendant reparses are skipped. Every returned path has a source identifier and an identity-bearing analysis-time snapshot.
+
+**Scanned sources:** canonical `%WINDIR%\Temp` and `%LOCALAPPDATA%\Temp` (never redirected `TMP`/`TEMP`), browser caches (Chrome/Edge/Firefox/Brave/Opera), Windows Update cache, Windows Error Reports, Delivery Optimization, thumbnail cache, and DirectX shader cache.
 
 ---
 
 #### `CleanAsync`
 
 ```csharp
-Task<long> CleanAsync(
+Task<SmartCleanResult> CleanAsync(
     IReadOnlyList<SmartCleanGroup> groups,
     DeletionMethod                 method,
     IProgress<string>?             progress = null,
     CancellationToken              ct = default)
 ```
 
-Deletes the files in all provided groups using the specified deletion method. Returns total bytes freed.
+Before deletion, each path must still be a regular file beneath the allow-listed root for its source. Smart Cleaner holds a no-follow ancestry lease, requires exact stable identity/metadata, and submits one guarded deletion at a time. The result includes logical bytes processed, bytes actually reported freed, successful-path count, cancellation/error state, per-path failures, and audit-write warnings. Recycle Bin moves report zero reclaimed bytes because allocation remains used until the bin is emptied.
 
 **IMPORTANT:** Call this only after explicit user confirmation (the Smart Cleaner page uses a `ContentDialog` for this).
 
@@ -327,9 +341,9 @@ IAsyncEnumerable<CleanupSuggestion> GetSuggestionsAsync(
 ```
 
 Runs all registered `ICleanupRule` instances against the given session.
-- Reads from the database (never touches the filesystem)
-- Yields suggestions in rule registration order
-- Stream is lazily evaluated — rules run one at a time
+- Analysis is read-only, but a rule may inspect persisted scan rows, the live filesystem, the registry, or another platform query.
+- Suggestions are yielded in rule-registration order; rules run one at a time.
+- A rule exception is logged and isolated so later rules still run. The API does not currently return an explicit partial-analysis marker, so an empty result alone does not prove every rule completed.
 
 ---
 
@@ -338,15 +352,17 @@ Runs all registered `ICleanupRule` instances against the given session.
 ```csharp
 Task<IReadOnlyList<CleanupResult>> ExecuteAsync(
     IReadOnlyList<CleanupSuggestion> suggestions,
-    bool              dryRun,
-    CancellationToken ct = default)
+    bool                            dryRun,
+    DeletionMethod                  deletionMethod,
+    IProgress<CleanupProgress>?     progress = null,
+    CancellationToken               ct = default)
 ```
 
-**IMPORTANT:** Call only after explicit user confirmation (the `ContentDialog` in `CleanupPage.xaml.cs`).
+**IMPORTANT:** Interactive callers require explicit user confirmation. The unattended scheduler path requires current, versioned destructive consent and a successful headless-policy check instead of a live dialog.
 
 - Passes each suggestion's `TargetPaths` to `IFileDeleter.DeleteManyAsync`
 - Returns a `CleanupResult` per suggestion (Success, PartialSuccess, Failed, Skipped)
-- Logs every result to `ICleanupLogRepository`
+- Attempts to log every result to `ICleanupLogRepository`; an audit-write failure is returned as a warning/partial outcome rather than hidden
 - If `dryRun = true`: estimates sizes, logs intended actions, does not touch the filesystem
 
 ---
@@ -367,17 +383,17 @@ public interface ICleanupRule
 **Contract:**
 - `AnalyzeAsync` MUST be read-only — never modify the filesystem
 - Each suggestion MUST have a unique `Guid`
-- `TargetPaths` MUST be absolute paths or the sentinel `"::RecycleBin::"`
+- `TargetPaths` MUST be absolute paths or one of the recognized execution sentinels: `"::RecycleBin::"` or `"::DnsFlush::"`
 - Rules SHOULD call `ct.ThrowIfCancellationRequested()` periodically
 
 ### Risk levels
 
 | Level | Meaning | Examples |
 |-------|---------|---------|
-| `Safe` | Cannot cause any issues | Recycle Bin, browser cache |
-| `Low` | Very unlikely to cause issues | Temp files, installer files in Downloads |
-| `Medium` | Could cause minor issues | Large files user might need, program leftovers |
-| `High` | Could cause significant issues | Reserved; not used in v1.3 |
+| `Safe` | Generated/recreatable data with the lowest expected impact | Selected application-cache suggestions |
+| `Low` | Usually recreatable or narrowly scoped, but still reviewable | Temp files, browser cache, downloaded installers, thumbnail/icon/font cache, DNS cache, Store logs |
+| `Medium` | Material state or performance impact is plausible | Permanent Recycle Bin emptying, large/old user files, Prefetch files |
+| `High` | Heuristic targeting could affect application/user state | Uninstalled-program leftovers; permanent delete is blocked by the generic engine |
 
 ---
 
@@ -416,9 +432,9 @@ var errors = await errorRepo.GetErrorsForSessionAsync(sessionId, ct);
 
 ### StorageDbContext
 
-The `StorageDbContext` singleton manages the single SQLite connection. All repositories receive it via constructor injection.
+The `StorageDbContext` singleton manages initialization, migration, and database-wide write coordination. Each repository operation obtains its own open, configured SQLite connection lease and disposes it after use.
 
-**Do not** open multiple `StorageDbContext` instances pointing at the same DB file — single connection + WAL mode is the correct pattern for a desktop app.
+Multiple contexts in one process coordinate initialization and writes by canonical database path. Independent processes rely on SQLite's immediate writer reservation and bounded 30-second timeout; migration re-reads the schema version after acquiring that reservation.
 
 **Schema migration** runs automatically on first `GetConnectionAsync()`.
 
@@ -429,10 +445,11 @@ The `StorageDbContext` singleton manages the single SQLite connection. All repos
 ### Interface: `IFileDeleter`
 
 The platform-level deletion abstraction. The Windows implementation handles:
-- Batch RecycleBin deletion via `SHFileOperation` (one call for all paths)
-- Permanent deletion via `File.Delete` / `Directory.Delete`
-- The special sentinel `"::RecycleBin::"` which calls `SHEmptyRecycleBin`
-- Dry-run mode (estimate + log, no delete)
+- Batch Recycle Bin deletion via `IFileOperation` with `FOFX_RECYCLEONDELETE`
+- Permanent file deletion plus handle-bound, no-follow recursive directory deletion
+- The special sentinel `"::RecycleBin::"`, accepted only for explicit permanent emptying
+- Dry-run mode (estimate only, no delete); orchestrators such as `CleanupEngine` own audit logging
+- Canonical root rejection and optional expected-snapshot revalidation before mutation
 
 ```csharp
 var requests = new List<DeletionRequest>
@@ -448,7 +465,7 @@ await foreach (var outcome in deleter.DeleteManyAsync(requests))
 }
 ```
 
-**Error handling:** `DeleteManyAsync` never throws for per-file errors. A failed deletion returns `DeletionOutcome { Success = false, Error = "message" }`.
+**Error handling:** `DeleteManyAsync` returns per-file failures as `DeletionOutcome { Success = false, Error = "message" }`; cancellation still propagates as `OperationCanceledException`.
 
 ---
 
@@ -527,10 +544,10 @@ v2 adds shared visual tokens/styles, reusable page/state/gauge/badge/card contro
 **Loaded with:** `long sessionId` parameter.
 
 **Pivot tabs:**
-1. **Largest Files** — top 500 files, filterable, sorted by size descending
-2. **Largest Folders** — top 200 folders with correct total sizes (post-aggregation), filterable
+1. **Largest Files** — 200-row pages, filterable/sortable, with explicit load-more state
+2. **Largest Folders** — 100-row pages with post-aggregation totals, filterable/sortable, with explicit load-more state
 3. **File Types** — category breakdown sorted by bytes
-4. **Errors** — per-path scan errors with error type and message; badge shows count
+4. **Errors** — 100-row pages of recorded scan/backend warnings and errors; badge shows total count
 
 **Filter:** Case-insensitive path-contains filter applied to files and folders simultaneously.
 
@@ -542,15 +559,15 @@ v2 adds shared visual tokens/styles, reusable page/state/gauge/badge/card contro
 
 **Flow:**
 1. Select a completed session from the ComboBox
-2. Review/toggle **Cleanup Options** — 10 category toggles (ToggleSwitch per category)
+2. Review/toggle **Cleanup Options** — 16 rule-category toggles grouped by Windows/system, browser, application, downloads, and large files
 3. Toggle **Deletion mode** (Recycle Bin vs. permanent)
 4. Optionally toggle **Clear entire Downloads folder** (separate switch)
 5. Click **Analyse** → suggestions populate
-6. Review suggestions (checkbox per item, risk badge, size)
+6. Review suggestions (checkbox per item, risk badge, size); only Safe/Low suggestions that support Recycle Bin start selected
 7. Click **Clean Up Selected…** → `ContentDialog` confirmation
-8. On confirm → execution results appear with per-suggestion status
+8. On confirm → execution results appear with per-suggestion status. A dry-run unlocks an immediate real-delete follow-up only if every selected preview result succeeded without failures or warnings
 
-**Important:** The `ContentDialog` is the hard safety gate. The ViewModel's `ExecuteCleanupCommand` is only called from within the dialog's Primary button handler.
+**Important:** The `ContentDialog` is the interactive safety gate. The command also rejects a real run unless it follows the expected review/preview state; scheduled cleanup is a separate, consent-versioned headless path.
 
 ---
 
@@ -560,11 +577,11 @@ v2 adds shared visual tokens/styles, reusable page/state/gauge/badge/card contro
 
 **Flow:**
 1. Optionally toggle **Send to Recycle Bin** (recommended; on by default)
-2. Click **Scan & Analyse** → 8 junk sources scanned directly
+2. Click **Scan & Analyse** → 7 allow-listed junk sources scanned directly without following reparse points
 3. Review group list: each card shows category, description, icon, estimated size, checkbox
 4. Total size of selected groups shown in a summary bar
 5. Click **Clean Selected** → `ContentDialog` confirmation
-6. Success InfoBar appears with bytes freed
+6. Result InfoBar distinguishes logical bytes processed/moved from permanently reclaimed bytes and warns about partial scans, skipped/failed paths, cancellation, or audit-write failure
 
 **Key difference from Cleanup page:** Does not create a scan session in the database. Results are not historically browsable. Suitable for quick routine cleanup without a full scan.
 
@@ -575,13 +592,15 @@ v2 adds shared visual tokens/styles, reusable page/state/gauge/badge/card contro
 **Purpose:** Edit and persist `AppSettings`.
 
 **Sections:**
-- **Scan Options:** Default path, parallelism slider, system folders toggle, Turbo Scanner toggle, excluded paths (future)
+- **Scan Options:** Default path, parallelism slider, hidden/system-folder controls, Turbo Scanner toggle, and editable excluded paths
 - **Deletion Behaviour:** RecycleBin toggle, dry-run default toggle
-- **Cleanup Options:** All 10 rule enable/disable toggles, Downloads full-clear toggle
+- **Cleanup Options:** All 16 registered rule enable/disable toggles and the Downloads full-clear sub-option
 - **Large & Old File Thresholds:** Size (MB) and age (days) sliders
-- **About:** Current app version from informational assembly metadata (`2.2.0`), diagnostics export, update settings
+- **About:** Current app version from informational assembly metadata (`2.2.1`), diagnostics export, update settings
 
 **Save behaviour:** All settings written to SQLite on "Save Settings" click.
+
+If settings cannot be loaded, editing and save/destructive maintenance commands remain disabled; command failures are surfaced in the page instead of escaping through `AsyncRelayCommand`. A new unattended cleanup job starts disabled. Enabling it opens a dedicated confirmation containing the target, rules, frequency, time, and Recycle Bin behavior, then persists the current destructive-consent contract version. Headless execution refuses missing or stale consent.
 
 ---
 
@@ -590,7 +609,7 @@ v2 adds shared visual tokens/styles, reusable page/state/gauge/badge/card contro
 ### Singletons
 
 ```
-StorageDbContext               ← SQLite connection lifecycle
+StorageDbContext               ← migration/configuration plus independent connection leases
 IScanRepository                ← ScanRepository
 IScanErrorRepository           ← ScanErrorRepository
 ICleanupLogRepository          ← CleanupLogRepository
@@ -600,13 +619,17 @@ IFileDeleter                   ← FileDeleter
 IRecycleBinInfoProvider        ← RecycleBinInfoProvider
 IAdminService                  ← AdminService
 IInstalledProgramProvider      ← InstalledProgramProvider
+IFileIdentityProvider          ← FileIdentityProvider
+IFileSnapshotProvider          ← FileSnapshotProvider
+INoFollowFileEnumerator        ← NoFollowFileEnumerator
 FileScanner                    ← concrete managed scanner
 TurboFileScanner               ← concrete Rust-backed scanner (wraps FileScanner as fallback)
 IFileScanner                   ← FileScanner (ScanViewModel selects turbo dynamically)
-ICleanupRule (×10)             ← all rules in order
+ICleanupRule (×16)             ← active session-cleanup rules in registration order
 ICleanupEngine                 ← CleanupEngine
 ISmartCleanerService           ← SmartCleanerService
 INavigationService             ← NavigationService
+IScheduledTaskService          ← ScheduledTaskService
 MainWindow
 ```
 
@@ -614,10 +637,14 @@ MainWindow
 
 ```
 DashboardViewModel
+ScanWorkspaceViewModel
 ResultsViewModel
+DuplicatesViewModel
 CleanupViewModel
 SettingsViewModel
 SmartCleanerViewModel
+SpaceMapViewModel
+DriveHealthViewModel
 ```
 
 ### Special registrations
@@ -653,7 +680,7 @@ services.AddSingleton<ICleanupRule>(sp => new UninstalledProgramLeftoversRule(
 ### Connection string
 
 ```
-Data Source=%LOCALAPPDATA%\StorageMaster\storagemaster.db;Mode=ReadWriteCreate;Cache=Shared
+Data Source=%LOCALAPPDATA%\StorageMaster\storagemaster.db;Mode=ReadWriteCreate;Cache=Private;Pooling=True;Default Timeout=30
 ```
 
 ### Applied PRAGMAs
@@ -666,7 +693,9 @@ PRAGMA temp_store=MEMORY;
 PRAGMA cache_size=-32000;
 ```
 
-### Full table schemas
+### Selected current table schemas
+
+These are current post-migration shapes for primary scan/audit tables. `StorageMaster.Storage/Schema/DatabaseSchema.cs` remains authoritative and also defines duplicate, quarantine, operation-journal, space-map, and drive-health tables.
 
 ```sql
 CREATE TABLE ScanSessions (
@@ -694,7 +723,10 @@ CREATE TABLE FileEntries (
     AccessedUtc   TEXT    NOT NULL,
     Attributes    INTEGER NOT NULL DEFAULT 0,
     Category      TEXT    NOT NULL DEFAULT 'Unknown',
-    IsReparsePoint INTEGER NOT NULL DEFAULT 0
+    IsReparsePoint INTEGER NOT NULL DEFAULT 0,
+    NormalizedFullPath TEXT,
+    IdentityVolumeSerial TEXT,
+    IdentityFileIndex TEXT
 );
 
 CREATE TABLE FolderEntries (
@@ -708,7 +740,8 @@ CREATE TABLE FolderEntries (
     SubFolderCount  INTEGER NOT NULL DEFAULT 0,
     IsReparsePoint  INTEGER NOT NULL DEFAULT 0,
     WasAccessDenied INTEGER NOT NULL DEFAULT 0,
-    UNIQUE (SessionId, FullPath)
+    NormalizedFullPath TEXT NOT NULL,
+    UNIQUE (SessionId, NormalizedFullPath)
 );
 
 CREATE TABLE ScanErrors (
@@ -729,7 +762,7 @@ CREATE TABLE CleanupLog (
     WasDryRun    INTEGER NOT NULL DEFAULT 0,
     Status       TEXT    NOT NULL,
     ExecutedUtc  TEXT    NOT NULL,
-    ErrorMessage TEXT
+    ErrorMessage TEXT,
     AuditDataJson TEXT
 );
 
@@ -797,8 +830,8 @@ FROM ScanSessions ORDER BY StartedUtc DESC;
 | Directory enumeration | `UnauthorizedAccessException` | Increment `AccessDeniedCount`, continue |
 | Directory enumeration | `IOException`, `SecurityException` | Log at Debug, continue |
 | File info read | `IOException`, `UnauthorizedAccessException` | Skip file, log at Debug |
-| Turbo Scanner stderr | Any `WARN:` line | Log at Debug, continue processing stdout |
-| Session-level | Any uncaught exception | Mark session `Failed`, rethrow |
+| Turbo Scanner stderr | Any `WARN:` line | Log at Debug, persist as a scan error, continue processing stdout |
+| Session-level | Any uncaught exception | Attempt to flush discovered rows and aggregate partial folder totals, mark session `Failed`, then rethrow |
 
 ### Cleanup errors
 
@@ -815,7 +848,7 @@ catch (Exception ex)
 
 A suggestion's result status:
 - `Success` — all paths deleted
-- `PartialSuccess` — some deleted, some failed (bytes freed > 0)
+- `PartialSuccess` — at least one path succeeded but another path or post-mutation recovery/audit step failed
 - `Failed` — no paths deleted
 - `Skipped` — no target paths
 
@@ -834,7 +867,7 @@ ViewModels surface errors via:
 
 ## 13. Testing guide
 
-The current Release suite discovers 196 .NET tests, and `cargo test` runs three Turbo Scanner CLI/JSONL contract tests. The .NET test project deliberately does not reference `StorageMaster.UI`; ViewModel, CLI, scheduler, and UI-state tests require extracting those classes from the WinUI runtime assembly so the test host does not need WinRT bootstrap initialization.
+The exact test count changes as regression coverage grows; use the command below for the current total. The .NET test project deliberately does not reference `StorageMaster.UI`, so WinUI page/ViewModel lifecycle behavior is build-reviewed and verified on an interactive desktop rather than loaded into the non-WinUI test host. Core scheduling policy and non-UI services remain directly testable.
 
 ### Running tests
 
@@ -846,7 +879,8 @@ dotnet test "tests/StorageMaster.Tests/StorageMaster.Tests.csproj"
 dotnet test "tests/StorageMaster.Tests/StorageMaster.Tests.csproj" --logger "console;verbosity=normal"
 
 # Specific test
-dotnet test --filter "FullyQualifiedName=StorageMaster.Tests.Storage.ScanRepositoryTests.InsertAndQueryFileEntries_RoundTrip"
+dotnet test "tests/StorageMaster.Tests/StorageMaster.Tests.csproj" `
+    --filter "FullyQualifiedName=StorageMaster.Tests.Storage.ScanRepositoryTests.InsertAndQueryFileEntries_RoundTrip"
 ```
 
 ### Test patterns
@@ -903,26 +937,39 @@ public sealed class OldLogFilesRule : ICleanupRule
         [EnumeratorCancellation] CancellationToken ct = default)
     {
         var cutoff = DateTime.UtcNow.AddDays(-90);
-        var files  = await _repo.GetLargestFilesAsync(sessionId, 50_000, ct);
+        var files  = await ScanFilePager.LoadAllAsync(_repo, sessionId, ct);
 
         var logs = files
-            .Where(f => f.Extension is ".log" or ".etl" or ".evtx"
-                     && f.ModifiedUtc < cutoff)
+            .Where(f => (f.Extension is ".log" or ".etl" or ".evtx")
+                     && f.ModifiedUtc < cutoff
+                     && f.Identity is not null)
             .ToList();
 
-        if (logs.Count == 0) yield break;
-
-        yield return new CleanupSuggestion
+        foreach (var file in logs)
         {
-            Id             = Guid.NewGuid(),
-            RuleId         = RuleId,
-            Title          = $"Old log files ({logs.Count:N0} files)",
-            Description    = $"Log files not modified in 90+ days.",
-            Category       = Category,
-            Risk           = CleanupRisk.Low,
-            EstimatedBytes = logs.Sum(f => f.SizeBytes),
-            TargetPaths    = logs.Select(f => f.FullPath).ToList(),
-        };
+            ct.ThrowIfCancellationRequested();
+            yield return new CleanupSuggestion
+            {
+                Id             = Guid.NewGuid(),
+                RuleId         = RuleId,
+                Title          = $"Old log file: {file.FileName}",
+                Description    = $"Not modified in 90+ days: {file.FullPath}",
+                Category       = Category,
+                Risk           = CleanupRisk.Low,
+                EstimatedBytes = file.SizeBytes,
+                TargetPaths    = [file.FullPath],
+                ExpectedFileSnapshots = new Dictionary<string, FileSnapshot>(
+                    StringComparer.OrdinalIgnoreCase)
+                {
+                    [file.FullPath] = new(
+                        file.FullPath,
+                        file.Identity,
+                        file.SizeBytes,
+                        file.ModifiedUtc,
+                        file.Attributes),
+                },
+            };
+        }
     }
 }
 ```
@@ -930,13 +977,13 @@ public sealed class OldLogFilesRule : ICleanupRule
 ### Step 2: Register in DI
 
 ```csharp
-// In App.xaml.cs::BuildServices():
+// In src/StorageMaster.UI/ServiceBootstrapper.cs::BuildServices():
 services.AddSingleton<ICleanupRule, OldLogFilesRule>();
 ```
 
 ### Step 3: Add a CleanupCategoryOption
 
-In `CleanupViewModel.BuildCategoryOptions()`, add a new `CleanupCategoryOption` entry so the user can toggle the rule in the UI.
+In `CleanupViewModel.BuildCategoryGroups()`, add the category through `AddItem(...)` so the user can toggle the rule in the correct group.
 
 ### Step 4: Add to AppSettings
 
@@ -989,8 +1036,11 @@ The InfoBar in ScanPage warns when `turbo-scanner.exe` is missing. This is norma
 
 ```powershell
 cargo build --release --manifest-path turbo-scanner/Cargo.toml
+dotnet build src/StorageMaster.UI/StorageMaster.UI.csproj -c Debug `
+    -p:Platform=x64 -p:RuntimeIdentifier=win-x64
+$uiOutput = "src\StorageMaster.UI\bin\x64\Debug\net8.0-windows10.0.19041.0\win-x64"
 Copy-Item turbo-scanner\target\release\turbo-scanner.exe `
-    src\StorageMaster.UI\bin\Debug\net8.0-windows10.0.19041.0\win-x64\
+    (Join-Path $uiOutput "turbo-scanner.exe")
 ```
 
 Or run a full publish:
@@ -1006,24 +1056,22 @@ dotnet publish src/StorageMaster.UI/StorageMaster.UI.csproj /p:PublishProfile=wi
 
 ### "Access denied" paths
 
-Expected — the scanner increments `AccessDeniedCount` and moves on. Enable **Deep Scan** + admin elevation to scan protected paths. The Errors tab in Results shows all access-denied paths.
+Expected — the scanner increments `AccessDeniedCount` and moves on. Enable **Deep Scan** + admin elevation to scan protected paths. The Errors tab shows persisted per-path errors/warnings; the count can exceed the currently loaded 100-row page.
 
 ### Folder sizes show 0 or wrong values
 
-The `TotalSizeBytes` is computed in a post-scan aggregation pass. If the scan was interrupted (Cancelled or Failed) before the aggregation ran, folder totals will be zero. Re-run a complete scan to fix this.
+`TotalSizeBytes` is computed in a post-scan aggregation pass. Cancelled and failed scans now attempt a final flush and partial aggregation, but the result remains incomplete by definition and an unexpected terminal failure can still prevent finalization. Re-run a successful complete scan for authoritative totals.
 
-### Database file locked
+### Database busy or locked
 
-Single connection + WAL mode means this should not happen. If it does:
-1. Ensure only one instance of StorageMaster is running
-2. Delete `storagemaster.db-wal` if the app crashed
-3. DB file: `%LOCALAPPDATA%\StorageMaster\storagemaster.db`
+SQLite WAL normally allows readers alongside one writer; SQLite still serializes writers and some schema/checkpoint activity can wait. StorageMaster uses independent connection leases, in-process write coordination, immediate transactions for atomic mutations/migrations, and a bounded 30-second busy timeout. If an operation still times out:
+1. Close other StorageMaster UI/CLI instances and retry.
+2. Check filesystem permissions and free space for `%LOCALAPPDATA%\StorageMaster`.
+3. Preserve `storagemaster.db`, `storagemaster.db-wal`, and `storagemaster.db-shm` together for diagnosis; do not delete WAL/SHM files while any process may have the database open.
 
 ### Test failures after schema change
 
-Integration tests create temp DB files. If schema changes are made:
-1. Delete `%TEMP%\test_*.db` files
-2. The migration logic in `StorageDbContext` will apply the new schema on next run
+Integration tests create uniquely named temporary databases. Do not bulk-delete `%TEMP%\test_*.db`, which may belong to another process/project. Capture the exact disposable path from the failing test, ensure no test process still owns it, and remove only that file if cleanup is genuinely required. Migration tests should exercise the intended old schema through `StorageDbContext` rather than relying on a stale shared fixture.
 
 ### "Category breakdown" shows no data
 
@@ -1031,11 +1079,11 @@ This query requires at least one completed scan session:
 ```sql
 SELECT COUNT(*) FROM FileEntries WHERE SessionId = <id>;
 ```
-If zero, the scan failed or was cancelled before any data was written.
+If zero, the session may be an empty scan or may have ended before files were persisted. Inspect `ScanSessions.Status`, `ErrorMessage`, and the Errors view before deciding which case applies.
 
 ### WinUI 3 app fails to launch
 
 The installer deploys the Windows App SDK 1.6 runtime dependency. If launching the raw exe:
-- Ensure Windows 10 1809 (build 17763) or later
+- The project is configured for Windows 10 1809 (build 17763) or later; consult the release compatibility matrix because the full build range is not yet lab-validated
 - Install the Windows App SDK 1.6 runtime, or use the release installer so `Microsoft.WindowsAppRuntime.1.6.msix` is installed first
 - Use the published folder output only on machines with the matching runtime already installed

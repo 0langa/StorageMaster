@@ -12,6 +12,9 @@ namespace StorageMaster.UI.Pages;
 public sealed partial class CleanupPage : Page
 {
     public CleanupViewModel ViewModel { get; }
+    private CancellationTokenSource? _navigationCts;
+    private int _navigationGeneration;
+    private bool _isPageActive;
 
     public CleanupPage()
     {
@@ -22,14 +25,37 @@ public sealed partial class CleanupPage : Page
     protected override async void OnNavigatedTo(NavigationEventArgs e)
     {
         base.OnNavigatedTo(e);
+        _isPageActive = true;
+        var navigationGeneration = Interlocked.Increment(ref _navigationGeneration);
+        _navigationCts?.Cancel();
+        _navigationCts?.Dispose();
+        var navigationCts = new CancellationTokenSource();
+        _navigationCts = navigationCts;
+        var requestedSessionId = e.Parameter is long sessionId ? sessionId : (long?)null;
         try
         {
-            await ViewModel.InitializeAsync();
+            await ViewModel.InitializeAsync(requestedSessionId, navigationCts.Token);
+        }
+        catch (OperationCanceledException) when (navigationCts.IsCancellationRequested)
+        {
+            // Expected when navigation supersedes initialization.
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine(ex);
+            if (IsCurrentNavigation(navigationGeneration))
+                ViewModel.StatusMessage = $"Cleanup initialization failed: {ex.Message}";
         }
+    }
+
+    protected override void OnNavigatedFrom(NavigationEventArgs e)
+    {
+        _isPageActive = false;
+        Interlocked.Increment(ref _navigationGeneration);
+        ViewModel.CancelPendingAnalysis();
+        _navigationCts?.Cancel();
+        _navigationCts?.Dispose();
+        _navigationCts = null;
+        base.OnNavigatedFrom(e);
     }
 
     // ── Group expand/collapse ──────────────────────────────────────────────
@@ -44,33 +70,53 @@ public sealed partial class CleanupPage : Page
 
     private async void ExecuteButton_Click(object sender, RoutedEventArgs e)
     {
-        ViewModel.UpdateTotalSelected();
-
-        var isDryRun = ViewModel.IsDryRun;
-        var size = ViewModel.TotalSelectedSize;
-
-        string title = isDryRun ? "Confirm Dry Run Preview" : "Confirm Cleanup";
-        string message = isDryRun
-            ? $"This will simulate the cleanup for {size} of selected items without deleting anything. Continue?"
-            : ViewModel.UseRecycleBin
-                ? $"This will send {size} of selected files and folders to the Recycle Bin (recoverable). Continue?"
-                : $"This will PERMANENTLY delete {size} of selected files and folders. This cannot be undone. Continue?";
-
-        var confirm = new ContentDialog
-        {
-            Title = title,
-            Content = message,
-            PrimaryButtonText = isDryRun ? "Run Preview" : "Clean Up",
-            CloseButtonText = "Cancel",
-            DefaultButton = ContentDialogButton.Close,
-            XamlRoot = XamlRoot,
-        };
-
-        if (await confirm.ShowAsync() != ContentDialogResult.Primary)
+        var navigationGeneration = Volatile.Read(ref _navigationGeneration);
+        if (!IsCurrentNavigation(navigationGeneration))
             return;
 
-        await ViewModel.ExecuteCleanupCommand.ExecuteAsync(null);
-        await ShowReportLoopAsync();
+        try
+        {
+            ViewModel.UpdateTotalSelected();
+
+            var isDryRun = ViewModel.IsDryRun;
+            var size = ViewModel.TotalSelectedSize;
+
+            string title = isDryRun ? "Confirm Dry Run Preview" : "Confirm Cleanup";
+            string message = isDryRun
+                ? $"This will simulate the cleanup for {size} of selected items without deleting anything. Continue?"
+                : ViewModel.UseRecycleBin
+                    ? $"This will send {size} of selected files and folders to the Recycle Bin (recoverable). " +
+                      "Disk space remains in use until the Recycle Bin is emptied. Continue?"
+                    : $"This will PERMANENTLY delete {size} of selected files and folders. This cannot be undone. " +
+                      "Displayed size is logical file size; actual reclaimed disk allocation can differ. Continue?";
+
+            var confirm = new ContentDialog
+            {
+                Title = title,
+                Content = message,
+                PrimaryButtonText = isDryRun ? "Run Preview" : "Clean Up",
+                CloseButtonText = "Cancel",
+                DefaultButton = ContentDialogButton.Close,
+                XamlRoot = XamlRoot,
+            };
+
+            if (await confirm.ShowAsync() != ContentDialogResult.Primary ||
+                !IsCurrentNavigation(navigationGeneration))
+            {
+                return;
+            }
+
+            await ViewModel.ExecuteCleanupCommand.ExecuteAsync(null);
+            if (!IsCurrentNavigation(navigationGeneration))
+                return;
+
+            await ShowReportLoopAsync(navigationGeneration);
+        }
+        catch (Exception ex)
+        {
+            if (IsCurrentNavigation(navigationGeneration))
+                ViewModel.StatusMessage = $"Cleanup UI could not show a confirmed result: {ex.Message}";
+        }
     }
 
     // ── Report dialog loop ─────────────────────────────────────────────────
@@ -80,27 +126,53 @@ public sealed partial class CleanupPage : Page
     /// deletion mode (e.g. after a dry run) the loop runs the engine again and
     /// shows a fresh report — at most three passes (dry → recycle → permanent).
     /// </summary>
-    private async Task ShowReportLoopAsync()
+    private async Task ShowReportLoopAsync(int navigationGeneration)
     {
         while (true)
         {
+            if (!IsCurrentNavigation(navigationGeneration))
+                return;
+
             bool wasDry = ViewModel.LastRunWasDryRun;
             DeletionMethod wasMethod = ViewModel.LastRunDeletionMethod;
             var results = ViewModel.ExecutionResults.ToList();
             string summary = ViewModel.LastRunSummary;
 
-            var dialog = BuildReportDialog(wasDry, wasMethod, results, summary);
+            var dialog = BuildReportDialog(
+                wasDry,
+                wasMethod,
+                results,
+                summary,
+                ViewModel.LastPreviewAllowsExecution);
             var choice = await dialog.ShowAsync();
+            if (!IsCurrentNavigation(navigationGeneration))
+                return;
 
-            if (choice == ContentDialogResult.Primary && wasDry)
+            if (choice == ContentDialogResult.Primary &&
+                wasDry &&
+                ViewModel.LastPreviewAllowsExecution)
             {
                 // "Delete (Recycle Bin)" — first real run, use RecycleBin
-                await ViewModel.RunCleanupWithMethodAsync(dryRun: false, DeletionMethod.RecycleBin);
+                if (!await ViewModel.RunCleanupWithMethodAsync(
+                        dryRun: false,
+                        DeletionMethod.RecycleBin))
+                {
+                    break;
+                }
             }
-            else if (choice == ContentDialogResult.Secondary && wasDry)
+            else if (choice == ContentDialogResult.Secondary &&
+                     wasDry &&
+                     ViewModel.LastPreviewAllowsExecution)
             {
                 // "Delete Permanently" — skip recycle bin altogether
-                await ViewModel.RunCleanupWithMethodAsync(dryRun: false, DeletionMethod.Permanent);
+                if (!await ConfirmPermanentDeletionAfterPreviewAsync(navigationGeneration))
+                    break;
+                if (!await ViewModel.RunCleanupWithMethodAsync(
+                        dryRun: false,
+                        DeletionMethod.Permanent))
+                {
+                    break;
+                }
             }
             else
             {
@@ -115,7 +187,8 @@ public sealed partial class CleanupPage : Page
         bool isDryRun,
         DeletionMethod method,
         IReadOnlyList<CleanupResultDisplay> results,
-        string summary)
+        string summary,
+        bool previewAllowsExecution)
     {
         // ── Content ────────────────────────────────────────────────────────
 
@@ -135,7 +208,12 @@ public sealed partial class CleanupPage : Page
         // Header row
         if (results.Count > 0)
         {
-            var header = BuildResultRow("Item", "Status", isDryRun ? "Est. size" : "Freed", isHeader: true);
+            var amountHeading = isDryRun
+                ? "Est. size"
+                : method == DeletionMethod.RecycleBin
+                    ? "Moved"
+                    : "Deleted";
+            var header = BuildResultRow("Item", "Status", amountHeading, isHeader: true);
             mainStack.Children.Add(header);
 
             var divider = new Border
@@ -151,7 +229,8 @@ public sealed partial class CleanupPage : Page
         // Per-item rows
         foreach (var r in results)
         {
-            bool ok = r.Status is "Success" or "PartialSuccess";
+            bool ok = r.Status is "Success";
+            bool partial = r.Status is "PartialSuccess";
             bool skipped = r.Status is "Skipped";
 
             var titleText = new TextBlock
@@ -183,9 +262,11 @@ public sealed partial class CleanupPage : Page
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center,
                 FontSize = 12,
-                Opacity = ok ? 0.9 : 0.6,
+                Opacity = ok || partial ? 0.9 : 0.6,
                 Foreground = ok
                     ? new SolidColorBrush(Colors.MediumSeaGreen)
+                    : partial
+                        ? new SolidColorBrush(Colors.DarkOrange)
                     : skipped
                         ? new SolidColorBrush(Colors.Gray)
                         : new SolidColorBrush(Colors.OrangeRed),
@@ -222,11 +303,21 @@ public sealed partial class CleanupPage : Page
 
         // ── Dialog ─────────────────────────────────────────────────────────
 
+        var hasPartial = results.Any(result => result.Status == "PartialSuccess");
+        var hasFailure = results.Any(result => result.Status is "Failed" or "Skipped");
         string title = isDryRun
-            ? "Dry Run Report — No files were deleted"
-            : method == DeletionMethod.RecycleBin
-                ? "Cleanup Report — Items sent to Recycle Bin"
-                : "Cleanup Report — Items permanently deleted";
+            ? results.Count == 0
+                ? "Dry Run Report — Preview failed"
+                : previewAllowsExecution
+                    ? "Dry Run Report — Ready for deletion review"
+                    : "Dry Run Report — Preview incomplete"
+            : results.Count == 0
+                ? "Cleanup Report — No confirmed outcome"
+                : hasPartial || hasFailure
+                ? "Cleanup Report — Partial or failed outcome"
+                : method == DeletionMethod.RecycleBin
+                    ? "Cleanup Report — Recycle Bin move complete"
+                    : "Cleanup Report — Permanent deletion complete";
 
         var dialog = new ContentDialog
         {
@@ -241,7 +332,7 @@ public sealed partial class CleanupPage : Page
         // run the files are no longer at their original paths, so a follow-up
         // "Delete Permanently" pass would only report meaningless successes —
         // real runs get Close only.
-        if (isDryRun)
+        if (isDryRun && previewAllowsExecution)
         {
             dialog.PrimaryButtonText = "Delete (Recycle Bin)";
             dialog.SecondaryButtonText = "Delete Permanently";
@@ -250,6 +341,34 @@ public sealed partial class CleanupPage : Page
 
         return dialog;
     }
+
+    private async Task<bool> ConfirmPermanentDeletionAfterPreviewAsync(
+        int navigationGeneration)
+    {
+        if (!IsCurrentNavigation(navigationGeneration))
+            return false;
+
+        var confirm = new ContentDialog
+        {
+            Title = "Confirm Permanent Deletion",
+            Content =
+                $"This will permanently delete the exact {ViewModel.LastRunSelectedSizeDisplay} selection from the successful preview. " +
+                "This cannot be undone. Files will be revalidated and changed paths will fail closed. Continue?",
+            PrimaryButtonText = "Delete Permanently",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Close,
+            XamlRoot = XamlRoot,
+        };
+
+        var result = await confirm.ShowAsync();
+        return IsCurrentNavigation(navigationGeneration) &&
+               result == ContentDialogResult.Primary;
+    }
+
+    private bool IsCurrentNavigation(int generation) =>
+        _isPageActive &&
+        generation == Volatile.Read(ref _navigationGeneration) &&
+        XamlRoot is not null;
 
     private static Grid BuildResultRow(
         string col0, string col1, string col2, bool isHeader)

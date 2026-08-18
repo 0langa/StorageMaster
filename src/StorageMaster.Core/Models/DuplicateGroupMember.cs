@@ -9,6 +9,14 @@ public sealed record DuplicateGroupMember
     public required string FileName { get; init; }
     public required long SizeBytes { get; init; }
     public required DateTime ModifiedUtc { get; init; }
+    public required FileAttributes Attributes { get; init; }
+
+    /// <summary>
+    /// Stable scan-time filesystem identity. Null denotes a legacy/unverifiable member
+    /// that is ineligible for destructive duplicate cleanup until a fresh scan runs.
+    /// </summary>
+    public FileIdentity? Identity { get; init; }
+
     public required double Score { get; init; }
     public required bool IsKeeper { get; init; }
     public required bool IsSelected { get; init; }

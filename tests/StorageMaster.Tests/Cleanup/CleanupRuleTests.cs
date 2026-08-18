@@ -40,6 +40,7 @@ public sealed class LargeOldFilesRuleTests
         suggestions.Should().HaveCount(1);
         suggestions[0].TargetPaths.Should().Contain(oldLargeFile.FullPath);
         suggestions[0].Risk.Should().Be(CleanupRisk.Medium);
+        suggestions[0].ExpectedFileSnapshots[oldLargeFile.FullPath].Identity.Should().Be(oldLargeFile.Identity);
     }
 
     [Fact]
@@ -119,6 +120,27 @@ public sealed class LargeOldFilesRuleTests
         suggestions.Should().HaveCount(5, "each eligible file gets its own suggestion");
     }
 
+    [Fact]
+    public async Task AnalyseAsync_LegacyFileWithoutIdentity_RequiresRescan()
+    {
+        var legacy = MakeFile(
+            @"C:\Users\user\Downloads\legacy.iso",
+            sizeBytes: 200 * 1024 * 1024L,
+            modifiedDaysAgo: 60) with
+        {
+            Identity = null,
+        };
+        _repoMock
+            .Setup(r => r.GetLargestFilesAsync(1, 1000, It.IsAny<CancellationToken>()))
+            .ReturnsAsync([legacy]);
+
+        var suggestions = new List<CleanupSuggestion>();
+        await foreach (var suggestion in _rule.AnalyzeAsync(1, _settings))
+            suggestions.Add(suggestion);
+
+        suggestions.Should().BeEmpty("identity-less historical rows must be rescanned before deletion");
+    }
+
     private static FileEntry MakeFile(string path, long sizeBytes, int modifiedDaysAgo) => new()
     {
         Id = 1,
@@ -132,6 +154,7 @@ public sealed class LargeOldFilesRuleTests
         AccessedUtc = DateTime.UtcNow,
         Attributes = FileAttributes.Normal,
         Category = FileTypeCategory.Unknown,
+        Identity = new FileIdentity("TESTVOL", 1),
     };
 }
 
@@ -146,7 +169,7 @@ public sealed class TempFilesRuleTests
     }
 
     [Fact]
-    public async Task AnalyseAsync_DetectsTmpExtensions()
+    public async Task AnalyseAsync_DoesNotSuggestTemporaryExtensionOutsideTempRoots()
     {
         var tmpFile = MakeFile(@"C:\SomeApp\leftover.tmp", sizeBytes: 50_000);
         _repoMock
@@ -157,8 +180,94 @@ public sealed class TempFilesRuleTests
         await foreach (var s in _rule.AnalyzeAsync(1, new AppSettings()))
             suggestions.Add(s);
 
+        suggestions.Should().BeEmpty("an extension alone is not proof that a file is safe to delete");
+    }
+
+    [Fact]
+    public async Task AnalyseAsync_RedirectedProcessTempOutsideCanonicalRoots_IsIgnored()
+    {
+        var redirectedTempFile = MakeFile(
+            @"C:\Users\user\RedirectedTemp\session.tmp",
+            sizeBytes: 50_000);
+        _repoMock
+            .Setup(r => r.GetLargestFilesAsync(1, 50_000, It.IsAny<CancellationToken>()))
+            .ReturnsAsync([redirectedTempFile]);
+
+        var suggestions = new List<CleanupSuggestion>();
+        await foreach (var suggestion in _rule.AnalyzeAsync(1, new AppSettings()))
+            suggestions.Add(suggestion);
+
+        suggestions.Should().BeEmpty(
+            "process TEMP/TMP can be redirected by the user and is not a trusted cleanup root");
+    }
+
+    [Fact]
+    public async Task AnalyseAsync_SuggestsAnyFileInsideCanonicalTempRoot()
+    {
+        var tempFile = MakeFile(
+            Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "Temp",
+                "StorageMasterTests",
+                "cache.bin"),
+            sizeBytes: 50_000);
+        _repoMock
+            .Setup(r => r.GetLargestFilesAsync(1, 50_000, It.IsAny<CancellationToken>()))
+            .ReturnsAsync([tempFile]);
+
+        var suggestions = new List<CleanupSuggestion>();
+        await foreach (var suggestion in _rule.AnalyzeAsync(1, new AppSettings()))
+            suggestions.Add(suggestion);
+
         suggestions.Should().ContainSingle();
+        suggestions[0].TargetPaths.Should().ContainSingle().Which.Should().Be(tempFile.FullPath);
         suggestions[0].Category.Should().Be(CleanupCategory.TempFiles);
+        suggestions[0].ExpectedFileSnapshots[tempFile.FullPath].Identity.Should().Be(tempFile.Identity);
+    }
+
+    [Fact]
+    public async Task AnalyseAsync_DoesNotSuggestTraversalAliasEscapingTempRoot()
+    {
+        var escapedFile = MakeFile(
+            Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "Temp",
+                "..",
+                "valuable.tmp"),
+            sizeBytes: 50_000);
+        _repoMock
+            .Setup(r => r.GetLargestFilesAsync(1, 50_000, It.IsAny<CancellationToken>()))
+            .ReturnsAsync([escapedFile]);
+
+        var suggestions = new List<CleanupSuggestion>();
+        await foreach (var suggestion in _rule.AnalyzeAsync(1, new AppSettings()))
+            suggestions.Add(suggestion);
+
+        suggestions.Should().BeEmpty("canonical path containment must be checked before suggesting deletion");
+    }
+
+    [Fact]
+    public async Task AnalyseAsync_LegacyTempFileWithoutIdentity_RequiresRescan()
+    {
+        var legacy = MakeFile(
+            Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "Temp",
+                "StorageMasterTests",
+                "legacy.tmp"),
+            sizeBytes: 50_000) with
+        {
+            Identity = null,
+        };
+        _repoMock
+            .Setup(r => r.GetLargestFilesAsync(1, 50_000, It.IsAny<CancellationToken>()))
+            .ReturnsAsync([legacy]);
+
+        var suggestions = new List<CleanupSuggestion>();
+        await foreach (var suggestion in _rule.AnalyzeAsync(1, new AppSettings()))
+            suggestions.Add(suggestion);
+
+        suggestions.Should().BeEmpty("identity-less historical rows must be rescanned before deletion");
     }
 
     private static FileEntry MakeFile(string path, long sizeBytes) => new()
@@ -174,7 +283,70 @@ public sealed class TempFilesRuleTests
         AccessedUtc = DateTime.UtcNow,
         Attributes = FileAttributes.Normal,
         Category = FileTypeCategory.Temporary,
+        Identity = new FileIdentity("TESTVOL", 1),
     };
+}
+
+public sealed class AppSettingsCleanupDefaultsTests
+{
+    [Fact]
+    public void CleanProgramLeftovers_IsDisabledByDefault()
+    {
+        new AppSettings().CleanProgramLeftovers.Should().BeFalse();
+    }
+}
+
+public sealed class UninstalledProgramLeftoversSafetyTests : IDisposable
+{
+    private readonly string _tempDir = Path.Combine(
+        Path.GetTempPath(),
+        $"sm_leftovers_{Guid.NewGuid():N}");
+
+    [Fact]
+    public async Task AnalyzeAsync_EmptyInstalledProgramInventory_FailsClosed()
+    {
+        var provider = new Mock<IInstalledProgramProvider>();
+        provider.Setup(static item => item.GetInstalledPrograms())
+            .Returns([]);
+        var rule = new UninstalledProgramLeftoversRule(provider.Object);
+        var suggestions = new List<CleanupSuggestion>();
+
+        await foreach (var suggestion in rule.AnalyzeAsync(1, new AppSettings
+        {
+            CleanProgramLeftovers = true,
+        }))
+        {
+            suggestions.Add(suggestion);
+        }
+
+        suggestions.Should().BeEmpty(
+            "an empty inventory may mean registry discovery failed, not that every app is uninstalled");
+    }
+
+    [Fact]
+    public void TryInspectDirectoryTree_RecentDescendant_PreventsCandidate()
+    {
+        var nested = Directory.CreateDirectory(Path.Combine(_tempDir, "nested"));
+        var recentFile = Path.Combine(nested.FullName, "active.dat");
+        File.WriteAllText(recentFile, "active");
+
+        var inspected = UninstalledProgramLeftoversRule.TryInspectDirectoryTree(
+            _tempDir,
+            DateTime.UtcNow.AddDays(-90),
+            CancellationToken.None,
+            out _,
+            out var hasRecentDescendant);
+
+        inspected.Should().BeTrue();
+        hasRecentDescendant.Should().BeTrue(
+            "top-level directory timestamps do not prove descendants are inactive");
+    }
+
+    public void Dispose()
+    {
+        if (Directory.Exists(_tempDir))
+            Directory.Delete(_tempDir, recursive: true);
+    }
 }
 
 public sealed class RecycleBinRuleTests
@@ -200,8 +372,12 @@ public sealed class RecycleBinRuleTests
 
         suggestions.Should().ContainSingle();
         suggestions[0].Category.Should().Be(CleanupCategory.RecycleBin);
-        suggestions[0].Risk.Should().Be(CleanupRisk.Safe);
+        suggestions[0].Risk.Should().Be(CleanupRisk.Medium);
         suggestions[0].EstimatedBytes.Should().Be(500_000_000L);
+        suggestions[0].SupportsPermanentDelete.Should().BeTrue();
+        suggestions[0].SupportsRecycleBin.Should().BeFalse();
+        suggestions[0].SupportsQuarantine.Should().BeFalse();
+        suggestions[0].SafetyNotes.Should().Contain("cannot be undone");
     }
 
     [Fact]

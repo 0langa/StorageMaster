@@ -9,6 +9,7 @@ namespace StorageMaster.UI.Pages;
 public sealed partial class ScanPage : Page
 {
     private bool _pickerOpen;
+    private CancellationTokenSource? _initializationCancellation;
     public ScanViewModel ViewModel { get; }
 
     public ScanPage()
@@ -20,6 +21,10 @@ public sealed partial class ScanPage : Page
     protected override async void OnNavigatedTo(NavigationEventArgs e)
     {
         base.OnNavigatedTo(e);
+        _initializationCancellation?.Cancel();
+        var initializationCancellation = new CancellationTokenSource();
+        _initializationCancellation = initializationCancellation;
+        var cancellationToken = initializationCancellation.Token;
         try
         {
             // Don't reinitialise while a scan is running (would reset live progress)
@@ -28,12 +33,36 @@ public sealed partial class ScanPage : Page
             if (!ViewModel.IsScanning && !ViewModel.ScanComplete)
                 await ViewModel.InitializeAsync(
                     autoEnableDeepScan: App.StartWithDeepScan,
-                    preselectedPath: e.Parameter as string);
+                    preselectedPath: e.Parameter as string,
+                    cancellationToken: cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // A newer navigation owns the singleton view-model initialization.
         }
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine(ex);
+            if (ReferenceEquals(_initializationCancellation, initializationCancellation) &&
+                !ViewModel.IsScanning)
+            {
+                ViewModel.HasError = true;
+                ViewModel.ErrorMessage = $"Scan page failed to initialize: {ex.Message}";
+            }
         }
+        finally
+        {
+            if (ReferenceEquals(_initializationCancellation, initializationCancellation))
+                _initializationCancellation = null;
+            initializationCancellation.Dispose();
+        }
+    }
+
+    protected override void OnNavigatedFrom(NavigationEventArgs e)
+    {
+        _initializationCancellation?.Cancel();
+        _initializationCancellation = null;
+        base.OnNavigatedFrom(e);
     }
 
     private async void BrowseButton_Click(object sender, Microsoft.UI.Xaml.RoutedEventArgs e)
@@ -52,7 +81,7 @@ public sealed partial class ScanPage : Page
             InitializeWithWindow.Initialize(picker, hwnd);
 
             var folder = await picker.PickSingleFolderAsync();
-            if (folder is not null)
+            if (folder is not null && ViewModel.CanBrowse)
                 ViewModel.SelectedPath = folder.Path;
         }
         catch (Exception ex)
@@ -68,7 +97,7 @@ public sealed partial class ScanPage : Page
 
     private void DriveButton_Click(object sender, Microsoft.UI.Xaml.RoutedEventArgs e)
     {
-        if (sender is Button btn && btn.Tag is string driveName)
+        if (ViewModel.CanBrowse && sender is Button btn && btn.Tag is string driveName)
             ViewModel.SelectedPath = driveName;
     }
 }

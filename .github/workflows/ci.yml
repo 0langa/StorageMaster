@@ -1,6 +1,7 @@
 name: CI
 
 on:
+  workflow_call:
   push:
     branches:
       - main
@@ -30,18 +31,13 @@ jobs:
       - name: Restore solution
         run: dotnet restore StorageMaster.sln
 
-      - name: Verify formatting
-        run: dotnet format StorageMaster.sln --verify-no-changes --no-restore
-
-      - name: Build solution
-        run: dotnet build StorageMaster.sln -c Release --no-restore
-
-      - name: Test solution
-        run: dotnet test StorageMaster.sln -c Release --no-build
-
       - name: Rust format check
         working-directory: turbo-scanner
         run: cargo fmt --check
+
+      - name: Rust lint
+        working-directory: turbo-scanner
+        run: cargo clippy --all-targets --all-features -- -D warnings
 
       - name: Rust tests
         working-directory: turbo-scanner
@@ -50,3 +46,15 @@ jobs:
       - name: Rust release build
         working-directory: turbo-scanner
         run: cargo build --release
+
+      - name: Verify formatting
+        run: dotnet format StorageMaster.sln --verify-no-changes --no-restore
+
+      - name: Build solution
+        run: dotnet build StorageMaster.sln -c Release --no-restore
+
+      - name: Test solution
+        env:
+          STORAGEMASTER_REQUIRE_TURBO_SCANNER: 'true'
+          STORAGEMASTER_TURBO_SCANNER_BINARY: ${{ github.workspace }}\turbo-scanner\target\release\turbo-scanner.exe
+        run: dotnet test StorageMaster.sln -c Release --no-build

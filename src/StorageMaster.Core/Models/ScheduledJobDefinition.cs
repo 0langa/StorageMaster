@@ -25,6 +25,16 @@ public sealed record ScheduledJobDefinition
     public string TargetPath { get; init; } = string.Empty;
     public string RulesCsv { get; init; } = string.Empty;
     public bool Enabled { get; init; } = true;
+    /// <summary>
+    /// Consent contract accepted when enabling unattended destructive cleanup.
+    /// Zero means no current explicit consent and fails closed at execution.
+    /// </summary>
+    public int DestructiveConsentVersion { get; init; }
+    /// <summary>
+    /// SHA-256 fingerprint of the normalized unattended-cleanup plan accepted
+    /// by the user. Empty or stale fingerprints fail closed at execution.
+    /// </summary>
+    public string DestructiveConsentFingerprint { get; init; } = string.Empty;
     public DateTime? LastRunUtc { get; init; }
     public string LastStatus { get; init; } = string.Empty;
     public string LastMessage { get; init; } = string.Empty;

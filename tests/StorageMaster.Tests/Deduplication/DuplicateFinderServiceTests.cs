@@ -48,8 +48,12 @@ public sealed class DuplicateFinderServiceTests : IDisposable
         var fileB = WriteTempFile("b.bin", "same-content", DateTime.UtcNow.AddHours(-1));
         var candidates = new[]
         {
-            new DuplicateCandidate(MakeFileEntry(1, fileA, FileTypeCategory.Unknown)),
-            new DuplicateCandidate(MakeFileEntry(2, fileB, FileTypeCategory.Unknown)),
+            new DuplicateCandidate(
+                MakeFileEntry(1, fileA, FileTypeCategory.Unknown),
+                new FileIdentity("VOL", 101)),
+            new DuplicateCandidate(
+                MakeFileEntry(2, fileB, FileTypeCategory.Unknown),
+                new FileIdentity("VOL", 102)),
         };
 
         var provider = new Mock<IDuplicateCandidateProvider>();
@@ -76,6 +80,12 @@ public sealed class DuplicateFinderServiceTests : IDisposable
         run.Status.Should().Be(DuplicateRunStatus.Completed);
         savedGroups.Should().ContainSingle();
         savedMembers.Should().HaveCount(2);
+        savedMembers.Select(static member => member.Identity).Should().BeEquivalentTo([
+            new FileIdentity("VOL", 101),
+            new FileIdentity("VOL", 102),
+        ]);
+        savedMembers.Should().OnlyContain(member =>
+            member.Attributes == candidates.Single(candidate => candidate.File.Id == member.FileEntryId).File.Attributes);
         savedMembers.Count(static m => m.IsKeeper).Should().Be(1);
         savedMembers.Count(static m => m.IsSelected).Should().Be(1, "exact duplicates should auto-select non-keepers");
     }
@@ -119,6 +129,148 @@ public sealed class DuplicateFinderServiceTests : IDisposable
         capturedQuery!.RequireSameSizeBucket.Should().BeFalse();
         savedGroups.Should().ContainSingle();
         savedMembers.Count(static m => m.IsSelected).Should().Be(0, "normalized-text matches stay review-only");
+    }
+
+    [Fact]
+    public async Task RunAsync_CachedSignature_SameSizeAndMtimeReplacementIdentity_Recomputes()
+    {
+        const long sessionId = 81;
+        var path = WriteTempFile("replaced.bin", "same-size", DateTime.UtcNow.AddHours(-1));
+        var candidate = new DuplicateCandidate(MakeFileEntry(81, path, FileTypeCategory.Unknown));
+        var cached = MakeSignature(candidate.File, "cached-old-content", "VOL:100");
+        var fresh = MakeSignature(candidate.File, "fresh-new-content", "VOL:200");
+        var strategy = BuildCacheTestStrategy(fresh);
+        var candidates = BuildCandidateProvider(candidate);
+        var snapshots = new Mock<IFileSnapshotProvider>();
+        snapshots.Setup(provider => provider.TakeSnapshotAsync(path, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new FileSnapshot(
+                path,
+                new FileIdentity("VOL", 200),
+                candidate.File.SizeBytes,
+                candidate.File.ModifiedUtc,
+                candidate.File.Attributes));
+        var repo = BuildRepositoryMock(sessionId, out _, out _);
+        repo.Setup(repository => repository.GetCachedSignaturesAsync(
+                sessionId, DuplicateMethod.NormalizedText, "CacheTest", 1, It.IsAny<CancellationToken>()))
+            .ReturnsAsync([cached]);
+
+        var service = CreateCacheTestService(repo, candidates, strategy, snapshots.Object);
+
+        await service.RunAsync(CacheTestOptions(sessionId));
+
+        strategy.Verify(value => value.ComputeSignatureAsync(
+            candidate, It.IsAny<CancellationToken>()), Times.Once,
+            "a replacement file can retain the scan row's size and timestamp but has a new file identity");
+        repo.Verify(repository => repository.SaveResultsAsync(
+            It.IsAny<long>(),
+            It.Is<IReadOnlyList<DuplicateSignature>>(signatures =>
+                signatures.Count == 1 && signatures[0].SignatureText == "fresh-new-content"),
+            It.IsAny<IReadOnlyList<DuplicateGroup>>(),
+            It.IsAny<IReadOnlyList<DuplicateGroupMember>>(),
+            It.IsAny<IReadOnlyList<DuplicateError>>(),
+            It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task RunAsync_CachedSignature_MissingLiveFile_Recomputes()
+    {
+        const long sessionId = 82;
+        var path = WriteTempFile("missing.bin", "content", DateTime.UtcNow.AddHours(-1));
+        var candidate = new DuplicateCandidate(MakeFileEntry(82, path, FileTypeCategory.Unknown));
+        var cached = MakeSignature(candidate.File, "cached", "VOL:300");
+        var fresh = MakeSignature(candidate.File, null, null) with
+        {
+            Status = "Error",
+            ErrorMessage = "File no longer exists before hashing.",
+        };
+        var strategy = BuildCacheTestStrategy(fresh);
+        var candidates = BuildCandidateProvider(candidate);
+        var snapshots = new Mock<IFileSnapshotProvider>();
+        snapshots.Setup(provider => provider.TakeSnapshotAsync(path, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((FileSnapshot?)null);
+        var repo = BuildRepositoryMock(sessionId, out _, out _);
+        repo.Setup(repository => repository.GetCachedSignaturesAsync(
+                sessionId, DuplicateMethod.NormalizedText, "CacheTest", 1, It.IsAny<CancellationToken>()))
+            .ReturnsAsync([cached]);
+        File.Delete(path);
+
+        var service = CreateCacheTestService(repo, candidates, strategy, snapshots.Object);
+
+        await service.RunAsync(CacheTestOptions(sessionId));
+
+        strategy.Verify(value => value.ComputeSignatureAsync(
+            candidate, It.IsAny<CancellationToken>()), Times.Once,
+            "a missing live path must never inherit a cached signature from its old scan row");
+    }
+
+    [Fact]
+    public async Task RunAsync_CachedSignature_LiveAttributesChanged_Recomputes()
+    {
+        const long sessionId = 83;
+        var path = WriteTempFile("attributes.bin", "content", DateTime.UtcNow.AddHours(-1));
+        var candidate = new DuplicateCandidate(MakeFileEntry(83, path, FileTypeCategory.Unknown));
+        var cached = MakeSignature(candidate.File, "cached", "VOL:400");
+        var fresh = MakeSignature(candidate.File, "fresh", "VOL:400");
+        var strategy = BuildCacheTestStrategy(fresh);
+        var candidates = BuildCandidateProvider(candidate);
+        var snapshots = new Mock<IFileSnapshotProvider>();
+        snapshots.Setup(provider => provider.TakeSnapshotAsync(path, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new FileSnapshot(
+                path,
+                new FileIdentity("VOL", 400),
+                candidate.File.SizeBytes,
+                candidate.File.ModifiedUtc,
+                FileAttributes.ReadOnly));
+        var repo = BuildRepositoryMock(sessionId, out _, out _);
+        repo.Setup(repository => repository.GetCachedSignaturesAsync(
+                sessionId, DuplicateMethod.NormalizedText, "CacheTest", 1, It.IsAny<CancellationToken>()))
+            .ReturnsAsync([cached]);
+
+        var service = CreateCacheTestService(repo, candidates, strategy, snapshots.Object);
+
+        await service.RunAsync(CacheTestOptions(sessionId));
+
+        strategy.Verify(value => value.ComputeSignatureAsync(
+            candidate, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task RunAsync_CachedSignature_LiveSnapshotExactlyMatches_ReusesCache()
+    {
+        const long sessionId = 84;
+        var path = WriteTempFile("unchanged.bin", "content", DateTime.UtcNow.AddHours(-1));
+        var candidate = new DuplicateCandidate(MakeFileEntry(84, path, FileTypeCategory.Unknown));
+        var cached = MakeSignature(candidate.File, "cached", "VOL:500");
+        var fresh = MakeSignature(candidate.File, "should-not-compute", "VOL:500");
+        var strategy = BuildCacheTestStrategy(fresh);
+        var candidates = BuildCandidateProvider(candidate);
+        var snapshots = new Mock<IFileSnapshotProvider>();
+        snapshots.Setup(provider => provider.TakeSnapshotAsync(path, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new FileSnapshot(
+                path,
+                new FileIdentity("VOL", 500),
+                candidate.File.SizeBytes,
+                candidate.File.ModifiedUtc,
+                candidate.File.Attributes));
+        var repo = BuildRepositoryMock(sessionId, out _, out _);
+        repo.Setup(repository => repository.GetCachedSignaturesAsync(
+                sessionId, DuplicateMethod.NormalizedText, "CacheTest", 1, It.IsAny<CancellationToken>()))
+            .ReturnsAsync([cached]);
+
+        var service = CreateCacheTestService(repo, candidates, strategy, snapshots.Object);
+
+        await service.RunAsync(CacheTestOptions(sessionId));
+
+        strategy.Verify(value => value.ComputeSignatureAsync(
+            It.IsAny<DuplicateCandidate>(), It.IsAny<CancellationToken>()), Times.Never);
+        repo.Verify(repository => repository.SaveResultsAsync(
+            It.IsAny<long>(),
+            It.Is<IReadOnlyList<DuplicateSignature>>(signatures =>
+                signatures.Count == 1 && signatures[0].SignatureText == "cached"),
+            It.IsAny<IReadOnlyList<DuplicateGroup>>(),
+            It.IsAny<IReadOnlyList<DuplicateGroupMember>>(),
+            It.IsAny<IReadOnlyList<DuplicateError>>(),
+            It.IsAny<CancellationToken>()), Times.Once);
     }
 
     public void Dispose()
@@ -180,6 +332,83 @@ public sealed class DuplicateFinderServiceTests : IDisposable
             ]);
         return repo;
     }
+
+    private static DuplicateFinderService CreateCacheTestService(
+        Mock<IDuplicateRepository> repository,
+        Mock<IDuplicateCandidateProvider> candidates,
+        Mock<IDuplicateDetectionStrategy> strategy,
+        IFileSnapshotProvider snapshots) =>
+        new(
+            repository.Object,
+            candidates.Object,
+            Mock.Of<IFileContentHasher>(),
+            [strategy.Object],
+            new DuplicateKeeperPolicy(),
+            NullLogger<DuplicateFinderService>.Instance,
+            snapshots);
+
+    private static Mock<IDuplicateCandidateProvider> BuildCandidateProvider(DuplicateCandidate candidate)
+    {
+        var provider = new Mock<IDuplicateCandidateProvider>();
+        provider.Setup(value => value.GetCandidatesAsync(
+                It.IsAny<DuplicateCandidateQuery>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync([candidate]);
+        return provider;
+    }
+
+    private static Mock<IDuplicateDetectionStrategy> BuildCacheTestStrategy(DuplicateSignature computed)
+    {
+        var strategy = new Mock<IDuplicateDetectionStrategy>();
+        strategy.SetupGet(value => value.Method).Returns(DuplicateMethod.NormalizedText);
+        strategy.SetupGet(value => value.Algorithm).Returns("CacheTest");
+        strategy.SetupGet(value => value.AlgorithmVersion).Returns(1);
+        strategy.SetupGet(value => value.DisplayName).Returns("Cache test");
+        strategy.SetupGet(value => value.IsAvailable).Returns(true);
+        strategy.SetupGet(value => value.UsePartialHashPreFilter).Returns(false);
+        strategy.Setup(value => value.BuildCandidateQuery(It.IsAny<DuplicateScanOptions>()))
+            .Returns<DuplicateScanOptions>(options => new DuplicateCandidateQuery
+            {
+                SessionId = options.SessionId,
+                MinimumSizeBytes = 0,
+                RequireSameSizeBucket = false,
+            });
+        strategy.Setup(value => value.ComputeSignatureAsync(
+                It.IsAny<DuplicateCandidate>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(computed);
+        strategy
+            .Setup(value => value.BuildMatches(
+                It.IsAny<IReadOnlyDictionary<string, IReadOnlyList<DuplicateCandidate>>>()))
+            .Returns(Array.Empty<DuplicateStrategyMatch>());
+        return strategy;
+    }
+
+    private static DuplicateScanOptions CacheTestOptions(long sessionId) => new()
+    {
+        SessionId = sessionId,
+        Methods = [DuplicateMethod.NormalizedText],
+        MinimumSizeBytes = 0,
+        MaxConcurrency = 1,
+        PerDriveConcurrency = 1,
+    };
+
+    private static DuplicateSignature MakeSignature(
+        FileEntry file,
+        string? signatureText,
+        string? sourceIdentity) => new()
+        {
+            Id = 1,
+            SessionId = file.SessionId,
+            FileEntryId = file.Id,
+            Method = DuplicateMethod.NormalizedText,
+            Algorithm = "CacheTest",
+            AlgorithmVersion = 1,
+            SignatureText = signatureText,
+            ComputedUtc = DateTime.UtcNow,
+            Status = "Ready",
+            SourceSizeBytes = file.SizeBytes,
+            SourceModifiedUtc = file.ModifiedUtc,
+            SourceFileIdentity = sourceIdentity,
+        };
 
     private string WriteTempFile(string name, string contents, DateTime modifiedUtc)
     {

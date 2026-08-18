@@ -15,6 +15,13 @@ public sealed record FileEntry
     public required FileAttributes Attributes { get; init; }
     public required FileTypeCategory Category { get; init; }
 
+    /// <summary>
+    /// Stable volume-and-file identity captured during scanning. Null means
+    /// this row predates identity persistence or the source volume could not
+    /// provide a stable identity; scan-backed deletion must then fail closed.
+    /// </summary>
+    public FileIdentity? Identity { get; init; }
+
     /// <summary>True when this entry was reachable only via a reparse point (symlink/junction).</summary>
     public bool IsReparsePoint { get; init; }
 

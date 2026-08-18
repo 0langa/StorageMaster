@@ -102,6 +102,11 @@ public static class ScanOptionValidator
         if (!candidate.StartsWith(ancestor, StringComparison.OrdinalIgnoreCase))
             return false;
 
+        // A normalized root already ends with a directory separator, so the
+        // successful prefix match above establishes the path boundary.
+        if (Path.EndsInDirectorySeparator(ancestor))
+            return true;
+
         var boundaryIndex = ancestor.Length;
         return candidate.Length > boundaryIndex &&
                (candidate[boundaryIndex] == Path.DirectorySeparatorChar ||

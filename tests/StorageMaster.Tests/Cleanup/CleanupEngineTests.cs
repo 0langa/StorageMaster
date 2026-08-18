@@ -68,6 +68,19 @@ public sealed class CleanupEngineTests
         suggestions.Select(x => x.Title).Should().Contain(["Rule A result", "Rule B result"]);
     }
 
+    [Fact]
+    public async Task GetSuggestionsAsync_FailedRule_ContinuesWithRemainingRules()
+    {
+        var expected = MakeSuggestion("rule.good", "Rule B result");
+        var engine = BuildEngine([new ThrowingRule(), new StubRule(expected)]);
+
+        var suggestions = new List<CleanupSuggestion>();
+        await foreach (var suggestion in engine.GetSuggestionsAsync(1, _settings))
+            suggestions.Add(suggestion);
+
+        suggestions.Should().ContainSingle().Which.Should().BeSameAs(expected);
+    }
+
     // ── ExecuteAsync ──────────────────────────────────────────────────────────
 
     [Fact]
@@ -94,6 +107,60 @@ public sealed class CleanupEngineTests
         results.Should().ContainSingle();
         results[0].Status.Should().Be(CleanupResultStatus.Success);
         results[0].BytesFreed.Should().BeGreaterThan(0);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_AuditWriteFailsAfterDeletion_ReturnsPartialWithoutRepeatingDeletion()
+    {
+        SetupDeleterSuccess();
+        _log.Setup(l => l.LogResultAsync(
+                It.IsAny<CleanupResult>(),
+                It.IsAny<CleanupSuggestion>(),
+                It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new IOException("database unavailable"));
+        var suggestion = MakeSuggestion("rule.x", "Clean temps", [@"C:\Temp\file1.tmp"]);
+        var engine = BuildEngine([]);
+
+        var results = await engine.ExecuteAsync([suggestion], dryRun: false, DeletionMethod.RecycleBin);
+
+        results.Should().ContainSingle();
+        results[0].Status.Should().Be(CleanupResultStatus.PartialSuccess);
+        results[0].ErrorMessage.Should().Contain("audit logging failed");
+        _deleter.Verify(d => d.DeleteManyAsync(
+            It.IsAny<IReadOnlyList<DeletionRequest>>(),
+            It.IsAny<CancellationToken>()), Times.Once);
+        _log.Verify(l => l.LogResultAsync(
+            It.IsAny<CleanupResult>(),
+            suggestion,
+            CancellationToken.None), Times.Once);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_PassesExpectedSnapshotToDeleter()
+    {
+        SetupDeleterSuccess();
+        const string path = @"C:\Temp\file1.tmp";
+        var expected = new FileSnapshot(
+            path,
+            Identity: null,
+            SizeBytes: 123,
+            LastWriteUtc: DateTime.UnixEpoch,
+            Attributes: FileAttributes.Normal);
+        var suggestion = MakeSuggestion("rule.x", "Snapshot guarded", [path]) with
+        {
+            ExpectedFileSnapshots = new Dictionary<string, FileSnapshot>(StringComparer.OrdinalIgnoreCase)
+            {
+                [path] = expected,
+            },
+        };
+        var engine = BuildEngine([]);
+
+        await engine.ExecuteAsync([suggestion], dryRun: false, DeletionMethod.RecycleBin);
+
+        _deleter.Verify(d => d.DeleteManyAsync(
+            It.Is<IReadOnlyList<DeletionRequest>>(requests =>
+                requests.Count == 1 && requests[0].ExpectedSnapshot == expected),
+            It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
@@ -126,6 +193,64 @@ public sealed class CleanupEngineTests
         results[0].Status.Should().Be(CleanupResultStatus.PartialSuccess);
         results[0].BytesFreed.Should().BeGreaterThan(0);
         results[0].FailedPaths.Should().HaveCount(1);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_UnexpectedBatchFailure_AuditsPartialResultWithoutRetrying()
+    {
+        var paths = new[] { @"C:\Temp\deleted.tmp", @"C:\Temp\not-processed.tmp" };
+        _deleter.Setup(d => d.DeleteManyAsync(
+                It.IsAny<IReadOnlyList<DeletionRequest>>(),
+                It.IsAny<CancellationToken>()))
+            .Returns<IReadOnlyList<DeletionRequest>, CancellationToken>(
+                (requests, _) => MakeThrowingOutcomes(requests));
+        var suggestion = MakeSuggestion("rule.x", "Unexpected failure", paths);
+        var engine = BuildEngine([]);
+
+        var results = await engine.ExecuteAsync([suggestion], dryRun: false, DeletionMethod.RecycleBin);
+
+        results.Should().ContainSingle();
+        results[0].Status.Should().Be(CleanupResultStatus.PartialSuccess);
+        results[0].FailedPaths.Should().ContainSingle().Which.Should().Be(paths[1]);
+        results[0].ErrorMessage.Should().Contain("stopped unexpectedly");
+        _deleter.Verify(d => d.DeleteManyAsync(
+            It.IsAny<IReadOnlyList<DeletionRequest>>(),
+            It.IsAny<CancellationToken>()), Times.Once);
+        _log.Verify(l => l.LogResultAsync(
+            It.Is<CleanupResult>(result => result.Status == CleanupResultStatus.PartialSuccess),
+            suggestion,
+            CancellationToken.None), Times.Once);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_CancelAfterMutation_AuditsPartialResultThenPropagatesCancellation()
+    {
+        using var cancellation = new CancellationTokenSource();
+        var paths = new[] { @"C:\Temp\deleted.tmp", @"C:\Temp\not-processed.tmp" };
+        _deleter.Setup(d => d.DeleteManyAsync(
+                It.IsAny<IReadOnlyList<DeletionRequest>>(),
+                cancellation.Token))
+            .Returns<IReadOnlyList<DeletionRequest>, CancellationToken>(
+                (requests, token) => MakeCancellingOutcomes(requests, cancellation, token));
+        var suggestion = MakeSuggestion("rule.x", "Cancelled cleanup", paths);
+        var engine = BuildEngine([]);
+
+        Func<Task> act = () => engine.ExecuteAsync(
+            [suggestion],
+            dryRun: false,
+            DeletionMethod.RecycleBin,
+            cancellationToken: cancellation.Token);
+
+        await act.Should().ThrowAsync<OperationCanceledException>();
+        _log.Verify(l => l.LogResultAsync(
+            It.Is<CleanupResult>(result =>
+                result.Status == CleanupResultStatus.PartialSuccess &&
+                result.FailedPaths.Contains(paths[1])),
+            suggestion,
+            CancellationToken.None), Times.Once);
+        _deleter.Verify(d => d.DeleteManyAsync(
+            It.IsAny<IReadOnlyList<DeletionRequest>>(),
+            It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
@@ -175,6 +300,26 @@ public sealed class CleanupEngineTests
         results.Should().ContainSingle();
         results[0].Status.Should().Be(CleanupResultStatus.Failed);
         results[0].ErrorMessage.Should().Contain("does not support quarantine");
+        _deleter.Verify(d => d.DeleteManyAsync(
+            It.IsAny<IReadOnlyList<DeletionRequest>>(),
+            It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_UnsupportedRecycleBin_IsBlockedByEnginePolicy()
+    {
+        var suggestion = MakeSuggestion("rule.permanent-only", "Permanent only", ["::RecycleBin::"]) with
+        {
+            SupportsRecycleBin = false,
+            SupportsQuarantine = false,
+        };
+        var engine = BuildEngine([]);
+
+        var results = await engine.ExecuteAsync([suggestion], dryRun: false, DeletionMethod.RecycleBin);
+
+        results.Should().ContainSingle();
+        results[0].Status.Should().Be(CleanupResultStatus.Failed);
+        results[0].ErrorMessage.Should().Contain("cannot be sent to the Recycle Bin");
         _deleter.Verify(d => d.DeleteManyAsync(
             It.IsAny<IReadOnlyList<DeletionRequest>>(),
             It.IsAny<CancellationToken>()), Times.Never);
@@ -265,9 +410,37 @@ public sealed class CleanupEngineTests
 
         var results = await engine.ExecuteAsync([suggestion], dryRun: false, DeletionMethod.Quarantine);
 
-        results[0].Status.Should().Be(CleanupResultStatus.Success,
-            "the file was moved successfully; a missing restore record must not fail the cleanup");
+        results[0].Status.Should().Be(CleanupResultStatus.PartialSuccess,
+            "the file moved, but missing restore metadata must remain visible to the user");
         results[0].QuarantinedPaths.Should().ContainSingle();
+        results[0].ErrorMessage.Should().Contain("Manual recovery path");
+        results[0].ErrorMessage.Should().Contain(@"Q:\quarantine\a.tmp");
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_ZeroByteSuccessAndFailure_IsPartialSuccess()
+    {
+        _deleter
+            .Setup(d => d.DeleteManyAsync(
+                It.IsAny<IReadOnlyList<DeletionRequest>>(),
+                It.IsAny<CancellationToken>()))
+            .Returns<IReadOnlyList<DeletionRequest>, CancellationToken>(
+                (requests, _) => MakeZeroBytePartialOutcomes(requests));
+        var suggestion = MakeSuggestion(
+            "rule.zero-partial",
+            "Zero-byte partial cleanup",
+            [@"C:\Temp\empty.tmp", @"C:\Temp\locked.tmp"]);
+        var engine = BuildEngine([]);
+
+        var results = await engine.ExecuteAsync(
+            [suggestion],
+            dryRun: false,
+            DeletionMethod.RecycleBin);
+
+        results.Should().ContainSingle();
+        results[0].Status.Should().Be(CleanupResultStatus.PartialSuccess);
+        results[0].BytesFreed.Should().Be(0);
+        results[0].FailedPaths.Should().Equal(@"C:\Temp\locked.tmp");
     }
 
     [Fact]
@@ -382,6 +555,25 @@ public sealed class CleanupEngineTests
         await Task.CompletedTask;
     }
 
+    private static async IAsyncEnumerable<DeletionOutcome> MakeThrowingOutcomes(
+        IReadOnlyList<DeletionRequest> requests)
+    {
+        yield return new DeletionOutcome(requests[0].Path, Success: true, BytesFreed: 1024L);
+        await Task.Yield();
+        throw new IOException("simulated batch failure");
+    }
+
+    private static async IAsyncEnumerable<DeletionOutcome> MakeCancellingOutcomes(
+        IReadOnlyList<DeletionRequest> requests,
+        CancellationTokenSource cancellation,
+        [EnumeratorCancellation] CancellationToken token)
+    {
+        yield return new DeletionOutcome(requests[0].Path, Success: true, BytesFreed: 1024L);
+        cancellation.Cancel();
+        await Task.Yield();
+        token.ThrowIfCancellationRequested();
+    }
+
     private static async IAsyncEnumerable<DeletionOutcome> MakeQuarantineOutcomes(
         IReadOnlyList<DeletionRequest> reqs)
     {
@@ -391,6 +583,18 @@ public sealed class CleanupEngineTests
                 r.Path, Success: true, BytesFreed: 1024L,
                 QuarantinePath: @"Q:\quarantine\" + Path.GetFileName(r.Path));
         }
+        await Task.CompletedTask;
+    }
+
+    private static async IAsyncEnumerable<DeletionOutcome> MakeZeroBytePartialOutcomes(
+        IReadOnlyList<DeletionRequest> requests)
+    {
+        yield return new DeletionOutcome(requests[0].Path, Success: true, BytesFreed: 0);
+        yield return new DeletionOutcome(
+            requests[1].Path,
+            Success: false,
+            BytesFreed: 0,
+            Error: "Locked");
         await Task.CompletedTask;
     }
 
@@ -435,6 +639,24 @@ public sealed class CleanupEngineTests
                 yield return s;
             }
             await Task.CompletedTask;
+        }
+    }
+
+    private sealed class ThrowingRule : ICleanupRule
+    {
+        public string RuleId => "test.throwing";
+        public string DisplayName => "Throwing";
+        public CleanupCategory Category => CleanupCategory.TempFiles;
+
+        public async IAsyncEnumerable<CleanupSuggestion> AnalyzeAsync(
+            long sessionId, AppSettings settings,
+            [EnumeratorCancellation] CancellationToken cancellationToken = default)
+        {
+            await Task.Yield();
+            throw new IOException("simulated rule failure");
+#pragma warning disable CS0162
+            yield break;
+#pragma warning restore CS0162
         }
     }
 }

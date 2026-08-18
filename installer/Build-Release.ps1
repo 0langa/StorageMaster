@@ -3,6 +3,7 @@ param(
     [string]$Configuration = "Release",
     [string]$Platform = "x64",
     [string]$RuntimeIdentifier = "win-x64",
+    [string]$Version,
     [switch]$RequireFfmpegBundle
 )
 
@@ -19,6 +20,14 @@ $ffmpegBundleSource = Join-Path $repoRoot "installer\ffmpeg"
 $turboScannerSource = Join-Path $repoRoot "turbo-scanner\target\release\turbo-scanner.exe"
 $windowsAppSdkPackageRoot = Join-Path $env:USERPROFILE ".nuget\packages\microsoft.windowsappsdk"
 $windowsAppRuntimeInstaller = Join-Path $repoRoot "installer\Install-WindowsAppRuntime.ps1"
+$versionGate = Join-Path $repoRoot "installer\Test-ReleaseVersion.ps1"
+
+if ([string]::IsNullOrWhiteSpace($Version)) {
+    [xml]$versionProps = Get-Content -LiteralPath (Join-Path $repoRoot "Directory.Build.props")
+    $Version = [string]$versionProps.Project.PropertyGroup.StorageMasterVersion
+}
+
+& $versionGate -ExpectedVersion $Version
 
 function Resolve-MSBuild {
     $vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
@@ -123,7 +132,7 @@ function Copy-OptionalFfmpegBundle {
     Write-Host "Bundled FFmpeg copied to $targetDirectory"
 }
 
-function Copy-OptionalTurboScanner {
+function Copy-RequiredTurboScanner {
     param(
         [Parameter(Mandatory = $true)]
         [string]$SourcePath,
@@ -132,8 +141,7 @@ function Copy-OptionalTurboScanner {
     )
 
     if (-not (Test-Path $SourcePath)) {
-        Write-Host "Turbo scanner binary not found at $SourcePath. Run cargo build --release in turbo-scanner to include it."
-        return
+        throw "Turbo scanner binary not found at $SourcePath. Release packages require Turbo Scanner."
     }
 
     Copy-Item -LiteralPath $SourcePath -Destination (Join-Path $PublishDirectory "turbo-scanner.exe") -Force
@@ -147,21 +155,28 @@ $iscc = Resolve-ISCC
 $windowsAppSdkVersion = Get-WindowsAppSdkVersion
 $windowsAppRuntimePackage = Join-Path $windowsAppSdkPackageRoot "$windowsAppSdkVersion\tools\MSIX\win10-x64\Microsoft.WindowsAppRuntime.1.6.msix"
 
-Invoke-Step -FilePath $msbuild -Arguments @(
-    $uiProject,
-    "/t:Clean,Build",
-    "/restore",
-    "/p:Configuration=$Configuration",
-    "/p:Platform=$Platform",
-    "/p:RuntimeIdentifier=$RuntimeIdentifier",
-    "/p:UseXamlCompilerExecutable=false",
-    "/m:1",
-    "/nr:false"
-)
+Invoke-Step -FilePath "dotnet" -Arguments @("restore", (Join-Path $repoRoot "StorageMaster.sln"))
+Invoke-Step -FilePath "dotnet" -Arguments @("format", (Join-Path $repoRoot "StorageMaster.sln"), "--verify-no-changes", "--no-restore")
+Invoke-Step -FilePath "dotnet" -Arguments @("build", (Join-Path $repoRoot "StorageMaster.sln"), "-c", $Configuration, "--no-restore")
+Invoke-Step -FilePath "cargo" -Arguments @("fmt", "--manifest-path", (Join-Path $repoRoot "turbo-scanner\Cargo.toml"), "--", "--check")
+Invoke-Step -FilePath "cargo" -Arguments @("clippy", "--manifest-path", (Join-Path $repoRoot "turbo-scanner\Cargo.toml"), "--all-targets", "--all-features", "--", "-D", "warnings")
+Invoke-Step -FilePath "cargo" -Arguments @("test", "--manifest-path", (Join-Path $repoRoot "turbo-scanner\Cargo.toml"))
+Invoke-Step -FilePath "cargo" -Arguments @("build", "--release", "--manifest-path", (Join-Path $repoRoot "turbo-scanner\Cargo.toml"))
+$previousRequireTurbo = $env:STORAGEMASTER_REQUIRE_TURBO_SCANNER
+$previousTurboBinary = $env:STORAGEMASTER_TURBO_SCANNER_BINARY
+try {
+    $env:STORAGEMASTER_REQUIRE_TURBO_SCANNER = "true"
+    $env:STORAGEMASTER_TURBO_SCANNER_BINARY = $turboScannerSource
+    Invoke-Step -FilePath "dotnet" -Arguments @("test", (Join-Path $repoRoot "StorageMaster.sln"), "-c", $Configuration, "--no-build")
+}
+finally {
+    $env:STORAGEMASTER_REQUIRE_TURBO_SCANNER = $previousRequireTurbo
+    $env:STORAGEMASTER_TURBO_SCANNER_BINARY = $previousTurboBinary
+}
 
 Invoke-Step -FilePath $msbuild -Arguments @(
     $uiProject,
-    "/t:Build",
+    "/t:Clean,Build",
     "/restore",
     "/p:Configuration=$Configuration",
     "/p:Platform=$Platform",
@@ -186,7 +201,7 @@ if (-not (Test-Path $windowsAppRuntimeInstaller)) {
 Get-ChildItem -LiteralPath $publishDir -Force -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force
 Copy-Item -Path (Join-Path $buildOutputDir "*") -Destination $publishDir -Recurse -Force
 Copy-OptionalFfmpegBundle -SourceDirectory $ffmpegBundleSource -PublishDirectory $publishDir
-Copy-OptionalTurboScanner -SourcePath $turboScannerSource -PublishDirectory $publishDir
+Copy-RequiredTurboScanner -SourcePath $turboScannerSource -PublishDirectory $publishDir
 
 $prereqDir = Join-Path $publishDir "prereqs"
 New-Item -ItemType Directory -Force -Path $prereqDir | Out-Null
@@ -194,7 +209,7 @@ Copy-Item -LiteralPath $windowsAppRuntimePackage -Destination (Join-Path $prereq
 Copy-Item -LiteralPath $windowsAppRuntimeInstaller -Destination (Join-Path $prereqDir "Install-WindowsAppRuntime.ps1") -Force
 Write-Host "Windows App SDK 1.6 runtime prereqs staged in $prereqDir"
 
-Invoke-Step -FilePath $iscc -Arguments @($installerScript)
+Invoke-Step -FilePath $iscc -Arguments @($installerScript, "/DAppVersion=$Version")
 
 Write-Host ""
 Write-Host "Publish output :" $publishDir

@@ -39,8 +39,29 @@ public sealed class CleanupEngine : ICleanupEngine
         foreach (var rule in _rules)
         {
             _logger.LogDebug("Running cleanup rule: {RuleId}", rule.RuleId);
-            await foreach (var suggestion in rule.AnalyzeAsync(sessionId, settings, cancellationToken))
+            await using var enumerator = rule
+                .AnalyzeAsync(sessionId, settings, cancellationToken)
+                .GetAsyncEnumerator(cancellationToken);
+
+            while (true)
             {
+                CleanupSuggestion suggestion;
+                try
+                {
+                    if (!await enumerator.MoveNextAsync())
+                        break;
+                    suggestion = enumerator.Current;
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Cleanup rule {RuleId} failed; continuing with remaining rules", rule.RuleId);
+                    break;
+                }
+
                 yield return suggestion;
             }
         }
@@ -63,10 +84,31 @@ public sealed class CleanupEngine : ICleanupEngine
             progress?.Report(new CleanupProgress(i, suggestions.Count, suggestion.Title));
             _logger.LogInformation("Executing cleanup: {Title} dryRun={DryRun}", suggestion.Title, dryRun);
 
-            var result = await ExecuteSuggestionAsync(suggestion, dryRun, deletionMethod, cancellationToken);
-            results.Add(result);
+            var execution = await ExecuteSuggestionAsync(suggestion, dryRun, deletionMethod, cancellationToken);
+            var result = execution.Result;
+            try
+            {
+                // Filesystem mutation may already have completed. User
+                // cancellation must not suppress its audit record.
+                await _log.LogResultAsync(result, suggestion, CancellationToken.None);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Cleanup audit write failed after executing {Title}", suggestion.Title);
+                result = result with
+                {
+                    Status = !dryRun && result.Status == CleanupResultStatus.Success
+                        ? CleanupResultStatus.PartialSuccess
+                        : result.Status,
+                    ErrorMessage = string.IsNullOrWhiteSpace(result.ErrorMessage)
+                        ? $"Cleanup completed, but audit logging failed: {ex.Message}"
+                        : $"{result.ErrorMessage} Audit logging also failed: {ex.Message}",
+                };
+            }
 
-            await _log.LogResultAsync(result, suggestion, cancellationToken);
+            results.Add(result);
+            if (execution.WasCancelled)
+                throw new OperationCanceledException("Cleanup was cancelled after partial results were audited.", cancellationToken);
         }
 
         // Report 100% completion.
@@ -75,7 +117,7 @@ public sealed class CleanupEngine : ICleanupEngine
         return results;
     }
 
-    private async Task<CleanupResult> ExecuteSuggestionAsync(
+    private async Task<SuggestionExecution> ExecuteSuggestionAsync(
         CleanupSuggestion suggestion,
         bool dryRun,
         DeletionMethod deletionMethod,
@@ -86,7 +128,7 @@ public sealed class CleanupEngine : ICleanupEngine
             var policyFailure = ValidateDeletionPolicy(suggestion, deletionMethod);
             if (policyFailure is not null)
             {
-                return new CleanupResult
+                return new SuggestionExecution(new CleanupResult
                 {
                     SuggestionId = suggestion.Id,
                     Status = CleanupResultStatus.Failed,
@@ -95,49 +137,92 @@ public sealed class CleanupEngine : ICleanupEngine
                     WasDryRun = false,
                     FailedPaths = suggestion.TargetPaths,
                     ErrorMessage = policyFailure,
-                };
+                }, WasCancelled: false);
             }
         }
 
         long totalFreed = 0;
         var failedPaths = new List<string>();
         var quarantinedPaths = new List<QuarantineMove>();
+        var processedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var successfulPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         string? firstError = null;
+        var cancellationObserved = false;
+        var hasPostMutationWarning = false;
 
-        var requests = suggestion.TargetPaths.Select(path => new DeletionRequest(
-            Path: path,
-            Method: deletionMethod,
-            DryRun: dryRun)).ToList();
-
-        await foreach (var outcome in _deleter.DeleteManyAsync(requests, ct))
+        var requests = suggestion.TargetPaths.Select(path =>
         {
-            if (outcome.Success)
+            suggestion.ExpectedFileSnapshots.TryGetValue(path, out var expectedSnapshot);
+            return new DeletionRequest(
+                Path: path,
+                Method: deletionMethod,
+                DryRun: dryRun,
+                ExpectedSnapshot: expectedSnapshot);
+        }).ToList();
+
+        try
+        {
+            await foreach (var outcome in _deleter.DeleteManyAsync(requests, ct))
             {
-                totalFreed += outcome.BytesFreed;
-                if (outcome.QuarantinePath is not null)
+                processedPaths.Add(outcome.Path);
+                if (outcome.Success)
                 {
-                    quarantinedPaths.Add(new QuarantineMove(outcome.Path, outcome.QuarantinePath));
-                    if (!dryRun)
-                        await RecordQuarantineRestorePointAsync(outcome.Path, outcome.QuarantinePath, ct);
+                    successfulPaths.Add(outcome.Path);
+                    totalFreed += outcome.BytesFreed;
+                    if (outcome.QuarantinePath is not null)
+                    {
+                        quarantinedPaths.Add(new QuarantineMove(outcome.Path, outcome.QuarantinePath));
+                        if (!dryRun)
+                        {
+                            var warning = await RecordQuarantineRestorePointAsync(
+                                outcome.Path,
+                                outcome.QuarantinePath);
+                            if (warning is not null)
+                            {
+                                hasPostMutationWarning = true;
+                                firstError ??= warning;
+                            }
+                        }
+                    }
+                }
+                else
+                {
+                    failedPaths.Add(outcome.Path);
+                    firstError ??= outcome.Error;
+                    _logger.LogWarning("Delete failed: {Path} — {Error}", outcome.Path, outcome.Error);
                 }
             }
-            else
-            {
-                failedPaths.Add(outcome.Path);
-                firstError ??= outcome.Error;
-                _logger.LogWarning("Delete failed: {Path} — {Error}", outcome.Path, outcome.Error);
-            }
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            cancellationObserved = true;
+        }
+        catch (Exception ex)
+        {
+            firstError ??= $"Deletion service stopped unexpectedly: {ex.Message}";
+            _logger.LogError(ex, "Deletion service failed while executing {Title}", suggestion.Title);
         }
 
-        var status = failedPaths.Count switch
+        var unprocessedRequests = requests
+            .Where(request => !processedPaths.Contains(request.Path))
+            .ToList();
+        foreach (var request in unprocessedRequests)
+            failedPaths.Add(request.Path);
+
+        var wasCancelled = unprocessedRequests.Count > 0 &&
+            (cancellationObserved || ct.IsCancellationRequested);
+        if (wasCancelled)
+            firstError ??= "Cleanup cancelled before every target was processed.";
+
+        var status = requests.Count switch
         {
-            0 when requests.Count > 0 => CleanupResultStatus.Success,
-            _ when totalFreed > 0 => CleanupResultStatus.PartialSuccess,
-            _ when requests.Count > 0 => CleanupResultStatus.Failed,
-            _ => CleanupResultStatus.Skipped,
+            0 => CleanupResultStatus.Skipped,
+            _ when failedPaths.Count == 0 && !hasPostMutationWarning => CleanupResultStatus.Success,
+            _ when successfulPaths.Count > 0 => CleanupResultStatus.PartialSuccess,
+            _ => CleanupResultStatus.Failed,
         };
 
-        return new CleanupResult
+        return new SuggestionExecution(new CleanupResult
         {
             SuggestionId = suggestion.Id,
             Status = status,
@@ -147,7 +232,7 @@ public sealed class CleanupEngine : ICleanupEngine
             FailedPaths = failedPaths,
             ErrorMessage = firstError,
             QuarantinedPaths = quarantinedPaths,
-        };
+        }, wasCancelled);
     }
 
     /// <summary>
@@ -156,25 +241,31 @@ public sealed class CleanupEngine : ICleanupEngine
     /// failure must not fail the cleanup — the move already succeeded and the
     /// paths are still captured in the CleanupLog audit JSON.
     /// </summary>
-    private async Task RecordQuarantineRestorePointAsync(string originalPath, string quarantinePath, CancellationToken ct)
+    private async Task<string?> RecordQuarantineRestorePointAsync(
+        string originalPath,
+        string quarantinePath)
     {
         if (_quarantineRecorder is null)
-            return;
+            return null;
 
         try
         {
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
             await _quarantineRecorder.RecordQuarantineAsync(
                 memberId: null,
                 IQuarantineRecorder.GenericCleanupRunId,
                 originalPath,
                 quarantinePath,
-                ct);
+                timeout.Token);
+            return null;
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex,
                 "Quarantine restore record failed for {Path}; file remains restorable manually from {QuarantinePath}",
                 originalPath, quarantinePath);
+            return $"File was quarantined, but its restore catalog entry could not be written. " +
+                   $"Manual recovery path: {quarantinePath}. Error: {ex.Message}";
         }
     }
 
@@ -189,9 +280,14 @@ public sealed class CleanupEngine : ICleanupEngine
         if (deletionMethod == DeletionMethod.Permanent && !suggestion.SupportsPermanentDelete)
             return "Cleanup suggestion does not support permanent delete.";
 
+        if (deletionMethod == DeletionMethod.RecycleBin && !suggestion.SupportsRecycleBin)
+            return "Cleanup suggestion cannot be sent to the Recycle Bin.";
+
         if (deletionMethod == DeletionMethod.Quarantine && !suggestion.SupportsQuarantine)
             return "Cleanup suggestion does not support quarantine.";
 
         return null;
     }
+
+    private sealed record SuggestionExecution(CleanupResult Result, bool WasCancelled);
 }

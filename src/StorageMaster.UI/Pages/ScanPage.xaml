@@ -12,7 +12,6 @@
     <Page.Resources>
         <converters:BoolToVisibilityConverter x:Key="BoolVis" />
         <converters:BoolToVisibilityConverter x:Key="InvBoolVis" Invert="True" />
-        <converters:BoolNegationConverter x:Key="NotBool" />
     </Page.Resources>
 
     <ScrollViewer Padding="{StaticResource PagePaddingWide}">
@@ -129,7 +128,8 @@
                                Style="{StaticResource CaptionTextBlockStyle}"
                                Visibility="{x:Bind ViewModel.HasScanPathError, Mode=OneWay, Converter={StaticResource BoolVis}}" />
 
-                    <ItemsControl ItemsSource="{x:Bind ViewModel.AvailableDrives, Mode=OneWay}">
+                    <ItemsControl ItemsSource="{x:Bind ViewModel.AvailableDrives, Mode=OneWay}"
+                                  IsEnabled="{x:Bind ViewModel.CanBrowse, Mode=OneWay}">
                         <ItemsControl.ItemsPanel>
                             <ItemsPanelTemplate>
                                 <StackPanel Orientation="Horizontal" Spacing="8"/>
@@ -147,25 +147,29 @@
             </Border>
 
             <Grid ColumnDefinitions="*,*,*,*" ColumnSpacing="12">
-                <Button Grid.Column="0" Command="{x:Bind ViewModel.SelectScanModeCommand}" CommandParameter="Quick Scan" HorizontalAlignment="Stretch" MinHeight="108">
+                <Button Grid.Column="0" Command="{x:Bind ViewModel.SelectScanModeCommand}" CommandParameter="Quick Scan"
+                        IsEnabled="{x:Bind ViewModel.CanBrowse, Mode=OneWay}" HorizontalAlignment="Stretch" MinHeight="108">
                     <StackPanel Spacing="5" HorizontalAlignment="Stretch">
                         <TextBlock Text="Quick Scan" Style="{StaticResource BodyStrongTextBlockStyle}" />
                         <TextBlock Text="Fast metadata pass for common storage review." Style="{StaticResource HelperTextStyle}" />
                     </StackPanel>
                 </Button>
-                <Button Grid.Column="1" Command="{x:Bind ViewModel.SelectScanModeCommand}" CommandParameter="Standard Scan" HorizontalAlignment="Stretch" MinHeight="108">
+                <Button Grid.Column="1" Command="{x:Bind ViewModel.SelectScanModeCommand}" CommandParameter="Standard Scan"
+                        IsEnabled="{x:Bind ViewModel.CanBrowse, Mode=OneWay}" HorizontalAlignment="Stretch" MinHeight="108">
                     <StackPanel Spacing="5" HorizontalAlignment="Stretch">
                         <TextBlock Text="Standard Scan" Style="{StaticResource BodyStrongTextBlockStyle}" />
                         <TextBlock Text="Recommended balance for routine drive scans." Style="{StaticResource HelperTextStyle}" />
                     </StackPanel>
                 </Button>
-                <Button Grid.Column="2" Command="{x:Bind ViewModel.SelectScanModeCommand}" CommandParameter="Deep Scan" HorizontalAlignment="Stretch" MinHeight="108">
+                <Button Grid.Column="2" Command="{x:Bind ViewModel.SelectScanModeCommand}" CommandParameter="Deep Scan"
+                        IsEnabled="{x:Bind ViewModel.CanBrowse, Mode=OneWay}" HorizontalAlignment="Stretch" MinHeight="108">
                     <StackPanel Spacing="5" HorizontalAlignment="Stretch">
                         <TextBlock Text="Deep Scan" Style="{StaticResource BodyStrongTextBlockStyle}" />
                         <TextBlock Text="Protected folders and access-denied reporting." Style="{StaticResource HelperTextStyle}" />
                     </StackPanel>
                 </Button>
-                <Button Grid.Column="3" Command="{x:Bind ViewModel.SelectScanModeCommand}" CommandParameter="Custom Scan" HorizontalAlignment="Stretch" MinHeight="108">
+                <Button Grid.Column="3" Command="{x:Bind ViewModel.SelectScanModeCommand}" CommandParameter="Custom Scan"
+                        IsEnabled="{x:Bind ViewModel.CanBrowse, Mode=OneWay}" HorizontalAlignment="Stretch" MinHeight="108">
                     <StackPanel Spacing="5" HorizontalAlignment="Stretch">
                         <TextBlock Text="Custom Scan" Style="{StaticResource BodyStrongTextBlockStyle}" />
                         <TextBlock Text="Use current toggles and persisted exclusions." Style="{StaticResource HelperTextStyle}" />
@@ -178,7 +182,7 @@
                     <TextBlock Text="{x:Bind ViewModel.SelectedScanMode, Mode=OneWay}" Style="{StaticResource SectionHeaderTextStyle}" />
                     <ToggleSwitch Header="Deep Scan"
                                   IsOn="{x:Bind ViewModel.DeepScan, Mode=TwoWay}"
-                                  IsEnabled="{x:Bind ViewModel.IsScanning, Mode=OneWay, Converter={StaticResource NotBool}}" />
+                                  IsEnabled="{x:Bind ViewModel.CanBrowse, Mode=OneWay}" />
                     <TextBlock Text="Attempts protected directories, disables the default system excludes, and records access-denied errors instead of silently skipping them. Administrator mode is recommended."
                                Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.7"
                                TextWrapping="Wrap" />
@@ -204,6 +208,7 @@
                             <Button Grid.Column="1"
                                     Content="Run as Administrator"
                                     Command="{x:Bind ViewModel.RequestElevationCommand}"
+                                    IsEnabled="{x:Bind ViewModel.CanBrowse, Mode=OneWay}"
                                     VerticalAlignment="Center" />
                         </Grid>
                     </Border>
@@ -214,7 +219,7 @@
                 <StackPanel Spacing="10">
                     <ToggleSwitch Header="Turbo Scanner (Rust-powered)"
                                   IsOn="{x:Bind ViewModel.UseTurboScanner, Mode=TwoWay}"
-                                  IsEnabled="{x:Bind ViewModel.IsScanning, Mode=OneWay, Converter={StaticResource NotBool}}" />
+                                  IsEnabled="{x:Bind ViewModel.CanBrowse, Mode=OneWay}" />
                     <TextBlock Text="Uses a native Rust engine with parallel work-stealing traversal — significantly faster on NVMe/SSD drives with many files. Falls back to the managed scanner automatically if the engine binary is not found."
                                Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.7"
                                TextWrapping="Wrap" />

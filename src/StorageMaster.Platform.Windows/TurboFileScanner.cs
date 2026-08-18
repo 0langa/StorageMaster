@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -7,6 +8,7 @@ using Microsoft.Extensions.Logging;
 using StorageMaster.Core.Interfaces;
 using StorageMaster.Core.Models;
 using StorageMaster.Core.Scanner;
+using StorageMaster.Platform.Windows.Interop;
 
 namespace StorageMaster.Platform.Windows;
 
@@ -37,6 +39,7 @@ public sealed class TurboFileScanner : IFileScanner
     private readonly IScanErrorRepository? _errorRepo;
     private readonly IFileScanner _fallback;
     private readonly ILogger<TurboFileScanner> _logger;
+    private readonly Func<ScanOptions, ProcessStartInfo>? _processStartInfoFactory;
 
     private static readonly string BinaryPath = Path.Combine(
         AppContext.BaseDirectory, "turbo-scanner.exe");
@@ -58,6 +61,18 @@ public sealed class TurboFileScanner : IFileScanner
         _errorRepo = errorRepo;
     }
 
+    internal TurboFileScanner(
+        IScanRepository repo,
+        ILogger<TurboFileScanner> logger,
+        IFileScanner fallback,
+        IScanErrorRepository? errorRepo,
+        Func<ScanOptions, ProcessStartInfo> processStartInfoFactory)
+        : this(repo, logger, fallback, errorRepo)
+    {
+        ArgumentNullException.ThrowIfNull(processStartInfoFactory);
+        _processStartInfoFactory = processStartInfoFactory;
+    }
+
     /// <summary>True when turbo-scanner.exe is present next to the application.</summary>
     public static bool IsAvailable => File.Exists(BinaryPath);
 
@@ -68,36 +83,34 @@ public sealed class TurboFileScanner : IFileScanner
     {
         options = ScanOptionValidator.NormalizeAndValidate(options);
 
-        if (!IsAvailable)
+        if (_processStartInfoFactory is null && !IsAvailable)
         {
             _logger.LogWarning("turbo-scanner.exe not found at {Path}; falling back to managed scanner",
                 BinaryPath);
             return await _fallback.ScanAsync(options, progress, cancellationToken);
         }
 
+        // jwalk follows a root link even when descendant link following is disabled.
+        // Validate every lexical root component through a no-follow handle. Where
+        // ACL/sharing permits delete access, retain a no-delete-share handle so that
+        // component cannot be swapped after validation and during native I/O.
+        using var rootBoundaryLease = options.FollowSymlinks
+            ? null
+            : AcquireRootBoundaryLease(options.RootPath);
+        if (rootBoundaryLease is { AllComponentsReplacementGuarded: false })
+        {
+            _logger.LogDebug(
+                "One or more protected scan-root ancestors permit no-follow validation only; " +
+                "their ACL or an existing handle prevented a delete-share lock");
+        }
+
         _logger.LogInformation("Turbo scan starting at {Root}", options.RootPath);
 
         var session = await _repo.CreateSessionAsync(options.RootPath, cancellationToken);
 
-        var psi = new ProcessStartInfo(BinaryPath)
-        {
-            // --skip-hidden prunes hidden files AND hidden directory subtrees
-            // during native enumeration (contract v2), matching the managed
-            // scanner's EnumerationOptions.AttributesToSkip semantics.
-            ArgumentList = { "--path", options.RootPath, "--threads", options.MaxParallelism.ToString() },
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true,
-            // Disable the default StreamReader wrapping — we create our own with a 1 MB buffer below.
-            StandardOutputEncoding = Encoding.UTF8,
-        };
-
-        if (!options.DeepScan && !options.IncludeHiddenFiles)
-            psi.ArgumentList.Add("--skip-hidden");
+        var psi = _processStartInfoFactory?.Invoke(options) ?? CreateDefaultProcessStartInfo(options);
 
         using var process = new Process { StartInfo = psi };
-        process.Start();
 
         // Pre-compute the exclusion list once so the producer hot-loop does no allocation per record.
         var sortedExclusions = options.ExcludedPaths.ToArray();
@@ -110,14 +123,112 @@ public sealed class TurboFileScanner : IFileScanner
         long totalBytes = 0;
         string lastPath = string.Empty;
 
+        // Terminal session counts are based on successful repository writes,
+        // not merely records observed on stdout.
+        long persistedFileCount = 0;
+        long persistedFolderCount = 0;
+        long persistedBytes = 0;
+
+        var fileBuffer = new List<FileEntry>(500);
+        var folderBuffer = new List<FolderEntry>(100);
+        var seenFolders = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var parentSizes = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
+        var parentFileCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        var parentSubFolderCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        var folderMetricsPersisted = false;
+
+        var processStarted = false;
+        Task stderrTask = Task.CompletedTask;
+        using var abort = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        CancellationTokenRegistration cancellationRegistration = default;
+
+        async Task FlushFileBufferAsync(CancellationToken ct)
+        {
+            if (fileBuffer.Count == 0)
+                return;
+
+            var batch = fileBuffer.ToArray();
+            await _repo.InsertFileEntriesAsync(batch, ct).ConfigureAwait(false);
+            fileBuffer.Clear();
+            persistedFileCount += batch.LongLength;
+            persistedBytes += batch.Sum(static entry => entry.SizeBytes);
+        }
+
+        async Task FlushFolderBufferAsync(CancellationToken ct)
+        {
+            if (folderBuffer.Count == 0)
+                return;
+
+            var batch = folderBuffer.ToArray();
+            await _repo.UpsertFolderEntriesAsync(batch, ct).ConfigureAwait(false);
+            folderBuffer.Clear();
+            persistedFolderCount += batch.LongLength;
+        }
+
+        async Task PersistFolderMetricsOnceAsync(CancellationToken ct)
+        {
+            if (folderMetricsPersisted)
+                return;
+
+            var metrics = seenFolders
+                .Select(path =>
+                {
+                    var directSize = parentSizes.GetValueOrDefault(path);
+                    return new FolderEntry
+                    {
+                        Id = 0,
+                        SessionId = session.Id,
+                        FullPath = path,
+                        FolderName = ScanOptionValidator.GetDisplayName(path),
+                        DirectSizeBytes = directSize,
+                        TotalSizeBytes = directSize,
+                        FileCount = parentFileCounts.GetValueOrDefault(path),
+                        SubFolderCount = parentSubFolderCounts.GetValueOrDefault(path),
+                        IsReparsePoint = false,
+                        WasAccessDenied = false,
+                    };
+                })
+                .ToArray();
+
+            if (metrics.Length > 0)
+                await _repo.UpsertFolderEntriesAsync(metrics, ct).ConfigureAwait(false);
+
+            folderMetricsPersisted = true;
+        }
+
+        async Task FlushPersistedStateAsync(CancellationToken ct)
+        {
+            await FlushFileBufferAsync(ct).ConfigureAwait(false);
+            await FlushFolderBufferAsync(ct).ConfigureAwait(false);
+            await PersistFolderMetricsOnceAsync(ct).ConfigureAwait(false);
+        }
+
+        async Task UpdateFolderTotalsAsync(CancellationToken ct)
+        {
+            var allFolders = await _repo.GetAllFolderPathsForSessionAsync(session.Id, ct).ConfigureAwait(false);
+            var totals = FolderSizeAggregator.Compute(allFolders);
+            await _repo.UpdateFolderTotalsAsync(session.Id, totals, ct).ConfigureAwait(false);
+        }
+
+        static void Increment(Dictionary<string, int> counts, string path)
+        {
+            var current = counts.GetValueOrDefault(path);
+            counts[path] = current == int.MaxValue ? int.MaxValue : current + 1;
+        }
+
         try
         {
+            process.Start();
+            processStarted = true;
+            cancellationRegistration = cancellationToken.Register(
+                static state => TryKillProcess((Process)state!), process);
+
             // Drain stderr in background so the process never blocks on a full pipe.
-            var stderrTask = Task.Run(async () =>
+            stderrTask = Task.Run(async () =>
             {
                 try
                 {
-                    while (await process.StandardError.ReadLineAsync(CancellationToken.None) is { } line)
+                    while (await process.StandardError.ReadLineAsync(abort.Token) is { } line)
                     {
                         _logger.LogDebug("[turbo-scanner] {Line}", line);
                         if (line.StartsWith("WARN:", StringComparison.OrdinalIgnoreCase) ||
@@ -140,7 +251,7 @@ public sealed class TurboFileScanner : IFileScanner
                 }
                 catch (OperationCanceledException) { /* process killed */ }
                 catch (ObjectDisposedException) { /* process disposed */ }
-            }, CancellationToken.None);
+            });
 
             // ── Channel: decouples stdout reading from DB inserts ─────────────
             // Bounded at 2000 records so the producer can run ahead without
@@ -156,8 +267,6 @@ public sealed class TurboFileScanner : IFileScanner
             // A consumer fault (e.g. database failure) stops channel reads; the
             // producer would then block forever on the bounded channel. The
             // linked token lets the failing consumer abort the producer.
-            using var abort = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-
             // ── Producer: read stdout at full speed, never awaits DB ──────────
             var producer = Task.Run(async () =>
             {
@@ -194,26 +303,26 @@ public sealed class TurboFileScanner : IFileScanner
                 }
                 finally
                 {
-                    pipe.Writer.Complete();
+                    pipe.Writer.TryComplete();
                 }
-            }, CancellationToken.None);
+            });
 
             // ── Consumer: batch + DB insert — runs concurrently with producer ─
-            var fileBuffer = new List<FileEntry>(500);
-            var folderBuffer = new List<FolderEntry>(100);
-            var parentSizes = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
             var stopwatch = Stopwatch.StartNew();
 
             var consumer = Task.Run(async () =>
             {
                 try
                 {
-                    await foreach (var rec in pipe.Reader.ReadAllAsync(cancellationToken))
+                    await foreach (var rec in pipe.Reader.ReadAllAsync(abort.Token))
                     {
                         lastPath = rec.Path;
 
                         if (rec.IsDir)
                         {
+                            if (!seenFolders.Add(rec.Path))
+                                continue;
+
                             var fe = new FolderEntry
                             {
                                 Id = 0,
@@ -224,23 +333,25 @@ public sealed class TurboFileScanner : IFileScanner
                                 TotalSizeBytes = 0,
                                 FileCount = 0,
                                 SubFolderCount = 0,
-                                IsReparsePoint = false,
+                                IsReparsePoint = HasAttribute(rec, FileAttributes.ReparsePoint),
                                 WasAccessDenied = false,
                             };
                             folderBuffer.Add(fe);
                             folderCount++;
 
+                            var parentDir = Path.GetDirectoryName(rec.Path);
+                            if (parentDir is not null)
+                                Increment(parentSubFolderCounts, parentDir);
+
                             if (folderBuffer.Count >= 100)
-                            {
-                                await _repo.UpsertFolderEntriesAsync([.. folderBuffer], cancellationToken);
-                                folderBuffer.Clear();
-                            }
+                                await FlushFolderBufferAsync(abort.Token).ConfigureAwait(false);
                         }
                         else
                         {
                             var ext = Path.GetExtension(rec.Path);
-                            var modUtc = DateTimeOffset.FromUnixTimeSeconds(rec.ModifiedUnix).UtcDateTime;
-                            var createUtc = DateTimeOffset.FromUnixTimeSeconds(rec.CreatedUnix).UtcDateTime;
+                            var modUtc = ReadUtcTimestamp(rec.ModifiedUtcTicks, rec.ModifiedUnix);
+                            var createUtc = ReadUtcTimestamp(rec.CreatedUtcTicks, rec.CreatedUnix);
+                            var attributes = ReadAttributes(rec);
 
                             var fe = new FileEntry
                             {
@@ -253,9 +364,10 @@ public sealed class TurboFileScanner : IFileScanner
                                 CreatedUtc = createUtc,
                                 ModifiedUtc = modUtc,
                                 AccessedUtc = modUtc,
-                                Attributes = rec.IsHidden == true ? FileAttributes.Hidden : FileAttributes.Normal,
+                                Attributes = attributes,
                                 Category = FileTypeCategorizor.Categorize(ext),
-                                IsReparsePoint = false,
+                                Identity = ReadIdentity(rec),
+                                IsReparsePoint = (attributes & FileAttributes.ReparsePoint) != 0,
                             };
                             fileBuffer.Add(fe);
                             fileCount++;
@@ -263,13 +375,13 @@ public sealed class TurboFileScanner : IFileScanner
 
                             var parentDir = Path.GetDirectoryName(rec.Path);
                             if (parentDir is not null)
+                            {
                                 parentSizes[parentDir] = parentSizes.GetValueOrDefault(parentDir) + (long)rec.Size;
+                                Increment(parentFileCounts, parentDir);
+                            }
 
                             if (fileBuffer.Count >= 500)
-                            {
-                                await _repo.InsertFileEntriesAsync([.. fileBuffer], cancellationToken);
-                                fileBuffer.Clear();
-                            }
+                                await FlushFileBufferAsync(abort.Token).ConfigureAwait(false);
                         }
 
                         // Report progress every ~300 ms.
@@ -289,21 +401,29 @@ public sealed class TurboFileScanner : IFileScanner
                     }
 
                     // Flush remaining buffers after the channel is drained.
-                    if (fileBuffer.Count > 0) await _repo.InsertFileEntriesAsync([.. fileBuffer], cancellationToken);
-                    if (folderBuffer.Count > 0) await _repo.UpsertFolderEntriesAsync([.. folderBuffer], cancellationToken);
+                    await FlushFileBufferAsync(abort.Token).ConfigureAwait(false);
+                    await FlushFolderBufferAsync(abort.Token).ConfigureAwait(false);
                 }
                 catch
                 {
                     abort.Cancel();
                     throw;
                 }
-            }, CancellationToken.None);
+            });
 
             // Run producer and consumer concurrently — this is the key fix.
             await Task.WhenAll(producer, consumer);
 
-            await process.WaitForExitAsync(CancellationToken.None);
-            await stderrTask;
+            // A native process can close stdout and remain alive. Continue to
+            // honor caller cancellation while waiting for its actual exit.
+            await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
+            await stderrTask.WaitAsync(cancellationToken).ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
+
+            // Folder identity rows are streamed as zero-value placeholders.
+            // Persist their final direct metrics exactly once before any
+            // terminal session state is written.
+            await FlushPersistedStateAsync(cancellationToken).ConfigureAwait(false);
 
             if (process.ExitCode != 0)
             {
@@ -314,11 +434,12 @@ public sealed class TurboFileScanner : IFileScanner
                     Status = ScanStatus.Failed,
                     CompletedUtc = DateTime.UtcNow,
                     ErrorMessage = $"turbo-scanner.exe exited with code {process.ExitCode}",
-                    TotalFiles = fileCount,
-                    TotalFolders = folderCount,
-                    TotalSizeBytes = totalBytes,
+                    TotalFiles = persistedFileCount,
+                    TotalFolders = persistedFolderCount,
+                    TotalSizeBytes = persistedBytes,
                 };
-                await _repo.UpdateSessionAsync(failed, CancellationToken.None);
+                await UpdateFolderTotalsAsync(cancellationToken).ConfigureAwait(false);
+                await _repo.UpdateSessionAsync(failed, cancellationToken).ConfigureAwait(false);
                 return failed;
             }
 
@@ -333,12 +454,7 @@ public sealed class TurboFileScanner : IFileScanner
                 IsComplete = false,
             });
 
-            var allFolders = await _repo.GetAllFolderPathsForSessionAsync(session.Id, cancellationToken);
-            var patchedFolders = allFolders
-                .Select(f => f with { DirectSizeBytes = parentSizes.GetValueOrDefault(f.FullPath, 0L) })
-                .ToList();
-            var totals = FolderSizeAggregator.Compute(patchedFolders);
-            await _repo.UpdateFolderTotalsAsync(session.Id, totals, cancellationToken);
+            await UpdateFolderTotalsAsync(cancellationToken).ConfigureAwait(false);
 
             if (_errorRepo is not null)
             {
@@ -347,18 +463,18 @@ public sealed class TurboFileScanner : IFileScanner
                     errors = [.. stderrErrors];
 
                 if (errors.Count > 0)
-                    await _errorRepo.LogErrorsAsync(session.Id, errors, CancellationToken.None);
+                    await _errorRepo.LogErrorsAsync(session.Id, errors, cancellationToken).ConfigureAwait(false);
             }
 
             var completed = session with
             {
                 Status = ScanStatus.Completed,
                 CompletedUtc = DateTime.UtcNow,
-                TotalFiles = fileCount,
-                TotalFolders = folderCount,
-                TotalSizeBytes = totalBytes,
+                TotalFiles = persistedFileCount,
+                TotalFolders = persistedFolderCount,
+                TotalSizeBytes = persistedBytes,
             };
-            await _repo.UpdateSessionAsync(completed, cancellationToken);
+            await _repo.UpdateSessionAsync(completed, cancellationToken).ConfigureAwait(false);
 
             progress.Report(new ScanProgress
             {
@@ -373,55 +489,170 @@ public sealed class TurboFileScanner : IFileScanner
             _logger.LogInformation("Turbo scan {Id} complete. Files={F} Size={S}", session.Id, fileCount, totalBytes);
             return completed;
         }
-        catch (OperationCanceledException)
+        catch (Exception) when (cancellationToken.IsCancellationRequested)
         {
-            await KillProcessSafelyAsync(process);
-
-            var cancelled = session with
+            abort.Cancel();
+            try
             {
-                Status = ScanStatus.Cancelled,
-                CompletedUtc = DateTime.UtcNow,
-                TotalFiles = fileCount,
-                TotalFolders = folderCount,
-                TotalSizeBytes = totalBytes,
-            };
-            await _repo.UpdateSessionAsync(cancelled, CancellationToken.None);
-            _logger.LogWarning("Turbo scan {Id} cancelled — process killed", session.Id);
-            return cancelled;
+                await TerminateProcessAsync(process, processStarted).ConfigureAwait(false);
+                await ObserveTaskAfterProcessExitAsync(stderrTask).ConfigureAwait(false);
+
+                using var finalization = new CancellationTokenSource(TimeSpan.FromMinutes(2));
+                await FlushPersistedStateAsync(finalization.Token).ConfigureAwait(false);
+                await UpdateFolderTotalsAsync(finalization.Token).ConfigureAwait(false);
+
+                var cancelled = session with
+                {
+                    Status = ScanStatus.Cancelled,
+                    CompletedUtc = DateTime.UtcNow,
+                    TotalFiles = persistedFileCount,
+                    TotalFolders = persistedFolderCount,
+                    TotalSizeBytes = persistedBytes,
+                };
+                await _repo.UpdateSessionAsync(cancelled, finalization.Token).ConfigureAwait(false);
+                _logger.LogWarning("Turbo scan {Id} cancelled — process terminated", session.Id);
+                return cancelled;
+            }
+            catch (Exception finalizationException)
+            {
+                _logger.LogError(finalizationException,
+                    "Turbo scan {Id} cancellation finalization failed", session.Id);
+
+                using var terminalUpdate = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+                var failed = session with
+                {
+                    Status = ScanStatus.Failed,
+                    CompletedUtc = DateTime.UtcNow,
+                    ErrorMessage = $"Cancellation finalization failed: {finalizationException.Message}",
+                    TotalFiles = persistedFileCount,
+                    TotalFolders = persistedFolderCount,
+                    TotalSizeBytes = persistedBytes,
+                };
+                await _repo.UpdateSessionAsync(failed, terminalUpdate.Token).ConfigureAwait(false);
+                return failed;
+            }
         }
         catch (Exception ex)
         {
-            await KillProcessSafelyAsync(process);
+            abort.Cancel();
+            try
+            {
+                await TerminateProcessAsync(process, processStarted).ConfigureAwait(false);
+                await ObserveTaskAfterProcessExitAsync(stderrTask).ConfigureAwait(false);
+            }
+            catch (Exception terminationException)
+            {
+                _logger.LogError(terminationException,
+                    "Failed to terminate turbo-scanner process for scan {Id}", session.Id);
+            }
 
             _logger.LogError(ex, "Turbo scan {Id} failed", session.Id);
+
+            using var failureFinalization = new CancellationTokenSource(TimeSpan.FromMinutes(2));
+            try
+            {
+                await FlushPersistedStateAsync(failureFinalization.Token).ConfigureAwait(false);
+                await UpdateFolderTotalsAsync(failureFinalization.Token).ConfigureAwait(false);
+            }
+            catch (Exception persistenceException)
+            {
+                _logger.LogError(persistenceException,
+                    "Failed to persist partial turbo scan {Id}", session.Id);
+            }
+
             var failed = session with
             {
                 Status = ScanStatus.Failed,
                 CompletedUtc = DateTime.UtcNow,
                 ErrorMessage = ex.Message,
+                TotalFiles = persistedFileCount,
+                TotalFolders = persistedFolderCount,
+                TotalSizeBytes = persistedBytes,
             };
-            await _repo.UpdateSessionAsync(failed, CancellationToken.None);
+            using var terminalUpdate = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+            await _repo.UpdateSessionAsync(failed, terminalUpdate.Token).ConfigureAwait(false);
             throw;
+        }
+        finally
+        {
+            cancellationRegistration.Dispose();
+            abort.Cancel();
         }
     }
 
-    /// <summary>
-    /// Kills the process if still running, awaits exit, and suppresses any
-    /// errors from an already-exited process. Uses Kill(entireProcessTree: true)
-    /// to clean up any child processes spawned by turbo-scanner.
-    /// </summary>
-    private static async Task KillProcessSafelyAsync(Process process)
+    internal static ProcessStartInfo CreateDefaultProcessStartInfo(ScanOptions options)
+    {
+        var psi = new ProcessStartInfo(BinaryPath)
+        {
+            // --skip-hidden prunes hidden files AND hidden directory subtrees
+            // during native enumeration (contract v2), matching the managed
+            // scanner's EnumerationOptions.AttributesToSkip semantics.
+            ArgumentList =
+            {
+                "--path", options.RootPath,
+                "--threads", options.MaxParallelism.ToString(CultureInfo.InvariantCulture),
+            },
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            StandardOutputEncoding = Encoding.UTF8,
+            StandardErrorEncoding = Encoding.UTF8,
+        };
+
+        if (!options.DeepScan && !options.IncludeHiddenFiles)
+            psi.ArgumentList.Add("--skip-hidden");
+
+        if (options.FollowSymlinks)
+            psi.ArgumentList.Add("--follow-links");
+
+        return psi;
+    }
+
+    private static void TryKillProcess(Process process)
     {
         try
         {
             if (!process.HasExited)
-            {
                 process.Kill(entireProcessTree: true);
-                await process.WaitForExitAsync(CancellationToken.None).ConfigureAwait(false);
-            }
         }
-        catch (InvalidOperationException) { /* already exited */ }
-        catch (SystemException) { /* process handle invalid */ }
+        catch (InvalidOperationException) { /* not started or already exited */ }
+        catch (SystemException) { /* final awaited termination reports failure */ }
+    }
+
+    private static async Task TerminateProcessAsync(Process process, bool processStarted)
+    {
+        if (!processStarted)
+            return;
+
+        TryKillProcess(process);
+
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        try
+        {
+            await process.WaitForExitAsync(timeout.Token).ConfigureAwait(false);
+        }
+        catch (InvalidOperationException)
+        {
+            // Process was already exited or its handle has been released.
+        }
+        catch (OperationCanceledException) when (timeout.IsCancellationRequested)
+        {
+            throw new TimeoutException("turbo-scanner.exe did not exit after termination.");
+        }
+    }
+
+    private static async Task ObserveTaskAfterProcessExitAsync(Task task)
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        try
+        {
+            await task.WaitAsync(timeout.Token).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is OperationCanceledException or ObjectDisposedException or IOException)
+        {
+            // Killing the native process closes redirected pipes abruptly.
+        }
     }
 
     public IAsyncEnumerable<FileEntry> GetLargestFilesAsync(
@@ -459,6 +690,9 @@ public sealed class TurboFileScanner : IFileScanner
     /// </summary>
     private static bool IsRecordHidden(TurboRecord rec)
     {
+        if (rec.Attributes is { } attributes)
+            return (unchecked((FileAttributes)attributes) & FileAttributes.Hidden) != 0;
+
         if (rec.IsHidden is { } hidden)
             return hidden;
 
@@ -472,14 +706,95 @@ public sealed class TurboFileScanner : IFileScanner
         }
     }
 
+    private static bool HasAttribute(TurboRecord rec, FileAttributes attribute) =>
+        (ReadAttributes(rec) & attribute) != 0;
+
+    private static FileAttributes ReadAttributes(TurboRecord rec) =>
+        rec.Attributes is { } attributes
+            ? unchecked((FileAttributes)attributes)
+            : rec.IsHidden == true
+                ? FileAttributes.Hidden
+                : FileAttributes.Normal;
+
+    private static DateTime ReadUtcTimestamp(long? exactTicks, long legacyUnixSeconds)
+    {
+        if (exactTicks is { } ticks)
+        {
+            if (ticks < DateTime.MinValue.Ticks || ticks > DateTime.MaxValue.Ticks)
+                throw new JsonException($"Turbo scanner emitted invalid UTC ticks: {ticks}.");
+
+            return new DateTime(ticks, DateTimeKind.Utc);
+        }
+
+        return DateTimeOffset.FromUnixTimeSeconds(legacyUnixSeconds).UtcDateTime;
+    }
+
+    private static FileIdentity? ReadIdentity(TurboRecord rec) =>
+        rec.VolumeSerial is { } volumeSerial && rec.FileIndex is { } fileIndex
+            ? new FileIdentity(
+                volumeSerial.ToString("X8", CultureInfo.InvariantCulture),
+                fileIndex)
+            : null;
+
+    private static RootBoundaryLease AcquireRootBoundaryLease(string rootPath)
+    {
+        var paths = new Stack<string>();
+        for (var current = new DirectoryInfo(rootPath); current is not null; current = current.Parent)
+            paths.Push(current.FullName);
+
+        var guards = new List<DirectoryReadTraversalGuard>(paths.Count);
+        try
+        {
+            while (paths.TryPop(out var path))
+            {
+                var guard = DirectoryTraversalInterop.TryOpenNoFollowForReadTraversal(path)
+                    ?? throw new DirectoryNotFoundException(
+                        $"Scan root ancestry disappeared before native traversal: {path}");
+                if (guard.IsReparsePoint)
+                {
+                    guard.Dispose();
+                    throw new InvalidOperationException(
+                        $"Scan root ancestry contains a reparse point and following links is disabled: {path}");
+                }
+
+                guards.Add(guard);
+            }
+
+            return new RootBoundaryLease(guards);
+        }
+        catch
+        {
+            for (var index = guards.Count - 1; index >= 0; index--)
+                guards[index].Dispose();
+            throw;
+        }
+    }
+
     private sealed class TurboRecord
     {
         [JsonPropertyName("path")] public string Path { get; set; } = string.Empty;
         [JsonPropertyName("size")] public ulong Size { get; set; }
         [JsonPropertyName("modified_unix")] public long ModifiedUnix { get; set; }
         [JsonPropertyName("created_unix")] public long CreatedUnix { get; set; }
+        [JsonPropertyName("modified_utc_ticks")] public long? ModifiedUtcTicks { get; set; }
+        [JsonPropertyName("created_utc_ticks")] public long? CreatedUtcTicks { get; set; }
+        [JsonPropertyName("attributes")] public uint? Attributes { get; set; }
+        [JsonPropertyName("volume_serial")] public uint? VolumeSerial { get; set; }
+        [JsonPropertyName("file_index")] public ulong? FileIndex { get; set; }
         [JsonPropertyName("is_dir")] public bool IsDir { get; set; }
         // Contract v2; null when a v1 binary produced the record.
         [JsonPropertyName("is_hidden")] public bool? IsHidden { get; set; }
+    }
+
+    private sealed class RootBoundaryLease(IReadOnlyList<DirectoryReadTraversalGuard> guards) : IDisposable
+    {
+        internal bool AllComponentsReplacementGuarded =>
+            guards.All(static guard => guard.BlocksReplacement);
+
+        public void Dispose()
+        {
+            for (var index = guards.Count - 1; index >= 0; index--)
+                guards[index].Dispose();
+        }
     }
 }

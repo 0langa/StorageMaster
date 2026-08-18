@@ -6,6 +6,8 @@ namespace StorageMaster.UI.Pages;
 
 public sealed partial class DuplicatesPage : Page
 {
+    private CancellationTokenSource? _navigationCts;
+
     public DuplicatesViewModel ViewModel { get; }
 
     public DuplicatesPage()
@@ -21,13 +23,30 @@ public sealed partial class DuplicatesPage : Page
     protected override async void OnNavigatedTo(NavigationEventArgs e)
     {
         base.OnNavigatedTo(e);
+        _navigationCts?.Cancel();
+        _navigationCts?.Dispose();
+        _navigationCts = new CancellationTokenSource();
         try
         {
-            await ViewModel.InitializeAsync(e.Parameter is long sessionId ? sessionId : null);
+            await ViewModel.InitializeAsync(
+                e.Parameter is long sessionId ? sessionId : null,
+                _navigationCts.Token);
+        }
+        catch (OperationCanceledException)
+        {
         }
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine(ex);
         }
+    }
+
+    protected override void OnNavigatedFrom(NavigationEventArgs e)
+    {
+        _navigationCts?.Cancel();
+        _navigationCts?.Dispose();
+        _navigationCts = null;
+        ViewModel.CancelBackgroundWork();
+        base.OnNavigatedFrom(e);
     }
 }

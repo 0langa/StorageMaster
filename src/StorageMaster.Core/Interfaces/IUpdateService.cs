@@ -44,10 +44,12 @@ public interface IUpdateService
         CancellationToken ct = default);
 
     /// <summary>
-    /// Launches the installer at <paramref name="installerPath"/> elevated
-    /// (<c>runas</c>) without a silent flag so the user sees the Inno Setup UI.
-    /// Returns <c>true</c> if the process started successfully.
+    /// Re-verifies and launches the installer at <paramref name="installerPath"/>
+    /// elevated (<c>runas</c>) without a silent flag so the user sees the Inno
+    /// Setup UI. Returns <c>true</c> if the process started successfully.
     /// The caller is responsible for exiting the application afterwards.
     /// </summary>
-    bool LaunchInstaller(string installerPath);
+    Task<bool> LaunchInstallerAsync(
+        string installerPath,
+        CancellationToken ct = default);
 }

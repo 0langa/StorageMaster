@@ -20,7 +20,7 @@ public sealed class ScanErrorRepository : IScanErrorRepository
         await _db.WriteLock.WaitAsync(ct);
         try
         {
-            var conn = await _db.GetConnectionAsync(ct);
+            await using var conn = await _db.GetConnectionAsync(ct);
             using var tx = await conn.BeginTransactionAsync(ct);
             using var cmd = conn.CreateCommand();
             cmd.Transaction = (SqliteTransaction)tx;
@@ -66,7 +66,7 @@ public sealed class ScanErrorRepository : IScanErrorRepository
         int limit,
         CancellationToken ct = default)
     {
-        var conn = await _db.GetConnectionAsync(ct);
+        await using var conn = await _db.GetConnectionAsync(ct);
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
             SELECT Id, SessionId, Path, ErrorType, Message, OccurredAt
@@ -89,7 +89,7 @@ public sealed class ScanErrorRepository : IScanErrorRepository
                 Path = reader.GetString(2),
                 ErrorType = reader.GetString(3),
                 Message = reader.GetString(4),
-                OccurredAt = DateTime.Parse(reader.GetString(5)),
+                OccurredAt = UtcTimestamp.Parse(reader.GetString(5)),
             });
         }
         return list;
@@ -97,7 +97,7 @@ public sealed class ScanErrorRepository : IScanErrorRepository
 
     public async Task<long> CountErrorsForSessionAsync(long sessionId, CancellationToken ct = default)
     {
-        var conn = await _db.GetConnectionAsync(ct);
+        await using var conn = await _db.GetConnectionAsync(ct);
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
             SELECT COUNT(*)

@@ -25,6 +25,7 @@ public sealed class SpaceMapRepositoryTests : IAsyncDisposable
     [Fact]
     public async Task GetFolderChildrenWithSizes_ReturnsDirectChildrenOnly()
     {
+        var modifiedUtc = new DateTime(2025, 8, 17, 12, 34, 56, DateTimeKind.Utc).AddTicks(7_654_321);
         var session = await CreateCompletedSessionAsync(@"C:\Root");
         await _scanRepository.UpsertFolderEntriesAsync([
             MakeFolder(session.Id, @"C:\Root", 10_000),
@@ -33,7 +34,7 @@ public sealed class SpaceMapRepositoryTests : IAsyncDisposable
             MakeFolder(session.Id, @"C:\Root\B", 2_000),
         ]);
         await _scanRepository.InsertFileEntriesAsync([
-            MakeFile(session.Id, @"C:\Root\top.bin", 1_000),
+            MakeFile(session.Id, @"C:\Root\top.bin", 1_000) with { ModifiedUtc = modifiedUtc },
             MakeFile(session.Id, @"C:\Root\A\nested.bin", 2_000),
         ]);
 
@@ -48,6 +49,69 @@ public sealed class SpaceMapRepositoryTests : IAsyncDisposable
             .Should()
             .BeEquivalentTo([@"C:\Root\A", @"C:\Root\B", @"C:\Root\top.bin"]);
         children.Should().OnlyContain(static node => node.FullPath != @"C:\Root\A\Nested");
+        AssertUtcTimestamp(
+            children.Single(static node => node.FullPath == @"C:\Root\top.bin").ModifiedUtc!.Value,
+            modifiedUtc);
+    }
+
+    [Fact]
+    public async Task GetFolderChildrenWithSizes_AppliesLimitAcrossFoldersAndFiles()
+    {
+        var session = await CreateCompletedSessionAsync(@"C:\Root");
+        await _scanRepository.UpsertFolderEntriesAsync([
+            MakeFolder(session.Id, @"C:\Root", 20_000),
+            MakeFolder(session.Id, @"C:\Root\Small", 1_000),
+            MakeFolder(session.Id, @"C:\Root\Medium", 2_000),
+        ]);
+        await _scanRepository.InsertFileEntriesAsync([
+            MakeFile(session.Id, @"C:\Root\huge.bin", 10_000),
+        ]);
+
+        var children = await _spaceMapRepository.GetFolderChildrenWithSizesAsync(
+            session.Id,
+            @"C:\Root",
+            kindFilter: null,
+            minimumSizeBytes: 0,
+            limit: 2);
+
+        children.Select(static node => node.FullPath).Should().Equal([
+            @"C:\Root\huge.bin",
+            @"C:\Root\Medium",
+        ]);
+    }
+
+    [Fact]
+    public async Task SpaceMapPathQueries_TreatPercentAndUnderscoreAsLiteralPathCharacters()
+    {
+        var session = await CreateCompletedSessionAsync(@"C:\Scan");
+        await _scanRepository.UpsertFolderEntriesAsync([
+            MakeFolder(session.Id, @"C:\Scan", 20_000),
+            MakeFolder(session.Id, @"C:\Scan\Bucket_%", 8_000),
+            MakeFolder(session.Id, @"C:\Scan\Bucket_%\Child", 2_000),
+            MakeFolder(session.Id, @"C:\Scan\BucketX\Wrong", 5_000),
+        ]);
+        await _scanRepository.InsertFileEntriesAsync([
+            MakeFile(session.Id, @"C:\Scan\Bucket_%\literal.bin", 3_000),
+            MakeFile(session.Id, @"C:\Scan\BucketX\wrong.bin", 4_000),
+        ]);
+
+        var children = await _spaceMapRepository.GetFolderChildrenWithSizesAsync(
+            session.Id,
+            @"C:\Scan\Bucket_%",
+            kindFilter: null,
+            minimumSizeBytes: 0,
+            limit: 20);
+        var largestFiles = await _spaceMapRepository.GetLargestFilesUnderFolderAsync(
+            session.Id,
+            @"C:\Scan\Bucket_%",
+            limit: 20);
+
+        children.Select(static node => node.FullPath).Should().BeEquivalentTo([
+            @"C:\Scan\Bucket_%\Child",
+            @"C:\Scan\Bucket_%\literal.bin",
+        ]);
+        largestFiles.Select(static node => node.FullPath).Should().Equal(
+            @"C:\Scan\Bucket_%\literal.bin");
     }
 
     [Fact]
@@ -62,6 +126,8 @@ public sealed class SpaceMapRepositoryTests : IAsyncDisposable
 
         comparable.Should().NotBeNull();
         comparable!.Id.Should().Be(previous.Id);
+        AssertUtcTimestamp(comparable.StartedUtc, previous.StartedUtc);
+        AssertUtcTimestamp(comparable.CompletedUtc!.Value, previous.CompletedUtc!.Value);
     }
 
     [Fact]
@@ -144,4 +210,10 @@ public sealed class SpaceMapRepositoryTests : IAsyncDisposable
         Attributes = FileAttributes.Normal,
         Category = FileTypeCategory.Unknown,
     };
+
+    private static void AssertUtcTimestamp(DateTime actual, DateTime expected)
+    {
+        actual.Kind.Should().Be(DateTimeKind.Utc);
+        actual.Ticks.Should().Be(expected.Ticks);
+    }
 }

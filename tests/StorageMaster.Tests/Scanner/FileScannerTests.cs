@@ -10,6 +10,7 @@ namespace StorageMaster.Tests.Scanner;
 public sealed class FileScannerTests
 {
     private readonly Mock<IScanRepository> _repoMock = new();
+    private readonly Mock<IFileIdentityProvider> _identityProvider = new();
     private readonly FileScanner _scanner;
 
     public FileScannerTests()
@@ -46,7 +47,14 @@ public sealed class FileScannerTests
             .Setup(r => r.UpdateFolderTotalsAsync(It.IsAny<long>(), It.IsAny<IReadOnlyDictionary<string, long>>(), It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
 
-        _scanner = new FileScanner(_repoMock.Object, NullLogger<FileScanner>.Instance);
+        _identityProvider
+            .Setup(provider => provider.GetIdentityAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new FileIdentity("TESTVOL", 123));
+
+        _scanner = new FileScanner(
+            _repoMock.Object,
+            NullLogger<FileScanner>.Instance,
+            _identityProvider.Object);
     }
 
     [Fact]
@@ -64,6 +72,37 @@ public sealed class FileScannerTests
 
             session.Status.Should().Be(ScanStatus.Completed);
             session.TotalFiles.Should().BeGreaterThanOrEqualTo(5);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task ScanAsync_PersistsStableIdentityForEveryDiscoveredFile()
+    {
+        var root = CreateTempDir(files: 3, subdirs: 0);
+        var inserted = new List<FileEntry>();
+        _repoMock
+            .Setup(r => r.InsertFileEntriesAsync(
+                It.IsAny<IReadOnlyList<FileEntry>>(),
+                It.IsAny<CancellationToken>()))
+            .Callback<IReadOnlyList<FileEntry>, CancellationToken>((entries, _) => inserted.AddRange(entries))
+            .Returns(Task.CompletedTask);
+
+        try
+        {
+            await _scanner.ScanAsync(
+                new ScanOptions { RootPath = root, MaxParallelism = 1 },
+                new Progress<ScanProgress>());
+
+            inserted.Should().HaveCount(3);
+            inserted.Should().OnlyContain(static entry =>
+                entry.Identity == new FileIdentity("TESTVOL", 123));
+            _identityProvider.Verify(provider => provider.GetIdentityAsync(
+                It.IsAny<string>(),
+                It.IsAny<CancellationToken>()), Times.Exactly(3));
         }
         finally
         {
@@ -415,7 +454,293 @@ public sealed class FileScannerTests
         }
     }
 
+    [Fact]
+    public async Task ScanAsync_CancelledWrite_RetriesBufferedRowsAndReportsPersistedCounts()
+    {
+        var root = CreateTempDir(files: 12, subdirs: 0);
+        using var cts = new CancellationTokenSource();
+        var insertedFiles = new List<FileEntry>();
+        var insertedFolders = new List<FolderEntry>();
+        var insertTokens = new List<CancellationToken>();
+        ScanSession? terminalSession = null;
+        var insertAttempts = 0;
+
+        _repoMock
+            .Setup(r => r.InsertFileEntriesAsync(
+                It.IsAny<IReadOnlyList<FileEntry>>(), It.IsAny<CancellationToken>()))
+            .Returns<IReadOnlyList<FileEntry>, CancellationToken>((entries, token) =>
+            {
+                insertTokens.Add(token);
+                if (Interlocked.Increment(ref insertAttempts) == 1)
+                {
+                    cts.Cancel();
+                    return Task.FromCanceled(cts.Token);
+                }
+
+                insertedFiles.AddRange(entries);
+                return Task.CompletedTask;
+            });
+        _repoMock
+            .Setup(r => r.UpsertFolderEntriesAsync(
+                It.IsAny<IReadOnlyList<FolderEntry>>(), It.IsAny<CancellationToken>()))
+            .Callback<IReadOnlyList<FolderEntry>, CancellationToken>((entries, _) =>
+                insertedFolders.AddRange(entries))
+            .Returns(Task.CompletedTask);
+        _repoMock
+            .Setup(r => r.UpdateSessionAsync(It.IsAny<ScanSession>(), It.IsAny<CancellationToken>()))
+            .Callback<ScanSession, CancellationToken>((updated, _) => terminalSession = updated)
+            .Returns(Task.CompletedTask);
+
+        try
+        {
+            var result = await _scanner.ScanAsync(new ScanOptions
+            {
+                RootPath = root,
+                MaxParallelism = 1,
+                DbBatchSize = 10,
+            }, new Progress<ScanProgress>(), cts.Token);
+
+            result.Status.Should().Be(ScanStatus.Cancelled);
+            insertedFiles.Should().HaveCount(12);
+            insertedFiles.Select(static entry => entry.FullPath).Should().OnlyHaveUniqueItems();
+            insertedFolders.Should().ContainSingle();
+            result.TotalFiles.Should().Be(insertedFiles.Count);
+            result.TotalFolders.Should().Be(insertedFolders.Count);
+            result.TotalSizeBytes.Should().Be(insertedFiles.Sum(static entry => entry.SizeBytes));
+            terminalSession.Should().Be(result);
+            insertTokens.Should().HaveCount(2);
+            insertTokens[1].CanBeCanceled.Should().BeTrue(
+                "partial-result finalization must be bounded instead of using CancellationToken.None");
+            insertTokens[1].Should().NotBe(cts.Token,
+                "the caller's cancelled token cannot persist buffered partial results");
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task ScanAsync_CancellationFinalizationFailure_ReturnsFailedWithConfirmedCounts()
+    {
+        var root = CreateTempDir(files: 12, subdirs: 0);
+        using var cts = new CancellationTokenSource();
+        var insertAttempts = 0;
+
+        _repoMock
+            .Setup(r => r.InsertFileEntriesAsync(
+                It.IsAny<IReadOnlyList<FileEntry>>(), It.IsAny<CancellationToken>()))
+            .Returns<IReadOnlyList<FileEntry>, CancellationToken>((_, _) =>
+            {
+                if (Interlocked.Increment(ref insertAttempts) == 1)
+                {
+                    cts.Cancel();
+                    return Task.FromCanceled(cts.Token);
+                }
+
+                return Task.FromException(new IOException("database unavailable during finalization"));
+            });
+
+        try
+        {
+            var result = await _scanner.ScanAsync(new ScanOptions
+            {
+                RootPath = root,
+                MaxParallelism = 1,
+                DbBatchSize = 10,
+            }, new Progress<ScanProgress>(), cts.Token);
+
+            result.Status.Should().Be(ScanStatus.Failed);
+            result.ErrorMessage.Should().Contain("Cancellation finalization failed");
+            result.TotalFiles.Should().Be(0);
+            result.TotalFolders.Should().Be(0);
+            result.TotalSizeBytes.Should().Be(0);
+            _repoMock.Verify(r => r.UpdateSessionAsync(
+                It.Is<ScanSession>(session =>
+                    session.Status == ScanStatus.Failed &&
+                    session.TotalFiles == 0 &&
+                    session.TotalFolders == 0 &&
+                    session.TotalSizeBytes == 0),
+                It.IsAny<CancellationToken>()), Times.Once);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task ScanAsync_RootJunctionWithFollowDisabled_FailsWithoutTraversingTarget()
+    {
+        var sandbox = Path.Combine(Path.GetTempPath(), $"sm-root-link-{Guid.NewGuid():N}");
+        var target = Path.Combine(sandbox, "target");
+        var link = Path.Combine(sandbox, "scan-root");
+        Directory.CreateDirectory(target);
+        var sentinel = Path.Combine(target, "outside.txt");
+        await File.WriteAllTextAsync(sentinel, "must not be traversed");
+
+        try
+        {
+            CreateJunction(link, target).Should().BeTrue(
+                "the Windows scanner safety contract requires junction coverage");
+
+            Func<Task> act = () => _scanner.ScanAsync(new ScanOptions
+            {
+                RootPath = link,
+                FollowSymlinks = false,
+                MaxParallelism = 1,
+            }, new Progress<ScanProgress>());
+
+            await act.Should().ThrowAsync<InvalidOperationException>()
+                .WithMessage("*reparse point*");
+            File.Exists(sentinel).Should().BeTrue();
+            _repoMock.Verify(r => r.InsertFileEntriesAsync(
+                It.IsAny<IReadOnlyList<FileEntry>>(), It.IsAny<CancellationToken>()), Times.Never);
+            _repoMock.Verify(r => r.UpsertFolderEntriesAsync(
+                It.IsAny<IReadOnlyList<FolderEntry>>(), It.IsAny<CancellationToken>()), Times.Never);
+            _repoMock.Verify(r => r.UpdateSessionAsync(
+                It.Is<ScanSession>(session => session.Status == ScanStatus.Failed),
+                It.IsAny<CancellationToken>()), Times.Once);
+        }
+        finally
+        {
+            if (Directory.Exists(link))
+                Directory.Delete(link, recursive: false);
+            if (Directory.Exists(sandbox))
+                Directory.Delete(sandbox, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task ScanAsync_FollowSymlinks_JunctionLoopIsVisitedOnce()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"sm-loop-{Guid.NewGuid():N}");
+        var loop = Path.Combine(root, "loop");
+        Directory.CreateDirectory(root);
+        await File.WriteAllTextAsync(Path.Combine(root, "single.txt"), "one");
+        var insertedFiles = new List<FileEntry>();
+        var insertedFolders = new List<FolderEntry>();
+
+        _repoMock
+            .Setup(r => r.InsertFileEntriesAsync(
+                It.IsAny<IReadOnlyList<FileEntry>>(), It.IsAny<CancellationToken>()))
+            .Callback<IReadOnlyList<FileEntry>, CancellationToken>((entries, _) =>
+                insertedFiles.AddRange(entries))
+            .Returns(Task.CompletedTask);
+        _repoMock
+            .Setup(r => r.UpsertFolderEntriesAsync(
+                It.IsAny<IReadOnlyList<FolderEntry>>(), It.IsAny<CancellationToken>()))
+            .Callback<IReadOnlyList<FolderEntry>, CancellationToken>((entries, _) =>
+                insertedFolders.AddRange(entries))
+            .Returns(Task.CompletedTask);
+
+        try
+        {
+            CreateJunction(loop, root).Should().BeTrue(
+                "the Windows scanner safety contract requires junction-loop coverage");
+
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            var session = await _scanner.ScanAsync(new ScanOptions
+            {
+                RootPath = root,
+                FollowSymlinks = true,
+                MaxParallelism = 1,
+                DbBatchSize = 10,
+            }, new Progress<ScanProgress>(), cts.Token).WaitAsync(TimeSpan.FromSeconds(15));
+
+            session.Status.Should().Be(ScanStatus.Completed);
+            insertedFiles.Should().ContainSingle(entry => entry.FileName == "single.txt");
+            insertedFiles.Should().HaveCount(1,
+                "the loop target must not be scanned again under an expanding alias path");
+            insertedFolders.Should().ContainSingle(entry =>
+                string.Equals(entry.FullPath, root, StringComparison.OrdinalIgnoreCase));
+            session.TotalFiles.Should().Be(1);
+            session.TotalFolders.Should().Be(1);
+        }
+        finally
+        {
+            if (Directory.Exists(loop))
+                Directory.Delete(loop, recursive: false);
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task ScanAsync_FollowSymlinks_TraversesNonCyclicJunctionTarget()
+    {
+        var sandbox = Path.Combine(Path.GetTempPath(), $"sm-follow-link-{Guid.NewGuid():N}");
+        var root = Path.Combine(sandbox, "root");
+        var target = Path.Combine(sandbox, "target");
+        var link = Path.Combine(root, "linked-target");
+        Directory.CreateDirectory(root);
+        Directory.CreateDirectory(target);
+        await File.WriteAllTextAsync(Path.Combine(target, "linked.txt"), "follow me");
+        var insertedFiles = new List<FileEntry>();
+
+        _repoMock
+            .Setup(r => r.InsertFileEntriesAsync(
+                It.IsAny<IReadOnlyList<FileEntry>>(), It.IsAny<CancellationToken>()))
+            .Callback<IReadOnlyList<FileEntry>, CancellationToken>((entries, _) =>
+                insertedFiles.AddRange(entries))
+            .Returns(Task.CompletedTask);
+
+        try
+        {
+            CreateJunction(link, target).Should().BeTrue(
+                "the Windows scanner safety contract requires junction coverage");
+
+            var session = await _scanner.ScanAsync(new ScanOptions
+            {
+                RootPath = root,
+                FollowSymlinks = true,
+                MaxParallelism = 1,
+            }, new Progress<ScanProgress>());
+
+            session.Status.Should().Be(ScanStatus.Completed);
+            session.TotalFiles.Should().Be(1);
+            session.TotalFolders.Should().Be(2);
+            insertedFiles.Should().ContainSingle(entry =>
+                entry.FileName == "linked.txt" &&
+                ScanOptionValidator.IsPathEqualOrUnder(entry.FullPath, link));
+        }
+        finally
+        {
+            if (Directory.Exists(link))
+                Directory.Delete(link, recursive: false);
+            if (Directory.Exists(sandbox))
+                Directory.Delete(sandbox, recursive: true);
+        }
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────
+
+    private static bool CreateJunction(string junction, string target)
+    {
+        try
+        {
+            var startInfo = new System.Diagnostics.ProcessStartInfo(
+                "cmd.exe", $"/c mklink /J \"{junction}\" \"{target}\"")
+            {
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+            };
+            using var process = System.Diagnostics.Process.Start(startInfo)!;
+            if (!process.WaitForExit(5_000))
+            {
+                process.Kill(entireProcessTree: true);
+                return false;
+            }
+
+            return process.ExitCode == 0 && Directory.Exists(junction);
+        }
+        catch
+        {
+            return false;
+        }
+    }
 
     private static string CreateTempDir(int files, int subdirs)
     {

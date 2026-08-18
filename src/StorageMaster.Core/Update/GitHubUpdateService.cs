@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Net;
@@ -12,7 +13,7 @@ namespace StorageMaster.Core.Update;
 
 /// <summary>
 /// Checks the GitHub Releases API for a newer version of StorageMaster,
-/// downloads the installer asset, and launches it elevated for installation.
+/// downloads the installer asset, and launches its per-user installer.
 ///
 /// Design notes:
 ///   • Uses a single shared <see cref="HttpClient"/> (caller-owned, injected).
@@ -34,6 +35,9 @@ public sealed class GitHubUpdateService : IUpdateService
     private readonly ILogger<GitHubUpdateService> _logger;
     private readonly ISettingsRepository _settingsRepository;
     private readonly IInstallerTrustVerifier _installerTrustVerifier;
+    private readonly Func<ProcessStartInfo, int?> _installerLauncher;
+    private readonly ConcurrentDictionary<string, ValidatedInstaller> _validatedInstallers =
+        new(StringComparer.OrdinalIgnoreCase);
 
     /// <inheritdoc/>
     public UpdateInfo? LastCheckResult { get; private set; }
@@ -60,6 +64,23 @@ public sealed class GitHubUpdateService : IUpdateService
         ILogger<GitHubUpdateService> logger,
         ISettingsRepository settingsRepository,
         IInstallerTrustVerifier installerTrustVerifier)
+        : this(
+            http,
+            currentVersion,
+            logger,
+            settingsRepository,
+            installerTrustVerifier,
+            LaunchProcess)
+    {
+    }
+
+    internal GitHubUpdateService(
+        HttpClient http,
+        string currentVersion,
+        ILogger<GitHubUpdateService> logger,
+        ISettingsRepository settingsRepository,
+        IInstallerTrustVerifier installerTrustVerifier,
+        Func<ProcessStartInfo, int?> installerLauncher)
     {
         _http = http;
         _currentVersion = SemanticVersion.TryParseTag(currentVersion, out var parsed)
@@ -68,6 +89,7 @@ public sealed class GitHubUpdateService : IUpdateService
         _logger = logger;
         _settingsRepository = settingsRepository;
         _installerTrustVerifier = installerTrustVerifier;
+        _installerLauncher = installerLauncher;
     }
 
     // ── IUpdateService ────────────────────────────────────────────────────────
@@ -202,10 +224,34 @@ public sealed class GitHubUpdateService : IUpdateService
                 await dest.FlushAsync(ct).ConfigureAwait(false);
             }
 
-            if (File.Exists(destPath))
-                TryDeleteIfExists(destPath);
+            // Validate while payload still has its private .part name. An
+            // untrusted or truncated download must never appear at final,
+            // launchable installer path.
+            var tempInfo = new FileInfo(tempPath);
+            if (!tempInfo.Exists || tempInfo.Length == 0)
+            {
+                throw new UpdateException(
+                    UpdateFailureKind.MissingInstallerAsset,
+                    $"Downloaded file is empty or missing: {tempPath}");
+            }
 
-            File.Move(tempPath, destPath);
+            var actualDigest = await ComputeSha256HexAsync(tempPath, ct).ConfigureAwait(false);
+            if (!string.IsNullOrWhiteSpace(info.Sha256Digest))
+            {
+                var expected = NormalizeDigest(info.Sha256Digest);
+                if (!string.Equals(expected, actualDigest, StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new UpdateException(
+                        UpdateFailureKind.ChecksumMismatch,
+                        $"Checksum mismatch for downloaded installer. Expected {expected}, got {actualDigest}.");
+                }
+            }
+
+            await VerifyInstallerTrustAsync(tempPath, ct).ConfigureAwait(false);
+
+            File.Move(tempPath, destPath, overwrite: true);
+            _validatedInstallers[Path.GetFullPath(destPath)] =
+                new ValidatedInstaller(actualDigest, tempInfo.Length);
         }
         catch (TaskCanceledException ex) when (!ct.IsCancellationRequested)
         {
@@ -234,27 +280,7 @@ public sealed class GitHubUpdateService : IUpdateService
             throw;
         }
 
-        // Basic validation.
         var fi = new FileInfo(destPath);
-        if (!fi.Exists || fi.Length == 0)
-            throw new UpdateException(
-                UpdateFailureKind.MissingInstallerAsset,
-                $"Downloaded file is empty or missing: {destPath}");
-
-        if (!string.IsNullOrWhiteSpace(info.Sha256Digest))
-        {
-            var expected = NormalizeDigest(info.Sha256Digest);
-            var actual = await ComputeSha256HexAsync(destPath, ct).ConfigureAwait(false);
-            if (!string.Equals(expected, actual, StringComparison.OrdinalIgnoreCase))
-            {
-                LastFailureKind = UpdateFailureKind.ChecksumMismatch;
-                throw new UpdateException(
-                    UpdateFailureKind.ChecksumMismatch,
-                    $"Checksum mismatch for downloaded installer. Expected {expected}, got {actual}.");
-            }
-        }
-
-        await VerifyInstallerTrustAsync(destPath, ct).ConfigureAwait(false);
         PruneOldInstallers(downloadDir, destPath);
 
         _logger.LogInformation("Downloaded {Asset} ({Bytes:N0} bytes) to {Path}",
@@ -263,29 +289,81 @@ public sealed class GitHubUpdateService : IUpdateService
     }
 
     /// <inheritdoc/>
-    public bool LaunchInstaller(string installerPath)
+    public async Task<bool> LaunchInstallerAsync(
+        string installerPath,
+        CancellationToken ct = default)
     {
         LastFailureKind = null;
         try
         {
-            var psi = new ProcessStartInfo(installerPath)
+            var fullPath = Path.GetFullPath(installerPath);
+            if (!_validatedInstallers.TryGetValue(fullPath, out var expected))
             {
-                UseShellExecute = true,
-                Verb = "runas",   // elevation prompt (UAC)
-            };
-            var proc = Process.Start(psi);
-            if (proc is null)
-            {
-                _logger.LogError("Process.Start returned null for {Path}", installerPath);
+                LastFailureKind = UpdateFailureKind.InvalidSignature;
+                _logger.LogError(
+                    "Refused installer launch because {Path} was not validated by this updater session",
+                    fullPath);
                 return false;
             }
-            _logger.LogInformation("Installer launched (PID {Pid})", proc.Id);
+
+            // Deny writers and renames from re-verification through process
+            // creation. This closes normal path-swap window between trust
+            // validation and elevated launch.
+            await using var launchLock = new FileStream(
+                fullPath,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.Read,
+                bufferSize: 131072,
+                useAsync: true);
+
+            if (launchLock.Length != expected.Length)
+            {
+                LastFailureKind = UpdateFailureKind.ChecksumMismatch;
+                _logger.LogError("Refused installer launch because {Path} changed after download", fullPath);
+                return false;
+            }
+
+            var actualDigest = await ComputeSha256HexAsync(launchLock, ct).ConfigureAwait(false);
+            if (!string.Equals(actualDigest, expected.Sha256, StringComparison.OrdinalIgnoreCase))
+            {
+                LastFailureKind = UpdateFailureKind.ChecksumMismatch;
+                _logger.LogError("Refused installer launch because {Path} changed after download", fullPath);
+                return false;
+            }
+
+            await VerifyInstallerTrustAsync(fullPath, ct).ConfigureAwait(false);
+
+            // StorageMaster ships a per-user installer (PrivilegesRequired=lowest,
+            // installing under {localappdata}\Programs). Requesting elevation here
+            // would prompt for admin rights the install does not need, and — worse —
+            // would run the installer as a different user whose {localappdata} is
+            // not the one being upgraded. Launch unelevated and let the installer
+            // request elevation itself if a future build ever needs it.
+            var psi = new ProcessStartInfo(fullPath)
+            {
+                UseShellExecute = true,
+                WorkingDirectory = Path.GetDirectoryName(fullPath) ?? string.Empty,
+            };
+            var pid = _installerLauncher(psi);
+            if (pid is null)
+            {
+                _logger.LogError("Installer launch returned no process for {Path}", installerPath);
+                return false;
+            }
+            _logger.LogInformation("Installer launched (PID {Pid})", pid.Value);
             return true;
         }
         catch (System.ComponentModel.Win32Exception ex) when (ex.NativeErrorCode == 1223)
         {
             LastFailureKind = UpdateFailureKind.UserCancelledElevation;
             _logger.LogInformation("Installer elevation prompt was cancelled by the user.");
+            return false;
+        }
+        catch (UpdateException ex)
+        {
+            LastFailureKind = ex.Kind;
+            _logger.LogError(ex, "Refused installer launch after trust re-verification");
             return false;
         }
         catch (Exception ex)
@@ -297,6 +375,18 @@ public sealed class GitHubUpdateService : IUpdateService
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Default installer launcher: starts the process and returns its PID,
+    /// or <c>null</c> when the shell reused an existing process and returned none.
+    /// Tests substitute this through the internal constructor so no real process
+    /// is ever created.
+    /// </summary>
+    private static int? LaunchProcess(ProcessStartInfo startInfo)
+    {
+        using var process = Process.Start(startInfo);
+        return process?.Id;
+    }
 
     /// <summary>
     /// Strips a leading 'v' from the tag and parses into a <see cref="Version"/>.
@@ -440,6 +530,13 @@ public sealed class GitHubUpdateService : IUpdateService
             FileShare.Read,
             bufferSize: 131072,
             useAsync: true);
+        return await ComputeSha256HexAsync(stream, ct).ConfigureAwait(false);
+    }
+
+    private static async Task<string> ComputeSha256HexAsync(Stream stream, CancellationToken ct)
+    {
+        if (stream.CanSeek)
+            stream.Position = 0;
         var hash = await SHA256.HashDataAsync(stream, ct).ConfigureAwait(false);
         return Convert.ToHexString(hash).ToLowerInvariant();
     }
@@ -503,4 +600,6 @@ public sealed class GitHubUpdateService : IUpdateService
             // best-effort cleanup only
         }
     }
+
+    private sealed record ValidatedInstaller(string Sha256, long Length);
 }

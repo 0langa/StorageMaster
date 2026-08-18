@@ -4,8 +4,10 @@ using System.Text.Json;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
 using StorageMaster.Core.Interfaces;
 using StorageMaster.Core.Models;
+using StorageMaster.Core.Scheduling;
 using StorageMaster.Core.Update;
 using StorageMaster.UI.Infrastructure;
 
@@ -194,6 +196,9 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     // ── UI feedback ─────────────────────────────────────────────────────────
     [ObservableProperty] private string _savedMessage = string.Empty;
+    [ObservableProperty] private InfoBarSeverity _feedbackSeverity = InfoBarSeverity.Success;
+    [ObservableProperty] private bool _isLoaded;
+    [ObservableProperty] private string _loadError = string.Empty;
     [ObservableProperty] private bool _isPurgingHistory;
     [ObservableProperty] private string _defaultScanPathError = string.Empty;
     [ObservableProperty] private string _ffmpegPathError = string.Empty;
@@ -214,14 +219,18 @@ public sealed partial class SettingsViewModel : ObservableObject
     public string ScanHistoryRetentionLabel => $"Keep scan history for {ScanHistoryRetentionDays} days";
     public bool HasUpdateStatusMessage => !string.IsNullOrWhiteSpace(UpdateStatusMessage);
     public bool HasSavedMessage => !string.IsNullOrWhiteSpace(SavedMessage);
-    public bool CanPurgeHistory => !IsPurgingHistory;
+    public bool HasLoadError => !string.IsNullOrWhiteSpace(LoadError);
+    public bool CanPurgeHistory => IsLoaded && !IsPurgingHistory;
     public bool HasDefaultScanPathError => !string.IsNullOrWhiteSpace(DefaultScanPathError);
     public bool HasFfmpegPathError => !string.IsNullOrWhiteSpace(FfmpegPathError);
-    public bool CanSave => !HasDefaultScanPathError && !HasFfmpegPathError;
-    public bool CanExportDiagnostics => !IsExportingDiagnostics;
+    public bool CanSave => IsLoaded && !HasDefaultScanPathError && !HasFfmpegPathError;
+    public bool CanExportDiagnostics => IsLoaded && !IsExportingDiagnostics;
     public bool HasScheduledJobSelection => SelectedScheduledJob is not null;
-    public bool CanSaveScheduledJob => !IsSavingScheduledJob;
-    public bool CanDeleteScheduledJob => SelectedScheduledJob is not null && !IsSavingScheduledJob;
+    public bool CanSaveScheduledJob => IsLoaded && !IsSavingScheduledJob;
+    public bool CanDeleteScheduledJob => IsLoaded && SelectedScheduledJob is not null && !IsSavingScheduledJob;
+    public bool RequiresDestructiveScheduledJobConsent =>
+        ScheduledJobKind == StorageMaster.Core.Models.ScheduledJobKind.CleanupExecuteSafe &&
+        ScheduledJobEnabled;
     public string FfmpegDetectionText => BuildFfmpegDetectionText();
 
     public string SelectedCategoryTitle => SelectedCategory switch
@@ -289,6 +298,15 @@ public sealed partial class SettingsViewModel : ObservableObject
     partial void OnScanParallelismChanged(int value) => OnPropertyChanged(nameof(ScanParallelismLabel));
     partial void OnScanHistoryRetentionDaysChanged(int value) => OnPropertyChanged(nameof(ScanHistoryRetentionLabel));
     partial void OnSavedMessageChanged(string value) => OnPropertyChanged(nameof(HasSavedMessage));
+    partial void OnLoadErrorChanged(string value) => OnPropertyChanged(nameof(HasLoadError));
+    partial void OnIsLoadedChanged(bool value)
+    {
+        OnPropertyChanged(nameof(CanSave));
+        OnPropertyChanged(nameof(CanPurgeHistory));
+        OnPropertyChanged(nameof(CanExportDiagnostics));
+        OnPropertyChanged(nameof(CanSaveScheduledJob));
+        OnPropertyChanged(nameof(CanDeleteScheduledJob));
+    }
     partial void OnIsPurgingHistoryChanged(bool value) => OnPropertyChanged(nameof(CanPurgeHistory));
     partial void OnIsExportingDiagnosticsChanged(bool value) => OnPropertyChanged(nameof(CanExportDiagnostics));
     partial void OnIsSavingScheduledJobChanged(bool value)
@@ -297,6 +315,16 @@ public sealed partial class SettingsViewModel : ObservableObject
         OnPropertyChanged(nameof(CanDeleteScheduledJob));
     }
     partial void OnDefaultScanPathChanged(string value) => ValidateDefaultScanPath();
+    partial void OnScheduledJobKindChanged(ScheduledJobKind value)
+    {
+        if (value == StorageMaster.Core.Models.ScheduledJobKind.CleanupExecuteSafe &&
+            SelectedScheduledJob is null)
+            ScheduledJobEnabled = false;
+        OnPropertyChanged(nameof(RequiresDestructiveScheduledJobConsent));
+    }
+
+    partial void OnScheduledJobEnabledChanged(bool value) =>
+        OnPropertyChanged(nameof(RequiresDestructiveScheduledJobConsent));
     partial void OnFfmpegPathChanged(string value)
     {
         ValidateFfmpegPath();
@@ -319,9 +347,13 @@ public sealed partial class SettingsViewModel : ObservableObject
         ScheduledJobEnabled = value.Info.Job.Enabled;
     }
 
-    public async Task LoadAsync()
+    public async Task LoadAsync(CancellationToken cancellationToken = default)
     {
-        var s = await _repo.LoadAsync();
+        IsLoaded = false;
+        LoadError = string.Empty;
+        SavedMessage = string.Empty;
+
+        var s = await _repo.LoadAsync(cancellationToken);
         _loadedSettings = CloneSettings(s);
         ApplySettings(s);
 
@@ -329,7 +361,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         foreach (var p in s.ExcludedPaths)
             ExcludedPaths.Add(p);
 
-        await RefreshScheduledJobsAsync();
+        await RefreshScheduledJobsCoreAsync(cancellationToken);
         SelectedScheduledJob = ScheduledJobs.FirstOrDefault();
 
         ValidateDefaultScanPath();
@@ -342,6 +374,17 @@ public sealed partial class SettingsViewModel : ObservableObject
             UpdateStatusMessage = $"Update to {AvailableUpdate.Version.ToString(3)} is ready to download.";
 
         RefreshCategorySummaries();
+        IsLoaded = true;
+    }
+
+    public void ReportLoadFailure(Exception exception)
+    {
+        ArgumentNullException.ThrowIfNull(exception);
+        IsLoaded = false;
+        LoadError = exception.Message;
+        FeedbackSeverity = InfoBarSeverity.Error;
+        SavedMessage =
+            $"Settings could not be loaded. Editing is disabled to avoid overwriting stored values: {exception.Message}";
     }
 
     public void AddExcludedPath(string path)
@@ -358,6 +401,9 @@ public sealed partial class SettingsViewModel : ObservableObject
     [RelayCommand]
     private void OpenCategory(SettingsCategory category)
     {
+        if (!IsLoaded)
+            return;
+
         SelectedCategory = category;
         _editorSnapshot = CloneSettings(BuildSettings());
         EditorValidationMessage = string.Empty;
@@ -469,6 +515,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     [RelayCommand]
     private async Task SaveAsync()
     {
+        EditorValidationMessage = string.Empty;
         ValidateDefaultScanPath();
         ValidateFfmpegPath();
         OnPropertyChanged(nameof(CanSave));
@@ -478,23 +525,49 @@ public sealed partial class SettingsViewModel : ObservableObject
             return;
         }
 
-        // Atomic update: applies only the editor-owned properties onto the
-        // freshest stored settings, so concurrent writers (low-disk monitor,
-        // scheduler run-outcomes) are not clobbered by a stale whole snapshot.
-        var settings = await _repo.UpdateAsync(ApplyEditsTo);
-        _startupRegistration.SetEnabled(StartTrayOnLogin);
-        _loadedSettings = CloneSettings(settings);
-        _editorSnapshot = CloneSettings(settings);
-        RefreshCategorySummaries();
-        await ShowSavedMessageAsync("Settings saved.");
+        var persisted = false;
+        try
+        {
+            // Atomic update: applies only the editor-owned properties onto the
+            // freshest stored settings, so concurrent writers (low-disk monitor,
+            // scheduler run-outcomes) are not clobbered by a stale whole snapshot.
+            var settings = await _repo.UpdateAsync(ApplyEditsTo);
+            persisted = true;
+            _startupRegistration.SetEnabled(StartTrayOnLogin);
+            _loadedSettings = CloneSettings(settings);
+            _editorSnapshot = CloneSettings(settings);
+            RefreshCategorySummaries();
+            await ShowSavedMessageAsync("Settings saved.");
+        }
+        catch (Exception ex)
+        {
+            ReportOperationFailure(
+                persisted
+                    ? "Settings were stored, but Windows startup registration failed. Review the startup setting before retrying."
+                    : "Settings were not saved.",
+                ex);
+        }
     }
 
     [RelayCommand]
     private async Task ResetToDefaultsAsync()
     {
-        await _repo.SaveAsync(new AppSettings());
-        await LoadAsync();
-        await ShowSavedMessageAsync("Settings reset to defaults.");
+        if (!IsLoaded)
+            return;
+
+        try
+        {
+            await _repo.SaveAsync(new AppSettings());
+            await LoadAsync();
+            await ShowSavedMessageAsync("Settings reset to defaults.");
+        }
+        catch (Exception ex)
+        {
+            ReportOperationFailure(
+                "Settings reset did not complete. Reload Settings before editing again.",
+                ex);
+            IsLoaded = false;
+        }
     }
 
     // ── Update commands ───────────────────────────────────────────────────────
@@ -513,12 +586,12 @@ public sealed partial class SettingsViewModel : ObservableObject
             UpdateStatusMessage = info is not null
                 ? $"Update to {info.Version.ToString(3)} is available."
                 : "No compatible update is currently available.";
-            await _diagnostics.RecordAsync("updater", UpdateStatusMessage);
+            await RecordDiagnosticsBestEffortAsync(UpdateStatusMessage);
         }
         catch (Exception ex)
         {
             UpdateStatusMessage = $"Update check failed: {ex.Message}";
-            await _diagnostics.RecordAsync("updater", UpdateStatusMessage);
+            await RecordDiagnosticsBestEffortAsync(UpdateStatusMessage);
         }
         finally
         {
@@ -549,13 +622,13 @@ public sealed partial class SettingsViewModel : ObservableObject
 
             UpdateStatusMessage = "Launching installer…";
 
-            if (_updateService.LaunchInstaller(path))
+            if (await _updateService.LaunchInstallerAsync(path, _downloadCts.Token))
                 Application.Current.Exit();
             else
                 UpdateStatusMessage = _updateService.LastFailureKind == UpdateFailureKind.UserCancelledElevation
                     ? "Installer launch cancelled at the elevation prompt."
                     : "Could not launch installer. Run it manually from %TEMP%\\StorageMaster\\Updates\\.";
-            await _diagnostics.RecordAsync("updater", UpdateStatusMessage);
+            await RecordDiagnosticsBestEffortAsync(UpdateStatusMessage);
         }
         catch (OperationCanceledException)
         {
@@ -580,12 +653,12 @@ public sealed partial class SettingsViewModel : ObservableObject
                     "Download failed: updater refused a non-HTTPS download URL.",
                 _ => $"Download failed: {ex.Message}",
             };
-            await _diagnostics.RecordAsync("updater", UpdateStatusMessage);
+            await RecordDiagnosticsBestEffortAsync(UpdateStatusMessage);
         }
         catch (Exception ex)
         {
             UpdateStatusMessage = $"Download failed: {ex.Message}";
-            await _diagnostics.RecordAsync("updater", UpdateStatusMessage);
+            await RecordDiagnosticsBestEffortAsync(UpdateStatusMessage);
         }
         finally
         {
@@ -610,6 +683,9 @@ public sealed partial class SettingsViewModel : ObservableObject
     [RelayCommand]
     private async Task PurgeOldHistoryAsync()
     {
+        if (!IsLoaded)
+            return;
+
         IsPurgingHistory = true;
         try
         {
@@ -626,6 +702,12 @@ public sealed partial class SettingsViewModel : ObservableObject
                 ? $"Deleted {deletions.Length} old scan session(s)."
                 : "No scan history matched the current retention window.");
         }
+        catch (Exception ex)
+        {
+            ReportOperationFailure(
+                "History purge stopped. Some sessions may already have been deleted; refresh scan history before retrying.",
+                ex);
+        }
         finally
         {
             IsPurgingHistory = false;
@@ -635,11 +717,18 @@ public sealed partial class SettingsViewModel : ObservableObject
     [RelayCommand]
     private async Task ExportDiagnosticsAsync()
     {
+        if (!IsLoaded)
+            return;
+
         IsExportingDiagnostics = true;
         try
         {
             var bundlePath = await _diagnostics.ExportBundleAsync();
             await ShowSavedMessageAsync($"Diagnostics bundle exported: {bundlePath}", 4000);
+        }
+        catch (Exception ex)
+        {
+            ReportOperationFailure("Diagnostics export failed; no complete bundle was confirmed.", ex);
         }
         finally
         {
@@ -825,9 +914,31 @@ public sealed partial class SettingsViewModel : ObservableObject
     [RelayCommand]
     private async Task RefreshScheduledJobsAsync()
     {
+        if (!IsLoaded)
+            return;
+
+        try
+        {
+            await RefreshScheduledJobsCoreAsync();
+            await ShowSavedMessageAsync("Scheduled jobs refreshed.", 2000);
+        }
+        catch (Exception ex)
+        {
+            ReportOperationFailure(
+                "Scheduled jobs could not be refreshed. Existing editor state was preserved.",
+                ex);
+        }
+    }
+
+    private async Task RefreshScheduledJobsCoreAsync(CancellationToken cancellationToken = default)
+    {
+        var jobs = (await _scheduledTaskService.ListAsync(cancellationToken))
+            .Select(job => new ScheduledJobEditorItem(job))
+            .ToList();
+
         ScheduledJobs.Clear();
-        foreach (var job in await _scheduledTaskService.ListAsync())
-            ScheduledJobs.Add(new ScheduledJobEditorItem(job));
+        foreach (var job in jobs)
+            ScheduledJobs.Add(job);
         OnPropertyChanged(nameof(HasScheduledJobSelection));
     }
 
@@ -845,13 +956,11 @@ public sealed partial class SettingsViewModel : ObservableObject
         ScheduledJobEnabled = true;
     }
 
-    [RelayCommand]
-    private async Task SaveScheduledJobAsync()
+    public bool TryCreateScheduledJobDraft(out ScheduledJobDefinition job)
     {
-        IsSavingScheduledJob = true;
         try
         {
-            var job = new ScheduledJobDefinition
+            var draft = new ScheduledJobDefinition
             {
                 Id = SelectedScheduledJob?.Info.Job.Id ?? Guid.NewGuid().ToString("N"),
                 Name = ScheduledJobName,
@@ -862,13 +971,60 @@ public sealed partial class SettingsViewModel : ObservableObject
                 TargetPath = ScheduledJobTargetPath,
                 RulesCsv = ScheduledJobRulesCsv,
                 Enabled = ScheduledJobEnabled,
+                DestructiveConsentVersion = 0,
+                DestructiveConsentFingerprint = string.Empty,
             };
 
+            job = draft.Kind == StorageMaster.Core.Models.ScheduledJobKind.CleanupExecuteSafe
+                ? ScheduledCleanupPolicy.NormalizeConsentFields(draft)
+                : draft;
+            return true;
+        }
+        catch (Exception ex)
+        {
+            job = null!;
+            ReportOperationFailure("Scheduled job was not saved because its plan is invalid.", ex);
+            return false;
+        }
+    }
+
+    public void ReportScheduledJobUiFailure(Exception exception) =>
+        ReportOperationFailure("Scheduled job operation failed.", exception);
+
+    public async Task SaveScheduledJobAsync(ScheduledJobDefinition job)
+    {
+        if (!IsLoaded)
+            return;
+
+        if (job.Kind == StorageMaster.Core.Models.ScheduledJobKind.CleanupExecuteSafe &&
+            job.Enabled &&
+            !ScheduledJobExecutionPolicy.Evaluate(scheduledTasksEnabled: true, job).CanExecute)
+        {
+            FeedbackSeverity = InfoBarSeverity.Warning;
+            SavedMessage =
+                "Enabled scheduled cleanup requires current consent for its exact target, rules, schedule, and Recycle Bin safety policy.";
+            return;
+        }
+
+        EditorValidationMessage = string.Empty;
+        IsSavingScheduledJob = true;
+        var taskMutationCompleted = false;
+        try
+        {
             await _scheduledTaskService.UpsertAsync(job);
-            ScheduledTasksEnabled = true;
-            await RefreshScheduledJobsAsync();
+            taskMutationCompleted = true;
+            await RefreshScheduledJobsCoreAsync();
+            ScheduledTasksEnabled = ScheduledJobs.Any(item => item.Info.Job.Enabled);
             SelectedScheduledJob = ScheduledJobs.FirstOrDefault(item => item.Info.Job.Id == job.Id);
             await ShowSavedMessageAsync("Scheduled job saved.", 2500);
+        }
+        catch (Exception ex)
+        {
+            ReportOperationFailure(
+                taskMutationCompleted
+                    ? "Scheduled job was saved, but the editor refresh failed. Do not retry until you refresh the job list."
+                    : "Scheduled job was not saved; prior task/settings state was restored where possible.",
+                ex);
         }
         finally
         {
@@ -882,13 +1038,24 @@ public sealed partial class SettingsViewModel : ObservableObject
         if (SelectedScheduledJob is null)
             return;
 
+        EditorValidationMessage = string.Empty;
         IsSavingScheduledJob = true;
+        var deletionCompleted = false;
         try
         {
             await _scheduledTaskService.DeleteAsync(SelectedScheduledJob.Info.Job.Id);
-            await RefreshScheduledJobsAsync();
+            deletionCompleted = true;
+            await RefreshScheduledJobsCoreAsync();
             NewScheduledJob();
             await ShowSavedMessageAsync("Scheduled job deleted.", 2500);
+        }
+        catch (Exception ex)
+        {
+            ReportOperationFailure(
+                deletionCompleted
+                    ? "Scheduled job was deleted, but the editor refresh failed. Refresh before another change."
+                    : "Scheduled job deletion failed; prior task/settings state was restored where possible.",
+                ex);
         }
         finally
         {
@@ -903,6 +1070,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         _messageCts = new CancellationTokenSource();
         var token = _messageCts.Token;
 
+        FeedbackSeverity = InfoBarSeverity.Success;
         SavedMessage = message;
         try
         {
@@ -912,6 +1080,27 @@ public sealed partial class SettingsViewModel : ObservableObject
         }
         catch (OperationCanceledException)
         {
+        }
+    }
+
+    private void ReportOperationFailure(string context, Exception exception)
+    {
+        FeedbackSeverity = InfoBarSeverity.Error;
+        SavedMessage = $"{context} {exception.Message}";
+        EditorValidationMessage = SavedMessage;
+    }
+
+    private async Task RecordDiagnosticsBestEffortAsync(string message)
+    {
+        try
+        {
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+            await _diagnostics.RecordAsync("updater", message, timeout.Token)
+                .WaitAsync(timeout.Token);
+        }
+        catch
+        {
+            // User-visible updater result must not be replaced by diagnostics failure.
         }
     }
 

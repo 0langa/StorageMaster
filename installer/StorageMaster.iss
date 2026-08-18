@@ -1,7 +1,7 @@
 #define AppName "StorageMaster"
 ; AppVersion can be overridden at build time: iscc /DAppVersion=1.2.3 StorageMaster.iss
 #ifndef AppVersion
-  #define AppVersion "2.2.0"
+  #define AppVersion "2.2.1"
 #endif
 #define AppPublisher "StorageMaster"
 #define AppExeName "StorageMaster.UI.exe"
@@ -31,6 +31,8 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "desktopicon"; Description: "Create a &desktop icon"; GroupDescription: "Additional icons:"
 
 [Files]
+Source: "{#PublishDir}\prereqs\Microsoft.WindowsAppRuntime.1.6.msix"; Flags: dontcopy
+Source: "{#PublishDir}\prereqs\Install-WindowsAppRuntime.ps1"; Flags: dontcopy
 Source: "{#PublishDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [InstallDelete]
@@ -51,7 +53,6 @@ Name: "{group}\Uninstall {#AppName}"; Filename: "{uninstallexe}"
 Name: "{userdesktop}\{#AppName}";  Filename: "{app}\{#AppExeName}"; IconFilename: "{app}\Assets\storagemaster.ico"; Tasks: desktopicon
 
 [Run]
-Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\prereqs\Install-WindowsAppRuntime.ps1"" -MsixPath ""{app}\prereqs\Microsoft.WindowsAppRuntime.1.6.msix"""; StatusMsg: "Installing Windows App SDK 1.6 runtime..."; Flags: runhidden waituntilterminated
 Filename: "{app}\{#AppExeName}"; Description: "Launch {#AppName}"; Flags: nowait postinstall skipifsilent
 
 ; User data is preserved on uninstall by default.
@@ -61,13 +62,15 @@ function IsDotNetDesktopRuntime8Installed(): Boolean;
 var
   ResultCode: Integer;
   Command: String;
+  PowerShellPath: String;
 begin
   Command :=
     '-NoProfile -ExecutionPolicy Bypass -Command "' +
     '$fx = ''HKLM:\SOFTWARE\dotnet\Setup\InstalledVersions\x64\sharedfx\Microsoft.WindowsDesktop.App''; ' +
     'if ((Test-Path $fx) -and ((Get-ItemProperty $fx).PSObject.Properties.Name | Where-Object { $_ -like ''8.*'' } | Select-Object -First 1)) { exit 0 }; exit 1"';
 
-  Result := Exec('powershell.exe', Command, '', SW_HIDE, ewWaitUntilTerminated, ResultCode) and (ResultCode = 0);
+  PowerShellPath := ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe');
+  Result := Exec(PowerShellPath, Command, '', SW_HIDE, ewWaitUntilTerminated, ResultCode) and (ResultCode = 0);
 end;
 
 function InitializeSetup(): Boolean;
@@ -84,4 +87,37 @@ begin
   end;
 
   Result := True;
+end;
+
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  ResultCode: Integer;
+  PowerShellPath: String;
+  ScriptPath: String;
+  MsixPath: String;
+  Parameters: String;
+begin
+  Result := '';
+  ExtractTemporaryFile('Install-WindowsAppRuntime.ps1');
+  ExtractTemporaryFile('Microsoft.WindowsAppRuntime.1.6.msix');
+
+  PowerShellPath := ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe');
+  ScriptPath := ExpandConstant('{tmp}\Install-WindowsAppRuntime.ps1');
+  MsixPath := ExpandConstant('{tmp}\Microsoft.WindowsAppRuntime.1.6.msix');
+  Parameters :=
+    '-NoProfile -ExecutionPolicy Bypass -File "' + ScriptPath +
+    '" -MsixPath "' + MsixPath + '"';
+
+  if not Exec(
+      PowerShellPath,
+      Parameters,
+      '',
+      SW_HIDE,
+      ewWaitUntilTerminated,
+      ResultCode) or (ResultCode <> 0) then
+  begin
+    Result :=
+      'Windows App SDK runtime installation failed. No StorageMaster files were installed.' +
+      #13#10 + 'See %LOCALAPPDATA%\StorageMaster\logs\installer-prereqs.log for details.';
+  end;
 end;

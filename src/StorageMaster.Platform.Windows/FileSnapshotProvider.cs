@@ -32,20 +32,21 @@ public sealed class FileSnapshotProvider : IFileSnapshotProvider
                 FileAccess.Read,
                 FileShare.ReadWrite | FileShare.Delete);
 
-            FileIdentity? identity = null;
-            if (GetFileInformationByHandle(stream.SafeFileHandle, out var info))
-            {
-                var fileIndex = ((ulong)info.FileIndexHigh << 32) | info.FileIndexLow;
-                identity = new FileIdentity(info.VolumeSerialNumber.ToString("X8"), fileIndex);
-            }
+            if (!GetFileInformationByHandle(stream.SafeFileHandle, out var info))
+                return null;
 
-            var fi = new FileInfo(path);
+            var fileIndex = ((ulong)info.FileIndexHigh << 32) | info.FileIndexLow;
+            var identity = new FileIdentity(info.VolumeSerialNumber.ToString("X8"), fileIndex);
+            var size = checked((long)(((ulong)info.FileSizeHigh << 32) | info.FileSizeLow));
+            var lastWriteFileTime = checked(
+                (long)(((ulong)info.LastWriteTime.DwHighDateTime << 32) |
+                       info.LastWriteTime.DwLowDateTime));
             return new FileSnapshot(
                 path,
                 identity,
-                fi.Length,
-                fi.LastWriteTimeUtc,
-                fi.Attributes);
+                size,
+                DateTime.FromFileTimeUtc(lastWriteFileTime),
+                (FileAttributes)info.FileAttributes);
         }
         catch
         {

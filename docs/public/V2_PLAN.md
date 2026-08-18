@@ -1,7 +1,9 @@
-# StorageMaster — v2.1.4 Repository Status
+# StorageMaster — Historical v2.1.4 Repository Status
+
+> Snapshot retained for release history. It is not the current implementation plan; see `ROADMAP.md` and `RELIABILITY_AUDIT_2026-08-18.md`.
 
 > **Baseline:** version metadata 2.1.4
-> **Status:** current repository state plus verified hardening and repository context cleanup; release publication and installer smoke tests are separate gates.
+> **Status at snapshot:** repository state recorded for v2.1.4 plus the hardening known then. It must not be read as a claim about the current working tree or current release gates.
 
 ## What v2.1.x includes
 
@@ -24,17 +26,17 @@
 - Safety hardening: deep scan starts an elevated CLI worker instead of relaunching the WinUI shell as admin; shell Recycle Bin deletion runs through an STA helper thread; app-created temp recursive deletes are guarded by a direct `%TEMP%` child sentinel.
 - v2.0.1 hotfixes: responsive shell/header behavior, top-of-page live scan progress, ETA fallback logic, coalesced Space Map rendering, faster folder-tree expansion, scrollable Duplicates advanced options, Drive Health layout cleanup, and described Dashboard health score.
 
-## Remaining post-release follow-ups
+## Follow-ups recorded at the v2.1.4 snapshot
 
 - Finish hardware-lab validation for Drive Health across NVMe, SATA, removable USB, and network drives.
 - Run clean-machine install and upgrade smoke tests from v1.9.6 to verify .NET runtime messaging, Windows App Runtime 1.6 installation, Start Menu launch, installer launch, and CLI launch.
 - Extract ViewModels, CLI orchestration, and scheduler logic from the WinUI runtime assembly before restoring their direct tests; loading `StorageMaster.UI.dll` in the current test host requires WinRT bootstrap initialization and previously prevented CI completion.
 - Keep release signing optional in CI, but verify signed-release behavior when signing secrets are configured.
 
-## Release acceptance
+## Release acceptance recorded at the snapshot
 
-- `dotnet restore`, `dotnet format --verify-no-changes`, `dotnet build -c Release`, `dotnet test -c Release`, `cargo fmt --check`, `cargo test`, and Rust release build pass.
-- 196 discovered .NET tests plus three Rust CLI/JSONL contract tests.
+- The snapshot recorded `dotnet restore`, `dotnet format --verify-no-changes`, `dotnet build -c Release`, `dotnet test -c Release`, `cargo fmt --check`, `cargo test`, and the Rust release build as passing.
+- At this snapshot, 196 .NET tests and three Rust CLI/JSONL contract tests were discovered.
 - The configured WinUI publish and Inno installer output is `StorageMaster-2.1.4-win-x64-Setup.exe`; installer construction still requires an explicit release build.
 - GitHub release publication, signing, and clean-machine installation remain separate release checks and are not implied by local unit-test success.
 - No new startup crash entry appears in `%LOCALAPPDATA%\StorageMaster\logs\startup-errors.log` during install smoke.

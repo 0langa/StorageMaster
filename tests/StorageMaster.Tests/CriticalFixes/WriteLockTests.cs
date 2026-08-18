@@ -11,8 +11,8 @@ namespace StorageMaster.Tests.CriticalFixes;
 /// errors by confirming all write paths acquire WriteLock.
 ///
 /// Strategy: launch many concurrent creates/updates/deletes and assert
-/// none throw. Without WriteLock, this reliably produces SQLITE_BUSY on
-/// a shared connection.
+/// none throw. Without WriteLock, competing writer leases can reliably
+/// produce SQLITE_BUSY.
 /// </summary>
 public sealed class WriteLockTests : IAsyncDisposable
 {

@@ -22,6 +22,7 @@ public sealed class CleanupLogRepositoryTests : IAsyncDisposable
     [Fact]
     public async Task LogResultAsync_PersistsAuditMetadata()
     {
+        var executedUtc = new DateTime(2025, 8, 17, 12, 34, 56, DateTimeKind.Utc).AddTicks(7_654_321);
         var suggestion = new CleanupSuggestion
         {
             Id = Guid.NewGuid(),
@@ -40,7 +41,7 @@ public sealed class CleanupLogRepositoryTests : IAsyncDisposable
             SuggestionId = suggestion.Id,
             Status = CleanupResultStatus.Success,
             BytesFreed = 1024,
-            ExecutedUtc = DateTime.UtcNow,
+            ExecutedUtc = executedUtc,
             WasDryRun = false,
         };
 
@@ -50,6 +51,7 @@ public sealed class CleanupLogRepositoryTests : IAsyncDisposable
         entries.Should().ContainSingle();
         entries[0].RuleId.Should().Be("duplicates.cleanup");
         entries[0].AuditDataJson.Should().Be("{\"DuplicateGroupId\":12}");
+        AssertUtcTimestamp(entries[0].ExecutedUtc, executedUtc);
     }
 
     [Fact]
@@ -98,5 +100,11 @@ public sealed class CleanupLogRepositoryTests : IAsyncDisposable
         await _ctx.DisposeAsync();
         if (File.Exists(_dbPath))
             File.Delete(_dbPath);
+    }
+
+    private static void AssertUtcTimestamp(DateTime actual, DateTime expected)
+    {
+        actual.Kind.Should().Be(DateTimeKind.Utc);
+        actual.Ticks.Should().Be(expected.Ticks);
     }
 }

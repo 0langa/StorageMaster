@@ -1,6 +1,6 @@
 # StorageMaster    [![Release](https://github.com/0langa/StorageMaster/actions/workflows/release.yml/badge.svg)](https://github.com/0langa/StorageMaster/actions/workflows/release.yml) [![CI](https://github.com/0langa/StorageMaster/actions/workflows/ci.yml/badge.svg)](https://github.com/0langa/StorageMaster/actions/workflows/ci.yml)
 
-> **Current version:** 2.2.0 — Windows disk analyzer, junk cleaner, visual space map, drive health sentinel, and storage automation tool.
+> **Current version:** 2.2.1 — Windows disk analyzer, junk cleaner, visual space map, drive health sentinel, and storage automation tool.
 
 A Windows disk analyzer and storage cleaner built with **C# / .NET 8 / WinUI 3**, with an optional native Rust scan engine for maximum throughput on multi-core systems.
 
@@ -10,14 +10,14 @@ A Windows disk analyzer and storage cleaner built with **C# / .NET 8 / WinUI 3**
 
 | Feature | Details |
 |---------|---------|
-| **Parallel scanner** | BFS directory walker with bounded work-stealing concurrency |
-| **Turbo Scanner** | Optional Rust-powered scanner (jwalk) — up to 4× faster on SSDs |
-| **Smart Cleaner** | One-click scan & clean — no prior scan session needed |
-| **17 cleanup rules** | Temp files, browser caches, Windows Update, WER, Delivery Optimization, downloaded installers, app caches, program leftovers, Recycle Bin, large old files, thumbnail cache, icon cache, font cache, DNS cache, prefetch files, Microsoft Store logs, duplicate files |
+| **Parallel scanner** | Managed BFS directory walker with a bounded producer/consumer worker pool |
+| **Turbo Scanner** | Optional Rust-powered `jwalk` scanner for parallel native enumeration |
+| **Smart Cleaner** | Direct review-and-clean workflow for 7 allow-listed junk sources; no prior scan session needed |
+| **16 cleanup rules** | Temp files, browser caches, Windows Update, WER, Delivery Optimization, downloaded installers, app caches, program leftovers, Recycle Bin, large old files, thumbnail cache, icon cache, font cache, DNS cache, prefetch files, and Microsoft Store logs |
 | **Deep scan worker** | Protected-directory scans launch through an elevated CLI worker so the WinUI shell remains unelevated |
-| **Recycle Bin integration** | All deletions go to Recycle Bin by default (recoverable) |
+| **Recycle Bin integration** | General file cleanup prefers Recycle Bin when the suggestion supports it; emptying Recycle Bin is explicitly permanent |
 | **Quarantine + recovery journal** | Duplicate deletions can be quarantined with one-click restore from the UI; duplicate cleanup writes operation intent/outcome records before and after filesystem changes |
-| **Audit trail** | Every deletion logged to SQLite `CleanupLog` — forever |
+| **Audit trail** | Cleanup outcomes are written to SQLite `CleanupLog`; a database-write failure is surfaced instead of being reported as full success |
 | **Scan history** | Every scan session stored; browse and compare historical results |
 | **Duplicate analysis** | Pluggable dedupe engine with exact SHA-256, normalized-text review, image pHash, optional video pHash (auto-detects bundled or PATH FFmpeg), quarantine/recycle deletion, cleanup audit trail, and recovery journal |
 | **Duplicate previews** | Inline previews for image and video groups; first-difference highlight for text duplicates |
@@ -29,7 +29,7 @@ A Windows disk analyzer and storage cleaner built with **C# / .NET 8 / WinUI 3**
 | **System tray** | Minimize to tray; tray menu for common actions; balloon notifications |
 | **Low-disk notifications** | Configurable warning/critical thresholds; per-drive 12 h debounce |
 | **Drive Health & Storage Sentinel** | Windows WMI/storage health snapshots, Dashboard warnings, dedicated Drive Health page, tray alerts, and CLI JSON reports |
-| **Scheduled tasks** | Windows Task Scheduler integration — daily/weekly scans and cleanups |
+| **Scheduled tasks** | Windows Task Scheduler integration — daily/weekly scans and reviewable cleanup jobs; enabled unattended cleanup requires dedicated versioned consent |
 | **GitHub release updater** | Checks GitHub Releases, verifies digest/signature policy, downloads setup EXE, and launches installer on demand |
 | **Theme + retention settings** | Persisted light/dark/default theme, scan-history retention window, and uninstall-safe user data |
 
@@ -88,7 +88,7 @@ StorageMaster.UI.exe --cli health report [--json <file>]
 StorageMaster.UI.exe --headless jobs run --id <job-id>
 ```
 
-Exit codes: `0` success · `1` unexpected error · `2` bad arguments · `3` missing `--confirm` · `4` not found / not elevated.
+Exit codes: `0` success · `1` failed/cancelled operation · `2` bad arguments · `3` missing `--confirm` · `4` not found, disabled by policy, or not elevated.
 
 ---
 
@@ -108,7 +108,7 @@ Exit codes: `0` success · `1` unexpected error · `2` bad arguments · `3` miss
 | Visual Studio 2022 | 17.9+ with **Windows application development** workload |
 | Rust toolchain | stable (for building turbo-scanner from source) |
 | Inno Setup | 6.x (for local installer builds) |
-| Target OS | Windows 10 1809 (build 17763) or later |
+| Target OS | Configured minimum: Windows 10 1809 (build 17763); the full Windows build matrix remains a release/lab gate |
 | Runtime on installed machines | .NET Desktop Runtime 8 x64 and Windows App Runtime 1.6 x64 |
 
 ---
@@ -154,7 +154,7 @@ Copy-Item turbo-scanner\target\x86_64-pc-windows-msvc\release\turbo-scanner.exe 
 
 # 3. Build the installer
 iscc installer\StorageMaster.iss
-# Output: artifacts/installer/StorageMaster-2.2.0-win-x64-Setup.exe
+# Output: artifacts/installer/StorageMaster-2.2.1-win-x64-Setup.exe
 ```
 
 Optional: place `ffmpeg.exe` and `ffprobe.exe` in `installer\ffmpeg\` before packaging. If that folder is absent, release builds also look for both tools together on PATH and copy them into `tools\ffmpeg\` beside the app so video pHash works out of the box.
@@ -165,17 +165,17 @@ The automated release pipeline (`release.yml`) runs all three steps on every `v*
 
 ## Turbo Scanner — how it works
 
-The Turbo Scanner is a native Rust binary (`turbo-scanner.exe`) that uses **jwalk**'s work-stealing thread pool to enumerate the file system across all CPU cores simultaneously — significantly faster than the managed C# scanner on multi-core systems with SSDs.
+The Turbo Scanner is a native Rust binary (`turbo-scanner.exe`) that uses **jwalk**'s work-stealing thread pool for parallel filesystem enumeration. Relative performance depends on the storage device, filesystem, exclusions, and directory shape.
 
 **Integration is completely transparent to the user:**
 
 1. `ScanViewModel` holds references to both `FileScanner` (managed) and `TurboFileScanner` (Rust-backed).
 2. When a scan starts, the active scanner is selected based on the user's toggle in the Scan page (`UseTurboScanner && TurboScannerAvailable`).
 3. `TurboFileScanner` spawns `turbo-scanner.exe` as an invisible background process (no console window). It reads JSONL from stdout, maps each record to the same `FileEntry` / `FolderEntry` models, and writes to the database in batches — exactly as the managed scanner does.
-4. If `turbo-scanner.exe` is missing (e.g., a local F5 debug run without a published build), `TurboFileScanner` silently falls back to the managed `FileScanner`. The user sees no error.
-5. Progress reporting, cancellation, and results are identical regardless of which backend ran.
+4. If `turbo-scanner.exe` is missing at execution time, `TurboFileScanner` logs the fallback and delegates to managed `FileScanner`; the Scan page separately exposes native-backend availability.
+5. Both backends persist the same scan model and feed the same UI. Backend-specific warnings and a filesystem changing during enumeration can still produce different observations.
 
-The Rust process runs completely hidden. There is no user-visible indication that a second executable is involved — only faster results.
+The Rust child process has no console window; both backends use the same scan progress/results UI.
 
 ---
 
@@ -206,15 +206,15 @@ The Rust process runs completely hidden. There is no user-visible indication tha
 
 - ViewModels live in `StorageMaster.UI/Pages/` and inherit `ObservableObject` (CommunityToolkit.Mvvm).
 - Commands use `[RelayCommand]` source-generated attributes.
-- No business logic in XAML code-behind.
-- All page bindings use `{x:Bind}` compiled bindings for type safety and performance.
+- XAML code-behind is limited to UI lifecycle, dialogs, navigation, and control events; ViewModels own presentation state and commands.
+- Pages use both compiled `{x:Bind}` and ordinary `{Binding}` where template/element binding requires it.
 
 ### Dependency injection
 
 `ServiceBootstrapper.BuildServices()` wires a `Microsoft.Extensions.DependencyInjection` container:
 
 - **Singletons:** repositories, scanners, cleanup engine, drives, file deleter, notification service, scheduled task service, duplicate preview service, command runner, Smart Cleaner service
-- **Transients:** ViewModels (fresh per navigation to keep state clean)
+- **ViewModels:** `ScanViewModel` is a singleton so an active scan survives navigation; the other page ViewModels are transient
 
 ### Scanner concurrency model
 
@@ -228,23 +228,26 @@ Thread Pool: Consumers (MaxParallelism, default 4)
 Thread: Progress Timer
     PeriodicTimer(300ms) → IProgress<ScanProgress>.Report()
 
-UI Thread (via DispatcherQueue):
-    Progress updates applied — no SynchronizationContext needed (unpackaged WinUI 3)
+UI Thread:
+    Program installs DispatcherQueueSynchronizationContext;
+    critical scan/cleanup paths also enqueue progress explicitly
 ```
 
 ### Cleanup safety
 
-Files are **never deleted without explicit user confirmation**:
+Interactive deletion requires explicit user intent. Scheduled cleanup instead requires prior, versioned consent which the headless runner revalidates on every run.
 
-1. `ICleanupRule.AnalyzeAsync()` — reads DB, produces `CleanupSuggestion` objects (never touches filesystem)
-2. User reviews and selects suggestions in `CleanupPage` or `SmartCleanerPage`
-3. User clicks "Clean" → `ContentDialog` (modal confirmation gate)
-4. On confirmation only: `CleanupEngine.ExecuteAsync()` → `IFileDeleter.DeleteManyAsync()`
-5. Every deletion attempt logged to `CleanupLog` table (append-only, never deleted)
+1. Generic cleanup rules analyze the database and/or filesystem read-only and produce `CleanupSuggestion` objects.
+2. The user reviews suggestions in `CleanupPage`; only Safe/Low items supporting Recycle Bin start selected.
+3. `CleanupPage` confirms the selected operation, then calls `CleanupEngine.ExecuteAsync()` → `IFileDeleter`.
+4. Smart Cleaner separately analyzes seven allow-listed sources, confirms selected groups, then calls `SmartCleanerService.CleanAsync()` → `IFileDeleter`.
+5. Cleanup outcomes are written to `CleanupLog`; audit-write failures are returned as warnings/partial results.
 
 Duplicate cleanup follows the same audit path. Quarantine moves files to a safe directory; the Duplicates page lists all quarantined files with a **Restore** button that moves them back to their original paths.
 
-StorageMaster 3.0 adds a duplicate-operation recovery journal. Duplicate cleanup records planned operations before the filesystem is touched and records completed, quarantined, restored, or failed outcomes afterward. This makes partial failures and crash-restart recovery states inspectable instead of ambiguous. See `docs/public/SAFETY_RECOVERY.md`.
+Duplicate cleanup uses a dedicated recovery journal. It records planned operations before filesystem changes and records completed, quarantined, restored, or failed outcomes afterward. This makes partial failures and crash-restart recovery states inspectable instead of ambiguous. See `docs/public/SAFETY_RECOVERY.md`.
+
+Cleanup dry-run results unlock immediate deletion only when every selected suggestion completed its preview successfully. Partial/failed previews stay non-destructive. Scheduled cleanup is disabled by default when first selected, requires a separate confirmation summarizing target/rules/schedule, persists a versioned plan fingerprint, and is denied by the headless runner when consent is absent, outdated, or no longer matches the plan.
 
 ### Benchmarks and visual regression
 
@@ -262,23 +265,26 @@ The WinUI visual regression plan is documented in `docs/public/VISUAL_REGRESSION
 
 | Rule | Category | Risk | Notes |
 |------|----------|------|-------|
-| `RecycleBinCleanupRule` | Recycle Bin | Safe | Uses `SHEmptyRecycleBin` |
-| `TempFilesCleanupRule` | Temp Files | Low | `%TEMP%`, `C:\Windows\Temp` |
+| `RecycleBinCleanupRule` | Recycle Bin | Medium | Permanent-only `SHEmptyRecycleBin`; never represented as recoverable |
+| `TempFilesCleanupRule` | Temp Files | Low | Canonical `%WINDIR%\Temp` and `%LOCALAPPDATA%\Temp`; redirected `TMP`/`TEMP` is not trusted |
 | `DownloadedInstallersRule` | Downloads | Low | Installer exts in Downloads; optional full-folder clear |
 | `CacheFolderCleanupRule` | App Caches | Safe–Low | Edge, npm, pip, NuGet, Yarn |
 | `BrowserCacheCleanupRule` | Browser Cache | Low | Chrome, Edge, Firefox, Brave, Opera |
 | `WindowsUpdateCacheRule` | Windows Update | Low | `SoftwareDistribution\Download` |
 | `DeliveryOptimizationRule` | Delivery Opt. | Low | `SoftwareDistribution\DeliveryOptimization` |
 | `WindowsErrorReportingRule` | Error Reports | Low | WER folders, crash dumps, `.dmp` files |
-| `UninstalledProgramLeftoversRule` | Program Leftovers | Medium | Registry cross-reference; 90-day, 10 MB thresholds |
+| `UninstalledProgramLeftoversRule` | Program Leftovers | High | Heuristic; disabled, unselected, and Recycle-Bin-only by default; 90-day/10 MB thresholds |
 | `LargeOldFilesCleanupRule` | Large Old Files | Medium | Per-file suggestions; configurable size and age |
-| `ThumbnailCacheRule` | App Caches | Safe | `%LOCALAPPDATA%\Microsoft\Windows\Explorer` thumb cache |
-| `IconCacheRule` | App Caches | Safe | `iconcache*.db` — rebuilt automatically by Explorer |
-| `FontCacheRule` | App Caches | Safe | Windows font cache service data files |
-| `DnsClientCacheRule` | App Caches | Safe | Flushes DNS resolver cache via `ipconfig /flushdns` |
-| `PrefetchFilesRule` | Temp Files | Low | `C:\Windows\Prefetch` — rebuilt on next launch |
-| `MicrosoftStoreLogsRule` | Log Files | Safe | `%LOCALAPPDATA%\Packages\*\LocalState\DiagOutputDir` |
-| `DuplicateFilesCleanupRule` | Duplicate Files | Medium | Surfaces duplicate groups from last dedupe run |
+| `ThumbnailCacheRule` | App Caches | Low | `%LOCALAPPDATA%\Microsoft\Windows\Explorer` thumb cache |
+| `IconCacheRule` | App Caches | Low | `iconcache*.db` — rebuilt automatically by Explorer |
+| `FontCacheRule` | App Caches | Low | Windows font cache service data files |
+| `DnsClientCacheRule` | App Caches | Low | Flushes DNS resolver cache via `ipconfig /flushdns` |
+| `PrefetchFilesRule` | Temp Files | Medium | `C:\Windows\Prefetch` — rebuilt on next launch |
+| `MicrosoftStoreLogsRule` | Log Files | Low | `%LOCALAPPDATA%\Packages\*\LocalState\DiagOutputDir` |
+
+Duplicate deletion is intentionally excluded from the generic Cleanup engine. Use the Duplicates page, which revalidates the keeper and each selected member, journals intent before deletion, and supports quarantine restore.
+
+Only Safe/Low suggestions that declare Recycle Bin support start selected. Medium/High suggestions, including large user files and optional whole-Downloads cleanup, require an explicit per-item selection. Recycle Bin/quarantine figures describe logical bytes moved; allocation is not reclaimed until data is permanently removed.
 
 ---
 
@@ -291,7 +297,7 @@ Schema auto-migrates on first launch. Key tables:
 | Table | Purpose |
 |-------|---------|
 | `ScanSessions` | One row per scan run |
-| `FileEntries` | One row per file, FK → session |
+| `FileEntries` | One row per file, FK → session, normalized path, nullable stable volume/file identity (schema v12) |
 | `FolderEntries` | One row per directory with aggregated sizes |
 | `ScanErrors` | Per-path errors (access denied, I/O) |
 | `CleanupLog` | Append-only deletion audit |
@@ -313,7 +319,7 @@ Uninstall keeps `%LOCALAPPDATA%\StorageMaster` by default, so the database and s
 dotnet test tests/StorageMaster.Tests/StorageMaster.Tests.csproj --verbosity normal
 ```
 
-Tests cover scanner behaviour, cleanup rules, persistence, folder aggregation, ViewModel logic, and schema migrations.
+Tests cover scanner behaviour, cleanup/deletion safety, deduplication, persistence, folder aggregation, scheduling policy, updater logic, and schema migrations. WinUI page/ViewModel races are build-reviewed and require interactive desktop verification because the test project does not load the WinUI runtime assembly.
 
 ---
 
@@ -333,7 +339,8 @@ Every push of a `v*.*.*` tag triggers `release.yml`:
 
 ## Further reading
 
-- [`docs/AIprojectcontext/ARCHITECTURE.md`](docs/AIprojectcontext/ARCHITECTURE.md) — Deep architecture reference
-- [`docs/AIprojectcontext/CODEMAP.md`](docs/AIprojectcontext/CODEMAP.md) — Every file, class, and method
-- [`docs/AIprojectcontext/DOCUMENTATION.md`](docs/AIprojectcontext/DOCUMENTATION.md) — Full API and configuration reference
+- [`docs/public/ARCHITECTURE.md`](docs/public/ARCHITECTURE.md) — Architecture reference
+- [`docs/public/CODEMAP.md`](docs/public/CODEMAP.md) — Source map
+- [`docs/public/DOCUMENTATION.md`](docs/public/DOCUMENTATION.md) — API and configuration reference
+- [`docs/public/RELIABILITY_AUDIT_2026-08-18.md`](docs/public/RELIABILITY_AUDIT_2026-08-18.md) — Reliability audit, fixes, evidence, and known limits
 - [`CHANGELOG.md`](CHANGELOG.md) — Release history

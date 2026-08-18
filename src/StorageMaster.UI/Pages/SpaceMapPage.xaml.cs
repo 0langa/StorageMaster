@@ -23,6 +23,7 @@ public sealed partial class SpaceMapPage : Page
 {
     private readonly ILogger<SpaceMapPage> _logger;
     private bool _renderQueued;
+    private CancellationTokenSource? _loadCancellation;
     public SpaceMapViewModel ViewModel { get; }
 
     public SpaceMapPage()
@@ -37,6 +38,10 @@ public sealed partial class SpaceMapPage : Page
     protected override async void OnNavigatedTo(NavigationEventArgs e)
     {
         base.OnNavigatedTo(e);
+        _loadCancellation?.Cancel();
+        var loadCancellation = new CancellationTokenSource();
+        _loadCancellation = loadCancellation;
+        var cancellationToken = loadCancellation.Token;
         try
         {
             var sessionId = e.Parameter switch
@@ -45,18 +50,32 @@ public sealed partial class SpaceMapPage : Page
                 int id => id,
                 _ => (long?)null,
             };
-            await ViewModel.LoadAsync(sessionId);
+            await ViewModel.LoadAsync(sessionId, cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // Navigation cancellation is expected and owns no visible error.
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Space map session load failed");
-            ViewModel.StatusText = "Failed to load session data.";
+            if (ReferenceEquals(_loadCancellation, loadCancellation))
+                ViewModel.StatusText = "Failed to load session data.";
+        }
+        finally
+        {
+            if (ReferenceEquals(_loadCancellation, loadCancellation))
+                _loadCancellation = null;
+            loadCancellation.Dispose();
         }
     }
 
     protected override void OnNavigatedFrom(NavigationEventArgs e)
     {
         base.OnNavigatedFrom(e);
+        _loadCancellation?.Cancel();
+        _loadCancellation = null;
+        ViewModel.CancelPendingLoad();
         ViewModel.LayoutNodes.CollectionChanged -= LayoutNodes_CollectionChanged;
         ViewModel.PropertyChanged -= ViewModel_PropertyChanged;
     }
@@ -120,7 +139,7 @@ public sealed partial class SpaceMapPage : Page
 
     private async void ExportPng_Click(object sender, RoutedEventArgs e)
     {
-        if (TreemapCanvas.Children.Count == 0)
+        if (!ViewModel.CanExport || TreemapCanvas.Children.Count == 0)
         {
             ViewModel.StatusText = "Nothing to export. Load a scan folder first.";
             return;

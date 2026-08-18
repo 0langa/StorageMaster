@@ -69,7 +69,7 @@ public sealed class SchemaV9MigrationTests : IAsyncDisposable
 
         // Opening through StorageDbContext runs the v9 migration.
         _ctx = new StorageDbContext(_dbPath, NullLogger<StorageDbContext>.Instance);
-        var conn = await _ctx.GetConnectionAsync();
+        await using var conn = await _ctx.GetConnectionAsync();
 
         using (var cmd = conn.CreateCommand())
         {

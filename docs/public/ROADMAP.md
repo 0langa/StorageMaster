@@ -1,6 +1,6 @@
 # StorageMaster — Development Roadmap
 
-> **Current repository version:** v2.1.4 — hardening, repository context cleanup, and versioned release packaging.
+> **Current product version:** v2.2.1. Reliability hardening and remaining limits are documented in `RELIABILITY_AUDIT_2026-08-18.md`.
 
 ---
 
@@ -23,9 +23,13 @@ v2.0.0  Full UI/UX overhaul, Drive Health & Storage Sentinel, release hardening 
   │
 v2.0.1  Responsive layout, scan ETA, loading fixes, Drive Health layout          ← SHIPPED
   │
-v2.1.0  Code hardening, Settings fixes, GitHub infrastructure                    ← SHIPPED
+v2.1.x  Code hardening, Settings fixes, GitHub infrastructure                    ← SHIPPED
   │
-v2.2.x  Structured logging, ARM64, Drive Health hardware lab, test expansion     ← next
+v2.2.0  Quarantine restore, Turbo parity, deletion-safety hardening               ← SHIPPED
+  │
+v2.2.1  Reliability and data-safety overhaul                                      ← SHIPPED
+  │
+v2.2.x  Structured logging, hardware lab, expanded UI automation                  ← next
   │
 v2.3.x  Accessibility pass, keyboard nav, screen reader support
   │
@@ -34,13 +38,13 @@ v3.0.0  [TBD]
 
 ---
 
-## Phase 0 — Shipped (v1.x – v2.1.4)
+## Phase 0 — Shipped (v1.x – v2.2.1)
 
 All features from the v1.x and v2.x development cycle are shipped. This includes:
 
 - Parallel BFS scanner with bounded concurrency
-- Turbo Scanner (Rust/jwalk — up to 4× faster on SSDs)
-- Smart Cleaner with 17 cleanup rules
+- Turbo Scanner (Rust/jwalk parallel native enumerator)
+- Smart Cleaner with 7 direct junk sources plus 16 registered session-cleanup rules
 - Deep scan elevated CLI worker
 - Recycle Bin integration, quarantine, and audit trail
 - Scan history and Delta Insights
@@ -48,7 +52,7 @@ All features from the v1.x and v2.x development cycle are shipped. This includes
 - Duplicate analysis (exact SHA-256, text/image/video pHash)
 - CLI/headless interface and Windows Task Scheduler integration
 - System tray with low-disk notifications
-- Drive Health & Storage Sentinel (WMI, schema v7, per-drive alerts)
+- Drive Health & Storage Sentinel (WMI, introduced with schema v7, per-drive alerts)
 - GitHub auto-updater with digest/signature verification
 - GitHub issue templates and PR template
 
@@ -97,12 +101,12 @@ Document explicit `Unsupported` / `Unknown` behavior per drive class. Update com
 
 **Complexity:** M | **Impact:** Medium (correctness coverage)
 
-- Drive Health ViewModel unit tests (once WinUI test-host output-copy issue is resolved)
-- Scheduler command tests (`--cli jobs run`, `--cli jobs list`)
+- Drive Health ViewModel/UI tests once a supported WinUI test-host strategy is adopted
+- Additional scheduler/task-service integration tests (core disabled-job execution policy is covered)
 - UI error state tests for Settings, Scan, and Cleanup pages
 - Scan Workspace integration tests
 
-**Blocker:** WinUI test-host `.exe` / DLL output copying not yet stable in CI.
+**Blocker:** the current non-UI test assembly deliberately does not reference `StorageMaster.UI`; WinUI lifecycle tests need a separate supported host rather than a production UI reference copied into the xUnit output.
 
 ---
 
@@ -160,28 +164,28 @@ On first launch after update: slide-in InfoBar listing new features. Dismissed o
 
 | Principle | Enforcement |
 |-----------|-------------|
-| **Interfaces before implementations** | No concrete class referenced across project boundaries |
-| **No deletion without confirmation** | CLI needs `--confirm`; UI needs ContentDialog |
-| **Additive-only schema migrations** | Migration runner enforces; PR review gate |
-| **All async, no blocking** | No `Task.Result` or `.Wait()` in application code |
-| **Structured logging** | Every non-trivial operation logs with structured fields |
+| **Interfaces at platform/persistence boundaries** | Core owns the contracts; UI composes concrete host/scanner services where backend selection requires them |
+| **No deletion without authorization** | Interactive UI uses review/dialog intent, CLI needs `--confirm`, and enabled unattended cleanup needs current versioned consent |
+| **Versioned transactional schema migrations** | Writer reservation, in-transaction version re-read, atomic version stamps, regression tests |
+| **Bound critical waits** | External-process and SQLite paths use explicit cancellation/time limits where a hang could block safety or shutdown; UI work remains asynchronous |
+| **Structured diagnostics** | Current code uses `ILogger` fields plus a startup crash log; a durable rolling structured sink remains M-1.1 |
 | **Test before merge** | CI runs `dotnet test` on every pull request |
-| **Audit trail always** | Every deletion → CleanupLog row, even on error |
-| **Accessible from day one** | AutomationProperties added with each new control |
+| **Audit failures are visible** | Cleanup returns warning/partial status when a log row cannot be written; deletion is never repeated to recreate audit |
+| **Accessibility as a release target** | Add automation metadata with new controls; complete keyboard/Narrator/high-contrast validation in Phase 2 |
 | **Measure before optimizing** | Benchmark first; no speculative performance work |
 
 ---
 
 ## Compatibility matrix
 
-| Windows version | Build | Status (v2.1) |
+| Windows version | Build | Status (v2.2) |
 |----------------|-------|--------------|
-| Windows 10 1809 | 17763 | Minimum supported (not yet lab-tested) |
+| Windows 10 1809 | 17763 | Configured minimum; not yet lab-validated |
 | Windows 10 21H2 | 19044 | Not yet lab-tested |
-| Windows 10 22H2 | 19045 | Primary dev target |
+| Windows 10 22H2 | 19045 | Not yet lab-tested |
 | Windows 11 22H2 | 22621 | Not yet lab-tested |
 | Windows 11 23H2 | 22631 | Not yet lab-tested |
-| Windows 11 24H2 | 26100 | CI build target |
+| Windows 11 24H2 | 26100 | Not yet lab-tested; `windows-latest` CI image is not hardware compatibility evidence |
 | ARM64 (any) | — | Planned (M-1.2) |
 
 ---

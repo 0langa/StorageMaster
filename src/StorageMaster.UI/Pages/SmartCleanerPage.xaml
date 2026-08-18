@@ -12,7 +12,6 @@
     <Page.Resources>
         <converters:BoolToVisibilityConverter x:Key="BoolVis" />
         <converters:BoolToVisibilityConverter x:Key="InvBoolVis" Invert="True" />
-        <converters:BoolNegationConverter     x:Key="NotBool" />
     </Page.Resources>
 
     <ScrollViewer Padding="32,24">
@@ -30,7 +29,7 @@
                         <StackPanel VerticalAlignment="Center">
                             <TextBlock Text="One-click junk removal"
                                        Style="{StaticResource SubtitleTextBlockStyle}" />
-                            <TextBlock Text="Scans 8 common junk sources and removes safe files automatically — no manual scan session needed."
+                            <TextBlock Text="Scans 7 common junk sources and removes selected files — no manual scan session needed."
                                        Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.7"
                                        TextWrapping="Wrap" />
                         </StackPanel>
@@ -39,18 +38,21 @@
                     <!-- Deletion mode -->
                     <ToggleSwitch Header="Send deletions to Recycle Bin (recommended)"
                                   IsOn="{x:Bind ViewModel.UseRecycleBin, Mode=TwoWay}"
-                                  IsEnabled="{x:Bind ViewModel.IsCleaning, Mode=OneWay, Converter={StaticResource NotBool}}" />
+                                  IsEnabled="{x:Bind ViewModel.CanAnalyze, Mode=OneWay}" />
 
                     <!-- Action buttons -->
                     <StackPanel Orientation="Horizontal" Spacing="10">
                         <Button Content="Scan &amp; Analyse"
                                 Style="{StaticResource AccentButtonStyle}"
                                 Command="{x:Bind ViewModel.AnalyseCommand}"
-                                IsEnabled="{x:Bind ViewModel.IsScanning, Mode=OneWay, Converter={StaticResource NotBool}}" />
+                                IsEnabled="{x:Bind ViewModel.CanAnalyze, Mode=OneWay}" />
                         <Button Content="Clean Selected"
                                 Command="{x:Bind ViewModel.CleanCommand}"
                                 IsEnabled="{x:Bind ViewModel.CanClean, Mode=OneWay}"
                                 Visibility="{x:Bind ViewModel.HasResults, Mode=OneWay, Converter={StaticResource BoolVis}}" />
+                        <Button Content="Cancel"
+                                Command="{x:Bind ViewModel.CancelCurrentCommand}"
+                                Visibility="{x:Bind ViewModel.IsBusy, Mode=OneWay, Converter={StaticResource BoolVis}}" />
                     </StackPanel>
                 </StackPanel>
             </Border>
@@ -79,11 +81,28 @@
                        TextWrapping="Wrap"
                        Visibility="{x:Bind ViewModel.IsScanning, Mode=OneWay, Converter={StaticResource InvBoolVis}}" />
 
-            <!-- Success banner -->
-            <InfoBar IsOpen="True" Severity="Success"
-                     Title="Cleanup complete!"
-                     Message="{x:Bind ViewModel.StatusText, Mode=OneWay}"
-                     Visibility="{x:Bind ViewModel.CleaningDone, Mode=OneWay, Converter={StaticResource BoolVis}}" />
+            <!-- Completion banner -->
+            <InfoBar IsOpen="True" Severity="{x:Bind ViewModel.CompletionSeverity, Mode=OneWay}"
+                      Title="Cleanup result"
+                      Message="{x:Bind ViewModel.StatusText, Mode=OneWay}"
+                      Visibility="{x:Bind ViewModel.CleaningDone, Mode=OneWay, Converter={StaticResource BoolVis}}" />
+
+            <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    CornerRadius="8" Padding="12"
+                    Visibility="{x:Bind ViewModel.HasFailureDetails, Mode=OneWay, Converter={StaticResource BoolVis}}">
+                <StackPanel Spacing="8">
+                    <TextBlock Text="Failure and audit details" FontWeight="SemiBold" />
+                    <ListView ItemsSource="{x:Bind ViewModel.FailureDetails}"
+                              MaxHeight="240" SelectionMode="None">
+                        <ListView.ItemTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding}" TextWrapping="Wrap"
+                                           Style="{StaticResource CaptionTextBlockStyle}" />
+                            </DataTemplate>
+                        </ListView.ItemTemplate>
+                    </ListView>
+                </StackPanel>
+            </Border>
 
             <!-- Results: group list -->
             <StackPanel Spacing="16"
@@ -111,7 +130,8 @@
                 <!-- Group cards -->
                 <ListView ItemsSource="{x:Bind ViewModel.Groups}"
                           SelectionMode="None"
-                          IsItemClickEnabled="False">
+                          IsItemClickEnabled="False"
+                          IsEnabled="{x:Bind ViewModel.CanAnalyze, Mode=OneWay}">
                     <ListView.ItemContainerStyle>
                         <Style TargetType="ListViewItem">
                             <Setter Property="HorizontalContentAlignment" Value="Stretch" />

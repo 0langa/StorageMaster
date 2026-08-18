@@ -1,6 +1,7 @@
 using System.Runtime.InteropServices;
 using FluentAssertions;
 using StorageMaster.Platform.Windows;
+using StorageMaster.Platform.Windows.Interop;
 
 namespace StorageMaster.Tests.CriticalFixes;
 
@@ -34,6 +35,12 @@ public sealed class JunctionSafeDeleteTests
             Directory.Exists(link).Should().BeTrue("junction should exist before delete");
             var attrs = File.GetAttributes(link);
             (attrs & FileAttributes.ReparsePoint).Should().NotBe(0, "link should be a reparse point");
+            using (var guard = DirectoryTraversalInterop.TryOpenNoFollow(link))
+            {
+                guard.Should().NotBeNull();
+                guard!.IsReparsePoint.Should().BeTrue();
+                guard.ReparseTag.Should().NotBe(0);
+            }
 
             // Act: delete the junction with our safe method.
             FileDeleter.DeletePermanently(link);
@@ -107,6 +114,139 @@ public sealed class JunctionSafeDeleteTests
         FileDeleter.DeletePermanently(file);
 
         File.Exists(file).Should().BeFalse();
+    }
+
+    [Fact]
+    public void DirectoryTraversalGuard_WhileHeld_BlocksDirectoryRename()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"c7_guard_{Guid.NewGuid():N}");
+        var guarded = Path.Combine(root, "guarded");
+        var moved = Path.Combine(root, "moved");
+        Directory.CreateDirectory(guarded);
+
+        try
+        {
+            using (var guard = DirectoryTraversalInterop.TryOpenNoFollow(guarded))
+            {
+                guard.Should().NotBeNull();
+                guard!.IsReparsePoint.Should().BeFalse();
+
+                var rename = () => Directory.Move(guarded, moved);
+                rename.Should().Throw<IOException>(
+                    "the no-delete-share handle must keep the guarded name bound to the inspected directory");
+            }
+
+            Directory.Move(guarded, moved);
+            Directory.Exists(moved).Should().BeTrue(
+                "rename should work again after the traversal guard is released");
+        }
+        finally
+        {
+            if (Directory.Exists(guarded)) Directory.Delete(guarded, recursive: true);
+            if (Directory.Exists(moved)) Directory.Delete(moved, recursive: true);
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void DirectoryTraversalGuard_WhileHeld_BlocksAncestorRename()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"c7_ancestor_{Guid.NewGuid():N}");
+        var ancestor = Path.Combine(root, "ancestor");
+        var guarded = Path.Combine(ancestor, "guarded");
+        var movedAncestor = Path.Combine(root, "moved");
+        Directory.CreateDirectory(guarded);
+
+        try
+        {
+            using (var guard = DirectoryTraversalInterop.TryOpenNoFollow(guarded))
+            {
+                guard.Should().NotBeNull();
+
+                var rename = () => Directory.Move(ancestor, movedAncestor);
+                rename.Should().Throw<IOException>(
+                    "an ancestor rename must not redirect path-based enumeration away from the guarded object");
+            }
+
+            Directory.Move(ancestor, movedAncestor);
+            Directory.Exists(Path.Combine(movedAncestor, "guarded")).Should().BeTrue();
+        }
+        finally
+        {
+            if (Directory.Exists(ancestor)) Directory.Delete(ancestor, recursive: true);
+            if (Directory.Exists(movedAncestor)) Directory.Delete(movedAncestor, recursive: true);
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void DirectoryTraversalGuard_MarkForDeletion_RemovesGuardedDirectoryOnDispose()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"c7_disposition_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+
+        try
+        {
+            using (var guard = DirectoryTraversalInterop.TryOpenNoFollow(directory))
+            {
+                guard.Should().NotBeNull();
+                guard!.IsReparsePoint.Should().BeFalse();
+                guard.MarkForDeletion();
+            }
+
+            Directory.Exists(directory).Should().BeFalse(
+                "the guarded object should be deleted without reopening its path");
+        }
+        finally
+        {
+            if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void DeletePermanently_ChildBecomesJunctionBeforeNoFollowOpen_DoesNotTraverseTarget()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"c7_swap_{Guid.NewGuid():N}");
+        var target = Path.Combine(root, "target");
+        var container = Path.Combine(root, "container");
+        var child = Path.Combine(container, "candidate");
+        var probe = Path.Combine(root, "junction_probe");
+        Directory.CreateDirectory(target);
+        Directory.CreateDirectory(child);
+        var precious = Path.Combine(target, "precious.txt");
+        File.WriteAllText(precious, "must survive");
+        File.WriteAllText(Path.Combine(child, "ordinary.txt"), "replace me");
+
+        try
+        {
+            CreateJunction(probe, target).Should().BeTrue(
+                "the deterministic swap test requires junction support");
+            Directory.Delete(probe, recursive: false);
+
+            var swapped = false;
+            FileDeleter.DeletePermanently(container, directory =>
+            {
+                if (swapped || !string.Equals(directory, child, StringComparison.OrdinalIgnoreCase))
+                    return;
+
+                Directory.Delete(child, recursive: true);
+                if (!CreateJunction(child, target))
+                    throw new IOException("Test could not replace the child directory with a junction.");
+                swapped = true;
+            });
+
+            swapped.Should().BeTrue("the race seam must replace the child before its guarded open");
+            Directory.Exists(container).Should().BeFalse();
+            File.Exists(precious).Should().BeTrue(
+                "the no-follow handle must classify the replacement junction and refuse recursion");
+        }
+        finally
+        {
+            if (Directory.Exists(probe)) Directory.Delete(probe, recursive: false);
+            if (Directory.Exists(child)) Directory.Delete(child, recursive: false);
+            if (Directory.Exists(container)) Directory.Delete(container, recursive: true);
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
     }
 
     private static bool CreateJunction(string junction, string target)

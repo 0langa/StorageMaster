@@ -67,6 +67,101 @@ public sealed class SettingsUpdateRaceTests : IAsyncDisposable
         (await _repo.LoadAsync()).LargeFileSizeMb.Should().Be(777);
     }
 
+    [Fact]
+    public async Task ConcurrentUpdates_AcrossIndependentContexts_PreserveEveryDisjointMutation()
+    {
+        await _repo.SaveAsync(new());
+        await using var secondContext =
+            new StorageDbContext(_dbPath, NullLogger<StorageDbContext>.Instance);
+        var secondRepository = new SettingsRepository(secondContext);
+        var start = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        var tasks = Enumerable.Range(0, 40)
+            .Select(index => Task.Run(async () =>
+            {
+                await start.Task;
+                var repository = index % 2 == 0 ? _repo : secondRepository;
+                await repository.UpdateAsync(settings =>
+                {
+                    // Widen the old load/modify/save race. A correct update
+                    // holds SQLite's writer reservation before this callback.
+                    Thread.Sleep(2);
+                    settings.LowDiskNotificationState[$"multi-{index}"] = $"value-{index}";
+                });
+            }))
+            .ToArray();
+
+        start.SetResult(true);
+        await Task.WhenAll(tasks).WaitAsync(TimeSpan.FromSeconds(20));
+
+        var final = await _repo.LoadAsync();
+        final.LowDiskNotificationState.Should().HaveCount(40);
+        for (var index = 0; index < 40; index++)
+            final.LowDiskNotificationState[$"multi-{index}"].Should().Be($"value-{index}");
+    }
+
+    [Fact]
+    public async Task UpdateAsync_CancellationWhileAnotherContextOwnsMutationTransaction_IsObserved()
+    {
+        await _repo.SaveAsync(new());
+        await using var secondContext =
+            new StorageDbContext(_dbPath, NullLogger<StorageDbContext>.Instance);
+        var secondRepository = new SettingsRepository(secondContext);
+        var firstMutationEntered =
+            new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var releaseFirstMutation = new ManualResetEventSlim();
+
+        var first = Task.Run(() => _repo.UpdateAsync(settings =>
+        {
+            firstMutationEntered.SetResult(true);
+            releaseFirstMutation.Wait(TimeSpan.FromSeconds(10));
+            settings.DefaultScanPath = @"C:\first";
+        }));
+
+        await firstMutationEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromMilliseconds(150));
+        var cancellationWait = System.Diagnostics.Stopwatch.StartNew();
+        var canceledUpdate = async () => await secondRepository.UpdateAsync(
+            settings => settings.LargeFileSizeMb = 999,
+            cancellation.Token);
+
+        try
+        {
+            await canceledUpdate.Should().ThrowAsync<OperationCanceledException>();
+            cancellationWait.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(2),
+                "waiting for another context's writer lock must remain cancellation-aware");
+        }
+        finally
+        {
+            releaseFirstMutation.Set();
+            await first.WaitAsync(TimeSpan.FromSeconds(5));
+        }
+
+        var final = await _repo.LoadAsync();
+        final.DefaultScanPath.Should().Be(@"C:\first");
+        final.LargeFileSizeMb.Should().NotBe(999,
+            "a canceled mutation must not commit after returning cancellation");
+    }
+
+    [Fact]
+    public async Task UpdateAsync_CancellationRaisedInsideMutation_RollsBackChanges()
+    {
+        await _repo.SaveAsync(new() { DefaultScanPath = @"C:\before" });
+        using var cancellation = new CancellationTokenSource();
+
+        var canceledUpdate = async () => await _repo.UpdateAsync(settings =>
+        {
+            settings.DefaultScanPath = @"C:\must-not-commit";
+            cancellation.Cancel();
+        }, cancellation.Token);
+
+        await canceledUpdate.Should().ThrowAsync<OperationCanceledException>();
+
+        var final = await _repo.LoadAsync();
+        final.DefaultScanPath.Should().Be(@"C:\before",
+            "cancellation after mutation must roll the transaction back");
+    }
+
     public async ValueTask DisposeAsync()
     {
         await _ctx.DisposeAsync();

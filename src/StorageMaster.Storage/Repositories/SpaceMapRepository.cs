@@ -14,7 +14,7 @@ public sealed class SpaceMapRepository : ISpaceMapRepository
 
     public async Task<IReadOnlyList<ScanSession>> GetSessionRootCandidatesAsync(CancellationToken ct = default)
     {
-        var conn = await _db.GetConnectionAsync(ct);
+        await using var conn = await _db.GetConnectionAsync(ct);
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
             SELECT *
@@ -34,7 +34,7 @@ public sealed class SpaceMapRepository : ISpaceMapRepository
         long currentSessionId,
         CancellationToken ct = default)
     {
-        var conn = await _db.GetConnectionAsync(ct);
+        await using var conn = await _db.GetConnectionAsync(ct);
 
         ScanSession? current;
         using (var currentCmd = conn.CreateCommand())
@@ -78,6 +78,9 @@ public sealed class SpaceMapRepository : ISpaceMapRepository
         var parentSize = await GetFolderSizeAsync(sessionId, normalizedFolder, ct);
         var results = new List<SpaceMapNode>();
 
+        if (limit <= 0)
+            return results;
+
         if (kindFilter is null or SpaceMapNodeKind.Folder)
         {
             var folders = await QueryDirectFoldersAsync(
@@ -92,22 +95,21 @@ public sealed class SpaceMapRepository : ISpaceMapRepository
 
         if (kindFilter is null or SpaceMapNodeKind.File)
         {
-            var remaining = Math.Max(0, limit - results.Count);
-            if (remaining > 0)
-            {
-                var files = await QueryDirectFilesAsync(
-                    sessionId,
-                    normalizedFolder,
-                    parentSize,
-                    minimumSizeBytes,
-                    remaining,
-                    ct);
-                results.AddRange(files);
-            }
+            // Fetch the top N of each kind before applying the global top N.
+            // Any item in the combined top N must be present in its kind's top N.
+            var files = await QueryDirectFilesAsync(
+                sessionId,
+                normalizedFolder,
+                parentSize,
+                minimumSizeBytes,
+                limit,
+                ct);
+            results.AddRange(files);
         }
 
         return results
             .OrderByDescending(static node => node.SizeBytes)
+            .ThenBy(static node => node.FullPath, StringComparer.OrdinalIgnoreCase)
             .Take(limit)
             .ToArray();
     }
@@ -123,13 +125,13 @@ public sealed class SpaceMapRepository : ISpaceMapRepository
         var prefixNorm = NormalizeForStorage(prefix);
         var parentSize = await GetFolderSizeAsync(sessionId, folder, ct);
 
-        var conn = await _db.GetConnectionAsync(ct);
+        await using var conn = await _db.GetConnectionAsync(ct);
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
             SELECT Id, SessionId, FullPath, FileName, SizeBytes, ModifiedUtc, Category, IsReparsePoint
             FROM FileEntries
             WHERE SessionId = $sid
-              AND NormalizedFullPath LIKE $prefixNorm || '%'
+              AND substr(NormalizedFullPath, 1, length($prefixNorm)) = $prefixNorm
             ORDER BY SizeBytes DESC
             LIMIT $limit;
             """;
@@ -163,7 +165,7 @@ public sealed class SpaceMapRepository : ISpaceMapRepository
 
     private async Task<long> GetFolderSizeAsync(long sessionId, string folderPath, CancellationToken ct)
     {
-        var conn = await _db.GetConnectionAsync(ct);
+        await using var conn = await _db.GetConnectionAsync(ct);
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
             SELECT COALESCE(
@@ -185,7 +187,7 @@ public sealed class SpaceMapRepository : ISpaceMapRepository
         CancellationToken ct)
     {
         var prefix = ChildPrefix(parentPath);
-        var conn = await _db.GetConnectionAsync(ct);
+        await using var conn = await _db.GetConnectionAsync(ct);
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
             SELECT Id, SessionId, FullPath, FolderName, TotalSizeBytes, FileCount,
@@ -193,7 +195,7 @@ public sealed class SpaceMapRepository : ISpaceMapRepository
             FROM FolderEntries
             WHERE SessionId = $sid
               AND NormalizedFullPath <> $parentNorm
-              AND NormalizedFullPath LIKE $prefixNorm || '%'
+              AND substr(NormalizedFullPath, 1, length($prefixNorm)) = $prefixNorm
               AND instr(substr(FullPath, length($prefix) + 1), '\') = 0
               AND TotalSizeBytes >= $minBytes
             ORDER BY TotalSizeBytes DESC
@@ -236,13 +238,13 @@ public sealed class SpaceMapRepository : ISpaceMapRepository
         CancellationToken ct)
     {
         var prefix = ChildPrefix(parentPath);
-        var conn = await _db.GetConnectionAsync(ct);
+        await using var conn = await _db.GetConnectionAsync(ct);
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
             SELECT Id, SessionId, FullPath, FileName, SizeBytes, ModifiedUtc, Category, IsReparsePoint
             FROM FileEntries
             WHERE SessionId = $sid
-              AND NormalizedFullPath LIKE $prefixNorm || '%'
+              AND substr(NormalizedFullPath, 1, length($prefixNorm)) = $prefixNorm
               AND instr(substr(FullPath, length($prefix) + 1), '\') = 0
               AND SizeBytes >= $minBytes
             ORDER BY SizeBytes DESC
@@ -268,7 +270,7 @@ public sealed class SpaceMapRepository : ISpaceMapRepository
         int limit,
         CancellationToken ct)
     {
-        var conn = await _db.GetConnectionAsync(ct);
+        await using var conn = await _db.GetConnectionAsync(ct);
         using var cmd = conn.CreateCommand();
         cmd.CommandText = growing
             ? """
@@ -310,7 +312,7 @@ public sealed class SpaceMapRepository : ISpaceMapRepository
         int limit,
         CancellationToken ct)
     {
-        var conn = await _db.GetConnectionAsync(ct);
+        await using var conn = await _db.GetConnectionAsync(ct);
         using var cmd = conn.CreateCommand();
         cmd.CommandText = added
             ? """
@@ -365,7 +367,7 @@ public sealed class SpaceMapRepository : ISpaceMapRepository
             ParentSizeBytes = parentSize,
             FileCount = 1,
             FolderCount = 0,
-            ModifiedUtc = DateTime.Parse(reader.GetString(reader.GetOrdinal("ModifiedUtc"))),
+            ModifiedUtc = UtcTimestamp.Parse(reader.GetString(reader.GetOrdinal("ModifiedUtc"))),
             Category = category,
             IsReparsePoint = reader.GetInt32(reader.GetOrdinal("IsReparsePoint")) == 1,
         };
@@ -384,9 +386,9 @@ public sealed class SpaceMapRepository : ISpaceMapRepository
     {
         Id = r.GetInt64(r.GetOrdinal("Id")),
         RootPath = r.GetString(r.GetOrdinal("RootPath")),
-        StartedUtc = DateTime.Parse(r.GetString(r.GetOrdinal("StartedUtc"))),
+        StartedUtc = UtcTimestamp.Parse(r.GetString(r.GetOrdinal("StartedUtc"))),
         CompletedUtc = r.IsDBNull(r.GetOrdinal("CompletedUtc")) ? null
-            : DateTime.Parse(r.GetString(r.GetOrdinal("CompletedUtc"))),
+            : UtcTimestamp.Parse(r.GetString(r.GetOrdinal("CompletedUtc"))),
         Status = Enum.TryParse<ScanStatus>(r.GetString(r.GetOrdinal("Status")), ignoreCase: true, out var status)
             ? status
             : ScanStatus.Failed,

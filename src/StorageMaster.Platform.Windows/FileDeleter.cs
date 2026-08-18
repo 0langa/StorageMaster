@@ -33,10 +33,21 @@ namespace StorageMaster.Platform.Windows;
 public sealed class FileDeleter : IFileDeleter
 {
     private readonly ILogger<FileDeleter> _logger;
+    private readonly IFileSnapshotProvider? _snapshotProvider;
 
     private const int MaxConcurrency = 8; // raised from 4; permanent deletes are lightweight
 
-    public FileDeleter(ILogger<FileDeleter> logger) => _logger = logger;
+    private readonly record struct ValidatedDeletionRequest(
+        DeletionRequest Request,
+        string RequestedPath);
+
+    public FileDeleter(
+        ILogger<FileDeleter> logger,
+        IFileSnapshotProvider? snapshotProvider = null)
+    {
+        _logger = logger;
+        _snapshotProvider = snapshotProvider;
+    }
 
     // ── Public interface ────────────────────────────────────────────────────
 
@@ -47,17 +58,52 @@ public sealed class FileDeleter : IFileDeleter
         await Task.Yield();
         cancellationToken.ThrowIfCancellationRequested();
 
-        if (TryCreateValidationFailure(request, out var validationFailure))
+        var requestedPath = request.Path ?? string.Empty;
+        if (!TryNormalizeRequest(request, out var normalizedRequest, out var validationFailure))
         {
             _logger.LogError("Refused deletion request for {Path}: {Error}", request.Path, validationFailure.Error);
             return validationFailure;
+        }
+        request = normalizedRequest;
+
+        if (!request.DryRun && request.ExpectedSnapshot is not null)
+        {
+            if (_snapshotProvider is null)
+            {
+                return new DeletionOutcome(
+                    requestedPath,
+                    false,
+                    0,
+                    "Snapshot-guarded deletion is unavailable; refusing to delete.");
+            }
+
+            var currentSnapshot = await _snapshotProvider
+                .TakeSnapshotAsync(request.Path, cancellationToken)
+                .ConfigureAwait(false);
+            if (currentSnapshot is null || !request.ExpectedSnapshot.IsIdenticalTo(currentSnapshot))
+            {
+                return new DeletionOutcome(
+                    requestedPath,
+                    false,
+                    0,
+                    "File changed or was replaced after validation; refusing to delete.");
+            }
         }
 
         if (request.DryRun)
         {
             long est = EstimateSize(request.Path, cancellationToken);
             _logger.LogInformation("[DryRun] Would delete {Path} (~{Size} B)", request.Path, est);
-            return new DeletionOutcome(request.Path, true, est);
+            return new DeletionOutcome(requestedPath, true, est);
+        }
+
+        if (request.Path == "::RecycleBin::" && request.Method != DeletionMethod.Permanent)
+        {
+            return new DeletionOutcome(
+                requestedPath,
+                false,
+                0,
+                "Emptying the Recycle Bin is irreversible and requires Permanent deletion mode.");
         }
 
         if (request.Path == "::RecycleBin::")
@@ -71,14 +117,14 @@ public sealed class FileDeleter : IFileDeleter
             long size = EstimateSize(request.Path, cancellationToken);
 
             if (request.Method == DeletionMethod.Quarantine)
-                return await QuarantineAsync(request, size, cancellationToken);
+                return await QuarantineAsync(request, requestedPath, size, cancellationToken);
 
             if (request.Method == DeletionMethod.RecycleBin)
                 RecyclePathsViaIFileOperation([request.Path]);
             else
                 DeletePermanently(request.Path);
             _logger.LogInformation("Deleted {Path} ({Size} B)", request.Path, size);
-            return new DeletionOutcome(request.Path, true, size);
+            return new DeletionOutcome(requestedPath, true, size);
         }
         catch (OperationCanceledException)
         {
@@ -87,7 +133,7 @@ public sealed class FileDeleter : IFileDeleter
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to delete {Path}", request.Path);
-            return new DeletionOutcome(request.Path, false, 0, ex.Message);
+            return new DeletionOutcome(requestedPath, false, 0, ex.Message);
         }
     }
 
@@ -97,27 +143,30 @@ public sealed class FileDeleter : IFileDeleter
     {
         if (requests.Count == 0) yield break;
 
-        var validRequests = new List<DeletionRequest>(requests.Count);
+        var validRequests = new List<ValidatedDeletionRequest>(requests.Count);
         foreach (var request in requests)
         {
-            if (TryCreateValidationFailure(request, out var validationFailure))
+            if (!TryNormalizeRequest(request, out var normalizedRequest, out var validationFailure))
             {
                 _logger.LogError("Refused deletion request for {Path}: {Error}", request.Path, validationFailure.Error);
                 yield return validationFailure;
                 continue;
             }
 
-            validRequests.Add(request);
+            validRequests.Add(new ValidatedDeletionRequest(
+                normalizedRequest,
+                request.Path ?? string.Empty));
         }
 
         if (validRequests.Count == 0) yield break;
 
         // ── Fast path: batch all RecycleBin real deletions in one shell call ──
         // This is the common cleanup case and is dramatically faster than N calls.
-        bool allRecycleBin = validRequests.All(r => !r.DryRun
-                                                             && r.Method == DeletionMethod.RecycleBin
-                                                             && r.Path != "::RecycleBin::"
-                                                             && r.Path != "::DnsFlush::");
+        bool allRecycleBin = validRequests.All(r => !r.Request.DryRun
+                                                             && r.Request.Method == DeletionMethod.RecycleBin
+                                                             && r.Request.ExpectedSnapshot is null
+                                                             && r.Request.Path != "::RecycleBin::"
+                                                             && r.Request.Path != "::DnsFlush::");
         // Quarantine is per-file; falls through to normal path
         if (allRecycleBin && validRequests.Count > 1)
         {
@@ -134,7 +183,7 @@ public sealed class FileDeleter : IFileDeleter
     // ── Batch Recycle Bin (fast path) ───────────────────────────────────────
 
     private async IAsyncEnumerable<DeletionOutcome> BatchRecycleBinAsync(
-        IReadOnlyList<DeletionRequest> requests,
+        IReadOnlyList<ValidatedDeletionRequest> requests,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         await Task.Yield();
@@ -143,10 +192,10 @@ public sealed class FileDeleter : IFileDeleter
         // Measure sizes before deletion (best-effort, parallel for speed)
         var sizes = await Task.Run(() =>
             requests.AsParallel().AsOrdered()
-                    .Select(r => EstimateSize(r.Path, cancellationToken))
+                    .Select(r => EstimateSize(r.Request.Path, cancellationToken))
                     .ToList(), cancellationToken);
 
-        var paths = requests.Select(r => r.Path).ToList();
+        var paths = requests.Select(r => r.Request.Path).ToList();
         bool batchSucceeded = false;
         try
         {
@@ -169,18 +218,19 @@ public sealed class FileDeleter : IFileDeleter
             int succeeded = 0, failed = 0;
             for (int i = 0; i < requests.Count; i++)
             {
-                var path = requests[i].Path;
+                var path = requests[i].Request.Path;
+                var requestedPath = requests[i].RequestedPath;
                 bool recycled = !File.Exists(path) && !Directory.Exists(path);
                 if (recycled)
                 {
                     succeeded++;
-                    yield return new DeletionOutcome(path, Success: true, BytesFreed: sizes[i]);
+                    yield return new DeletionOutcome(requestedPath, Success: true, BytesFreed: sizes[i]);
                 }
                 else
                 {
                     failed++;
                     _logger.LogWarning("Batch recycle: item not moved to Recycle Bin (locked/denied?) — {Path}", path);
-                    yield return new DeletionOutcome(path, Success: false, BytesFreed: 0,
+                    yield return new DeletionOutcome(requestedPath, Success: false, BytesFreed: 0,
                         Error: "File could not be moved to the Recycle Bin (may be locked, access denied, or cross-volume).");
                 }
             }
@@ -197,7 +247,7 @@ public sealed class FileDeleter : IFileDeleter
     // ── Parallel per-file (normal path) ────────────────────────────────────
 
     private async IAsyncEnumerable<DeletionOutcome> ParallelDeleteAsync(
-        IReadOnlyList<DeletionRequest> requests,
+        IReadOnlyList<ValidatedDeletionRequest> requests,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         using var semaphore = new SemaphoreSlim(MaxConcurrency);
@@ -210,7 +260,8 @@ public sealed class FileDeleter : IFileDeleter
                 await semaphore.WaitAsync(cancellationToken);
                 try
                 {
-                    var outcome = await DeleteAsync(req, cancellationToken);
+                    var outcome = await DeleteAsync(req.Request, cancellationToken);
+                    outcome = outcome with { Path = req.RequestedPath };
                     await channel.Writer.WriteAsync(outcome, cancellationToken);
                 }
                 finally { semaphore.Release(); }
@@ -271,10 +322,7 @@ public sealed class FileDeleter : IFileDeleter
         var fo = FileOperationInterop.CreateFileOperation();
         try
         {
-            fo.SetOperationFlags(
-                FileOperationInterop.FOF_ALLOWUNDO |   // send to Recycle Bin
-                FileOperationInterop.FOF_NOCONFIRMATION |   // no "are you sure?" dialog
-                FileOperationInterop.FOF_NOERRORUI);        // suppress shell error dialogs
+            fo.SetOperationFlags(FileOperationInterop.RecycleDeleteOperationFlags);
 
             fo.SetOwnerWindow(IntPtr.Zero);
 
@@ -308,27 +356,28 @@ public sealed class FileDeleter : IFileDeleter
     /// <summary>
     /// Permanently deletes a file or directory. Junction/symlink-safe:
     /// reparse points are removed as links only — their targets are NOT
-    /// recursively deleted. This prevents destroying data outside the
-    /// intended directory tree.
+    /// recursively deleted. Every directory is locked and classified through
+    /// a no-follow handle before enumeration, preventing namespace swaps from
+    /// redirecting recursion outside the intended tree.
     /// </summary>
     internal static void DeletePermanently(string path) =>
-        DeletePermanently(path, File.GetAttributes);
+        DeletePermanentlyCore(path, beforeDirectoryGuardOpen: null);
 
+    /// <summary>Test seam invoked immediately before each no-follow directory open.</summary>
     internal static void DeletePermanently(
         string path,
-        Func<string, FileAttributes> getAttributes)
+        Action<string> beforeDirectoryGuardOpen) =>
+        DeletePermanentlyCore(path, beforeDirectoryGuardOpen);
+
+    private static void DeletePermanentlyCore(
+        string path,
+        Action<string>? beforeDirectoryGuardOpen)
     {
         if (Directory.Exists(path))
         {
-            // If the directory itself is a reparse point (junction/symlink),
-            // delete the link only — never recurse into the target.
-            if (IsReparsePointForDeletion(path, getAttributes))
-            {
-                Directory.Delete(path, recursive: false);
-                return;
-            }
-
-            DeleteDirectoryRecursiveSafe(path, getAttributes);
+            // Directory.Exists is only a type hint. The recursive routine reopens
+            // and classifies the root itself through the same guarded path as every child.
+            DeleteDirectoryRecursiveSafe(path, beforeDirectoryGuardOpen);
         }
         else
         {
@@ -338,50 +387,50 @@ public sealed class FileDeleter : IFileDeleter
     }
 
     /// <summary>
-    /// Recursive directory delete that skips into reparse-point subdirectories,
-    /// removing them as links only.
+    /// Recursive directory delete that refuses to enumerate reparse-point directories,
+    /// removing them as links only through the no-follow handle.
     ///
-    /// Uses eager GetDirectories/GetFiles (not lazy Enumerate*) so that a folder
-    /// vanishing mid-delete (race with the OS, another process, or Windows cleaning
-    /// temp directories) produces a handled DirectoryNotFoundException rather than
-    /// a partially-consumed enumerator exception.
+    /// The guard omits delete and write sharing, so the named directory cannot be
+    /// renamed, deleted, or converted into a reparse point while its children are
+    /// enumerated and deleted. It stays alive across all recursive child work.
     /// </summary>
     private static void DeleteDirectoryRecursiveSafe(
         string dir,
-        Func<string, FileAttributes> getAttributes)
+        Action<string>? beforeDirectoryGuardOpen)
     {
-        string[] subDirs;
-        string[] files;
-        try
-        {
-            subDirs = Directory.GetDirectories(dir);
-            files = Directory.GetFiles(dir);
-        }
-        catch (DirectoryNotFoundException) { return; } // dir vanished between scan and delete — treat as done
+        beforeDirectoryGuardOpen?.Invoke(dir);
+        using var guard = DirectoryTraversalInterop.TryOpenNoFollow(dir);
+        if (guard is null)
+            return;
 
-        foreach (var subDir in subDirs)
+        if (!guard.IsReparsePoint)
         {
-            if (IsReparsePointForDeletion(subDir, getAttributes))
+            string[] subDirs;
+            string[] files;
+            try
             {
-                try { Directory.Delete(subDir, recursive: false); } // remove link, not target
-                catch (DirectoryNotFoundException) { }              // link already gone
+                subDirs = Directory.GetDirectories(dir);
+                files = Directory.GetFiles(dir);
             }
-            else
+            catch (DirectoryNotFoundException)
             {
-                DeleteDirectoryRecursiveSafe(subDir, getAttributes);
+                return;
+            }
+
+            foreach (var subDir in subDirs)
+                DeleteDirectoryRecursiveSafe(subDir, beforeDirectoryGuardOpen);
+
+            foreach (var file in files)
+            {
+                ClearReadOnly(file);
+                try { File.Delete(file); }
+                catch (FileNotFoundException) { } // entry vanished after enumeration
             }
         }
 
-        foreach (var file in files)
-        {
-            ClearReadOnly(file);
-            try { File.Delete(file); }
-            catch (FileNotFoundException) { } // deleted by another process between snapshot and delete
-        }
-
-        ClearReadOnly(dir);
-        try { Directory.Delete(dir, recursive: false); }
-        catch (DirectoryNotFoundException) { } // already removed by a parallel delete or OS cleanup
+        // Delete the exact inspected object through its still-open no-follow handle.
+        // This removes a reparse point as a link and avoids reopening a swappable path.
+        guard.MarkForDeletion();
     }
 
     /// <summary>
@@ -392,6 +441,21 @@ public sealed class FileDeleter : IFileDeleter
     internal static bool IsRootOrUncPrefix(string path)
     {
         if (string.IsNullOrWhiteSpace(path)) return false;
+        if (Path.IsPathFullyQualified(path))
+        {
+            try
+            {
+                path = Path.GetFullPath(path);
+            }
+            catch (Exception ex) when (ex is ArgumentException
+                                       or NotSupportedException
+                                       or PathTooLongException
+                                       or SecurityException)
+            {
+                return false;
+            }
+        }
+
         var root = Path.GetPathRoot(path);
         if (string.IsNullOrEmpty(root)) return false;
         // Compare normalized (no trailing separator) so both "C:\" and "C:" are caught.
@@ -400,21 +464,62 @@ public sealed class FileDeleter : IFileDeleter
         return string.Equals(normalized, rootNorm, StringComparison.OrdinalIgnoreCase);
     }
 
-    internal static bool TryCreateValidationFailure(
+    internal static bool TryNormalizeRequest(
         DeletionRequest request,
+        out DeletionRequest normalizedRequest,
         out DeletionOutcome failure)
     {
-        if (request.Path != "::RecycleBin::"
-            && request.Path != "::DnsFlush::"
-            && IsRootOrUncPrefix(request.Path))
+        var requestedPath = request.Path ?? string.Empty;
+        if (requestedPath is "::RecycleBin::" or "::DnsFlush::")
         {
-            failure = new DeletionOutcome(request.Path, false, 0,
-                "Refusing to delete a filesystem root or UNC share prefix.");
+            normalizedRequest = request;
+            failure = default!;
             return true;
         }
 
+        if (string.IsNullOrWhiteSpace(requestedPath))
+        {
+            normalizedRequest = request;
+            failure = new DeletionOutcome(requestedPath, false, 0,
+                "Refusing to delete an empty filesystem path.");
+            return false;
+        }
+
+        if (!Path.IsPathFullyQualified(requestedPath))
+        {
+            normalizedRequest = request;
+            failure = new DeletionOutcome(requestedPath, false, 0,
+                "Refusing to delete a relative or drive-relative path; an absolute filesystem path is required.");
+            return false;
+        }
+
+        string canonicalPath;
+        try
+        {
+            canonicalPath = Path.GetFullPath(requestedPath);
+        }
+        catch (Exception ex) when (ex is ArgumentException
+                                   or NotSupportedException
+                                   or PathTooLongException
+                                   or SecurityException)
+        {
+            normalizedRequest = request;
+            failure = new DeletionOutcome(requestedPath, false, 0,
+                $"Refusing to delete an invalid filesystem path: {ex.Message}");
+            return false;
+        }
+
+        if (IsRootOrUncPrefix(canonicalPath))
+        {
+            normalizedRequest = request;
+            failure = new DeletionOutcome(requestedPath, false, 0,
+                "Refusing to delete a filesystem root or UNC share prefix.");
+            return false;
+        }
+
+        normalizedRequest = request with { Path = canonicalPath };
         failure = default!;
-        return false;
+        return true;
     }
 
     private static void ClearReadOnly(string path)
@@ -440,30 +545,15 @@ public sealed class FileDeleter : IFileDeleter
         catch { return false; }
     }
 
-    private static bool IsReparsePointForDeletion(
-        string path,
-        Func<string, FileAttributes> getAttributes)
-    {
-        try
-        {
-            return (getAttributes(path) & FileAttributes.ReparsePoint) != 0;
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or SecurityException)
-        {
-            throw new IOException(
-                $"Unable to verify whether the path is a reparse point: {path}",
-                ex);
-        }
-    }
-
     // ── Quarantine ──────────────────────────────────────────────────────────
 
-    private static readonly string QuarantineRoot = Path.Combine(
+    private static readonly string QuarantineRoot = Path.GetFullPath(Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "StorageMaster", "Quarantine");
+        "StorageMaster", "Quarantine"));
 
     private async Task<DeletionOutcome> QuarantineAsync(
         DeletionRequest request,
+        string requestedPath,
         long size,
         CancellationToken cancellationToken)
     {
@@ -471,12 +561,11 @@ public sealed class FileDeleter : IFileDeleter
         {
             const string message = "Directory quarantine is not supported; route folders through cleanup review or use Recycle Bin.";
             _logger.LogWarning("Blocked directory quarantine for {Path}", request.Path);
-            return new DeletionOutcome(request.Path, false, 0, message);
+            return new DeletionOutcome(requestedPath, false, 0, message);
         }
 
         var runId = request.QuarantineRunId ?? 0;
-        var relative = MakeRelativeQuarantinePath(request.Path);
-        var destination = Path.Combine(QuarantineRoot, runId.ToString(), relative);
+        var destination = GetCanonicalQuarantineDestination(request.Path, runId);
 
         try
         {
@@ -492,7 +581,7 @@ public sealed class FileDeleter : IFileDeleter
             cancellationToken.ThrowIfCancellationRequested();
             File.Move(request.Path, dest);
             _logger.LogInformation("Quarantined {Source} → {Dest}", request.Path, dest);
-            return new DeletionOutcome(request.Path, true, size, QuarantinePath: dest);
+            return new DeletionOutcome(requestedPath, true, size, QuarantinePath: dest);
         }
         catch (OperationCanceledException)
         {
@@ -501,8 +590,34 @@ public sealed class FileDeleter : IFileDeleter
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to quarantine {Path}", request.Path);
-            return new DeletionOutcome(request.Path, false, 0, ex.Message);
+            return new DeletionOutcome(requestedPath, false, 0, ex.Message);
         }
+    }
+
+    private static string GetCanonicalQuarantineDestination(string canonicalSourcePath, long runId)
+    {
+        var runRoot = Path.GetFullPath(Path.Combine(
+            QuarantineRoot,
+            runId.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+        if (!IsStrictChildPath(runRoot, QuarantineRoot))
+            throw new IOException("The quarantine run directory escaped the quarantine root.");
+
+        var relative = MakeRelativeQuarantinePath(canonicalSourcePath);
+        var destination = Path.GetFullPath(Path.Combine(runRoot, relative));
+        if (!IsStrictChildPath(destination, runRoot))
+            throw new IOException("The quarantine destination escaped its quarantine run directory.");
+
+        return destination;
+    }
+
+    private static bool IsStrictChildPath(string candidate, string parent)
+    {
+        var relative = Path.GetRelativePath(parent, candidate);
+        return relative != "."
+               && !Path.IsPathRooted(relative)
+               && relative != ".."
+               && !relative.StartsWith($"..{Path.DirectorySeparatorChar}", StringComparison.Ordinal)
+               && !relative.StartsWith($"..{Path.AltDirectorySeparatorChar}", StringComparison.Ordinal);
     }
 
     private static string MakeRelativeQuarantinePath(string absolutePath)

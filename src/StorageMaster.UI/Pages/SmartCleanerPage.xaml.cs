@@ -26,4 +26,10 @@ public sealed partial class SmartCleanerPage : Page
             System.Diagnostics.Debug.WriteLine(ex);
         }
     }
+
+    protected override void OnNavigatedFrom(NavigationEventArgs e)
+    {
+        ViewModel.CancelOperations();
+        base.OnNavigatedFrom(e);
+    }
 }

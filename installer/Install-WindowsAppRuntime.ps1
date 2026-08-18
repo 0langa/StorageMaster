@@ -76,7 +76,16 @@ if ($installedPackage -and ([version]$installedPackage.Version -ge $requiredVers
 Write-PrereqLog "Installing Windows App SDK runtime $requiredVersion from $MsixPath"
 try {
     Add-AppxPackage -Path $MsixPath -ForceUpdateFromAnyVersion -ErrorAction Stop
-    Write-PrereqLog "Windows App SDK runtime install completed."
+    $installedAfter = Get-AppxPackage -Name "Microsoft.WindowsAppRuntime.1.6" -ErrorAction SilentlyContinue |
+        Where-Object Architecture -eq "X64" |
+        Sort-Object Version -Descending |
+        Select-Object -First 1
+
+    if (-not $installedAfter -or ([version]$installedAfter.Version -lt $requiredVersion)) {
+        throw "Windows App SDK runtime post-install verification failed. Required $requiredVersion; found $($installedAfter.Version)."
+    }
+
+    Write-PrereqLog "Windows App SDK runtime install verified: $($installedAfter.Version)"
 }
 catch {
     Write-PrereqLog "Windows App SDK runtime install failed: $($_.Exception.Message)"

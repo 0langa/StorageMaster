@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Text.Json;
 using StorageMaster.Core.Interfaces;
 using StorageMaster.Core.Models;
+using StorageMaster.Core.Safety;
 
 namespace StorageMaster.Platform.Windows;
 
@@ -32,7 +33,12 @@ public sealed class InstallerTrustVerifier : IInstallerTrustVerifier
                       "HasTimestamp = $null -ne $sig.TimeStamperCertificate " +
                       "} | ConvertTo-Json -Compress";
 
-        var psi = new ProcessStartInfo("powershell.exe")
+        var powershellPath = Path.Combine(
+            Environment.SystemDirectory,
+            "WindowsPowerShell",
+            "v1.0",
+            "powershell.exe");
+        var psi = new ProcessStartInfo(powershellPath)
         {
             UseShellExecute = false,
             RedirectStandardOutput = true,
@@ -46,8 +52,9 @@ public sealed class InstallerTrustVerifier : IInstallerTrustVerifier
         psi.ArgumentList.Add("-Command");
         psi.ArgumentList.Add(command);
 
-        using var process = Process.Start(psi);
-        if (process is null)
+        var process = await ExternalProcessRunner.RunAsync(psi, ct);
+
+        if (process.ExitCode != 0 || string.IsNullOrWhiteSpace(process.StandardOutput))
         {
             return new InstallerTrustVerificationResult
             {
@@ -55,33 +62,15 @@ public sealed class InstallerTrustVerifier : IInstallerTrustVerifier
                 IsSignatureValid = false,
                 HasTrustedTimestamp = false,
                 Status = "UnknownError",
-                Message = "Unable to start PowerShell for signature verification.",
-            };
-        }
-
-        var stdoutTask = process.StandardOutput.ReadToEndAsync(ct);
-        var stderrTask = process.StandardError.ReadToEndAsync(ct);
-        await process.WaitForExitAsync(ct);
-        var stdout = await stdoutTask;
-        var stderr = await stderrTask;
-
-        if (process.ExitCode != 0 || string.IsNullOrWhiteSpace(stdout))
-        {
-            return new InstallerTrustVerificationResult
-            {
-                IsSigned = false,
-                IsSignatureValid = false,
-                HasTrustedTimestamp = false,
-                Status = "UnknownError",
-                Message = string.IsNullOrWhiteSpace(stderr)
+                Message = string.IsNullOrWhiteSpace(process.StandardError)
                     ? "Failed to evaluate installer signature."
-                    : stderr.Trim(),
+                    : process.StandardError.Trim(),
             };
         }
 
         try
         {
-            var dto = JsonSerializer.Deserialize<SignatureProbeResult>(stdout);
+            var dto = JsonSerializer.Deserialize<SignatureProbeResult>(process.StandardOutput);
             if (dto is null)
                 throw new JsonException("Empty signature probe payload.");
 

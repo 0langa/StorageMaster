@@ -4,6 +4,39 @@ All notable changes to StorageMaster are documented here.
 
 ---
 
+## [Unreleased]
+
+No unreleased changes.
+
+---
+
+## [2.2.1] — 2026-08-18 — Reliability And Data-Safety Overhaul
+
+### Fixed
+
+- Hardened deletion path validation: canonical root guards, explicit Recycle Bin operation flags, expected-file snapshots, quarantine containment, and handle-bound no-follow permanent directory traversal.
+- Routed duplicate removal exclusively through the dedicated duplicate workflow. Keeper and selected members are revalidated against live size, timestamp, attributes, identity, and strategy signature; the exact confirmed plan is frozen before execution; quarantine completion atomically records terminal journal and restore state.
+- Invalidated cached duplicate signatures when the live file is missing, replaced, or metadata/identity no longer matches.
+- Made cleanup analysis isolate failing rules and made execution preserve partial results across cancellation, batch failure, and audit-write failure. High-risk program-leftover suggestions are disabled, unselected, high-risk, and Recycle-Bin-only by default.
+- Reworked Smart Cleaner to enumerate explicit files through boundary-held no-follow guards, validate every target against stable identity and its source boundary, preserve partial/cancelled outcomes, and report per-path failures/audit warnings instead of presenting partial cleanup as full success.
+- Prevented managed and Turbo scans from losing buffered rows on cancellation/failure; terminal counts now describe confirmed persistence. Turbo folder metrics, cancellation, fatal exits, explicit link-following, root ancestry checks, and lossless one-handle timestamp/attribute/identity output were corrected.
+- Replaced shared SQLite connection reuse with independent configured leases, cross-context write coordination, transactional settings updates, strict schema validation, and cancellation-safe rollback.
+- Added schema v10 quarantine foreign-key repair, schema v11 normalized folder identity/case-variant collapse, and schema v12 scan-time file identity. All stored timestamps now deserialize as exact UTC; legacy identity-less rows require a fresh scan before destructive use. Migration version is re-read after acquiring the SQLite writer reservation, preventing stale cross-process migration replay.
+- Enforced disabled scheduled-job policy inside the runner, distinguished completed/cancelled/failed scans in UI and CLI, stabilized Task Scheduler identity/argument handling, and stopped treating access-denied/transient task queries as proof that a task is absent.
+- Made Task Scheduler mutations preflight as one unit and attempt compensating task/settings rollback on failure, surfacing incomplete rollback explicitly. New unattended cleanup jobs start disabled; enabling them requires a dedicated target/rules/schedule confirmation and a versioned plan fingerprint, which the headless runner revalidates.
+- Removed redirected `TMP`/`TEMP` from trusted cleanup roots, made medium/high-risk suggestions opt-in, surfaced quarantine-catalog failures as partial outcomes, and stopped describing Recycle Bin/quarantine moves as reclaimed disk space.
+- Added generation/lifetime cancellation guards to Results and Duplicates loading so stale navigation, filter, preview, export, analysis, and deletion work cannot overwrite current UI state.
+- Hardened Cleanup, Scan, Space Map, Dashboard/Workspace, and Settings lifecycle/error state: incomplete previews cannot unlock deletion, partial outcomes stay visible, routed sessions/config snapshots are immutable, nonterminal scans are not actionable, and expected I/O/cancellation failures remain user-visible instead of escaping UI commands.
+- Hardened updater staging and launch: validate temporary download length/hash/trust before publish, then lock, rehash, and revalidate the exact installer before starting it.
+- Stopped the in-app updater from requesting elevation. StorageMaster ships a per-user installer under `%LOCALAPPDATA%\Programs`, so the old `runas` launch raised an unnecessary UAC prompt and could have installed the update into a different user's profile.
+- Hardened FFmpeg and PowerShell child-process execution with argument lists, bounded output, pipe draining, exit checks, and process-tree cancellation.
+
+### Build and release
+
+- CI now validates Rust format, lint, tests, release build, and the required real Turbo Scanner contract before .NET release gates.
+- Release scripts verify tag/product/native-scanner version agreement and require the native scanner in published output.
+- Full evidence and remaining limits are tracked in `docs/public/RELIABILITY_AUDIT_2026-08-18.md`.
+
 ## [2.2.0] — 2026-07-11 — Quarantine Restore, Turbo Scanner Parity, And Deletion-Safety Hardening
 
 - Quarantine restore now works for generic cleanup, not just duplicate cleanup: schema v9 adds a new "All quarantined files" restorable view on the Duplicates page with one-click restore for every quarantined file. Verified live end-to-end (5/5 restores).

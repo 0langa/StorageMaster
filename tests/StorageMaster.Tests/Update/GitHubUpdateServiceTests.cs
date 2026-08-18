@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Net;
 using System.Net.Http;
 using System.Text;
@@ -295,6 +296,9 @@ public sealed class GitHubUpdateServiceTests : IDisposable
         var act = async () => await service.DownloadAsync(update);
         var ex = await act.Should().ThrowAsync<UpdateException>();
         ex.Which.Kind.Should().Be(UpdateFailureKind.ChecksumMismatch);
+        File.Exists(_downloadPath).Should().BeFalse(
+            "an installer must not be published before checksum validation succeeds");
+        File.Exists(_downloadPath + ".part").Should().BeFalse();
     }
 
     [Fact]
@@ -334,6 +338,109 @@ public sealed class GitHubUpdateServiceTests : IDisposable
         var act = async () => await service.DownloadAsync(update);
         var ex = await act.Should().ThrowAsync<UpdateException>();
         ex.Which.Kind.Should().Be(UpdateFailureKind.InvalidSignature);
+        File.Exists(_downloadPath).Should().BeFalse(
+            "an installer must not be published before trust validation succeeds");
+        File.Exists(_downloadPath + ".part").Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task LaunchInstallerAsync_DownloadChangedAfterValidation_IsRefusedBeforeProcessStart()
+    {
+        var payload = Encoding.UTF8.GetBytes("installer-payload");
+        var service = CreateService(_ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new ByteArrayContent(payload),
+        });
+        var update = new UpdateInfo
+        {
+            Version = new Version(9, 9, 9),
+            TagName = "v9.9.9",
+            ReleaseNotes = "notes",
+            AssetName = "StorageMaster-9.9.9-win-x64-Setup.exe",
+            DownloadUrl = "https://example.test/download.exe",
+            ReleaseUrl = "https://github.com/0langa/StorageMaster/releases/tag/v9.9.9",
+            IsPrerelease = false,
+            PublishedAt = DateTimeOffset.UtcNow,
+        };
+
+        var path = await service.DownloadAsync(update);
+        await File.AppendAllTextAsync(path, "changed");
+
+        var launched = await service.LaunchInstallerAsync(path);
+
+        launched.Should().BeFalse();
+        service.LastFailureKind.Should().Be(UpdateFailureKind.ChecksumMismatch);
+    }
+
+    [Fact]
+    public async Task LaunchInstallerAsync_ValidatedInstaller_StartsWithoutElevation()
+    {
+        var payload = Encoding.UTF8.GetBytes("installer-payload");
+        ProcessStartInfo? captured = null;
+        var service = CreateService(
+            _ => new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new ByteArrayContent(payload),
+            },
+            installerLauncher: psi =>
+            {
+                captured = psi;
+                return 4242;
+            });
+
+        var update = new UpdateInfo
+        {
+            Version = new Version(9, 9, 9),
+            TagName = "v9.9.9",
+            ReleaseNotes = "notes",
+            AssetName = "StorageMaster-9.9.9-win-x64-Setup.exe",
+            DownloadUrl = "https://example.test/download.exe",
+            ReleaseUrl = "https://github.com/0langa/StorageMaster/releases/tag/v9.9.9",
+            IsPrerelease = false,
+            PublishedAt = DateTimeOffset.UtcNow,
+        };
+
+        var path = await service.DownloadAsync(update);
+
+        var launched = await service.LaunchInstallerAsync(path);
+
+        launched.Should().BeTrue();
+        service.LastFailureKind.Should().BeNull();
+        captured.Should().NotBeNull();
+        captured!.Verb.Should().BeEmpty(
+            "the per-user installer runs under {localappdata} and must never request elevation");
+        captured.UseShellExecute.Should().BeTrue();
+        captured.FileName.Should().Be(Path.GetFullPath(path));
+    }
+
+    [Fact]
+    public async Task LaunchInstallerAsync_LauncherReturnsNoProcess_ReportsFailure()
+    {
+        var payload = Encoding.UTF8.GetBytes("installer-payload");
+        var service = CreateService(
+            _ => new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new ByteArrayContent(payload),
+            },
+            installerLauncher: _ => null);
+
+        var update = new UpdateInfo
+        {
+            Version = new Version(9, 9, 9),
+            TagName = "v9.9.9",
+            ReleaseNotes = "notes",
+            AssetName = "StorageMaster-9.9.9-win-x64-Setup.exe",
+            DownloadUrl = "https://example.test/download.exe",
+            ReleaseUrl = "https://github.com/0langa/StorageMaster/releases/tag/v9.9.9",
+            IsPrerelease = false,
+            PublishedAt = DateTimeOffset.UtcNow,
+        };
+
+        var path = await service.DownloadAsync(update);
+
+        var launched = await service.LaunchInstallerAsync(path);
+
+        launched.Should().BeFalse();
     }
 
     private static GitHubUpdateService CreateService(
@@ -341,7 +448,8 @@ public sealed class GitHubUpdateServiceTests : IDisposable
         Version? currentVersion = null,
         string? currentVersionText = null,
         AppSettings? settings = null,
-        InstallerTrustVerificationResult? trustResult = null)
+        InstallerTrustVerificationResult? trustResult = null,
+        Func<ProcessStartInfo, int?>? installerLauncher = null)
     {
         var handler = new StubHttpMessageHandler(responder);
         var client = new HttpClient(handler, disposeHandler: true);
@@ -358,7 +466,9 @@ public sealed class GitHubUpdateServiceTests : IDisposable
                 HasTrustedTimestamp = false,
                 Status = "NotSigned",
                 Message = "Unsigned test payload",
-            }));
+            }),
+            installerLauncher ?? (_ => throw new InvalidOperationException(
+                "Test did not expect the installer to be launched.")));
     }
 
     private static HttpResponseMessage Json(string payload) => new(HttpStatusCode.OK)

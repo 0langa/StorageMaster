@@ -25,14 +25,23 @@ namespace StorageMaster.Core.Scanner;
 /// </summary>
 public sealed class FileScanner : IFileScanner
 {
+    private static readonly TimeSpan PartialFinalizationTimeout = TimeSpan.FromMinutes(2);
+    private static readonly TimeSpan TerminalUpdateTimeout = TimeSpan.FromSeconds(15);
+
     private readonly IScanRepository _repo;
     private readonly IScanErrorRepository? _errorRepo;
+    private readonly IFileIdentityProvider _identityProvider;
     private readonly ILogger<FileScanner> _logger;
 
-    public FileScanner(IScanRepository repo, ILogger<FileScanner> logger, IScanErrorRepository? errorRepo = null)
+    public FileScanner(
+        IScanRepository repo,
+        ILogger<FileScanner> logger,
+        IFileIdentityProvider identityProvider,
+        IScanErrorRepository? errorRepo = null)
     {
         _repo = repo;
         _logger = logger;
+        _identityProvider = identityProvider;
         _errorRepo = errorRepo;
     }
 
@@ -54,6 +63,12 @@ public sealed class FileScanner : IFileScanner
 
         try
         {
+            if (!options.FollowSymlinks && IsReparsePoint(options.RootPath))
+            {
+                throw new InvalidOperationException(
+                    $"Scan root is a reparse point and following links is disabled: {options.RootPath}");
+            }
+
             progress.Report(BuildProgress(state, complete: false));
 
             await ScanDirectoryTreeAsync(options.RootPath, options, state, cancellationToken).ConfigureAwait(false);
@@ -82,22 +97,17 @@ public sealed class FileScanner : IFileScanner
 
             // Flush accumulated scan errors (access denied, I/O failures) if a repo is wired in.
             if (_errorRepo is not null)
-            {
-                var errors = DrainQueue(state.ErrorBuffer);
-                if (errors.Count > 0)
-                    await _errorRepo.LogErrorsAsync(session.Id, errors, cancellationToken).ConfigureAwait(false);
-            }
+                await FlushErrorBufferAsync(state, cancellationToken).ConfigureAwait(false);
 
-            progressTimer.Dispose();
-            await progressTask.ConfigureAwait(false);
+            await StopProgressAsync(progressTimer, progressTask).ConfigureAwait(false);
 
             var completed = session with
             {
                 Status = ScanStatus.Completed,
                 CompletedUtc = DateTime.UtcNow,
-                TotalFiles = state.FileCount,
-                TotalFolders = state.FolderCount,
-                TotalSizeBytes = state.TotalBytes,
+                TotalFiles = state.PersistedFileCount,
+                TotalFolders = state.PersistedFolderCount,
+                TotalSizeBytes = state.PersistedBytes,
                 AccessDeniedCount = state.AccessDeniedCount,
             };
 
@@ -108,38 +118,76 @@ public sealed class FileScanner : IFileScanner
             progress.Report(BuildProgress(state, complete: true));
             return completed;
         }
-        catch (OperationCanceledException)
+        catch (Exception) when (cancellationToken.IsCancellationRequested)
         {
-            progressTimer.Dispose();
-            await progressTask.ConfigureAwait(false);
+            await StopProgressAsync(progressTimer, progressTask).ConfigureAwait(false);
 
-            await FlushFileBufferAsync(state, CancellationToken.None).ConfigureAwait(false);
-            await FlushFolderBufferAsync(state, CancellationToken.None).ConfigureAwait(false);
-
-            var cancelled = session with
+            try
             {
-                Status = ScanStatus.Cancelled,
-                CompletedUtc = DateTime.UtcNow,
-                TotalFiles = state.FileCount,
-                TotalFolders = state.FolderCount,
-                TotalSizeBytes = state.TotalBytes,
-            };
-            await _repo.UpdateSessionAsync(cancelled, CancellationToken.None).ConfigureAwait(false);
-            return cancelled;
+                using var finalization = new CancellationTokenSource(PartialFinalizationTimeout);
+                await FinalizePartialScanAsync(session.Id, state, finalization.Token).ConfigureAwait(false);
+
+                var cancelled = session with
+                {
+                    Status = ScanStatus.Cancelled,
+                    CompletedUtc = DateTime.UtcNow,
+                    TotalFiles = state.PersistedFileCount,
+                    TotalFolders = state.PersistedFolderCount,
+                    TotalSizeBytes = state.PersistedBytes,
+                    AccessDeniedCount = state.AccessDeniedCount,
+                };
+                await _repo.UpdateSessionAsync(cancelled, finalization.Token).ConfigureAwait(false);
+                return cancelled;
+            }
+            catch (Exception finalizationException)
+            {
+                _logger.LogError(finalizationException,
+                    "Scan {SessionId} cancellation finalization failed", session.Id);
+
+                var failed = session with
+                {
+                    Status = ScanStatus.Failed,
+                    CompletedUtc = DateTime.UtcNow,
+                    ErrorMessage = $"Cancellation finalization failed: {finalizationException.Message}",
+                    TotalFiles = state.PersistedFileCount,
+                    TotalFolders = state.PersistedFolderCount,
+                    TotalSizeBytes = state.PersistedBytes,
+                    AccessDeniedCount = state.AccessDeniedCount,
+                };
+                using var terminalUpdate = new CancellationTokenSource(TerminalUpdateTimeout);
+                await _repo.UpdateSessionAsync(failed, terminalUpdate.Token).ConfigureAwait(false);
+                return failed;
+            }
         }
         catch (Exception ex)
         {
-            progressTimer.Dispose();
-            await progressTask.ConfigureAwait(false);
+            await StopProgressAsync(progressTimer, progressTask).ConfigureAwait(false);
 
             _logger.LogError(ex, "Scan {SessionId} failed", session.Id);
+
+            using var failureFinalization = new CancellationTokenSource(PartialFinalizationTimeout);
+            try
+            {
+                await FinalizePartialScanAsync(session.Id, state, failureFinalization.Token).ConfigureAwait(false);
+            }
+            catch (Exception persistenceException)
+            {
+                _logger.LogError(persistenceException,
+                    "Failed to persist partial scan {SessionId}", session.Id);
+            }
+
             var failed = session with
             {
                 Status = ScanStatus.Failed,
                 CompletedUtc = DateTime.UtcNow,
                 ErrorMessage = ex.Message,
+                TotalFiles = state.PersistedFileCount,
+                TotalFolders = state.PersistedFolderCount,
+                TotalSizeBytes = state.PersistedBytes,
+                AccessDeniedCount = state.AccessDeniedCount,
             };
-            await _repo.UpdateSessionAsync(failed, CancellationToken.None).ConfigureAwait(false);
+            using var terminalUpdate = new CancellationTokenSource(TerminalUpdateTimeout);
+            await _repo.UpdateSessionAsync(failed, terminalUpdate.Token).ConfigureAwait(false);
             throw;
         }
         finally
@@ -224,11 +272,21 @@ public sealed class FileScanner : IFileScanner
             {
                 var dir = queue.Dequeue();
 
-                if (!visited.Add(dir))
-                    continue;
-
                 // In deep scan mode, skip the excluded-path list so everything is reachable.
                 if (!options.DeepScan && IsExcluded(dir, options))
+                    continue;
+
+                if (!TryGetTraversalIdentity(dir, options.FollowSymlinks, out var identity))
+                    continue;
+
+                // Apply exclusions to the resolved target too. Otherwise a junction
+                // alias could bypass a protected/excluded physical directory.
+                if (!options.DeepScan && IsExcluded(identity, options))
+                    continue;
+
+                // Lexical paths are insufficient when following links: a junction
+                // back to an ancestor produces a different path on every iteration.
+                if (!visited.Add(identity))
                     continue;
 
                 await writer.WriteAsync(dir, ct).ConfigureAwait(false);
@@ -254,12 +312,7 @@ public sealed class FileScanner : IFileScanner
                 }
 
                 foreach (var sub in subDirs)
-                {
-                    if (IsReparsePoint(sub) && !options.FollowSymlinks)
-                        continue;
-
                     queue.Enqueue(sub);
-                }
             }
         }
         catch (OperationCanceledException) when (!externalCt.IsCancellationRequested)
@@ -281,7 +334,12 @@ public sealed class FileScanner : IFileScanner
     {
         await foreach (var dir in reader.ReadAllAsync(ct).ConfigureAwait(false))
         {
-            ProcessDirectory(dir, options, state);
+            // Revalidate immediately before enumeration. A directory can be
+            // replaced by a junction after the producer first inspected it.
+            if (!TryGetTraversalIdentity(dir, options.FollowSymlinks, out _))
+                continue;
+
+            await ProcessDirectoryAsync(dir, options, state, ct).ConfigureAwait(false);
 
             // Flush when the buffer is large enough to amortise SQLite overhead.
             if (state.FileBuffer.Count >= options.DbBatchSize)
@@ -292,7 +350,11 @@ public sealed class FileScanner : IFileScanner
         }
     }
 
-    private void ProcessDirectory(string dir, ScanOptions options, ScanState state)
+    private async Task ProcessDirectoryAsync(
+        string dir,
+        ScanOptions options,
+        ScanState state,
+        CancellationToken ct)
     {
         long directBytes = 0;
         int fileCount = 0;
@@ -315,6 +377,12 @@ public sealed class FileScanner : IFileScanner
             {
                 try
                 {
+                    // Capture identity before path-based metadata. If another
+                    // process replaces the file after this handle closes, the
+                    // persisted old identity makes later deletion fail closed.
+                    var identity = await _identityProvider
+                        .GetIdentityAsync(filePath, ct)
+                        .ConfigureAwait(false);
                     var info = new FileInfo(filePath);
                     if (!info.Exists) continue;
 
@@ -331,6 +399,7 @@ public sealed class FileScanner : IFileScanner
                         AccessedUtc = info.LastAccessTimeUtc,
                         Attributes = info.Attributes,
                         Category = FileTypeCategorizor.Categorize(info.Extension),
+                        Identity = identity,
                         IsReparsePoint = info.Attributes.HasFlag(FileAttributes.ReparsePoint),
                     };
 
@@ -409,50 +478,87 @@ public sealed class FileScanner : IFileScanner
     // ── Buffer flushing ────────────────────────────────────────────────────
     //
     // Multiple consumer tasks can hit the threshold simultaneously.
-    // The SemaphoreSlim ensures only one thread drains the buffer at a time,
-    // preventing duplicate or lost entries. The lock is NOT held during I/O
-    // — only during the ConcurrentQueue drain; the actual DB insert runs
-    // after releasing the semaphore is unnecessary because DrainQueue is
-    // atomic (TryDequeue returns each item exactly once).
+    // The SemaphoreSlim keeps one stable queue snapshot in flight. Entries are
+    // removed only after the repository confirms the write, so cancellation or
+    // a transient database failure cannot silently discard a drained batch.
 
     private async Task FlushFileBufferAsync(ScanState state, CancellationToken ct)
     {
         await state.FileFlushLock.WaitAsync(ct).ConfigureAwait(false);
-        List<FileEntry> batch;
         try
         {
-            batch = DrainQueue(state.FileBuffer);
+            var batch = state.FileBuffer.ToArray();
+            if (batch.Length == 0)
+                return;
+
+            await _repo.InsertFileEntriesAsync(batch, ct).ConfigureAwait(false);
+
+            for (var i = 0; i < batch.Length; i++)
+                state.FileBuffer.TryDequeue(out _);
+
+            state.RecordPersistedFiles(batch);
         }
         finally
         {
             state.FileFlushLock.Release();
         }
-        if (batch.Count == 0) return;
-        await _repo.InsertFileEntriesAsync(batch, ct).ConfigureAwait(false);
     }
 
     private async Task FlushFolderBufferAsync(ScanState state, CancellationToken ct)
     {
         await state.FolderFlushLock.WaitAsync(ct).ConfigureAwait(false);
-        List<FolderEntry> batch;
         try
         {
-            batch = DrainQueue(state.FolderBuffer);
+            var batch = state.FolderBuffer.ToArray();
+            if (batch.Length == 0)
+                return;
+
+            await _repo.UpsertFolderEntriesAsync(batch, ct).ConfigureAwait(false);
+
+            for (var i = 0; i < batch.Length; i++)
+                state.FolderBuffer.TryDequeue(out _);
+
+            state.RecordPersistedFolders(batch.Length);
         }
         finally
         {
             state.FolderFlushLock.Release();
         }
-        if (batch.Count == 0) return;
-        await _repo.UpsertFolderEntriesAsync(batch, ct).ConfigureAwait(false);
     }
 
-    private static List<T> DrainQueue<T>(ConcurrentQueue<T> queue)
+    private async Task FlushErrorBufferAsync(ScanState state, CancellationToken ct)
     {
-        var list = new List<T>(queue.Count);
-        while (queue.TryDequeue(out var item))
-            list.Add(item);
-        return list;
+        if (_errorRepo is null)
+            return;
+
+        await state.ErrorFlushLock.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            var batch = state.ErrorBuffer.ToArray();
+            if (batch.Length == 0)
+                return;
+
+            await _errorRepo.LogErrorsAsync(state.SessionId, batch, ct).ConfigureAwait(false);
+
+            for (var i = 0; i < batch.Length; i++)
+                state.ErrorBuffer.TryDequeue(out _);
+        }
+        finally
+        {
+            state.ErrorFlushLock.Release();
+        }
+    }
+
+    private async Task FinalizePartialScanAsync(long sessionId, ScanState state, CancellationToken ct)
+    {
+        await FlushFileBufferAsync(state, ct).ConfigureAwait(false);
+        await FlushFolderBufferAsync(state, ct).ConfigureAwait(false);
+
+        var folders = await _repo.GetAllFolderPathsForSessionAsync(sessionId, ct).ConfigureAwait(false);
+        var totals = FolderSizeAggregator.Compute(folders);
+        await _repo.UpdateFolderTotalsAsync(sessionId, totals, ct).ConfigureAwait(false);
+
+        await FlushErrorBufferAsync(state, ct).ConfigureAwait(false);
     }
 
     // ── IFileScanner query methods ─────────────────────────────────────────
@@ -499,6 +605,21 @@ public sealed class FileScanner : IFileScanner
         catch (OperationCanceledException) { /* expected */ }
     }
 
+    private async Task StopProgressAsync(PeriodicTimer timer, Task progressTask)
+    {
+        timer.Dispose();
+        try
+        {
+            await progressTask.ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            // Progress is an observer. A faulty callback must not prevent the
+            // scan's terminal session state from being persisted.
+            _logger.LogWarning(ex, "Scan progress callback failed");
+        }
+    }
+
     private static ScanProgress BuildProgress(ScanState state, bool complete) => new()
     {
         CurrentPath = state.LastScannedPath,
@@ -520,6 +641,42 @@ public sealed class FileScanner : IFileScanner
         catch { return false; }
     }
 
+    private bool TryGetTraversalIdentity(string path, bool followSymlinks, out string identity)
+    {
+        identity = string.Empty;
+
+        try
+        {
+            var directory = new DirectoryInfo(path);
+            if (!directory.Attributes.HasFlag(FileAttributes.ReparsePoint))
+            {
+                identity = ScanOptionValidator.NormalizeDirectoryPath(directory.FullName);
+                return true;
+            }
+
+            if (!followSymlinks)
+                return false;
+
+            var target = directory.ResolveLinkTarget(returnFinalTarget: true);
+            if (target is not DirectoryInfo targetDirectory || !targetDirectory.Exists)
+            {
+                _logger.LogDebug("Skip unresolved directory link {Path}", path);
+                return false;
+            }
+
+            identity = ScanOptionValidator.NormalizeDirectoryPath(targetDirectory.FullName);
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or SecurityException
+                                   or ArgumentException or NotSupportedException)
+        {
+            // Fail closed. Treat an unreadable/unresolvable link as unsafe to
+            // traverse instead of falling back to its ever-growing lexical path.
+            _logger.LogDebug("Cannot resolve directory identity {Path}: {Message}", path, ex.Message);
+            return false;
+        }
+    }
+
     private static bool IsExcluded(string path, ScanOptions options) =>
         ScanOptionValidator.IsExcluded(path, options.ExcludedPaths);
 
@@ -535,11 +692,17 @@ public sealed class FileScanner : IFileScanner
         public long _folderCount;
         public long _totalBytes;
         public long _accessDeniedCount;
+        private long _persistedFileCount;
+        private long _persistedFolderCount;
+        private long _persistedBytes;
 
         public long FileCount => Interlocked.Read(ref _fileCount);
         public long FolderCount => Interlocked.Read(ref _folderCount);
         public long TotalBytes => Interlocked.Read(ref _totalBytes);
         public long AccessDeniedCount => Interlocked.Read(ref _accessDeniedCount);
+        public long PersistedFileCount => Interlocked.Read(ref _persistedFileCount);
+        public long PersistedFolderCount => Interlocked.Read(ref _persistedFolderCount);
+        public long PersistedBytes => Interlocked.Read(ref _persistedBytes);
 
         // volatile so readers always see the latest value without a lock.
         private volatile string _lastScannedPath = string.Empty;
@@ -558,16 +721,31 @@ public sealed class FileScanner : IFileScanner
         // Serialise buffer drains so concurrent consumers never double-drain.
         public SemaphoreSlim FileFlushLock { get; } = new(1, 1);
         public SemaphoreSlim FolderFlushLock { get; } = new(1, 1);
+        public SemaphoreSlim ErrorFlushLock { get; } = new(1, 1);
 
         public ScanState(long sessionId)
         {
             SessionId = sessionId;
         }
 
+        public void RecordPersistedFiles(IReadOnlyList<FileEntry> entries)
+        {
+            long bytes = 0;
+            foreach (var entry in entries)
+                bytes += entry.SizeBytes;
+
+            Interlocked.Add(ref _persistedFileCount, entries.Count);
+            Interlocked.Add(ref _persistedBytes, bytes);
+        }
+
+        public void RecordPersistedFolders(int count) =>
+            Interlocked.Add(ref _persistedFolderCount, count);
+
         public void Dispose()
         {
             FileFlushLock.Dispose();
             FolderFlushLock.Dispose();
+            ErrorFlushLock.Dispose();
         }
     }
 }

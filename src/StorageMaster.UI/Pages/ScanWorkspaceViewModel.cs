@@ -17,6 +17,7 @@ public sealed partial class ScanWorkspaceViewModel : ObservableObject
 
     [ObservableProperty] private ScanSession? _session;
     [ObservableProperty] private bool _isLoading;
+    [ObservableProperty] private bool _workspaceLoadSucceeded;
     [ObservableProperty] private string _statusText = "Select a completed scan.";
     [ObservableProperty] private string _sessionTitle = "Scan workspace";
     [ObservableProperty] private string _summaryText = "No scan selected.";
@@ -34,6 +35,8 @@ public sealed partial class ScanWorkspaceViewModel : ObservableObject
     public ObservableCollection<DuplicateRun> DuplicateRuns { get; } = [];
 
     public bool HasSession => Session is not null;
+    public bool CanUseSessionActions =>
+        WorkspaceLoadSucceeded && !IsLoading && Session?.Status == ScanStatus.Completed;
     public bool HasErrors => Errors.Count > 0;
     public bool HasCategories => CategoryBreakdown.Count > 0;
 
@@ -49,19 +52,44 @@ public sealed partial class ScanWorkspaceViewModel : ObservableObject
         _navigation = navigation;
     }
 
+    partial void OnSessionChanged(ScanSession? value)
+    {
+        OnPropertyChanged(nameof(HasSession));
+        OnPropertyChanged(nameof(CanUseSessionActions));
+    }
+
+    partial void OnIsLoadingChanged(bool value) =>
+        OnPropertyChanged(nameof(CanUseSessionActions));
+
+    partial void OnWorkspaceLoadSucceededChanged(bool value) =>
+        OnPropertyChanged(nameof(CanUseSessionActions));
+
     public async Task LoadAsync(long? sessionId, CancellationToken ct = default)
     {
+        WorkspaceLoadSucceeded = false;
         IsLoading = true;
+        Session = null;
+        SessionTitle = "Scan workspace";
+        SummaryText = "Loading scan session...";
+        StatusText = "Loading persisted scan data...";
+        TotalSize = "—";
+        FileCount = "—";
+        FolderCount = "—";
+        ClearWorkspaceData();
+        ErrorCount = "—";
         await Task.Yield();
         try
         {
             var target = sessionId is > 0
                 ? await _scanRepository.GetSessionAsync(sessionId.Value, ct)
-                : (await _scanRepository.GetRecentSessionsAsync(1, ct)).FirstOrDefault();
+                : (await _scanRepository.GetRecentSessionsAsync(int.MaxValue, ct))
+                    .FirstOrDefault(static session => session.Status == ScanStatus.Completed);
 
             if (target is null)
             {
-                Reset("No completed scans are available.");
+                Reset(sessionId is > 0
+                    ? "The requested scan session is not available."
+                    : "No completed scans are available.");
                 return;
             }
 
@@ -71,7 +99,20 @@ public sealed partial class ScanWorkspaceViewModel : ObservableObject
             TotalSize = ByteSizeConverter.Format(target.TotalSizeBytes);
             FileCount = target.TotalFiles.ToString("N0");
             FolderCount = target.TotalFolders.ToString("N0");
-            StatusText = "Workspace data loaded from persisted scan results.";
+
+            if (target.Status != ScanStatus.Completed)
+            {
+                TotalSize = "—";
+                FileCount = "—";
+                FolderCount = "—";
+                ErrorCount = "—";
+                var failureDetail = string.IsNullOrWhiteSpace(target.ErrorMessage)
+                    ? string.Empty
+                    : $" Scanner report: {target.ErrorMessage}";
+                StatusText =
+                    $"This scan is {target.Status}. Partial scan data is hidden; complete a new scan before opening results, cleanup, duplicates, or Space Map.{failureDetail}";
+                return;
+            }
 
             await LoadOverviewAsync(target.Id, ct);
             await LoadFilesAsync(target.Id, ct);
@@ -79,7 +120,9 @@ public sealed partial class ScanWorkspaceViewModel : ObservableObject
             await LoadErrorsAsync(target.Id, ct);
             await LoadDuplicatesAsync(target.Id, ct);
 
-            OnPropertyChanged(nameof(HasSession));
+            ct.ThrowIfCancellationRequested();
+            WorkspaceLoadSucceeded = true;
+            StatusText = "Workspace data loaded from a completed persisted scan.";
         }
         finally
         {
@@ -90,28 +133,28 @@ public sealed partial class ScanWorkspaceViewModel : ObservableObject
     [RelayCommand]
     private void OpenResults()
     {
-        if (Session is not null)
+        if (CanUseSessionActions && Session is not null)
             _navigation.NavigateTo(typeof(ResultsPage), Session.Id);
     }
 
     [RelayCommand]
     private void OpenSpaceMap()
     {
-        if (Session is not null)
+        if (CanUseSessionActions && Session is not null)
             _navigation.NavigateTo(typeof(SpaceMapPage), Session.Id);
     }
 
     [RelayCommand]
     private void OpenDuplicates()
     {
-        if (Session is not null)
+        if (CanUseSessionActions && Session is not null)
             _navigation.NavigateTo(typeof(DuplicatesPage), Session.Id);
     }
 
     [RelayCommand]
     private void OpenCleanup()
     {
-        if (Session is not null)
+        if (CanUseSessionActions && Session is not null)
             _navigation.NavigateTo(typeof(CleanupPage), Session.Id);
     }
 
@@ -164,20 +207,31 @@ public sealed partial class ScanWorkspaceViewModel : ObservableObject
         ReclaimableSummary = $"{ByteSizeConverter.Format(latest.ReclaimableBytes)} reclaimable from latest duplicate run.";
     }
 
-    private void Reset(string message)
+    private void ClearWorkspaceData()
     {
-        Session = null;
-        SessionTitle = "Scan workspace";
-        SummaryText = message;
-        StatusText = message;
         LargestFiles.Clear();
         LargestFolders.Clear();
         Errors.Clear();
         CategoryBreakdown.Clear();
         DuplicateRuns.Clear();
-        OnPropertyChanged(nameof(HasSession));
+        ErrorCount = "0";
+        DuplicateSummary = "No duplicate run yet.";
+        ReclaimableSummary = "Run cleanup or duplicate review to estimate savings.";
         OnPropertyChanged(nameof(HasErrors));
         OnPropertyChanged(nameof(HasCategories));
+    }
+
+    private void Reset(string message)
+    {
+        WorkspaceLoadSucceeded = false;
+        Session = null;
+        SessionTitle = "Scan workspace";
+        SummaryText = message;
+        StatusText = message;
+        TotalSize = "0 B";
+        FileCount = "0";
+        FolderCount = "0";
+        ClearWorkspaceData();
     }
 
     private static void Replace<T>(ObservableCollection<T> target, IEnumerable<T> values)

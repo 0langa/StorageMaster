@@ -30,7 +30,8 @@ public sealed class DuplicateFinderService(
     IFileContentHasher hasher,
     IEnumerable<IDuplicateDetectionStrategy> strategies,
     IDuplicateKeeperPolicy keeperPolicy,
-    ILogger<DuplicateFinderService> logger) : IDuplicateFinderService
+    ILogger<DuplicateFinderService> logger,
+    IFileSnapshotProvider? snapshotProvider = null) : IDuplicateFinderService
 {
     private readonly IReadOnlyDictionary<DuplicateMethod, IDuplicateDetectionStrategy> _strategyMap =
         strategies.ToDictionary(s => s.Method);
@@ -162,7 +163,7 @@ public sealed class DuplicateFinderService(
         foreach (var c in candidates)
         {
             if (cacheMap.TryGetValue(c.File.Id, out var cached_sig) &&
-                IsCacheValid(cached_sig, c.File, strategy.AlgorithmVersion))
+                await IsCacheValidAsync(cached_sig, c.File, strategy.AlgorithmVersion, ct))
             {
                 // Reuse cached signature
                 allSignatures.Add(cached_sig);
@@ -281,6 +282,10 @@ public sealed class DuplicateFinderService(
                     acquired = true;
                     var ph = await hasher.ComputePartialHashAsync(c.File.FullPath, token);
                     partialGroups.GetOrAdd(ph, static _ => []).Add(c);
+                }
+                catch (OperationCanceledException) when (token.IsCancellationRequested)
+                {
+                    throw;
                 }
                 catch (Exception ex)
                 {
@@ -416,6 +421,8 @@ public sealed class DuplicateFinderService(
                 FileName = c.File.FileName,
                 SizeBytes = c.File.SizeBytes,
                 ModifiedUtc = c.File.ModifiedUtc,
+                Attributes = c.File.Attributes,
+                Identity = c.Identity ?? c.File.Identity,
                 Score = match.Confidence,
                 IsKeeper = c.File.Id == keeper.File.Id,
                 IsSelected = strategy.SupportsAutoSelection && c.File.Id != keeper.File.Id,
@@ -438,6 +445,43 @@ public sealed class DuplicateFinderService(
         cached.AlgorithmVersion == currentAlgorithmVersion &&
         cached.SourceSizeBytes == current.SizeBytes &&
         cached.SourceModifiedUtc == current.ModifiedUtc;
+
+    private async ValueTask<bool> IsCacheValidAsync(
+        DuplicateSignature cached,
+        FileEntry current,
+        int currentAlgorithmVersion,
+        CancellationToken ct)
+    {
+        if (!IsCacheValid(cached, current, currentAlgorithmVersion))
+            return false;
+
+        if (snapshotProvider is null)
+            return true;
+
+        ct.ThrowIfCancellationRequested();
+        var live = await snapshotProvider.TakeSnapshotAsync(current.FullPath, ct);
+        ct.ThrowIfCancellationRequested();
+
+        if (live is null ||
+            live.SizeBytes != current.SizeBytes ||
+            live.LastWriteUtc != current.ModifiedUtc ||
+            live.Attributes != current.Attributes ||
+            live.Identity is not { } liveIdentity ||
+            cached.SourceFileIdentity is null)
+        {
+            return false;
+        }
+
+        var canonicalLiveIdentity = string.Concat(
+            liveIdentity.VolumeSerial,
+            ":",
+            liveIdentity.FileIndex.ToString(System.Globalization.CultureInfo.InvariantCulture));
+
+        return string.Equals(
+            canonicalLiveIdentity,
+            cached.SourceFileIdentity,
+            StringComparison.OrdinalIgnoreCase);
+    }
 
     private static DuplicateError MakeError(long runId, DuplicateCandidate c, string type, string msg) =>
         new()

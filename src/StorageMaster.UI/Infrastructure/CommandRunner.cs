@@ -1,8 +1,10 @@
 using System.Text.Json;
+using System.Runtime.ExceptionServices;
 using Microsoft.Extensions.Logging;
 using StorageMaster.Core.Interfaces;
 using StorageMaster.Core.Models;
 using StorageMaster.Core.Scanner;
+using StorageMaster.Core.Scheduling;
 using StorageMaster.Platform.Windows;
 
 namespace StorageMaster.UI.Infrastructure;
@@ -23,6 +25,9 @@ public sealed class CommandRunner(
     string currentVersion,
     ILogger<CommandRunner> logger) : ICommandRunner
 {
+    private static readonly TimeSpan DiagnosticsWriteTimeout = TimeSpan.FromSeconds(2);
+    private static readonly TimeSpan ScheduledOutcomeWriteTimeout = TimeSpan.FromSeconds(5);
+
     public async Task<int> RunAsync(
         string[] args,
         bool headless,
@@ -39,26 +44,27 @@ public sealed class CommandRunner(
         try
         {
             var exitCode = await DispatchAsync(args, headless, output, error, ct);
-            await diagnostics.RecordAsync("headless", $"exit|{exitCode}|{string.Join(' ', args)}", ct);
+            await TryRecordDiagnosticsAsync($"exit|{exitCode}|{string.Join(' ', args)}");
             return exitCode;
         }
         catch (OperationCanceledException)
         {
             await error.WriteLineAsync("Operation cancelled.");
-            await diagnostics.RecordAsync("headless", $"cancelled|{string.Join(' ', args)}", ct);
+            await TryRecordDiagnosticsAsync($"cancelled|{string.Join(' ', args)}");
             return 1;
         }
         catch (CommandLineException ex)
         {
             await error.WriteLineAsync(ex.Message);
             await WriteUsageAsync(error);
+            await TryRecordDiagnosticsAsync($"command-error|{ex.ExitCode}|{string.Join(' ', args)}|{ex.Message}");
             return ex.ExitCode;
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "Command execution failed");
             await error.WriteLineAsync(ex.Message);
-            await diagnostics.RecordAsync("headless", $"error|{string.Join(' ', args)}|{ex.Message}", ct);
+            await TryRecordDiagnosticsAsync($"error|{string.Join(' ', args)}|{ex.Message}");
             return 1;
         }
     }
@@ -162,9 +168,30 @@ public sealed class CommandRunner(
             session.CompletedUtc,
         };
 
-        await MaybeWriteJsonAsync(jsonPath, payload, ct);
-        await output.WriteLineAsync($"Scan complete. Session {session.Id}, {session.TotalFiles:N0} files, {session.TotalSizeBytes:N0} bytes.");
-        return 0;
+        // The scanner may return a terminal Cancelled/Failed session instead of throwing.
+        // Use a fresh token for the tiny terminal payload so the actual status is reported
+        // instead of being replaced by a second OperationCanceledException here.
+        await MaybeWriteJsonAsync(jsonPath, payload, CancellationToken.None);
+        switch (session.Status)
+        {
+            case ScanStatus.Completed:
+                await output.WriteLineAsync(
+                    $"Scan complete. Session {session.Id}, {session.TotalFiles:N0} files, {session.TotalSizeBytes:N0} bytes.");
+                return 0;
+            case ScanStatus.Cancelled:
+                await output.WriteLineAsync($"Scan cancelled. Session {session.Id}.");
+                return 1;
+            case ScanStatus.Failed:
+                var failureMessage = string.IsNullOrWhiteSpace(session.ErrorMessage)
+                    ? "No error details were recorded."
+                    : session.ErrorMessage;
+                await output.WriteLineAsync($"Scan failed. Session {session.Id}: {failureMessage}");
+                return 1;
+            default:
+                await output.WriteLineAsync(
+                    $"Scan did not complete. Session {session.Id} returned status {session.Status}.");
+                return 1;
+        }
     }
 
     private async Task<int> RunLastScanReportAsync(string[] args, TextWriter output, CancellationToken ct)
@@ -335,38 +362,94 @@ public sealed class CommandRunner(
     {
         var options = ParseOptions(args);
         var jobId = GetRequiredOption(options, "--id");
-        var job = await scheduledTaskService.GetJobAsync(jobId, ct);
+        var settings = await settingsRepository.LoadAsync(ct);
+        var job = settings.ScheduledJobs.FirstOrDefault(candidate =>
+            string.Equals(candidate.Id, jobId, StringComparison.OrdinalIgnoreCase));
         if (job is null)
             return 4;
 
-        try
+        var executionDecision = ScheduledJobExecutionPolicy.Evaluate(
+            settings.ScheduledTasksEnabled,
+            job);
+        if (!executionDecision.CanExecute)
         {
-            switch (job.Kind)
+            var reason = executionDecision.BlockReason switch
             {
-                case ScheduledJobKind.Scan:
-                    await RunScanJobAsync(job, output, ct);
-                    break;
-                case ScheduledJobKind.ScanAndReport:
-                    await RunScanAndReportJobAsync(job, output, ct);
-                    break;
-                case ScheduledJobKind.CleanupAnalyze:
-                    await RunCleanupAnalyzeJobAsync(job, output, ct);
-                    break;
-                case ScheduledJobKind.CleanupExecuteSafe:
-                    await RunCleanupExecuteJobAsync(job, output, ct);
-                    break;
-            }
+                ScheduledJobExecutionBlockReason.GlobalSchedulingDisabled =>
+                    "scheduled task execution is disabled globally.",
+                ScheduledJobExecutionBlockReason.JobDisabled =>
+                    "this scheduled job is disabled.",
+                ScheduledJobExecutionBlockReason.MissingDestructiveConsent =>
+                    "destructive cleanup consent is missing or outdated; review and save the job in Settings.",
+                ScheduledJobExecutionBlockReason.DestructiveConsentPlanChanged =>
+                    "the destructive cleanup plan changed after consent; review and save the job in Settings.",
+                _ => "execution was denied by policy.",
+            };
+            await output.WriteLineAsync(
+                $"Scheduled job {job.Name} was not run: {reason}");
+            return 4;
+        }
 
-            await scheduledTaskService.UpdateRunOutcomeAsync(job.Id, "Success", "Completed successfully.", ct);
-            if (headless)
-                await output.WriteLineAsync($"Scheduled job {job.Name} completed.");
-            return 0;
-        }
-        catch (Exception ex)
+        var coordination = await ScheduledJobRunCoordinator.RunAsync(
+            async workCancellationToken =>
+            {
+                switch (job.Kind)
+                {
+                    case ScheduledJobKind.Scan:
+                        await RunScanJobAsync(job, output, workCancellationToken);
+                        break;
+                    case ScheduledJobKind.ScanAndReport:
+                        await RunScanAndReportJobAsync(job, output, workCancellationToken);
+                        break;
+                    case ScheduledJobKind.CleanupAnalyze:
+                        await RunCleanupAnalyzeJobAsync(job, output, workCancellationToken);
+                        break;
+                    case ScheduledJobKind.CleanupExecuteSafe:
+                        await RunCleanupExecuteJobAsync(job, output, workCancellationToken);
+                        break;
+                    default:
+                        throw new InvalidOperationException(
+                            $"Unsupported scheduled job kind: {job.Kind}");
+                }
+            },
+            (status, message, outcomeCancellationToken) =>
+                scheduledTaskService.UpdateRunOutcomeAsync(
+                    job.Id,
+                    status,
+                    message,
+                    outcomeCancellationToken),
+            ScheduledOutcomeWriteTimeout,
+            ct);
+
+        if (coordination.OutcomeWriteException is not null)
         {
-            await scheduledTaskService.UpdateRunOutcomeAsync(job.Id, "Failed", ex.Message, ct);
-            throw;
+            try
+            {
+                logger.LogWarning(
+                    coordination.OutcomeWriteException,
+                    "Scheduled job {JobId} finished with {OutcomeStatus}, but outcome persistence failed",
+                    job.Id,
+                    coordination.OutcomeStatus);
+            }
+            catch
+            {
+                // Logging must not replace either the work result or the
+                // best-effort outcome-persistence warning.
+            }
         }
+
+        if (coordination.WorkException is not null)
+            ExceptionDispatchInfo.Capture(coordination.WorkException).Throw();
+
+        if (headless)
+        {
+            var persistenceWarning = coordination.OutcomeWriteException is null
+                ? string.Empty
+                : " Work completed, but run status could not be recorded.";
+            await output.WriteLineAsync($"Scheduled job {job.Name} completed.{persistenceWarning}");
+        }
+
+        return 0;
     }
 
     private async Task<int> RunHealthReportAsync(string[] args, TextWriter output, CancellationToken ct)
@@ -429,13 +512,52 @@ public sealed class CommandRunner(
     private async Task RunCleanupExecuteJobAsync(ScheduledJobDefinition job, TextWriter output, CancellationToken ct)
     {
         var session = await RunScanForJobAsync(job, ct);
-        var rules = string.IsNullOrWhiteSpace(job.RulesCsv)
-            ? "TempFiles,CacheFolders,BrowserCache,WindowsUpdateCache,DeliveryOptimization,WindowsErrorReporting,DownloadedInstallers"
-            : job.RulesCsv;
-        await RunNestedCommandAsync(
-            ["cleanup", "execute", "--session", session.Id.ToString(), "--rules", rules, "--recycle-bin", "--confirm"],
-            output,
+        var settings = await settingsRepository.LoadAsync(ct);
+
+        // Unattended cleanup never inherits the interactive setting that can
+        // expand DownloadedInstallers into the entire Downloads folder. It also
+        // enforces the same Safe/Low + recoverable policy used for UI defaults.
+        ScheduledCleanupPolicy.ApplyExecutionSafetyOverrides(settings);
+        var suggestions = await CollectSuggestionsAsync(session.Id, settings, ct);
+        var selection = ScheduledCleanupPolicy.SelectEligibleSuggestions(
+            suggestions,
+            job.RulesCsv);
+        var selected = selection.EligibleSuggestions;
+
+        var rejectedCount = selection.RejectedSuggestionCount;
+        if (rejectedCount > 0)
+        {
+            await output.WriteLineAsync(
+                $"Scheduled cleanup skipped {rejectedCount:N0} non-recoverable or medium/high-risk suggestion(s).");
+        }
+
+        if (selected.Count == 0)
+        {
+            throw new InvalidOperationException(
+                "Scheduled cleanup found no Safe/Low Recycle Bin suggestions matching its consented rules.");
+        }
+
+        var results = await cleanupEngine.ExecuteAsync(
+            selected,
+            dryRun: false,
+            DeletionMethod.RecycleBin,
+            progress: null,
             ct);
+        var succeeded = results.Count(static result => result.Status == CleanupResultStatus.Success);
+        var partial = results.Count(static result => result.Status == CleanupResultStatus.PartialSuccess);
+        var failed = results.Count - succeeded - partial;
+        var processedBytes = results.Sum(static result => result.BytesFreed);
+
+        await output.WriteLineAsync(
+            $"Scheduled cleanup processed {processedBytes:N0} logical bytes through the Recycle Bin " +
+            $"({succeeded:N0} succeeded, {partial:N0} partial, {failed:N0} failed). " +
+            "Disk allocation remains used until the Recycle Bin is emptied.");
+
+        if (results.Count != selected.Count || partial > 0 || failed > 0)
+        {
+            throw new InvalidOperationException(
+                "Scheduled cleanup completed with partial, failed, or missing per-suggestion outcomes; review the cleanup audit before retrying.");
+        }
     }
 
     private async Task RunNestedCommandAsync(string[] args, TextWriter output, CancellationToken ct)
@@ -448,7 +570,7 @@ public sealed class CommandRunner(
     private async Task<ScanSession> RunScanForJobAsync(ScheduledJobDefinition job, CancellationToken ct)
     {
         var settings = await settingsRepository.LoadAsync(ct);
-        return await managedScanner.ScanAsync(new ScanOptions
+        var session = await managedScanner.ScanAsync(new ScanOptions
         {
             RootPath = job.TargetPath,
             MaxParallelism = Math.Clamp(settings.ScanParallelism, 1, 16),
@@ -457,6 +579,39 @@ public sealed class CommandRunner(
             IncludeHiddenFiles = settings.ShowHiddenFiles,
             ExcludedPaths = ScanScopeResolver.BuildExcludedPaths(settings, deepScan: false),
         }, new Progress<ScanProgress>(), ct);
+
+        if (session.Status != ScanStatus.Completed)
+        {
+            var details = string.IsNullOrWhiteSpace(session.ErrorMessage)
+                ? string.Empty
+                : $": {session.ErrorMessage}";
+            throw new InvalidOperationException(
+                $"Scheduled scan ended with status {session.Status}{details}");
+        }
+
+        return session;
+    }
+
+    private async Task TryRecordDiagnosticsAsync(string message)
+    {
+        try
+        {
+            using var timeout = new CancellationTokenSource(DiagnosticsWriteTimeout);
+            await diagnostics.RecordAsync("headless", message, timeout.Token)
+                .WaitAsync(timeout.Token);
+        }
+        catch (Exception ex)
+        {
+            // Diagnostics are best-effort and must never change a command's exit result.
+            try
+            {
+                logger.LogWarning(ex, "Failed to record headless diagnostics");
+            }
+            catch
+            {
+                // A broken logger must not reintroduce the failure-masking path.
+            }
+        }
     }
 
     private static IReadOnlyList<DuplicateMethod> ParseMethods(string text)

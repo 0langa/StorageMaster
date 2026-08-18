@@ -321,6 +321,11 @@
         <!-- Scheduling & Automation -->
         <DataTemplate x:Key="SchedulingTemplate" x:DataType="local:SettingsViewModel">
             <StackPanel Spacing="20">
+                <InfoBar IsOpen="True"
+                         Severity="Warning"
+                         Title="Scheduled cleanup runs unattended"
+                         Message="Enabled cleanup jobs require dedicated confirmation. They rescan, revalidate targets, and move supported files to the Recycle Bin; allocation is reclaimed only after the bin is emptied." />
+
                 <ToggleSwitch Header="Enable scheduled tasks"
                               IsOn="{x:Bind ScheduledTasksEnabled, Mode=TwoWay}"
                               AutomationProperties.Name="Enable scheduled tasks"
@@ -385,7 +390,7 @@
 
                 <StackPanel Orientation="Horizontal" Spacing="12">
                     <Button Content="Save Job"
-                            Command="{x:Bind SaveScheduledJobCommand}"
+                            Click="SaveScheduledJob_Click"
                             IsEnabled="{x:Bind CanSaveScheduledJob, Mode=OneWay}" />
                     <Button Content="Delete Job"
                             Command="{x:Bind DeleteScheduledJobCommand}"
@@ -548,6 +553,7 @@
 
                 <GridView ItemsSource="{x:Bind ViewModel.FilteredCategories, Mode=OneWay}"
                           SelectionMode="None"
+                          IsEnabled="{x:Bind ViewModel.IsLoaded, Mode=OneWay}"
                           IsItemClickEnabled="True"
                           ItemClick="CategoriesGridView_ItemClick">
                     <GridView.ItemsPanel>
@@ -576,7 +582,7 @@
                 </GridView>
 
                 <InfoBar Message="{x:Bind ViewModel.SavedMessage, Mode=OneWay}"
-                         Severity="Success"
+                         Severity="{x:Bind ViewModel.FeedbackSeverity, Mode=OneWay}"
                          IsOpen="{x:Bind ViewModel.HasSavedMessage, Mode=OneWay}"
                          IsClosable="True" />
             </StackPanel>

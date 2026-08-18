@@ -21,9 +21,16 @@ internal static class FileOperationInterop
     private static readonly Guid IID_IShellItem = new("43826d1e-e718-42ee-bc55-a1e261c37bfe");
 
     // FOF_* flags — same constants as SHFileOperation; valid for IFileOperation.SetOperationFlags
-    internal const uint FOF_ALLOWUNDO = 0x0040; // send to Recycle Bin (not permanent)
+    internal const uint FOF_ALLOWUNDO = 0x0040; // preserve undo information when the shell can do so
     internal const uint FOF_NOCONFIRMATION = 0x0010; // skip shell confirmation dialog
     internal const uint FOF_NOERRORUI = 0x0400; // suppress shell error dialogs
+    internal const uint FOFX_RECYCLEONDELETE = 0x00080000; // force deleted items into the Recycle Bin
+
+    internal const uint RecycleDeleteOperationFlags =
+        FOF_ALLOWUNDO |
+        FOF_NOCONFIRMATION |
+        FOF_NOERRORUI |
+        FOFX_RECYCLEONDELETE;
 
     [DllImport("shell32.dll", CharSet = CharSet.Unicode, ExactSpelling = true)]
     private static extern int SHCreateItemFromParsingName(

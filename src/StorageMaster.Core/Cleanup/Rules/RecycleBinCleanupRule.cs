@@ -34,10 +34,13 @@ public sealed class RecycleBinCleanupRule : ICleanupRule
             RuleId = RuleId,
             Title = $"Recycle Bin ({info.ItemCount:N0} items)",
             Description = $"Recycle Bin currently holds {FormatBytes(info.SizeBytes)} across {info.ItemCount:N0} items. " +
-                             "Emptying it is safe and permanent.",
+                             "Emptying it is irreversible.",
             Category = Category,
-            Risk = CleanupRisk.Safe,
+            Risk = CleanupRisk.Medium,
             EstimatedBytes = info.SizeBytes,
+            SupportsRecycleBin = false,
+            SupportsQuarantine = false,
+            SafetyNotes = "Permanent deletion only. Emptying the Recycle Bin cannot be undone.",
             // Sentinel value — the deleter recognises this and calls SHEmptyRecycleBin.
             TargetPaths = ["::RecycleBin::"],
             IsSystemPath = false,

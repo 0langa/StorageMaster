@@ -1,11 +1,12 @@
 using System.Runtime.CompilerServices;
 using StorageMaster.Core.Interfaces;
 using StorageMaster.Core.Models;
+using StorageMaster.Core.Scanner;
 
 namespace StorageMaster.Core.Cleanup.Rules;
 
 /// <summary>
-/// Suggests deleting files in Windows temp folders and files with .tmp/.temp extensions.
+/// Suggests deleting files in canonical Windows temp folders.
 /// Risk is Low — temp files should not be referenced by running processes,
 /// but we cannot guarantee this without kernel-level handle checks (v2 concern).
 /// </summary>
@@ -17,16 +18,9 @@ public sealed class TempFilesCleanupRule : ICleanupRule
     public string DisplayName => "Temporary Files";
     public CleanupCategory Category => CleanupCategory.TempFiles;
 
-    // Known safe temp locations.
-    private static readonly string[] TempRoots =
-    [
-        Path.GetTempPath(),
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "Temp"),
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Temp"),
-    ];
-
-    private static readonly HashSet<string> TempExtensions =
-        new(StringComparer.OrdinalIgnoreCase) { ".tmp", ".temp", ".chk", ".$$$", ".gid" };
+    // Known safe temp locations, canonicalized once so path traversal aliases
+    // cannot make an outside file appear to be beneath a temp root.
+    private static readonly string[] TempRoots = CreateTempRoots();
 
     public TempFilesCleanupRule(IScanRepository repo) => _repo = repo;
 
@@ -35,17 +29,11 @@ public sealed class TempFilesCleanupRule : ICleanupRule
         AppSettings settings,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
-        var files = await _repo.GetLargestFilesAsync(sessionId, topN: 50_000, cancellationToken);
-
-        // Normalize each root: strip trailing separators then re-add exactly one.
-        // This prevents "C:\Temp" from matching "C:\Temporary Internet Files".
-        var tempRootsNorm = TempRoots
-            .Select(r => r.TrimEnd('\\', '/') + Path.DirectorySeparatorChar)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToArray();
+        var files = await ScanFilePager.LoadAllAsync(_repo, sessionId, cancellationToken);
 
         var targets = files
-            .Where(f => IsTemp(f, tempRootsNorm))
+            .Where(static file => file.Identity is not null)
+            .Where(IsTemp)
             .ToList();
 
         if (targets.Count == 0) yield break;
@@ -58,26 +46,60 @@ public sealed class TempFilesCleanupRule : ICleanupRule
             Id = Guid.NewGuid(),
             RuleId = RuleId,
             Title = $"Temporary files ({targets.Count:N0} files)",
-            Description = $"Files in Windows temp folders and files with temporary extensions. " +
+            Description = $"Files in canonical Windows temp folders. " +
                              $"Estimated savings: {FormatBytes(totalBytes)}.",
             Category = Category,
             Risk = CleanupRisk.Low,
             EstimatedBytes = totalBytes,
             TargetPaths = paths,
+            ExpectedFileSnapshots = CreateSnapshots(targets),
             IsSystemPath = false,
         };
     }
 
-    private static bool IsTemp(FileEntry f, string[] tempRoots)
+    private static bool IsTemp(FileEntry file)
     {
-        if (TempExtensions.Contains(f.Extension))
-            return true;
+        try
+        {
+            return TempRoots.Any(root => ScanOptionValidator.IsPathEqualOrUnder(file.FullPath, root));
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            // Malformed persisted scan paths fail closed instead of aborting cleanup analysis.
+            return false;
+        }
+    }
 
-        foreach (var root in tempRoots)
-            if (f.FullPath.StartsWith(root, StringComparison.OrdinalIgnoreCase))
-                return true;
+    private static string[] CreateTempRoots()
+    {
+        var candidates = new List<string>();
 
-        return false;
+        AddFolderTempRoot(candidates, Environment.SpecialFolder.Windows);
+        AddFolderTempRoot(candidates, Environment.SpecialFolder.LocalApplicationData);
+
+        return candidates
+            .Where(Path.IsPathFullyQualified)
+            .Select(ScanOptionValidator.NormalizeDirectoryPath)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
+
+    private static IReadOnlyDictionary<string, FileSnapshot> CreateSnapshots(
+        IEnumerable<FileEntry> files) => files.ToDictionary(
+        static file => file.FullPath,
+        static file => new FileSnapshot(
+            file.FullPath,
+            file.Identity!,
+            file.SizeBytes,
+            file.ModifiedUtc,
+            file.Attributes),
+        StringComparer.OrdinalIgnoreCase);
+
+    private static void AddFolderTempRoot(List<string> roots, Environment.SpecialFolder folder)
+    {
+        var folderPath = Environment.GetFolderPath(folder);
+        if (!string.IsNullOrWhiteSpace(folderPath))
+            roots.Add(Path.Combine(folderPath, "Temp"));
     }
 
     private static string FormatBytes(long bytes) => ByteFormat.Format(bytes);

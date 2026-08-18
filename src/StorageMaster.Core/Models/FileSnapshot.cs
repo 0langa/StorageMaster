@@ -20,5 +20,6 @@ public sealed record FileSnapshot(
     public bool IsIdenticalTo(FileSnapshot other) =>
         SizeBytes == other.SizeBytes &&
         LastWriteUtc == other.LastWriteUtc &&
-        (Identity is null || other.Identity is null || Identity == other.Identity);
+        Attributes == other.Attributes &&
+        Identity == other.Identity;
 }

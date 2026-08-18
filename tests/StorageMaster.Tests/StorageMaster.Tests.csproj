@@ -28,4 +28,13 @@
     <Using Include="Xunit" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Compile the scheduler's non-XAML infrastructure into the test assembly so its
+         injected command runner can be tested without bootstrapping WinUI. -->
+    <Compile Include="..\..\src\StorageMaster.UI\Infrastructure\ILocalDiagnosticsService.cs"
+             Link="UI\Infrastructure\ILocalDiagnosticsService.cs" />
+    <Compile Include="..\..\src\StorageMaster.UI\Infrastructure\ScheduledTaskService.cs"
+             Link="UI\Infrastructure\ScheduledTaskService.cs" />
+  </ItemGroup>
+
 </Project>

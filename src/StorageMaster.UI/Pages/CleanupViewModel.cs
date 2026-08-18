@@ -3,6 +3,7 @@ using System.ComponentModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.UI.Dispatching;
+using StorageMaster.Core.Cleanup;
 using StorageMaster.Core.Interfaces;
 using StorageMaster.Core.Models;
 using StorageMaster.UI.Converters;
@@ -29,6 +30,8 @@ public sealed partial class SuggestionItem : ObservableObject
                 flags.Add("admin");
             if (!Suggestion.SupportsPermanentDelete)
                 flags.Add("no permanent delete");
+            if (!Suggestion.SupportsRecycleBin)
+                flags.Add("no Recycle Bin");
             if (!Suggestion.SupportsQuarantine)
                 flags.Add("no quarantine");
             if (Suggestion.NeedsServiceStop)
@@ -38,7 +41,14 @@ public sealed partial class SuggestionItem : ObservableObject
         }
     }
 
-    public SuggestionItem(CleanupSuggestion suggestion) => Suggestion = suggestion;
+    public SuggestionItem(CleanupSuggestion suggestion)
+    {
+        Suggestion = suggestion;
+        // Safe/low-risk recoverable suggestions may be preselected. Medium and
+        // high-risk items (for example user files or a full Downloads cleanup)
+        // always require an explicit per-suggestion selection before confirmation.
+        IsSelected = CleanupSuggestionSelectionPolicy.ShouldSelectByDefault(suggestion);
+    }
 }
 
 /// <summary>
@@ -125,6 +135,7 @@ public sealed partial class CleanupViewModel : ObservableObject
     [ObservableProperty] private bool _lastRunWasDryRun;
     [ObservableProperty] private DeletionMethod _lastRunDeletionMethod;
     [ObservableProperty] private string _lastRunSummary = string.Empty;
+    [ObservableProperty] private bool _lastPreviewAllowsExecution;
 
     // ── Per-session cleanup options ──────────────────────────────────────────
     [ObservableProperty] private bool _useRecycleBin = true;
@@ -132,20 +143,46 @@ public sealed partial class CleanupViewModel : ObservableObject
     [ObservableProperty] private int _largeFileSizeMb = 500;
     [ObservableProperty] private int _oldFileAgeDays = 365;
 
-    partial void OnLargeFileSizeMbChanged(int value) => OnPropertyChanged(nameof(LargeFileSizeLabel));
-    partial void OnOldFileAgeDaysChanged(int value) => OnPropertyChanged(nameof(OldFileAgeLabel));
+    partial void OnLargeFileSizeMbChanged(int value)
+    {
+        OnPropertyChanged(nameof(LargeFileSizeLabel));
+        InvalidateAnalysisForScopeChange();
+    }
+
+    partial void OnOldFileAgeDaysChanged(int value)
+    {
+        OnPropertyChanged(nameof(OldFileAgeLabel));
+        InvalidateAnalysisForScopeChange();
+    }
+
+    partial void OnUseRecycleBinChanged(bool value) => InvalidateAnalysisForScopeChange();
+    partial void OnClearEntireDownloadsChanged(bool value) => InvalidateAnalysisForScopeChange();
     public string LargeFileSizeLabel => $"Large file threshold: {LargeFileSizeMb:N0} MB";
     public string OldFileAgeLabel => $"Old file age: {OldFileAgeDays:N0} days";
 
-    partial void OnSelectedSessionChanged(ScanSession? value) =>
+    partial void OnSelectedSessionChanged(ScanSession? value)
+    {
         OnPropertyChanged(nameof(CanAnalyse));
-    partial void OnIsLoadingChanged(bool value) => OnPropertyChanged(nameof(CanAnalyse));
-    partial void OnIsExecutingChanged(bool value) => OnPropertyChanged(nameof(CanAnalyse));
+        InvalidateAnalysisForScopeChange();
+    }
+
+    partial void OnIsLoadingChanged(bool value)
+    {
+        OnPropertyChanged(nameof(CanAnalyse));
+        OnPropertyChanged(nameof(CanChangeAnalysisScope));
+    }
+
+    partial void OnIsExecutingChanged(bool value)
+    {
+        OnPropertyChanged(nameof(CanAnalyse));
+        OnPropertyChanged(nameof(CanChangeAnalysisScope));
+    }
     partial void OnHasResultsChanged(bool value) => OnPropertyChanged(nameof(CanExecuteCleanup));
     partial void OnSelectedSuggestionCountChanged(int value) => OnPropertyChanged(nameof(CanExecuteCleanup));
 
     public bool CanAnalyse => SelectedSession is not null && !IsLoading && !IsExecuting;
     public bool CanExecuteCleanup => HasResults && !IsExecuting && SelectedSuggestionCount > 0;
+    public bool CanChangeAnalysisScope => !IsLoading && !IsExecuting;
 
     /// <summary>
     /// Computed property for the Large &amp; Old Files slider visibility.
@@ -177,6 +214,9 @@ public sealed partial class CleanupViewModel : ObservableObject
 
     // Stored between initial run and any follow-up re-runs.
     private IReadOnlyList<CleanupSuggestion> _lastSelectedSuggestions = [];
+    private CancellationTokenSource? _analysisCts;
+    private int _analysisGeneration;
+    private bool _isInitializing;
 
     public CleanupViewModel(
         ICleanupEngine engine,
@@ -227,7 +267,6 @@ public sealed partial class CleanupViewModel : ObservableObject
         // ── Files & Storage ───────────────────────────────────────────────────
         var files = MakeGroup("Files & Storage", "");
         AddItem(files, CleanupCategory.LargeOldFiles, "Large & Old Files", "Files above the size threshold not modified within the age threshold.", enabled: false);
-        AddItem(files, CleanupCategory.DuplicateFiles, "Duplicate Files", "Uses the latest duplicate analysis run for this scan session.", enabled: true);
 
         CategoryGroups.Add(winSystem);
         CategoryGroups.Add(browsers);
@@ -239,7 +278,7 @@ public sealed partial class CleanupViewModel : ObservableObject
     private static CleanupCategoryGroup MakeGroup(string name, string icon) =>
         new() { GroupName = name, GroupIcon = icon };
 
-    private static void AddItem(
+    private void AddItem(
         CleanupCategoryGroup group,
         CleanupCategory category,
         string displayName,
@@ -260,6 +299,7 @@ public sealed partial class CleanupViewModel : ObservableObject
         {
             if (e.PropertyName != nameof(CleanupCategoryOption.IsEnabled)) return;
             group.RefreshGroupEnabled();
+            InvalidateAnalysisForScopeChange();
 
             // The LargeOldFiles slider visibility is bound to IsLargeOldFilesEnabled.
             // We can't raise it from here without a back-reference to the ViewModel,
@@ -271,40 +311,76 @@ public sealed partial class CleanupViewModel : ObservableObject
         group.RefreshGroupEnabled();
     }
 
-    public async Task InitializeAsync()
+    public async Task InitializeAsync(
+        long? requestedSessionId = null,
+        CancellationToken cancellationToken = default)
     {
-        var s = await _settings.LoadAsync();
-        IsDryRun = s.DryRunByDefault;
-        UseRecycleBin = s.PreferRecycleBin;
-        ClearEntireDownloads = s.ClearEntireDownloads;
-        LargeFileSizeMb = s.LargeFileSizeMb;
-        OldFileAgeDays = s.OldFileAgeDays;
+        var settings = await _settings.LoadAsync(cancellationToken);
+        var sessions = await _repo.GetRecentSessionsAsync(10, cancellationToken);
+        var completedSessions = sessions
+            .Where(session => session.Status == ScanStatus.Completed)
+            .ToList();
 
-        // Restore persisted per-category toggles.
-        SetCategory(CleanupCategory.RecycleBin, s.CleanRecycleBin);
-        SetCategory(CleanupCategory.TempFiles, s.CleanTempFiles);
-        SetCategory(CleanupCategory.DownloadedInstallers, s.CleanDownloadedInstallers);
-        SetCategory(CleanupCategory.CacheFolders, s.CleanCacheFolders);
-        SetCategory(CleanupCategory.BrowserCache, s.CleanBrowserCache);
-        SetCategory(CleanupCategory.WindowsUpdateCache, s.CleanWindowsUpdateCache);
-        SetCategory(CleanupCategory.DeliveryOptimization, s.CleanDeliveryOptimization);
-        SetCategory(CleanupCategory.WindowsErrorReporting, s.CleanWindowsErrorReports);
-        SetCategory(CleanupCategory.ProgramLeftovers, s.CleanProgramLeftovers);
-        SetCategory(CleanupCategory.LargeOldFiles, s.CleanLargeOldFiles);
-        SetCategory(CleanupCategory.ThumbnailCache, s.CleanThumbnailCache);
-        SetCategory(CleanupCategory.IconCache, s.CleanIconCache);
-        SetCategory(CleanupCategory.FontCache, s.CleanFontCache);
-        SetCategory(CleanupCategory.DnsCache, s.CleanDnsCache);
-        SetCategory(CleanupCategory.PrefetchFiles, s.CleanPrefetchFiles);
-        SetCategory(CleanupCategory.StoreLogs, s.CleanStoreLogs);
+        ScanSession? requestedSession = null;
+        if (requestedSessionId is not null)
+        {
+            requestedSession = completedSessions
+                .FirstOrDefault(session => session.Id == requestedSessionId.Value);
+            if (requestedSession is null)
+            {
+                var persisted = await _repo
+                    .GetSessionAsync(requestedSessionId.Value, cancellationToken);
+                if (persisted?.Status == ScanStatus.Completed)
+                {
+                    requestedSession = persisted;
+                    completedSessions.Insert(0, persisted);
+                }
+            }
+        }
 
-        var sessions = await _repo.GetRecentSessionsAsync(10);
-        RecentSessions.Clear();
-        foreach (var session in sessions.Where(s => s.Status == ScanStatus.Completed))
-            RecentSessions.Add(session);
+        cancellationToken.ThrowIfCancellationRequested();
+        _isInitializing = true;
+        try
+        {
+            IsDryRun = settings.DryRunByDefault;
+            UseRecycleBin = settings.PreferRecycleBin;
+            ClearEntireDownloads = settings.ClearEntireDownloads;
+            LargeFileSizeMb = settings.LargeFileSizeMb;
+            OldFileAgeDays = settings.OldFileAgeDays;
 
-        if (RecentSessions.Count > 0 && SelectedSession is null)
-            SelectedSession = RecentSessions[0];
+            // Restore persisted per-category toggles.
+            SetCategory(CleanupCategory.RecycleBin, settings.CleanRecycleBin);
+            SetCategory(CleanupCategory.TempFiles, settings.CleanTempFiles);
+            SetCategory(CleanupCategory.DownloadedInstallers, settings.CleanDownloadedInstallers);
+            SetCategory(CleanupCategory.CacheFolders, settings.CleanCacheFolders);
+            SetCategory(CleanupCategory.BrowserCache, settings.CleanBrowserCache);
+            SetCategory(CleanupCategory.WindowsUpdateCache, settings.CleanWindowsUpdateCache);
+            SetCategory(CleanupCategory.DeliveryOptimization, settings.CleanDeliveryOptimization);
+            SetCategory(CleanupCategory.WindowsErrorReporting, settings.CleanWindowsErrorReports);
+            SetCategory(CleanupCategory.ProgramLeftovers, settings.CleanProgramLeftovers);
+            SetCategory(CleanupCategory.LargeOldFiles, settings.CleanLargeOldFiles);
+            SetCategory(CleanupCategory.ThumbnailCache, settings.CleanThumbnailCache);
+            SetCategory(CleanupCategory.IconCache, settings.CleanIconCache);
+            SetCategory(CleanupCategory.FontCache, settings.CleanFontCache);
+            SetCategory(CleanupCategory.DnsCache, settings.CleanDnsCache);
+            SetCategory(CleanupCategory.PrefetchFiles, settings.CleanPrefetchFiles);
+            SetCategory(CleanupCategory.StoreLogs, settings.CleanStoreLogs);
+
+            RecentSessions.Clear();
+            foreach (var session in completedSessions.DistinctBy(session => session.Id))
+                RecentSessions.Add(session);
+
+            SelectedSession = requestedSession ?? RecentSessions.FirstOrDefault();
+            if (requestedSessionId is not null && requestedSession is null)
+            {
+                StatusMessage =
+                    $"Scan session {requestedSessionId.Value} is not completed or no longer exists. Select a completed session.";
+            }
+        }
+        finally
+        {
+            _isInitializing = false;
+        }
     }
 
     private void SetCategory(CleanupCategory cat, bool enabled)
@@ -329,7 +405,24 @@ public sealed partial class CleanupViewModel : ObservableObject
     [RelayCommand]
     private async Task AnalyseAsync()
     {
-        if (SelectedSession is null) return;
+        var session = SelectedSession;
+        if (session is null) return;
+
+        var preferRecycleBin = UseRecycleBin;
+        var clearEntireDownloads = ClearEntireDownloads;
+        var largeFileSizeMb = LargeFileSizeMb;
+        var oldFileAgeDays = OldFileAgeDays;
+        var enabledCategories = CategoryOptions
+            .Where(option => option.IsEnabled)
+            .Select(option => option.Category)
+            .ToHashSet();
+
+        _analysisCts?.Cancel();
+        _analysisCts?.Dispose();
+        var analysisCts = new CancellationTokenSource();
+        _analysisCts = analysisCts;
+        var generation = Interlocked.Increment(ref _analysisGeneration);
+        var cancellationToken = analysisCts.Token;
 
         IsLoading = true;
         HasResults = false;
@@ -342,47 +435,68 @@ public sealed partial class CleanupViewModel : ObservableObject
 
         try
         {
-            var saved = await _settings.LoadAsync();
+            var saved = await _settings.LoadAsync(cancellationToken);
             var effectiveSettings = new AppSettings
             {
-                PreferRecycleBin = UseRecycleBin,
+                PreferRecycleBin = preferRecycleBin,
                 DryRunByDefault = saved.DryRunByDefault,
-                LargeFileSizeMb = LargeFileSizeMb,
-                OldFileAgeDays = OldFileAgeDays,
+                LargeFileSizeMb = largeFileSizeMb,
+                OldFileAgeDays = oldFileAgeDays,
                 DefaultScanPath = saved.DefaultScanPath,
                 ScanParallelism = saved.ScanParallelism,
                 ShowHiddenFiles = saved.ShowHiddenFiles,
                 SkipSystemFolders = saved.SkipSystemFolders,
                 ExcludedPaths = saved.ExcludedPaths,
-                ClearEntireDownloads = ClearEntireDownloads,
+                ClearEntireDownloads = clearEntireDownloads,
             };
 
-            var enabledCategories = CategoryOptions
-                .Where(o => o.IsEnabled)
-                .Select(o => o.Category)
-                .ToHashSet();
-
-            await foreach (var suggestion in _engine.GetSuggestionsAsync(SelectedSession.Id, effectiveSettings))
+            var discovered = new List<CleanupSuggestion>();
+            await foreach (var suggestion in _engine
+                               .GetSuggestionsAsync(session.Id, effectiveSettings, cancellationToken)
+                               .WithCancellation(cancellationToken))
             {
                 if (!enabledCategories.Contains(suggestion.Category)) continue;
+                discovered.Add(suggestion);
+            }
 
+            cancellationToken.ThrowIfCancellationRequested();
+            if (generation != Volatile.Read(ref _analysisGeneration) ||
+                SelectedSession?.Id != session.Id)
+            {
+                return;
+            }
+
+            foreach (var suggestion in discovered)
+            {
                 var item = new SuggestionItem(suggestion);
                 item.PropertyChanged += SuggestionItem_PropertyChanged;
                 Suggestions.Add(item);
             }
+
             UpdateTotalSelected();
             HasResults = Suggestions.Count > 0;
             StatusMessage = Suggestions.Count > 0
                 ? $"Found {Suggestions.Count} suggestion(s). Select items to clean up."
                 : "No cleanup opportunities found for this scan.";
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            if (generation == Volatile.Read(ref _analysisGeneration))
+                StatusMessage = "Analysis cancelled. Review the selected session and options, then retry.";
+        }
         catch (Exception ex)
         {
-            StatusMessage = $"Analysis failed: {ex.Message}";
+            if (generation == Volatile.Read(ref _analysisGeneration))
+                StatusMessage = $"Analysis failed: {ex.Message}";
         }
         finally
         {
-            IsLoading = false;
+            if (ReferenceEquals(_analysisCts, analysisCts))
+            {
+                _analysisCts = null;
+                analysisCts.Dispose();
+                IsLoading = false;
+            }
         }
     }
 
@@ -404,11 +518,21 @@ public sealed partial class CleanupViewModel : ObservableObject
         await RunCleanupCoreAsync(IsDryRun, method, selected);
     }
 
-    public Task RunCleanupWithMethodAsync(bool dryRun, DeletionMethod method)
+    public async Task<bool> RunCleanupWithMethodAsync(bool dryRun, DeletionMethod method)
     {
-        if (_lastSelectedSuggestions.Count == 0) return Task.CompletedTask;
-        return RunCleanupCoreAsync(dryRun, method, _lastSelectedSuggestions);
+        if (_lastSelectedSuggestions.Count == 0 ||
+            (!dryRun && (!LastRunWasDryRun || !LastPreviewAllowsExecution)))
+        {
+            return false;
+        }
+
+        var frozenSuggestions = _lastSelectedSuggestions;
+        await RunCleanupCoreAsync(dryRun, method, frozenSuggestions);
+        return true;
     }
+
+    public string LastRunSelectedSizeDisplay => ByteSizeConverter.Format(
+        _lastSelectedSuggestions.Sum(suggestion => suggestion.EstimatedBytes));
 
     private async Task RunCleanupCoreAsync(
         bool dryRun,
@@ -418,6 +542,7 @@ public sealed partial class CleanupViewModel : ObservableObject
         IsExecuting = true;
         LastRunWasDryRun = dryRun;
         LastRunDeletionMethod = method;
+        LastPreviewAllowsExecution = false;
         HasExecutionResults = false;
         ExecutionResults.Clear();
         CleanupProgressValue = 0;
@@ -448,29 +573,39 @@ public sealed partial class CleanupViewModel : ObservableObject
 
             foreach (var r in results)
             {
+                var error = BuildResultError(r);
                 ExecutionResults.Add(new CleanupResultDisplay(
                     suggestions.First(s => s.Id == r.SuggestionId).Title,
                     r.Status.ToString(),
                     ByteSizeConverter.Format(r.BytesFreed),
                     r.WasDryRun,
-                    r.ErrorMessage));
+                    error));
             }
             HasExecutionResults = ExecutionResults.Count > 0;
 
             long totalFreed = results.Sum(r => r.BytesFreed);
-            int succeeded = results.Count(r => r.Status is CleanupResultStatus.Success
-                                                            or CleanupResultStatus.PartialSuccess);
+            int succeeded = results.Count(r => r.Status == CleanupResultStatus.Success);
+            int partial = results.Count(r => r.Status == CleanupResultStatus.PartialSuccess);
             int failed = results.Count(r => r.Status == CleanupResultStatus.Failed);
             int skipped = results.Count(r => r.Status == CleanupResultStatus.Skipped);
+            LastPreviewAllowsExecution = dryRun &&
+                CleanupPreviewExecutionPolicy.CanExecuteAfterPreview(
+                    results,
+                    suggestions.Select(suggestion => suggestion.Id).ToArray());
+            if (dryRun && !LastPreviewAllowsExecution)
+                _lastSelectedSuggestions = [];
 
             LastRunSummary = dryRun
-                ? $"Preview: would free {ByteSizeConverter.Format(totalFreed)} across {succeeded} item(s)."
-                : BuildSummaryText(totalFreed, succeeded, failed, skipped, method);
+                ? BuildPreviewSummary(totalFreed, succeeded, partial, failed, skipped)
+                : BuildSummaryText(totalFreed, succeeded, partial, failed, skipped, method);
 
             StatusMessage = LastRunSummary;
         }
         catch (Exception ex)
         {
+            LastPreviewAllowsExecution = false;
+            if (dryRun)
+                _lastSelectedSuggestions = [];
             LastRunSummary = $"Cleanup failed: {ex.Message}";
             StatusMessage = LastRunSummary;
         }
@@ -480,17 +615,88 @@ public sealed partial class CleanupViewModel : ObservableObject
         }
     }
 
-    private static string BuildSummaryText(long freed, int succeeded, int failed, int skipped, DeletionMethod method)
+    private static string BuildPreviewSummary(
+        long estimatedBytes,
+        int succeeded,
+        int partial,
+        int failed,
+        int skipped)
     {
-        var how = method == DeletionMethod.RecycleBin ? "to the Recycle Bin" : "permanently";
+        var summary =
+            $"Preview processed about {ByteSizeConverter.Format(estimatedBytes)} of logical file data " +
+            $"({succeeded} succeeded, {partial} partial, {failed} failed, {skipped} skipped).";
+        return partial == 0 && failed == 0 && skipped == 0
+            ? summary
+            : $"{summary} Resolve preview failures before deletion is enabled.";
+    }
+
+    private static string BuildSummaryText(
+        long freed,
+        int succeeded,
+        int partial,
+        int failed,
+        int skipped,
+        DeletionMethod method)
+    {
         var sb = new System.Text.StringBuilder();
-        sb.Append($"Freed {ByteSizeConverter.Format(freed)} {how}");
-        if (succeeded > 0) sb.Append($" ({succeeded} succeeded");
-        if (failed > 0) sb.Append($", {failed} failed");
-        if (skipped > 0) sb.Append($", {skipped} skipped");
-        if (succeeded > 0 || failed > 0 || skipped > 0) sb.Append(')');
+        if (method == DeletionMethod.RecycleBin)
+        {
+            sb.Append($"Moved {ByteSizeConverter.Format(freed)} to the Recycle Bin; " +
+                      "disk space remains in use until it is emptied");
+        }
+        else
+        {
+            sb.Append($"Permanently deleted {ByteSizeConverter.Format(freed)} of logical file data; " +
+                      "actual reclaimed disk allocation may differ");
+        }
+        sb.Append($" ({succeeded} succeeded, {partial} partial, {failed} failed, {skipped} skipped)");
         sb.Append('.');
         return sb.ToString();
+    }
+
+    private static string? BuildResultError(CleanupResult result)
+    {
+        var failedPathSummary = result.FailedPaths.Count switch
+        {
+            0 => null,
+            1 => $"1 target failed: {result.FailedPaths[0]}",
+            _ => $"{result.FailedPaths.Count} targets failed; first: {result.FailedPaths[0]}",
+        };
+
+        if (string.IsNullOrWhiteSpace(result.ErrorMessage))
+            return failedPathSummary;
+        if (failedPathSummary is null)
+            return result.ErrorMessage;
+        return $"{failedPathSummary}. {result.ErrorMessage}";
+    }
+
+    private void InvalidateAnalysisForScopeChange()
+    {
+        if (_isInitializing)
+            return;
+
+        Interlocked.Increment(ref _analysisGeneration);
+        _analysisCts?.Cancel();
+        _lastSelectedSuggestions = [];
+        LastPreviewAllowsExecution = false;
+
+        if (Suggestions.Count > 0 || ExecutionResults.Count > 0)
+        {
+            UnsubscribeAllSuggestions();
+            Suggestions.Clear();
+            ExecutionResults.Clear();
+            HasResults = false;
+            HasExecutionResults = false;
+            UpdateTotalSelected();
+        }
+
+        StatusMessage = "Cleanup scope changed. Analyse again before cleanup.";
+    }
+
+    public void CancelPendingAnalysis()
+    {
+        Interlocked.Increment(ref _analysisGeneration);
+        _analysisCts?.Cancel();
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────

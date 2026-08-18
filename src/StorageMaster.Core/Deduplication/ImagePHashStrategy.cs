@@ -142,6 +142,10 @@ public sealed class ImagePHashStrategy : IDuplicateDetectionStrategy
                     : null,
             };
         }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             return ErrorSig(candidate, "PHashError", ex.Message);

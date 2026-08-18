@@ -5,6 +5,7 @@ using StorageMaster.Core.Cleanup.Rules;
 using StorageMaster.Core.Interfaces;
 using StorageMaster.Core.Models;
 using StorageMaster.Platform.Windows;
+using StorageMaster.Platform.Windows.Interop;
 
 namespace StorageMaster.Tests.CriticalFixes;
 
@@ -26,6 +27,8 @@ public sealed class DeletionSafetyHardeningTests
     [InlineData(@"c:\")]         // case-insensitive
     [InlineData(@"D:\")]
     [InlineData(@"Z:\")]
+    [InlineData(@"C:\Temp\..")]
+    [InlineData(@"C:\.")]
     public void IsRootOrUncPrefix_DriveRoot_ReturnsTrue(string path)
         => FileDeleter.IsRootOrUncPrefix(path).Should().BeTrue($"'{path}' is a drive root");
 
@@ -33,6 +36,8 @@ public sealed class DeletionSafetyHardeningTests
     [InlineData(@"\\server\share")]
     [InlineData(@"\\SERVER\SHARE")]   // UNC, case-insensitive
     [InlineData(@"\\nas\backup")]
+    [InlineData(@"\\server\share\folder\..")]
+    [InlineData(@"\\server\share\.")]
     public void IsRootOrUncPrefix_UncShareRoot_ReturnsTrue(string path)
         => FileDeleter.IsRootOrUncPrefix(path).Should().BeTrue($"'{path}' is a UNC share root");
 
@@ -89,13 +94,43 @@ public sealed class DeletionSafetyHardeningTests
         outcome.BytesFreed.Should().Be(0);
     }
 
+    [Theory]
+    [InlineData(@"C:\Temp\..")]
+    [InlineData(@"C:\.")]
+    [InlineData(@"\\server\share\folder\..")]
+    [InlineData(@"\\server\share\.")]
+    public async Task DeleteAsync_PathCanonicalizingToRoot_IsRefused(string path)
+    {
+        var outcome = await _deleter.DeleteAsync(
+            new DeletionRequest(path, DeletionMethod.Permanent, DryRun: true));
+
+        outcome.Success.Should().BeFalse("canonical filesystem roots must never reach deletion");
+        outcome.Error.Should().Contain("Refusing to delete a filesystem root");
+        outcome.Path.Should().Be(path);
+    }
+
+    [Theory]
+    [InlineData("relative.txt")]
+    [InlineData(@".\relative.txt")]
+    [InlineData(@"..\relative.txt")]
+    [InlineData(@"C:relative.txt")]
+    public async Task DeleteAsync_RelativeOrDriveRelativePath_IsRefused(string path)
+    {
+        var outcome = await _deleter.DeleteAsync(
+            new DeletionRequest(path, DeletionMethod.Permanent, DryRun: true));
+
+        outcome.Success.Should().BeFalse("deletion must never resolve a path against process state");
+        outcome.Error.Should().Contain("an absolute filesystem path is required");
+        outcome.Path.Should().Be(path);
+    }
+
     [Fact]
     public async Task DeleteManyAsync_AllInvalidRecycleBinRoots_AllAreRefused()
     {
         var requests = new[]
         {
-            new DeletionRequest(@"C:\", DeletionMethod.RecycleBin, DryRun: false),
-            new DeletionRequest(@"\\server\share", DeletionMethod.RecycleBin, DryRun: false),
+            new DeletionRequest(@"C:\Temp\..", DeletionMethod.RecycleBin, DryRun: false),
+            new DeletionRequest(@"\\server\share\folder\..", DeletionMethod.RecycleBin, DryRun: false),
         };
 
         var outcomes = await CollectOutcomesAsync(_deleter.DeleteManyAsync(requests));
@@ -103,6 +138,17 @@ public sealed class DeletionSafetyHardeningTests
         outcomes.Should().HaveCount(2);
         outcomes.Should().OnlyContain(o => !o.Success);
         outcomes.Should().OnlyContain(o => o.Error!.Contains("Refusing to delete a filesystem root"));
+    }
+
+    [Fact]
+    public void RecycleDeleteOperationFlags_ExplicitlyForceRecycleBin()
+    {
+        FileOperationInterop.FOFX_RECYCLEONDELETE.Should().Be(0x00080000u);
+        FileOperationInterop.RecycleDeleteOperationFlags.Should().Be(
+            FileOperationInterop.FOF_ALLOWUNDO |
+            FileOperationInterop.FOF_NOCONFIRMATION |
+            FileOperationInterop.FOF_NOERRORUI |
+            FileOperationInterop.FOFX_RECYCLEONDELETE);
     }
 
     [Fact]
@@ -150,7 +196,7 @@ public sealed class DeletionSafetyHardeningTests
     // ── DeletePermanently hardening ───────────────────────────────────────────
 
     [Fact]
-    public void DeletePermanently_AttributeProbeFails_RefusesRecursiveDeletion()
+    public void DeletePermanently_BeforeDirectoryGuardFails_RefusesRecursiveDeletion()
     {
         var dir = Path.Combine(Path.GetTempPath(), $"smhard_attrs_{Guid.NewGuid():N}");
         Directory.CreateDirectory(dir);
@@ -161,10 +207,10 @@ public sealed class DeletionSafetyHardeningTests
         {
             var act = () => FileDeleter.DeletePermanently(
                 dir,
-                _ => throw new UnauthorizedAccessException("simulated attribute failure"));
+                _ => throw new IOException("simulated guard failure"));
 
             act.Should().Throw<IOException>()
-                .WithMessage("*verify whether the path is a reparse point*");
+                .WithMessage("*simulated guard failure*");
             File.Exists(protectedFile).Should().BeTrue();
         }
         finally
@@ -332,12 +378,61 @@ public sealed class DeletionSafetyHardeningTests
         }
     }
 
+    [Fact]
+    public async Task DeleteAsync_QuarantineCanonicalizesSourceAndKeepsDestinationContained()
+    {
+        var sourceRoot = Path.Combine(Path.GetTempPath(), $"smhard_qcanon_{Guid.NewGuid():N}");
+        var dotSegmentDirectory = Path.Combine(sourceRoot, "segment");
+        Directory.CreateDirectory(dotSegmentDirectory);
+        var canonicalSource = Path.Combine(sourceRoot, "payload.txt");
+        File.WriteAllText(canonicalSource, "quarantine me");
+        var requestedSource = Path.Combine(dotSegmentDirectory, "..", "payload.txt");
+        var runId = BitConverter.ToInt64(Guid.NewGuid().ToByteArray(), 0) & long.MaxValue;
+        var quarantineRunRoot = Path.GetFullPath(Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "StorageMaster", "Quarantine", runId.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+        DeletionOutcome? outcome = null;
+
+        try
+        {
+            outcome = await _deleter.DeleteAsync(new DeletionRequest(
+                requestedSource,
+                DeletionMethod.Quarantine,
+                DryRun: false,
+                QuarantineRunId: runId));
+
+            outcome.Success.Should().BeTrue(outcome.Error);
+            outcome.Path.Should().Be(requestedSource, "callers receive the path spelling they submitted");
+            outcome.QuarantinePath.Should().NotBeNull();
+            var destination = outcome.QuarantinePath!;
+            destination.Should().Be(Path.GetFullPath(destination),
+                "the persisted restore path must itself be canonical");
+            destination.Should().StartWith(
+                Path.TrimEndingDirectorySeparator(quarantineRunRoot) + Path.DirectorySeparatorChar,
+                "the destination must remain inside its quarantine run directory");
+            File.Exists(destination).Should().BeTrue();
+            File.Exists(canonicalSource).Should().BeFalse();
+        }
+        finally
+        {
+            if (File.Exists(canonicalSource)) File.Delete(canonicalSource);
+            if (outcome?.QuarantinePath is { } destination && File.Exists(destination))
+                File.Delete(destination);
+            if (Directory.Exists(quarantineRunRoot))
+                Directory.Delete(quarantineRunRoot, recursive: true);
+            if (Directory.Exists(sourceRoot))
+                Directory.Delete(sourceRoot, recursive: true);
+        }
+    }
+
     // ── TempFilesCleanupRule path boundary ────────────────────────────────────
 
     [Fact]
     public async Task TempFilesCleanupRule_FileInTempDirectory_IsIncluded()
     {
-        var tempPath = Path.GetTempPath().TrimEnd('\\', '/');
+        var tempPath = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "Temp");
         var fileInTemp = MakeFileEntry(Path.Combine(tempPath, "junk.dat"), sizeBytes: 100);
         var repo = MockRepoWith([fileInTemp]);
         var rule = new TempFilesCleanupRule(repo.Object);
@@ -424,129 +519,22 @@ public sealed class DeletionSafetyHardeningTests
         }
     }
 
-    // ── DuplicateFilesCleanupRule keeper-gone safety ──────────────────────────
+    // ── Duplicate generic-cleanup isolation ──────────────────────────────────
 
     [Fact]
-    public async Task DuplicateFilesCleanupRule_KeeperPathDoesNotExistOnDisk_GroupIsSkipped()
+    public async Task DuplicateFilesCleanupRule_NeverReturnsGenericDeletionTargets()
     {
-        // If the keeper file was removed between scan time and cleanup analysis,
-        // deleting the "duplicates" would cause total data loss for this group.
-        // The rule must skip the group entirely.
-        var nonexistentKeeper = Path.Combine(
-            Path.GetTempPath(), $"smhard_keeper_{Guid.NewGuid():N}", "keep.txt");
-        // Do NOT create this file — it must not exist on disk.
-
-        var repo = BuildDuplicateRepo(keeperPath: nonexistentKeeper);
+        var repo = new Mock<IDuplicateRepository>(MockBehavior.Strict);
         var rule = new DuplicateFilesCleanupRule(repo.Object);
 
         var suggestions = await CollectAsync(rule.AnalyzeAsync(1, new AppSettings()));
 
         suggestions.Should().BeEmpty(
-            "group must be skipped when keeper file does not exist on disk");
-    }
-
-    [Fact]
-    public async Task DuplicateFilesCleanupRule_KeeperExists_GroupIsIncluded()
-    {
-        // Happy path: keeper exists on disk → suggestion is produced.
-        var keeperFile = Path.Combine(Path.GetTempPath(), $"smhard_keeper_{Guid.NewGuid():N}.txt");
-        File.WriteAllText(keeperFile, "I am the keeper");
-        try
-        {
-            var repo = BuildDuplicateRepo(keeperPath: keeperFile);
-            var rule = new DuplicateFilesCleanupRule(repo.Object);
-
-            var suggestions = await CollectAsync(rule.AnalyzeAsync(1, new AppSettings()));
-
-            suggestions.Should().ContainSingle(
-                "when keeper exists and duplicates are selected, a suggestion is produced");
-            suggestions[0].TargetPaths.Should().Contain(@"C:\docs\copy-a.txt");
-        }
-        finally
-        {
-            if (File.Exists(keeperFile)) File.Delete(keeperFile);
-        }
-    }
-
-    [Fact]
-    public async Task DuplicateFilesCleanupRule_NoKeeperDesignated_GroupIsSkipped()
-    {
-        // A group with no keeper member is also unsafe — skip it.
-        var repo = new Mock<IDuplicateRepository>();
-        repo.Setup(r => r.GetRunsForSessionAsync(It.IsAny<long>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync([MakeCompletedRun(runId: 1)]);
-        repo.Setup(r => r.GetGroupsForRunAsync(1, It.IsAny<CancellationToken>()))
-            .ReturnsAsync([MakeGroup(groupId: 10, runId: 1)]);
-        repo.Setup(r => r.GetMembersForGroupAsync(10, It.IsAny<CancellationToken>()))
-            .ReturnsAsync([
-                MakeMember(id: 1, groupId: 10, path: @"C:\docs\file-a.txt",
-                    isKeeper: false, isSelected: true),
-                MakeMember(id: 2, groupId: 10, path: @"C:\docs\file-b.txt",
-                    isKeeper: false, isSelected: true),
-            ]);
-
-        var rule = new DuplicateFilesCleanupRule(repo.Object);
-        var suggestions = await CollectAsync(rule.AnalyzeAsync(1, new AppSettings()));
-
-        suggestions.Should().BeEmpty("no keeper = cannot safely determine what to preserve");
+            "duplicate deletion must stay in the keeper-validating, journaled workflow");
+        repo.VerifyNoOtherCalls();
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
-
-    private static Mock<IDuplicateRepository> BuildDuplicateRepo(string keeperPath)
-    {
-        var repo = new Mock<IDuplicateRepository>();
-        repo.Setup(r => r.GetRunsForSessionAsync(It.IsAny<long>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync([MakeCompletedRun(runId: 1)]);
-        repo.Setup(r => r.GetGroupsForRunAsync(1, It.IsAny<CancellationToken>()))
-            .ReturnsAsync([MakeGroup(groupId: 10, runId: 1)]);
-        repo.Setup(r => r.GetMembersForGroupAsync(10, It.IsAny<CancellationToken>()))
-            .ReturnsAsync([
-                MakeMember(1, 10, keeperPath, isKeeper: true, isSelected: false),
-                MakeMember(2, 10, @"C:\docs\copy-a.txt", isKeeper: false, isSelected: true),
-            ]);
-        return repo;
-    }
-
-    private static DuplicateRun MakeCompletedRun(long runId) => new()
-    {
-        Id = runId,
-        SessionId = 1,
-        StartedUtc = DateTime.UtcNow.AddMinutes(-5),
-        CompletedUtc = DateTime.UtcNow.AddMinutes(-4),
-        Status = DuplicateRunStatus.Completed,
-        ConfigJson = "{}",
-        GroupCount = 1,
-    };
-
-    private static DuplicateGroup MakeGroup(long groupId, long runId) => new()
-    {
-        Id = groupId,
-        RunId = runId,
-        Method = DuplicateMethod.ExactSha256,
-        Algorithm = "SHA256",
-        Confidence = 1.0,
-        TotalBytes = 600,
-        ReclaimableBytes = 300,
-        RepresentativeFileEntryId = 1,
-    };
-
-    private static DuplicateGroupMember MakeMember(
-        long id, long groupId, string path, bool isKeeper, bool isSelected) => new()
-        {
-            Id = id,
-            GroupId = groupId,
-            FileEntryId = id,
-            FullPath = path,
-            FileName = Path.GetFileName(path),
-            SizeBytes = 300,
-            ModifiedUtc = DateTime.UtcNow,
-            Score = 1.0,
-            IsKeeper = isKeeper,
-            IsSelected = isSelected,
-            RecommendationReason = isKeeper ? "Kept" : "Duplicate",
-            ExistsNow = true,
-        };
 
     private static Mock<IScanRepository> MockRepoWith(IEnumerable<FileEntry> files)
     {
@@ -570,6 +558,7 @@ public sealed class DeletionSafetyHardeningTests
         AccessedUtc = DateTime.UtcNow,
         Attributes = FileAttributes.Normal,
         Category = FileTypeCategory.Unknown,
+        Identity = new FileIdentity("TESTVOL", 1),
     };
 
     private static async Task<List<CleanupSuggestion>> CollectAsync(

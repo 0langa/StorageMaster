@@ -17,6 +17,7 @@ public sealed partial class DashboardViewModel : ObservableObject
     private readonly INavigationService _nav;
 
     [ObservableProperty] private ScanSession? _lastSession;
+    [ObservableProperty] private ScanSession? _latestAttempt;
     [ObservableProperty] private string _totalScannedSize = "—";
     [ObservableProperty] private long _totalFiles;
     [ObservableProperty] private string _statusMessage = "No scan yet. Start a scan to analyse your disk.";
@@ -59,7 +60,14 @@ public sealed partial class DashboardViewModel : ObservableObject
         OnPropertyChanged(nameof(HasDrives));
         Recommendations.Clear();
 
-        var sessions = await _repo.GetRecentSessionsAsync(count: 1);
+        // The dashboard needs two distinct concepts: the latest attempt for
+        // diagnostics and the latest completed session that is safe to open in
+        // downstream result/cleanup workflows. Loading metadata for the complete
+        // history keeps that selection exact even after several failed attempts.
+        var sessions = await _repo.GetRecentSessionsAsync(int.MaxValue);
+        LatestAttempt = sessions.FirstOrDefault();
+        LastSession = sessions.FirstOrDefault(static session => session.Status == ScanStatus.Completed);
+        HasLastSession = LastSession is not null;
         var lowSpaceDrives = Drives2.Where(static d => d.IsReady && d.TotalBytes > 0)
             .Select(static drive => new
             {
@@ -73,21 +81,29 @@ public sealed partial class DashboardViewModel : ObservableObject
             d.Status is DriveHealthStatus.Warning or DriveHealthStatus.Critical);
         DriveHealthSummary = BuildDriveHealthSummary(lowSpaceDrives.Count, healthIssues);
 
-        if (sessions.Count > 0)
+        if (LastSession is not null)
         {
-            LastSession = sessions[0];
             TotalFiles = LastSession.TotalFiles;
             TotalScannedSize = ByteSizeConverter.Format(LastSession.TotalSizeBytes);
-            HasLastSession = true;
-            LatestScanSummary = LastSession.Status == ScanStatus.Completed
-                ? $"Last completed scan: {LastSession.RootPath} on {LastSession.CompletedUtc:g}"
-                : $"Last scan status: {LastSession.Status}";
-            StatusMessage = LastSession.Status == ScanStatus.Completed
-                ? $"Last scan of {LastSession.RootPath} completed {LastSession.CompletedUtc:g}"
-                : $"Last scan status: {LastSession.Status}";
-            HeroTitle = "Storage ready";
-            HeroSubtitle = "Jump back into the latest scan, duplicates, or cleanup without waiting for a cold load.";
-            RecommendedActionText = lowSpaceDrives.Count > 0 ? "Run Cleanup" : "Open latest Results";
+            if (LatestAttempt is { Status: not ScanStatus.Completed } latestAttempt)
+            {
+                LatestScanSummary =
+                    $"Latest scan attempt: {latestAttempt.Status}. Last completed scan: {LastSession.RootPath} on {FormatSessionTime(LastSession)}.";
+                StatusMessage =
+                    $"The latest scan did not complete ({latestAttempt.Status}); actionable views use the earlier completed scan of {LastSession.RootPath}.";
+                HeroTitle = "Latest scan needs attention";
+                HeroSubtitle = "Retry the scan. Previous completed results remain available for read-only review.";
+                RecommendedActionText = "Retry scan";
+                Recommendations.Add($"Retry the latest scan; it ended with status {latestAttempt.Status}.");
+            }
+            else
+            {
+                LatestScanSummary = $"Last completed scan: {LastSession.RootPath} on {FormatSessionTime(LastSession)}";
+                StatusMessage = $"Last scan of {LastSession.RootPath} completed {FormatSessionTime(LastSession)}";
+                HeroTitle = "Storage ready";
+                HeroSubtitle = "Jump back into the latest completed scan, duplicates, or cleanup without waiting for a cold load.";
+                RecommendedActionText = lowSpaceDrives.Count > 0 ? "Run Cleanup" : "Open latest Results";
+            }
 
             if (LastSession.CompletedUtc is null || LastSession.CompletedUtc < DateTime.UtcNow.AddDays(-14))
                 Recommendations.Add("Run a fresh scan. The latest scan is stale.");
@@ -99,23 +115,32 @@ public sealed partial class DashboardViewModel : ObservableObject
         }
         else
         {
-            HasLastSession = false;
-            HeroTitle = "First run";
-            HeroSubtitle = "Start with a scan, then StorageMaster can guide cleanup and duplicate review safely.";
+            TotalFiles = 0;
+            TotalScannedSize = "—";
+            HeroTitle = LatestAttempt is null ? "First run" : "No completed scan";
+            HeroSubtitle = LatestAttempt is null
+                ? "Start with a scan, then StorageMaster can guide cleanup and duplicate review safely."
+                : $"The latest scan ended with status {LatestAttempt.Status}. Retry it before opening downstream actions.";
             RecommendedActionText = "Start a scan";
-            LatestScanSummary = "No completed scan history yet.";
-            StatusMessage = HasDrives
-                ? "No completed scan yet. Start with a drive below or open a custom path."
-                : "No drives detected. Connect storage, then start a scan.";
+            LatestScanSummary = LatestAttempt is null
+                ? "No scan history yet."
+                : $"Latest scan attempt: {LatestAttempt.Status} at {FormatSessionTime(LatestAttempt)}.";
+            StatusMessage = LatestAttempt is null
+                ? HasDrives
+                    ? "No completed scan yet. Start with a drive below or open a custom path."
+                    : "No drives detected. Connect storage, then start a scan."
+                : $"No completed scan is available. The latest attempt is {LatestAttempt.Status}.";
             if (HasDrives)
-                Recommendations.Add("Run a first scan so results, duplicate review, and cleanup can use real data.");
+                Recommendations.Add(LatestAttempt is null
+                    ? "Run a first scan so results, duplicate review, and cleanup can use real data."
+                    : "Retry the scan; incomplete scan data is not exposed to cleanup or duplicate actions.");
             if (lowSpaceDrives.Count > 0)
                 Recommendations.Add(DriveHealthSummary);
             if (healthIssues > 0)
                 Recommendations.Add("Review drive health before starting your first cleanup.");
         }
 
-        UpdateReadinessScore(lowSpaceDrives.Count, healthIssues);
+        UpdateReadinessScore(lowSpaceDrives.Count, healthIssues, LatestAttempt);
         OnPropertyChanged(nameof(IsFirstRun));
         OnPropertyChanged(nameof(HasRecommendations));
     }
@@ -203,15 +228,19 @@ public sealed partial class DashboardViewModel : ObservableObject
         return string.Join("; ", parts) + ".";
     }
 
-    private void UpdateReadinessScore(int lowSpaceCount, int healthIssueCount)
+    private void UpdateReadinessScore(
+        int lowSpaceCount,
+        int healthIssueCount,
+        ScanSession? latestAttempt)
     {
         var score = 100;
         if (!HasLastSession)
             score -= 35;
-        else if (LastSession is { Status: not ScanStatus.Completed })
-            score -= 25;
         else if (LastSession is { CompletedUtc: null } || LastSession!.CompletedUtc < DateTime.UtcNow.AddDays(-14))
             score -= 15;
+
+        if (latestAttempt is { Status: not ScanStatus.Completed })
+            score -= 25;
 
         if (lowSpaceCount > 0)
             score -= Math.Min(35, lowSpaceCount * 20);
@@ -223,4 +252,7 @@ public sealed partial class DashboardViewModel : ObservableObject
         ReadinessDescription =
             $"Storage health score: {ReadinessScore:N0}/100 from scan freshness, low-space threshold, and drive-health warnings.";
     }
+
+    private static string FormatSessionTime(ScanSession session) =>
+        (session.CompletedUtc ?? session.StartedUtc).ToLocalTime().ToString("g");
 }

@@ -45,4 +45,20 @@ public sealed class ScanOptionValidatorTests
         ScanOptionValidator.IsPathEqualOrUnder(@"C:\Windows\InstallerBackup", @"C:\Windows\Installer")
             .Should().BeFalse();
     }
+
+    [Fact]
+    public void IsExcluded_DriveRootIncludesDescendants()
+    {
+        ScanOptionValidator.IsExcluded(@"C:\Windows\System32", [@"C:\"])
+            .Should().BeTrue();
+    }
+
+    [Fact]
+    public void IsExcluded_UncShareRootIncludesOnlyShareDescendants()
+    {
+        ScanOptionValidator.IsExcluded(@"\\server\share\folder\file.bin", [@"\\server\share\"])
+            .Should().BeTrue();
+        ScanOptionValidator.IsExcluded(@"\\server\share-backup\file.bin", [@"\\server\share\"])
+            .Should().BeFalse();
+    }
 }

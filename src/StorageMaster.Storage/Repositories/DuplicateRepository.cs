@@ -1,7 +1,9 @@
+using System.Globalization;
 using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using StorageMaster.Core.Interfaces;
 using StorageMaster.Core.Models;
+using StorageMaster.Core.Scanner;
 
 namespace StorageMaster.Storage.Repositories;
 
@@ -14,7 +16,8 @@ public sealed class DuplicateRepository(StorageDbContext db) : IDuplicateReposit
         await _db.WriteLock.WaitAsync(ct);
         try
         {
-            var conn = await _db.GetConnectionAsync(ct);
+            var startedUtc = DateTime.UtcNow;
+            await using var conn = await _db.GetConnectionAsync(ct);
             using var cmd = conn.CreateCommand();
             cmd.CommandText = """
                 INSERT INTO DuplicateRuns
@@ -24,7 +27,7 @@ public sealed class DuplicateRepository(StorageDbContext db) : IDuplicateReposit
                 SELECT last_insert_rowid();
                 """;
             cmd.Parameters.AddWithValue("$sid", options.SessionId);
-            cmd.Parameters.AddWithValue("$started", DateTime.UtcNow.ToString("O"));
+            cmd.Parameters.AddWithValue("$started", startedUtc.ToString("O"));
             cmd.Parameters.AddWithValue("$status", DuplicateRunStatus.Running.ToString());
             cmd.Parameters.AddWithValue("$config", JsonSerializer.Serialize(options));
             var id = Convert.ToInt64(await cmd.ExecuteScalarAsync(ct));
@@ -33,7 +36,7 @@ public sealed class DuplicateRepository(StorageDbContext db) : IDuplicateReposit
             {
                 Id = id,
                 SessionId = options.SessionId,
-                StartedUtc = DateTime.UtcNow,
+                StartedUtc = startedUtc,
                 Status = DuplicateRunStatus.Running,
                 ConfigJson = JsonSerializer.Serialize(options),
             };
@@ -58,7 +61,7 @@ public sealed class DuplicateRepository(StorageDbContext db) : IDuplicateReposit
         await _db.WriteLock.WaitAsync(ct);
         try
         {
-            var conn = await _db.GetConnectionAsync(ct);
+            await using var conn = await _db.GetConnectionAsync(ct);
             using var cmd = conn.CreateCommand();
             cmd.CommandText = """
                 UPDATE DuplicateRuns
@@ -100,7 +103,7 @@ public sealed class DuplicateRepository(StorageDbContext db) : IDuplicateReposit
         await _db.WriteLock.WaitAsync(ct);
         try
         {
-            var conn = await _db.GetConnectionAsync(ct);
+            await using var conn = await _db.GetConnectionAsync(ct);
             using var tx = await conn.BeginTransactionAsync(ct);
 
             foreach (var signature in signatures)
@@ -227,7 +230,7 @@ public sealed class DuplicateRepository(StorageDbContext db) : IDuplicateReposit
 
     public async Task<IReadOnlyList<DuplicateRun>> GetRunsForSessionAsync(long sessionId, CancellationToken ct = default)
     {
-        var conn = await _db.GetConnectionAsync(ct);
+        await using var conn = await _db.GetConnectionAsync(ct);
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
             SELECT * FROM DuplicateRuns
@@ -244,7 +247,7 @@ public sealed class DuplicateRepository(StorageDbContext db) : IDuplicateReposit
 
     public async Task<DuplicateRunSummary> GetDuplicateRunSummaryAsync(long runId, CancellationToken ct = default)
     {
-        var conn = await _db.GetConnectionAsync(ct);
+        await using var conn = await _db.GetConnectionAsync(ct);
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
             SELECT
@@ -367,7 +370,7 @@ public sealed class DuplicateRepository(StorageDbContext db) : IDuplicateReposit
             _ => "g.ReclaimableBytes DESC, g.Id ASC",
         };
 
-        var conn = await _db.GetConnectionAsync(ct);
+        await using var conn = await _db.GetConnectionAsync(ct);
         using var cmd = conn.CreateCommand();
         cmd.CommandText = $"""
             SELECT g.*
@@ -408,7 +411,7 @@ public sealed class DuplicateRepository(StorageDbContext db) : IDuplicateReposit
         var safePageSize = Math.Clamp(pageSize, 1, 500);
         var offset = (safePage - 1) * safePageSize;
 
-        var conn = await _db.GetConnectionAsync(ct);
+        await using var conn = await _db.GetConnectionAsync(ct);
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
             SELECT * FROM DuplicateErrors
@@ -432,14 +435,14 @@ public sealed class DuplicateRepository(StorageDbContext db) : IDuplicateReposit
                 Path = reader.GetString(reader.GetOrdinal("Path")),
                 ErrorType = reader.GetString(reader.GetOrdinal("ErrorType")),
                 Message = reader.GetString(reader.GetOrdinal("Message")),
-                OccurredUtc = DateTime.Parse(reader.GetString(reader.GetOrdinal("OccurredUtc"))),
+                OccurredUtc = UtcTimestamp.Parse(reader.GetString(reader.GetOrdinal("OccurredUtc"))),
             });
         return list;
     }
 
     public async Task<IReadOnlyList<DuplicateGroup>> GetGroupsForRunAsync(long runId, CancellationToken ct = default)
     {
-        var conn = await _db.GetConnectionAsync(ct);
+        await using var conn = await _db.GetConnectionAsync(ct);
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
             SELECT * FROM DuplicateGroups
@@ -471,12 +474,17 @@ public sealed class DuplicateRepository(StorageDbContext db) : IDuplicateReposit
 
     public async Task<IReadOnlyList<DuplicateGroupMember>> GetDuplicateGroupMembersAsync(long groupId, CancellationToken ct = default)
     {
-        var conn = await _db.GetConnectionAsync(ct);
+        await using var conn = await _db.GetConnectionAsync(ct);
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
-            SELECT * FROM DuplicateGroupMembers
-            WHERE GroupId = $group
-            ORDER BY IsKeeper DESC, FullPath ASC;
+            SELECT gm.*,
+                   fe.Attributes AS SourceAttributes,
+                   fe.IdentityVolumeSerial,
+                   fe.IdentityFileIndex
+            FROM DuplicateGroupMembers gm
+            INNER JOIN FileEntries fe ON fe.Id = gm.FileEntryId
+            WHERE gm.GroupId = $group
+            ORDER BY gm.IsKeeper DESC, gm.FullPath ASC;
             """;
         cmd.Parameters.AddWithValue("$group", groupId);
         using var reader = await cmd.ExecuteReaderAsync(ct);
@@ -490,7 +498,9 @@ public sealed class DuplicateRepository(StorageDbContext db) : IDuplicateReposit
                 FullPath = reader.GetString(reader.GetOrdinal("FullPath")),
                 FileName = reader.GetString(reader.GetOrdinal("FileName")),
                 SizeBytes = reader.GetInt64(reader.GetOrdinal("SizeBytes")),
-                ModifiedUtc = DateTime.Parse(reader.GetString(reader.GetOrdinal("ModifiedUtc"))),
+                ModifiedUtc = UtcTimestamp.Parse(reader.GetString(reader.GetOrdinal("ModifiedUtc"))),
+                Attributes = (FileAttributes)reader.GetInt32(reader.GetOrdinal("SourceAttributes")),
+                Identity = ReadFileIdentity(reader),
                 Score = reader.GetDouble(reader.GetOrdinal("Score")),
                 IsKeeper = reader.GetInt32(reader.GetOrdinal("IsKeeper")) == 1,
                 IsSelected = reader.GetInt32(reader.GetOrdinal("IsSelected")) == 1,
@@ -508,7 +518,7 @@ public sealed class DuplicateRepository(StorageDbContext db) : IDuplicateReposit
         await _db.WriteLock.WaitAsync(ct);
         try
         {
-            var conn = await _db.GetConnectionAsync(ct);
+            await using var conn = await _db.GetConnectionAsync(ct);
             using var tx = await conn.BeginTransactionAsync(ct);
             foreach (var memberId in memberIds)
             {
@@ -537,7 +547,7 @@ public sealed class DuplicateRepository(StorageDbContext db) : IDuplicateReposit
         DuplicateCandidateQuery query,
         CancellationToken ct = default)
     {
-        var conn = await _db.GetConnectionAsync(ct);
+        await using var conn = await _db.GetConnectionAsync(ct);
         using var cmd = conn.CreateCommand();
 
         // Extension filter: comma-joined list checked with instr trick
@@ -552,20 +562,27 @@ public sealed class DuplicateRepository(StorageDbContext db) : IDuplicateReposit
             ? string.Empty
             : $"AND Category IN ({string.Join(", ", categoryParameters)})";
 
-        // Excluded paths: NOT LIKE '$path%' for each entry
+        // Path scopes are exact paths or separator-bounded descendants. Using
+        // substr instead of LIKE keeps %, _ and sibling prefixes literal.
         var excluded = query.ExcludedPaths
             .Where(p => !string.IsNullOrWhiteSpace(p))
+            .Select(CreatePathScope)
+            .DistinctBy(static scope => scope.ExactPath, StringComparer.Ordinal)
             .ToArray();
         var excludedSql = excluded.Length == 0
             ? string.Empty
-            : string.Join(" ", excluded.Select((_, i) => $"AND FullPath NOT LIKE $excl{i} || '%'"));
+            : string.Join(" ", excluded.Select((_, i) =>
+                $"AND NOT (NormalizedFullPath = $excl{i} OR substr(NormalizedFullPath, 1, length($exclPrefix{i})) = $exclPrefix{i})"));
 
         var included = query.IncludedPaths
             .Where(p => !string.IsNullOrWhiteSpace(p))
+            .Select(CreatePathScope)
+            .DistinctBy(static scope => scope.ExactPath, StringComparer.Ordinal)
             .ToArray();
         var includedSql = included.Length == 0
             ? string.Empty
-            : "AND (" + string.Join(" OR ", included.Select((_, i) => $"FullPath LIKE $incl{i} || '%'")) + ")";
+            : "AND (" + string.Join(" OR ", included.Select((_, i) =>
+                $"(NormalizedFullPath = $incl{i} OR substr(NormalizedFullPath, 1, length($inclPrefix{i})) = $inclPrefix{i})")) + ")";
 
         // Same-size-bucket subquery — omitted for fuzzy/normalized strategies
         var sizeBucketSql = query.RequireSameSizeBucket
@@ -611,14 +628,23 @@ public sealed class DuplicateRepository(StorageDbContext db) : IDuplicateReposit
         for (var i = 0; i < query.Categories.Count; i++)
             cmd.Parameters.AddWithValue($"$cat{i}", query.Categories[i].ToString());
         for (var i = 0; i < included.Length; i++)
-            cmd.Parameters.AddWithValue($"$incl{i}", included[i]);
+        {
+            cmd.Parameters.AddWithValue($"$incl{i}", included[i].ExactPath);
+            cmd.Parameters.AddWithValue($"$inclPrefix{i}", included[i].DescendantPrefix);
+        }
         for (var i = 0; i < excluded.Length; i++)
-            cmd.Parameters.AddWithValue($"$excl{i}", excluded[i]);
+        {
+            cmd.Parameters.AddWithValue($"$excl{i}", excluded[i].ExactPath);
+            cmd.Parameters.AddWithValue($"$exclPrefix{i}", excluded[i].DescendantPrefix);
+        }
 
         using var reader = await cmd.ExecuteReaderAsync(ct);
         var list = new List<DuplicateCandidate>();
         while (await reader.ReadAsync(ct))
-            list.Add(new DuplicateCandidate(ReadFileEntry(reader)));
+        {
+            var file = ReadFileEntry(reader);
+            list.Add(new DuplicateCandidate(file, file.Identity));
+        }
         return list;
     }
 
@@ -627,7 +653,7 @@ public sealed class DuplicateRepository(StorageDbContext db) : IDuplicateReposit
     public async Task<IReadOnlyList<DuplicateError>> GetErrorsForRunAsync(
         long runId, CancellationToken ct = default)
     {
-        var conn = await _db.GetConnectionAsync(ct);
+        await using var conn = await _db.GetConnectionAsync(ct);
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
             SELECT * FROM DuplicateErrors
@@ -648,7 +674,7 @@ public sealed class DuplicateRepository(StorageDbContext db) : IDuplicateReposit
                 Path = reader.GetString(reader.GetOrdinal("Path")),
                 ErrorType = reader.GetString(reader.GetOrdinal("ErrorType")),
                 Message = reader.GetString(reader.GetOrdinal("Message")),
-                OccurredUtc = DateTime.Parse(reader.GetString(reader.GetOrdinal("OccurredUtc"))),
+                OccurredUtc = UtcTimestamp.Parse(reader.GetString(reader.GetOrdinal("OccurredUtc"))),
             });
         return list;
     }
@@ -662,7 +688,7 @@ public sealed class DuplicateRepository(StorageDbContext db) : IDuplicateReposit
         int algorithmVersion,
         CancellationToken ct = default)
     {
-        var conn = await _db.GetConnectionAsync(ct);
+        await using var conn = await _db.GetConnectionAsync(ct);
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
             SELECT * FROM DuplicateSignatures
@@ -696,7 +722,7 @@ public sealed class DuplicateRepository(StorageDbContext db) : IDuplicateReposit
         await _db.WriteLock.WaitAsync(ct);
         try
         {
-            var conn = await _db.GetConnectionAsync(ct);
+            await using var conn = await _db.GetConnectionAsync(ct);
             using var cmd = conn.CreateCommand();
             cmd.CommandText = """
                 INSERT INTO QuarantinedFiles
@@ -732,7 +758,7 @@ public sealed class DuplicateRepository(StorageDbContext db) : IDuplicateReposit
     public async Task<IReadOnlyList<QuarantinedFile>> GetQuarantinedFilesAsync(
         long runId, CancellationToken ct = default)
     {
-        var conn = await _db.GetConnectionAsync(ct);
+        await using var conn = await _db.GetConnectionAsync(ct);
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
             SELECT * FROM QuarantinedFiles
@@ -750,7 +776,7 @@ public sealed class DuplicateRepository(StorageDbContext db) : IDuplicateReposit
     public async Task<IReadOnlyList<QuarantinedFile>> GetUnrestoredQuarantinedFilesAsync(
         CancellationToken ct = default)
     {
-        var conn = await _db.GetConnectionAsync(ct);
+        await using var conn = await _db.GetConnectionAsync(ct);
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
             SELECT * FROM QuarantinedFiles
@@ -767,7 +793,7 @@ public sealed class DuplicateRepository(StorageDbContext db) : IDuplicateReposit
     public async Task<QuarantinedFile?> GetQuarantinedFileAsync(
         long quarantineId, CancellationToken ct = default)
     {
-        var conn = await _db.GetConnectionAsync(ct);
+        await using var conn = await _db.GetConnectionAsync(ct);
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
             SELECT * FROM QuarantinedFiles
@@ -788,7 +814,7 @@ public sealed class DuplicateRepository(StorageDbContext db) : IDuplicateReposit
         await _db.WriteLock.WaitAsync(ct);
         try
         {
-            var conn = await _db.GetConnectionAsync(ct);
+            await using var conn = await _db.GetConnectionAsync(ct);
             using var cmd = conn.CreateCommand();
             cmd.CommandText = """
                 UPDATE QuarantinedFiles
@@ -816,7 +842,7 @@ public sealed class DuplicateRepository(StorageDbContext db) : IDuplicateReposit
         await _db.WriteLock.WaitAsync(ct);
         try
         {
-            var conn = await _db.GetConnectionAsync(ct);
+            await using var conn = await _db.GetConnectionAsync(ct);
             using var cmd = conn.CreateCommand();
             cmd.CommandText = """
                 INSERT INTO DuplicateOperationJournal
@@ -850,7 +876,7 @@ public sealed class DuplicateRepository(StorageDbContext db) : IDuplicateReposit
         await _db.WriteLock.WaitAsync(ct);
         try
         {
-            var conn = await _db.GetConnectionAsync(ct);
+            await using var conn = await _db.GetConnectionAsync(ct);
             using var cmd = conn.CreateCommand();
             cmd.CommandText = """
                 UPDATE DuplicateOperationJournal
@@ -867,7 +893,112 @@ public sealed class DuplicateRepository(StorageDbContext db) : IDuplicateReposit
             cmd.Parameters.AddWithValue("$bytes", (object?)bytesFreed ?? DBNull.Value);
             cmd.Parameters.AddWithValue("$error", (object?)errorMessage ?? DBNull.Value);
             cmd.Parameters.AddWithValue("$id", journalId);
-            await cmd.ExecuteNonQueryAsync(ct);
+            var updated = await cmd.ExecuteNonQueryAsync(ct);
+            if (updated != 1)
+                throw new InvalidOperationException($"Duplicate operation journal {journalId} was not found.");
+        }
+        finally
+        {
+            _db.WriteLock.Release();
+        }
+    }
+
+    public async Task<QuarantinedFile> CompleteQuarantineMoveAsync(
+        long journalId,
+        long? memberId,
+        long runId,
+        string originalPath,
+        string quarantinePath,
+        long bytesFreed,
+        CancellationToken ct = default)
+    {
+        await _db.WriteLock.WaitAsync(ct);
+        try
+        {
+            await using var conn = await _db.GetConnectionAsync(ct);
+            using var tx = (SqliteTransaction)await conn.BeginTransactionAsync(ct);
+            var completedUtc = DateTime.UtcNow;
+
+            using (var journalCommand = conn.CreateCommand())
+            {
+                journalCommand.Transaction = tx;
+                journalCommand.CommandText = """
+                    UPDATE DuplicateOperationJournal
+                    SET Status = $status,
+                        DestinationPath = $destination,
+                        CompletedUtc = $completed,
+                        BytesFreed = $bytes,
+                        ErrorMessage = NULL
+                    WHERE Id = $id
+                      AND Kind = $kind;
+                    """;
+                journalCommand.Parameters.AddWithValue("$status", DuplicateOperationStatus.Quarantined.ToString());
+                journalCommand.Parameters.AddWithValue("$destination", quarantinePath);
+                journalCommand.Parameters.AddWithValue("$completed", completedUtc.ToString("O"));
+                journalCommand.Parameters.AddWithValue("$bytes", bytesFreed);
+                journalCommand.Parameters.AddWithValue("$id", journalId);
+                journalCommand.Parameters.AddWithValue("$kind", DuplicateOperationKind.Delete.ToString());
+                var updated = await journalCommand.ExecuteNonQueryAsync(ct);
+                if (updated != 1)
+                    throw new InvalidOperationException($"Duplicate operation journal {journalId} was not found.");
+            }
+
+            long? quarantineId = null;
+            DateTime quarantinedUtc = completedUtc;
+            using (var findCommand = conn.CreateCommand())
+            {
+                findCommand.Transaction = tx;
+                findCommand.CommandText = """
+                    SELECT Id, QuarantinedUtc
+                    FROM QuarantinedFiles
+                    WHERE MemberId IS $member
+                      AND RunId = $run
+                      AND OriginalPath = $original
+                      AND QuarantinePath = $quarantine
+                    ORDER BY Id DESC
+                    LIMIT 1;
+                    """;
+                findCommand.Parameters.AddWithValue("$member", (object?)memberId ?? DBNull.Value);
+                findCommand.Parameters.AddWithValue("$run", runId);
+                findCommand.Parameters.AddWithValue("$original", originalPath);
+                findCommand.Parameters.AddWithValue("$quarantine", quarantinePath);
+                using var reader = await findCommand.ExecuteReaderAsync(ct);
+                if (await reader.ReadAsync(ct))
+                {
+                    quarantineId = reader.GetInt64(0);
+                    quarantinedUtc = UtcTimestamp.Parse(reader.GetString(1));
+                }
+            }
+
+            if (quarantineId is null)
+            {
+                using var quarantineCommand = conn.CreateCommand();
+                quarantineCommand.Transaction = tx;
+                quarantineCommand.CommandText = """
+                    INSERT INTO QuarantinedFiles
+                        (MemberId, RunId, OriginalPath, QuarantinePath, QuarantinedUtc)
+                    VALUES
+                        ($member, $run, $original, $quarantine, $utc);
+                    SELECT last_insert_rowid();
+                    """;
+                quarantineCommand.Parameters.AddWithValue("$member", (object?)memberId ?? DBNull.Value);
+                quarantineCommand.Parameters.AddWithValue("$run", runId);
+                quarantineCommand.Parameters.AddWithValue("$original", originalPath);
+                quarantineCommand.Parameters.AddWithValue("$quarantine", quarantinePath);
+                quarantineCommand.Parameters.AddWithValue("$utc", quarantinedUtc.ToString("O"));
+                quarantineId = Convert.ToInt64(await quarantineCommand.ExecuteScalarAsync(ct));
+            }
+
+            await tx.CommitAsync(ct);
+            return new QuarantinedFile
+            {
+                Id = quarantineId.Value,
+                MemberId = memberId,
+                RunId = runId,
+                OriginalPath = originalPath,
+                QuarantinePath = quarantinePath,
+                QuarantinedUtc = quarantinedUtc,
+            };
         }
         finally
         {
@@ -879,7 +1010,7 @@ public sealed class DuplicateRepository(StorageDbContext db) : IDuplicateReposit
         long runId,
         CancellationToken ct = default)
     {
-        var conn = await _db.GetConnectionAsync(ct);
+        await using var conn = await _db.GetConnectionAsync(ct);
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
             SELECT *
@@ -934,9 +1065,9 @@ public sealed class DuplicateRepository(StorageDbContext db) : IDuplicateReposit
         SourceIdentity = r.IsDBNull(r.GetOrdinal("SourceIdentity")) ? null : r.GetString(r.GetOrdinal("SourceIdentity")),
         DestinationPath = r.IsDBNull(r.GetOrdinal("DestinationPath")) ? null : r.GetString(r.GetOrdinal("DestinationPath")),
         SourceSizeBytes = r.GetInt64(r.GetOrdinal("SourceSizeBytes")),
-        SourceModifiedUtc = r.IsDBNull(r.GetOrdinal("SourceModifiedUtc")) ? null : DateTime.Parse(r.GetString(r.GetOrdinal("SourceModifiedUtc"))),
-        PlannedUtc = DateTime.Parse(r.GetString(r.GetOrdinal("PlannedUtc"))),
-        CompletedUtc = r.IsDBNull(r.GetOrdinal("CompletedUtc")) ? null : DateTime.Parse(r.GetString(r.GetOrdinal("CompletedUtc"))),
+        SourceModifiedUtc = r.IsDBNull(r.GetOrdinal("SourceModifiedUtc")) ? null : UtcTimestamp.Parse(r.GetString(r.GetOrdinal("SourceModifiedUtc"))),
+        PlannedUtc = UtcTimestamp.Parse(r.GetString(r.GetOrdinal("PlannedUtc"))),
+        CompletedUtc = r.IsDBNull(r.GetOrdinal("CompletedUtc")) ? null : UtcTimestamp.Parse(r.GetString(r.GetOrdinal("CompletedUtc"))),
         BytesFreed = r.IsDBNull(r.GetOrdinal("BytesFreed")) ? null : r.GetInt64(r.GetOrdinal("BytesFreed")),
         ErrorMessage = r.IsDBNull(r.GetOrdinal("ErrorMessage")) ? null : r.GetString(r.GetOrdinal("ErrorMessage")),
         MetadataJson = r.IsDBNull(r.GetOrdinal("MetadataJson")) ? null : r.GetString(r.GetOrdinal("MetadataJson")),
@@ -953,13 +1084,13 @@ public sealed class DuplicateRepository(StorageDbContext db) : IDuplicateReposit
         SignatureBlob = r.IsDBNull(r.GetOrdinal("SignatureBlob")) ? null : (byte[])r.GetValue(r.GetOrdinal("SignatureBlob")),
         SignatureText = r.IsDBNull(r.GetOrdinal("SignatureText")) ? null : r.GetString(r.GetOrdinal("SignatureText")),
         MetadataJson = r.IsDBNull(r.GetOrdinal("MetadataJson")) ? null : r.GetString(r.GetOrdinal("MetadataJson")),
-        ComputedUtc = DateTime.Parse(r.GetString(r.GetOrdinal("ComputedUtc"))),
+        ComputedUtc = UtcTimestamp.Parse(r.GetString(r.GetOrdinal("ComputedUtc"))),
         Status = r.GetString(r.GetOrdinal("Status")),
         ErrorMessage = r.IsDBNull(r.GetOrdinal("ErrorMessage")) ? null : r.GetString(r.GetOrdinal("ErrorMessage")),
         SourceSizeBytes = r.GetInt64(r.GetOrdinal("SourceSizeBytes")),
         SourceModifiedUtc = r.IsDBNull(r.GetOrdinal("SourceModifiedUtc")) || r.GetString(r.GetOrdinal("SourceModifiedUtc")) == ""
                              ? default
-                             : DateTime.Parse(r.GetString(r.GetOrdinal("SourceModifiedUtc"))),
+                             : UtcTimestamp.Parse(r.GetString(r.GetOrdinal("SourceModifiedUtc"))),
         SourceFileIdentity = r.IsDBNull(r.GetOrdinal("SourceFileIdentity")) ? null : r.GetString(r.GetOrdinal("SourceFileIdentity")),
     };
 
@@ -970,8 +1101,8 @@ public sealed class DuplicateRepository(StorageDbContext db) : IDuplicateReposit
         RunId = r.GetInt64(r.GetOrdinal("RunId")),
         OriginalPath = r.GetString(r.GetOrdinal("OriginalPath")),
         QuarantinePath = r.GetString(r.GetOrdinal("QuarantinePath")),
-        QuarantinedUtc = DateTime.Parse(r.GetString(r.GetOrdinal("QuarantinedUtc"))),
-        RestoredUtc = r.IsDBNull(r.GetOrdinal("RestoredUtc")) ? null : DateTime.Parse(r.GetString(r.GetOrdinal("RestoredUtc"))),
+        QuarantinedUtc = UtcTimestamp.Parse(r.GetString(r.GetOrdinal("QuarantinedUtc"))),
+        RestoredUtc = r.IsDBNull(r.GetOrdinal("RestoredUtc")) ? null : UtcTimestamp.Parse(r.GetString(r.GetOrdinal("RestoredUtc"))),
         RestoredPath = r.IsDBNull(r.GetOrdinal("RestoredPath")) ? null : r.GetString(r.GetOrdinal("RestoredPath")),
     };
 
@@ -979,8 +1110,8 @@ public sealed class DuplicateRepository(StorageDbContext db) : IDuplicateReposit
     {
         Id = reader.GetInt64(reader.GetOrdinal("Id")),
         SessionId = reader.GetInt64(reader.GetOrdinal("SessionId")),
-        StartedUtc = DateTime.Parse(reader.GetString(reader.GetOrdinal("StartedUtc"))),
-        CompletedUtc = reader.IsDBNull(reader.GetOrdinal("CompletedUtc")) ? null : DateTime.Parse(reader.GetString(reader.GetOrdinal("CompletedUtc"))),
+        StartedUtc = UtcTimestamp.Parse(reader.GetString(reader.GetOrdinal("StartedUtc"))),
+        CompletedUtc = reader.IsDBNull(reader.GetOrdinal("CompletedUtc")) ? null : UtcTimestamp.Parse(reader.GetString(reader.GetOrdinal("CompletedUtc"))),
         Status = Enum.Parse<DuplicateRunStatus>(reader.GetString(reader.GetOrdinal("Status"))),
         ConfigJson = reader.GetString(reader.GetOrdinal("ConfigJson")),
         CandidateCount = reader.GetInt64(reader.GetOrdinal("CandidateCount")),
@@ -999,11 +1130,53 @@ public sealed class DuplicateRepository(StorageDbContext db) : IDuplicateReposit
         FileName = r.GetString(r.GetOrdinal("FileName")),
         Extension = r.GetString(r.GetOrdinal("Extension")),
         SizeBytes = r.GetInt64(r.GetOrdinal("SizeBytes")),
-        CreatedUtc = DateTime.Parse(r.GetString(r.GetOrdinal("CreatedUtc"))),
-        ModifiedUtc = DateTime.Parse(r.GetString(r.GetOrdinal("ModifiedUtc"))),
-        AccessedUtc = DateTime.Parse(r.GetString(r.GetOrdinal("AccessedUtc"))),
+        CreatedUtc = UtcTimestamp.Parse(r.GetString(r.GetOrdinal("CreatedUtc"))),
+        ModifiedUtc = UtcTimestamp.Parse(r.GetString(r.GetOrdinal("ModifiedUtc"))),
+        AccessedUtc = UtcTimestamp.Parse(r.GetString(r.GetOrdinal("AccessedUtc"))),
         Attributes = (FileAttributes)r.GetInt32(r.GetOrdinal("Attributes")),
         Category = Enum.TryParse<FileTypeCategory>(r.GetString(r.GetOrdinal("Category")), out var cat) ? cat : FileTypeCategory.Unknown,
+        Identity = ReadFileIdentity(r),
         IsReparsePoint = r.GetInt32(r.GetOrdinal("IsReparsePoint")) == 1,
     };
+
+    private static FileIdentity? ReadFileIdentity(SqliteDataReader reader)
+    {
+        var volumeOrdinal = reader.GetOrdinal("IdentityVolumeSerial");
+        var indexOrdinal = reader.GetOrdinal("IdentityFileIndex");
+        if (reader.IsDBNull(volumeOrdinal) || reader.IsDBNull(indexOrdinal))
+            return null;
+
+        var volumeSerial = reader.GetString(volumeOrdinal);
+        return string.IsNullOrWhiteSpace(volumeSerial)
+            || !ulong.TryParse(
+                reader.GetString(indexOrdinal),
+                NumberStyles.None,
+                CultureInfo.InvariantCulture,
+                out var fileIndex)
+            ? null
+            : new FileIdentity(volumeSerial, fileIndex);
+    }
+
+    private static PathScope CreatePathScope(string path)
+    {
+        var exactPath = NormalizeForStorage(path);
+        var descendantPrefix = Path.EndsInDirectorySeparator(exactPath)
+            ? exactPath
+            : exactPath + Path.DirectorySeparatorChar;
+        return new PathScope(exactPath, descendantPrefix);
+    }
+
+    private static string NormalizeForStorage(string path)
+    {
+        try
+        {
+            return ScanOptionValidator.NormalizePathForStorage(path);
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            return path.Trim().ToUpperInvariant();
+        }
+    }
+
+    private readonly record struct PathScope(string ExactPath, string DescendantPrefix);
 }

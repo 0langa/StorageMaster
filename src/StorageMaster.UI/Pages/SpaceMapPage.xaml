@@ -32,21 +32,25 @@
                                       Header="Scan"
                                       ItemsSource="{x:Bind ViewModel.Sessions, Mode=OneWay}"
                                       SelectedItem="{x:Bind ViewModel.SelectedSession, Mode=TwoWay}"
+                                      IsEnabled="{x:Bind ViewModel.CanInteract, Mode=OneWay}"
                                       DisplayMemberPath="RootPath"
                                       AutomationProperties.Name="Space Map scan selection" />
                             <Button Grid.Column="1"
                                     Content="Folders + files"
-                                    Style="{StaticResource PillButtonStyle}"
+                                     Style="{StaticResource PillButtonStyle}"
+                                     IsEnabled="{x:Bind ViewModel.CanInteract, Mode=OneWay}"
                                     Command="{x:Bind ViewModel.SetFilterCommand}"
                                     CommandParameter="All" />
                             <Button Grid.Column="2"
                                     Content="Folders"
-                                    Style="{StaticResource PillButtonStyle}"
+                                     Style="{StaticResource PillButtonStyle}"
+                                     IsEnabled="{x:Bind ViewModel.CanInteract, Mode=OneWay}"
                                     Command="{x:Bind ViewModel.SetFilterCommand}"
                                     CommandParameter="Folders" />
                             <Button Grid.Column="3"
                                     Content="Files"
-                                    Style="{StaticResource PillButtonStyle}"
+                                     Style="{StaticResource PillButtonStyle}"
+                                     IsEnabled="{x:Bind ViewModel.CanInteract, Mode=OneWay}"
                                     Command="{x:Bind ViewModel.SetFilterCommand}"
                                     CommandParameter="Files" />
                         </Grid>
@@ -75,22 +79,29 @@
                                        Header="Min size MB"
                                        Minimum="0"
                                        Maximum="102400"
+                                       IsEnabled="{x:Bind ViewModel.CanInteract, Mode=OneWay}"
                                        SmallChange="10"
                                        LargeChange="100"
                                        Value="{x:Bind ViewModel.MinimumSizeMb, Mode=TwoWay}"
                                        AutomationProperties.Name="Minimum size filter in megabytes" />
-                            <Button Grid.Column="2" Content="Up" Command="{x:Bind ViewModel.GoUpCommand}" Style="{StaticResource PillButtonStyle}" />
-                            <Button Grid.Column="3" Content="CSV" Command="{x:Bind ViewModel.ExportCsvCommand}" />
-                            <Button Grid.Column="4" Content="HTML" Command="{x:Bind ViewModel.ExportHtmlCommand}" />
+                            <Button Grid.Column="2" Content="Up" Command="{x:Bind ViewModel.GoUpCommand}"
+                                    IsEnabled="{x:Bind ViewModel.CanInteract, Mode=OneWay}"
+                                    Style="{StaticResource PillButtonStyle}" />
+                            <Button Grid.Column="3" Content="CSV" Command="{x:Bind ViewModel.ExportCsvCommand}"
+                                    IsEnabled="{x:Bind ViewModel.CanExport, Mode=OneWay}" />
+                            <Button Grid.Column="4" Content="HTML" Command="{x:Bind ViewModel.ExportHtmlCommand}"
+                                    IsEnabled="{x:Bind ViewModel.CanExport, Mode=OneWay}" />
                             <Button Grid.Column="5"
                                     Content="PNG"
                                     Click="ExportPng_Click"
+                                    IsEnabled="{x:Bind ViewModel.CanExport, Mode=OneWay}"
                                     AutomationProperties.Name="Export Space Map as PNG" />
                         </Grid>
                     </StackPanel>
                 </Border>
 
-                <Grid ColumnDefinitions="3*,1.1*" ColumnSpacing="16">
+                <Grid ColumnDefinitions="3*,1.1*" ColumnSpacing="16"
+                      IsHitTestVisible="{x:Bind ViewModel.CanInteract, Mode=OneWay}">
                     <Border Grid.Column="0"
                             Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                             BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
@@ -126,11 +137,14 @@
                                     CommandParameter="{x:Bind ViewModel.SelectedNode, Mode=OneWay}"
                                     IsEnabled="{x:Bind ViewModel.HasSelectedNode, Mode=OneWay}" />
                             <Button Content="Send to Cleanup review"
-                                    Command="{x:Bind ViewModel.SendToCleanupReviewCommand}" />
+                                    Command="{x:Bind ViewModel.SendToCleanupReviewCommand}"
+                                    IsEnabled="{x:Bind ViewModel.CanInteract, Mode=OneWay}" />
                             <Button Content="Send to Duplicate review"
-                                    Command="{x:Bind ViewModel.SendToDuplicateReviewCommand}" />
+                                    Command="{x:Bind ViewModel.SendToDuplicateReviewCommand}"
+                                    IsEnabled="{x:Bind ViewModel.CanInteract, Mode=OneWay}" />
                             <Button Content="Open in Results"
-                                    Command="{x:Bind ViewModel.OpenInResultsCommand}" />
+                                    Command="{x:Bind ViewModel.OpenInResultsCommand}"
+                                    IsEnabled="{x:Bind ViewModel.CanInteract, Mode=OneWay}" />
                             <TextBlock Text="Legend" Style="{StaticResource BodyStrongTextBlockStyle}" Margin="0,10,0,0" />
                             <StackPanel Orientation="Horizontal" Spacing="8">
                                 <Border Width="12" Height="12" Background="{StaticResource FileTypeFolderBrush}" CornerRadius="3" />

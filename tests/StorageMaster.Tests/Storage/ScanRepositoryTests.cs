@@ -50,6 +50,7 @@ public sealed class ScanRepositoryTests : IAsyncDisposable
             AccessedUtc = DateTime.UtcNow,
             Attributes = FileAttributes.Normal,
             Category = FileTypeCategory.Archive,
+            Identity = new FileIdentity("89ABCDEF", ulong.MaxValue),
         };
 
         await _repo.InsertFileEntriesAsync([entry]);
@@ -59,18 +60,53 @@ public sealed class ScanRepositoryTests : IAsyncDisposable
         results[0].FileName.Should().Be("large.iso");
         results[0].SizeBytes.Should().Be(4_000_000_000L);
         results[0].Category.Should().Be(FileTypeCategory.Archive);
+        results[0].Identity.Should().Be(entry.Identity);
     }
 
     [Fact]
-    public async Task SchemaVersion_IsCurrentV9()
+    public async Task UtcTimestamps_RoundTripWithExactTicksAndUtcKind()
     {
-        var conn = await _ctx.GetConnectionAsync();
+        var createdSession = await _repo.CreateSessionAsync(@"C:\");
+        var completedUtc = new DateTime(2025, 8, 17, 12, 34, 56, DateTimeKind.Utc).AddTicks(7_654_321);
+        await _repo.UpdateSessionAsync(createdSession with
+        {
+            Status = ScanStatus.Completed,
+            CompletedUtc = completedUtc,
+        });
+
+        var createdUtc = completedUtc.AddDays(-3);
+        var modifiedUtc = completedUtc.AddDays(-2);
+        var accessedUtc = completedUtc.AddDays(-1);
+        await _repo.InsertFileEntriesAsync([
+            MakeEntry(createdSession.Id, ".bin", FileTypeCategory.Unknown, 42) with
+            {
+                CreatedUtc = createdUtc,
+                ModifiedUtc = modifiedUtc,
+                AccessedUtc = accessedUtc,
+            },
+        ]);
+
+        var loadedSession = await _repo.GetSessionAsync(createdSession.Id);
+        var loadedFile = (await _repo.GetLargestFilesAsync(createdSession.Id, topN: 1)).Single();
+
+        loadedSession.Should().NotBeNull();
+        AssertUtcTimestamp(loadedSession!.StartedUtc, createdSession.StartedUtc);
+        AssertUtcTimestamp(loadedSession.CompletedUtc!.Value, completedUtc);
+        AssertUtcTimestamp(loadedFile.CreatedUtc, createdUtc);
+        AssertUtcTimestamp(loadedFile.ModifiedUtc, modifiedUtc);
+        AssertUtcTimestamp(loadedFile.AccessedUtc, accessedUtc);
+    }
+
+    [Fact]
+    public async Task SchemaVersion_IsCurrentV12()
+    {
+        await using var conn = await _ctx.GetConnectionAsync();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "SELECT MAX(Version) FROM SchemaVersion;";
 
         var version = Convert.ToInt32(await cmd.ExecuteScalarAsync());
 
-        version.Should().Be(9);
+        version.Should().Be(12);
     }
 
     [Fact]
@@ -81,12 +117,14 @@ public sealed class ScanRepositoryTests : IAsyncDisposable
         {
             FullPath = @"C:\Temp\Report.txt",
             FileName = "Report.txt",
+            Identity = new FileIdentity("TESTVOL", 1),
         };
         var second = first with
         {
             FullPath = @"c:\temp\REPORT.txt",
             FileName = "REPORT.txt",
             SizeBytes = 250,
+            Identity = null,
         };
 
         await _repo.InsertFileEntriesAsync([first, second]);
@@ -94,13 +132,15 @@ public sealed class ScanRepositoryTests : IAsyncDisposable
         var results = await _repo.GetLargestFilesAsync(session.Id, topN: 10);
         results.Should().ContainSingle();
         results[0].SizeBytes.Should().Be(250);
+        results[0].Identity.Should().BeNull(
+            "a newer observation without stable identity must invalidate a stale identity and fail closed");
     }
 
     [Fact]
     public async Task GetSession_CorruptFutureStatus_IsTolerant()
     {
         var session = await _repo.CreateSessionAsync(@"C:\");
-        var conn = await _ctx.GetConnectionAsync();
+        await using var conn = await _ctx.GetConnectionAsync();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "UPDATE ScanSessions SET Status = 'FutureStatus' WHERE Id = $id;";
         cmd.Parameters.AddWithValue("$id", session.Id);
@@ -177,6 +217,60 @@ public sealed class ScanRepositoryTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task UpsertFolderEntries_CaseVariantsShareIdentityWithoutDoubleCounting()
+    {
+        var session = await _repo.CreateSessionAsync(@"C:\Root");
+        var original = MakeFolderEntry(session.Id, @"C:\Root\Data", 100) with
+        {
+            FileCount = 2,
+            SubFolderCount = 1,
+        };
+
+        await _repo.UpsertFolderEntriesAsync([original]);
+        await _repo.UpsertFolderEntriesAsync([
+            original with
+            {
+                FullPath = @"c:\root\data",
+                FolderName = "data",
+                DirectSizeBytes = 80,
+                TotalSizeBytes = 200,
+                FileCount = 3,
+                SubFolderCount = 4,
+                IsReparsePoint = true,
+                WasAccessDenied = true,
+            },
+        ]);
+
+        var merged = await _repo.GetAllFolderPathsForSessionAsync(session.Id);
+        merged.Should().ContainSingle();
+        merged[0].FullPath.Should().Be(original.FullPath,
+            "the first persisted display casing remains stable");
+        merged[0].DirectSizeBytes.Should().Be(100,
+            "a case-only duplicate is an alternate observation, not another byte contribution");
+        merged[0].TotalSizeBytes.Should().Be(200);
+        merged[0].FileCount.Should().Be(3);
+        merged[0].SubFolderCount.Should().Be(4);
+        merged[0].IsReparsePoint.Should().BeTrue();
+        merged[0].WasAccessDenied.Should().BeTrue();
+
+        await _repo.UpsertFolderEntriesAsync([
+            original with
+            {
+                DirectSizeBytes = 25,
+                TotalSizeBytes = 25,
+                FileCount = 1,
+                SubFolderCount = 4,
+            },
+        ]);
+
+        var accumulated = (await _repo.GetAllFolderPathsForSessionAsync(session.Id)).Single();
+        accumulated.DirectSizeBytes.Should().Be(125,
+            "same-casing scanner metric batches still accumulate");
+        accumulated.TotalSizeBytes.Should().Be(225);
+        accumulated.FileCount.Should().Be(4);
+    }
+
+    [Fact]
     public async Task GetAllFolderPathsForSession_ReturnsAllUpsertedFolders()
     {
         var session = await _repo.CreateSessionAsync(@"C:\");
@@ -209,6 +303,25 @@ public sealed class ScanRepositoryTests : IAsyncDisposable
         roots.Select(static f => f.FullPath).Should().Contain(@"C:\Root");
         children.Select(static f => f.FullPath).Should().BeEquivalentTo([@"C:\Root\A", @"C:\Root\B"]);
         childCount.Should().Be(2);
+    }
+
+    [Fact]
+    public async Task FolderTreeQueries_TreatPercentAndUnderscoreAsLiteralPathCharacters()
+    {
+        var session = await _repo.CreateSessionAsync(@"C:\Scan");
+        await _repo.UpsertFolderEntriesAsync([
+            MakeFolderEntry(session.Id, @"C:\Scan", 10_000),
+            MakeFolderEntry(session.Id, @"C:\Scan\Bucket_%", 3_000),
+            MakeFolderEntry(session.Id, @"C:\Scan\Bucket_%\Child", 1_000),
+            MakeFolderEntry(session.Id, @"C:\Scan\BucketX\Wrong", 2_000),
+            MakeFolderEntry(session.Id, @"C:\Scan\Bucket_abc\Wrong", 2_000),
+        ]);
+
+        var children = await _repo.GetFolderChildrenAsync(session.Id, @"C:\Scan\Bucket_%");
+        var childCount = await _repo.CountFolderChildrenAsync(session.Id, @"C:\Scan\Bucket_%");
+
+        children.Select(static f => f.FullPath).Should().Equal(@"C:\Scan\Bucket_%\Child");
+        childCount.Should().Be(1);
     }
 
     [Fact]
@@ -345,6 +458,31 @@ public sealed class ScanRepositoryTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task GetLargestFiles_EqualSizesUseFullPathAsDeterministicTieBreaker()
+    {
+        var session = await _repo.CreateSessionAsync(@"C:\");
+        var paths = new[]
+        {
+            @"C:\test\zeta.bin",
+            @"C:\test\alpha.bin",
+            @"C:\test\middle.bin",
+        };
+        await _repo.InsertFileEntriesAsync(paths.Select(path =>
+            MakeEntry(session.Id, ".bin", FileTypeCategory.Unknown, 4096) with
+            {
+                FullPath = path,
+                FileName = Path.GetFileName(path),
+            }).ToArray());
+
+        var results = await _repo.GetLargestFilesAsync(session.Id, topN: 10);
+
+        results.Select(static entry => entry.FullPath).Should().Equal(
+            @"C:\test\alpha.bin",
+            @"C:\test\middle.bin",
+            @"C:\test\zeta.bin");
+    }
+
+    [Fact]
     public async Task SearchFiles_CategoryFilterAndCount_AreApplied()
     {
         var session = await _repo.CreateSessionAsync(@"C:\");
@@ -410,4 +548,10 @@ public sealed class ScanRepositoryTests : IAsyncDisposable
         Attributes = FileAttributes.Normal,
         Category = cat,
     };
+
+    private static void AssertUtcTimestamp(DateTime actual, DateTime expected)
+    {
+        actual.Kind.Should().Be(DateTimeKind.Utc);
+        actual.Ticks.Should().Be(expected.Ticks);
+    }
 }

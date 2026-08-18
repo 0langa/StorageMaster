@@ -1,3 +1,4 @@
+using System.Globalization;
 using Microsoft.Data.Sqlite;
 using StorageMaster.Core.Interfaces;
 using StorageMaster.Core.Models;
@@ -24,7 +25,8 @@ public sealed class ScanRepository : IScanRepository
         await _db.WriteLock.WaitAsync(ct);
         try
         {
-            var conn = await _db.GetConnectionAsync(ct);
+            var startedUtc = DateTime.UtcNow;
+            await using var conn = await _db.GetConnectionAsync(ct);
             using var cmd = conn.CreateCommand();
             cmd.CommandText = """
                 INSERT INTO ScanSessions (RootPath, StartedUtc, Status)
@@ -32,14 +34,14 @@ public sealed class ScanRepository : IScanRepository
                 SELECT last_insert_rowid();
                 """;
             cmd.Parameters.AddWithValue("$root", rootPath);
-            cmd.Parameters.AddWithValue("$started", DateTime.UtcNow.ToString("O"));
+            cmd.Parameters.AddWithValue("$started", startedUtc.ToString("O"));
             var id = Convert.ToInt64(await cmd.ExecuteScalarAsync(ct));
 
             return new ScanSession
             {
                 Id = id,
                 RootPath = rootPath,
-                StartedUtc = DateTime.UtcNow,
+                StartedUtc = startedUtc,
                 Status = ScanStatus.Running,
             };
         }
@@ -51,7 +53,7 @@ public sealed class ScanRepository : IScanRepository
 
     public async Task<ScanSession?> GetSessionAsync(long sessionId, CancellationToken ct = default)
     {
-        var conn = await _db.GetConnectionAsync(ct);
+        await using var conn = await _db.GetConnectionAsync(ct);
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "SELECT * FROM ScanSessions WHERE Id = $id;";
         cmd.Parameters.AddWithValue("$id", sessionId);
@@ -61,7 +63,7 @@ public sealed class ScanRepository : IScanRepository
 
     public async Task<IReadOnlyList<ScanSession>> GetRecentSessionsAsync(int count = 10, CancellationToken ct = default)
     {
-        var conn = await _db.GetConnectionAsync(ct);
+        await using var conn = await _db.GetConnectionAsync(ct);
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "SELECT * FROM ScanSessions ORDER BY StartedUtc DESC LIMIT $n;";
         cmd.Parameters.AddWithValue("$n", count);
@@ -77,7 +79,7 @@ public sealed class ScanRepository : IScanRepository
         await _db.WriteLock.WaitAsync(ct);
         try
         {
-            var conn = await _db.GetConnectionAsync(ct);
+            await using var conn = await _db.GetConnectionAsync(ct);
             using var cmd = conn.CreateCommand();
             cmd.CommandText = """
                 UPDATE ScanSessions SET
@@ -115,7 +117,7 @@ public sealed class ScanRepository : IScanRepository
         await _db.WriteLock.WaitAsync(ct);
         try
         {
-            var conn = await _db.GetConnectionAsync(ct);
+            await using var conn = await _db.GetConnectionAsync(ct);
             using var tx = await conn.BeginTransactionAsync(ct);
             using var cmd = conn.CreateCommand();
             cmd.Transaction = (SqliteTransaction)tx;
@@ -123,11 +125,11 @@ public sealed class ScanRepository : IScanRepository
                 INSERT INTO FileEntries
                     (SessionId, FullPath, FileName, Extension, SizeBytes,
                      CreatedUtc, ModifiedUtc, AccessedUtc, Attributes, Category, IsReparsePoint,
-                     NormalizedFullPath)
+                     NormalizedFullPath, IdentityVolumeSerial, IdentityFileIndex)
                 VALUES
                     ($sid, $path, $name, $ext, $size,
                      $created, $modified, $accessed, $attrs, $cat, $reparse,
-                     $normalized)
+                     $normalized, $identityVolume, $identityIndex)
                 ON CONFLICT(SessionId, NormalizedFullPath) DO UPDATE SET
                     FileName       = excluded.FileName,
                     Extension      = excluded.Extension,
@@ -137,7 +139,9 @@ public sealed class ScanRepository : IScanRepository
                     AccessedUtc    = excluded.AccessedUtc,
                     Attributes     = excluded.Attributes,
                     Category       = excluded.Category,
-                    IsReparsePoint = excluded.IsReparsePoint;
+                    IsReparsePoint = excluded.IsReparsePoint,
+                    IdentityVolumeSerial = excluded.IdentityVolumeSerial,
+                    IdentityFileIndex = excluded.IdentityFileIndex;
                 """;
 
             var pSid = cmd.Parameters.Add("$sid", SqliteType.Integer);
@@ -152,6 +156,8 @@ public sealed class ScanRepository : IScanRepository
             var pCat = cmd.Parameters.Add("$cat", SqliteType.Text);
             var pReparse = cmd.Parameters.Add("$reparse", SqliteType.Integer);
             var pNormalized = cmd.Parameters.Add("$normalized", SqliteType.Text);
+            var pIdentityVolume = cmd.Parameters.Add("$identityVolume", SqliteType.Text);
+            var pIdentityIndex = cmd.Parameters.Add("$identityIndex", SqliteType.Text);
 
             foreach (var e in entries)
             {
@@ -167,6 +173,10 @@ public sealed class ScanRepository : IScanRepository
                 pCat.Value = e.Category.ToString();
                 pReparse.Value = e.IsReparsePoint ? 1 : 0;
                 pNormalized.Value = NormalizeForStorage(e.FullPath);
+                pIdentityVolume.Value = (object?)e.Identity?.VolumeSerial ?? DBNull.Value;
+                pIdentityIndex.Value = e.Identity is null
+                    ? DBNull.Value
+                    : e.Identity.FileIndex.ToString(CultureInfo.InvariantCulture);
                 await cmd.ExecuteNonQueryAsync(ct);
             }
 
@@ -187,13 +197,14 @@ public sealed class ScanRepository : IScanRepository
         await _db.WriteLock.WaitAsync(ct);
         try
         {
-            var conn = await _db.GetConnectionAsync(ct);
+            await using var conn = await _db.GetConnectionAsync(ct);
             using var tx = await conn.BeginTransactionAsync(ct);
             using var cmd = conn.CreateCommand();
             cmd.Transaction = (SqliteTransaction)tx;
 
-            // INSERT OR REPLACE handles the upsert. The UNIQUE constraint on (SessionId, FullPath)
-            // ensures duplicate paths from concurrent workers are merged.
+            // Exact-casing rows are scanner metric batches and accumulate.
+            // Case-only variants are duplicate observations of one Windows
+            // folder and merge conservatively without double-counting.
             cmd.CommandText = """
                 INSERT INTO FolderEntries
                     (SessionId, FullPath, FolderName, DirectSizeBytes, TotalSizeBytes,
@@ -203,13 +214,33 @@ public sealed class ScanRepository : IScanRepository
                     ($sid, $path, $name, $direct, $total,
                      $files, $subs, $reparse, $denied,
                      $normalized)
-                ON CONFLICT(SessionId, FullPath) DO UPDATE SET
-                    DirectSizeBytes = DirectSizeBytes + excluded.DirectSizeBytes,
-                    TotalSizeBytes  = TotalSizeBytes  + excluded.TotalSizeBytes,
-                    FileCount       = FileCount       + excluded.FileCount,
-                    SubFolderCount  = excluded.SubFolderCount,
-                    IsReparsePoint  = excluded.IsReparsePoint,
-                    WasAccessDenied = WasAccessDenied OR excluded.WasAccessDenied,
+                ON CONFLICT(SessionId, NormalizedFullPath) DO UPDATE SET
+                    DirectSizeBytes = CASE
+                        WHEN FolderEntries.FullPath = excluded.FullPath
+                            THEN FolderEntries.DirectSizeBytes + excluded.DirectSizeBytes
+                        ELSE max(FolderEntries.DirectSizeBytes, excluded.DirectSizeBytes)
+                    END,
+                    TotalSizeBytes = CASE
+                        WHEN FolderEntries.FullPath = excluded.FullPath
+                            THEN FolderEntries.TotalSizeBytes + excluded.TotalSizeBytes
+                        ELSE max(
+                            FolderEntries.TotalSizeBytes,
+                            excluded.TotalSizeBytes,
+                            FolderEntries.DirectSizeBytes,
+                            excluded.DirectSizeBytes)
+                    END,
+                    FileCount = CASE
+                        WHEN FolderEntries.FullPath = excluded.FullPath
+                            THEN FolderEntries.FileCount + excluded.FileCount
+                        ELSE max(FolderEntries.FileCount, excluded.FileCount)
+                    END,
+                    SubFolderCount = CASE
+                        WHEN FolderEntries.FullPath = excluded.FullPath
+                            THEN excluded.SubFolderCount
+                        ELSE max(FolderEntries.SubFolderCount, excluded.SubFolderCount)
+                    END,
+                    IsReparsePoint  = FolderEntries.IsReparsePoint OR excluded.IsReparsePoint,
+                    WasAccessDenied = FolderEntries.WasAccessDenied OR excluded.WasAccessDenied,
                     NormalizedFullPath = excluded.NormalizedFullPath;
                 """;
 
@@ -252,12 +283,12 @@ public sealed class ScanRepository : IScanRepository
     public async Task<IReadOnlyList<FileEntry>> GetLargestFilesAsync(
         long sessionId, int topN, CancellationToken ct = default)
     {
-        var conn = await _db.GetConnectionAsync(ct);
+        await using var conn = await _db.GetConnectionAsync(ct);
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
             SELECT * FROM FileEntries
             WHERE SessionId = $sid
-            ORDER BY SizeBytes DESC
+            ORDER BY SizeBytes DESC, FullPath ASC
             LIMIT $n;
             """;
         cmd.Parameters.AddWithValue("$sid", sessionId);
@@ -272,7 +303,7 @@ public sealed class ScanRepository : IScanRepository
     public async Task<IReadOnlyList<FolderEntry>> GetLargestFoldersAsync(
         long sessionId, int topN, CancellationToken ct = default)
     {
-        var conn = await _db.GetConnectionAsync(ct);
+        await using var conn = await _db.GetConnectionAsync(ct);
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
             SELECT * FROM FolderEntries
@@ -299,7 +330,7 @@ public sealed class ScanRepository : IScanRepository
         int limit,
         CancellationToken ct = default)
     {
-        var conn = await _db.GetConnectionAsync(ct);
+        await using var conn = await _db.GetConnectionAsync(ct);
         using var cmd = conn.CreateCommand();
         var sort = sortColumn switch
         {
@@ -330,7 +361,7 @@ public sealed class ScanRepository : IScanRepository
 
     public async Task<long> CountFilesAsync(long sessionId, string? filter, string? categoryFilter, CancellationToken ct = default)
     {
-        var conn = await _db.GetConnectionAsync(ct);
+        await using var conn = await _db.GetConnectionAsync(ct);
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
             SELECT COUNT(*)
@@ -354,7 +385,7 @@ public sealed class ScanRepository : IScanRepository
         int limit,
         CancellationToken ct = default)
     {
-        var conn = await _db.GetConnectionAsync(ct);
+        await using var conn = await _db.GetConnectionAsync(ct);
         using var cmd = conn.CreateCommand();
         var sort = sortColumn switch
         {
@@ -382,7 +413,7 @@ public sealed class ScanRepository : IScanRepository
 
     public async Task<long> CountFoldersAsync(long sessionId, string? filter, CancellationToken ct = default)
     {
-        var conn = await _db.GetConnectionAsync(ct);
+        await using var conn = await _db.GetConnectionAsync(ct);
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
             SELECT COUNT(*)
@@ -398,7 +429,7 @@ public sealed class ScanRepository : IScanRepository
     public async Task<IReadOnlyDictionary<FileTypeCategory, (long Count, long Bytes)>> GetCategoryBreakdownAsync(
         long sessionId, CancellationToken ct = default)
     {
-        var conn = await _db.GetConnectionAsync(ct);
+        await using var conn = await _db.GetConnectionAsync(ct);
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
             SELECT Category, COUNT(*) AS FileCount, SUM(SizeBytes) AS TotalBytes
@@ -423,7 +454,7 @@ public sealed class ScanRepository : IScanRepository
         await _db.WriteLock.WaitAsync(ct);
         try
         {
-            var conn = await _db.GetConnectionAsync(ct);
+            await using var conn = await _db.GetConnectionAsync(ct);
             using var cmd = conn.CreateCommand();
             cmd.CommandText = "DELETE FROM ScanSessions WHERE Id = $id;";
             cmd.Parameters.AddWithValue("$id", sessionId);
@@ -444,7 +475,7 @@ public sealed class ScanRepository : IScanRepository
         await _db.WriteLock.WaitAsync(ct);
         try
         {
-            var conn = await _db.GetConnectionAsync(ct);
+            await using var conn = await _db.GetConnectionAsync(ct);
             using var cmd = conn.CreateCommand();
             cmd.CommandText = "DELETE FROM FileEntries WHERE Id = $id;";
             cmd.Parameters.AddWithValue("$id", fileId);
@@ -461,7 +492,7 @@ public sealed class ScanRepository : IScanRepository
         await _db.WriteLock.WaitAsync(ct);
         try
         {
-            var conn = await _db.GetConnectionAsync(ct);
+            await using var conn = await _db.GetConnectionAsync(ct);
             using var cmd = conn.CreateCommand();
             cmd.CommandText = """
                 UPDATE ScanSessions
@@ -484,7 +515,7 @@ public sealed class ScanRepository : IScanRepository
     public async Task<IReadOnlyList<FolderEntry>> GetAllFolderPathsForSessionAsync(
         long sessionId, CancellationToken ct = default)
     {
-        var conn = await _db.GetConnectionAsync(ct);
+        await using var conn = await _db.GetConnectionAsync(ct);
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
             SELECT Id, SessionId, FullPath, FolderName, DirectSizeBytes, TotalSizeBytes,
@@ -504,7 +535,7 @@ public sealed class ScanRepository : IScanRepository
         long sessionId,
         CancellationToken ct = default)
     {
-        var conn = await _db.GetConnectionAsync(ct);
+        await using var conn = await _db.GetConnectionAsync(ct);
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
             SELECT f.*
@@ -538,13 +569,13 @@ public sealed class ScanRepository : IScanRepository
         CancellationToken ct = default)
     {
         var prefix = ChildPrefix(parentPath);
-        var conn = await _db.GetConnectionAsync(ct);
+        await using var conn = await _db.GetConnectionAsync(ct);
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
             SELECT *
             FROM FolderEntries
             WHERE SessionId = $sid
-              AND NormalizedFullPath LIKE $prefixNorm || '%'
+              AND substr(NormalizedFullPath, 1, length($prefixNorm)) = $prefixNorm
               AND NormalizedFullPath <> $parentNorm
               AND instr(substr(FullPath, length($prefix) + 1), '\') = 0
             ORDER BY TotalSizeBytes DESC, FullPath ASC;
@@ -566,13 +597,13 @@ public sealed class ScanRepository : IScanRepository
         CancellationToken ct = default)
     {
         var prefix = ChildPrefix(parentPath);
-        var conn = await _db.GetConnectionAsync(ct);
+        await using var conn = await _db.GetConnectionAsync(ct);
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
             SELECT COUNT(*)
             FROM FolderEntries
             WHERE SessionId = $sid
-              AND NormalizedFullPath LIKE $prefixNorm || '%'
+              AND substr(NormalizedFullPath, 1, length($prefixNorm)) = $prefixNorm
               AND NormalizedFullPath <> $parentNorm
               AND instr(substr(FullPath, length($prefix) + 1), '\') = 0;
             """;
@@ -610,7 +641,7 @@ public sealed class ScanRepository : IScanRepository
     {
         if (pathToTotal.Count == 0) return;
 
-        var conn = await _db.GetConnectionAsync(ct);
+        await using var conn = await _db.GetConnectionAsync(ct);
         const int batchSize = 500;
         var pairs = pathToTotal.ToList();
 
@@ -655,9 +686,9 @@ public sealed class ScanRepository : IScanRepository
     {
         Id = r.GetInt64(r.GetOrdinal("Id")),
         RootPath = r.GetString(r.GetOrdinal("RootPath")),
-        StartedUtc = DateTime.Parse(r.GetString(r.GetOrdinal("StartedUtc"))),
+        StartedUtc = UtcTimestamp.Parse(r.GetString(r.GetOrdinal("StartedUtc"))),
         CompletedUtc = r.IsDBNull(r.GetOrdinal("CompletedUtc")) ? null
-                            : DateTime.Parse(r.GetString(r.GetOrdinal("CompletedUtc"))),
+                            : UtcTimestamp.Parse(r.GetString(r.GetOrdinal("CompletedUtc"))),
         Status = Enum.TryParse<ScanStatus>(r.GetString(r.GetOrdinal("Status")), ignoreCase: true, out var status)
             ? status
             : ScanStatus.Failed,
@@ -677,14 +708,33 @@ public sealed class ScanRepository : IScanRepository
         FileName = r.GetString(r.GetOrdinal("FileName")),
         Extension = r.GetString(r.GetOrdinal("Extension")),
         SizeBytes = r.GetInt64(r.GetOrdinal("SizeBytes")),
-        CreatedUtc = DateTime.Parse(r.GetString(r.GetOrdinal("CreatedUtc"))),
-        ModifiedUtc = DateTime.Parse(r.GetString(r.GetOrdinal("ModifiedUtc"))),
-        AccessedUtc = DateTime.Parse(r.GetString(r.GetOrdinal("AccessedUtc"))),
+        CreatedUtc = UtcTimestamp.Parse(r.GetString(r.GetOrdinal("CreatedUtc"))),
+        ModifiedUtc = UtcTimestamp.Parse(r.GetString(r.GetOrdinal("ModifiedUtc"))),
+        AccessedUtc = UtcTimestamp.Parse(r.GetString(r.GetOrdinal("AccessedUtc"))),
         Attributes = (FileAttributes)r.GetInt32(r.GetOrdinal("Attributes")),
         Category = Enum.TryParse<FileTypeCategory>(r.GetString(r.GetOrdinal("Category")), out var cat)
                          ? cat : FileTypeCategory.Unknown,
+        Identity = ReadFileIdentity(r),
         IsReparsePoint = r.GetInt32(r.GetOrdinal("IsReparsePoint")) == 1,
     };
+
+    private static FileIdentity? ReadFileIdentity(SqliteDataReader reader)
+    {
+        var volumeOrdinal = reader.GetOrdinal("IdentityVolumeSerial");
+        var indexOrdinal = reader.GetOrdinal("IdentityFileIndex");
+        if (reader.IsDBNull(volumeOrdinal) || reader.IsDBNull(indexOrdinal))
+            return null;
+
+        var volumeSerial = reader.GetString(volumeOrdinal);
+        return string.IsNullOrWhiteSpace(volumeSerial)
+            || !ulong.TryParse(
+                reader.GetString(indexOrdinal),
+                NumberStyles.None,
+                CultureInfo.InvariantCulture,
+                out var fileIndex)
+            ? null
+            : new FileIdentity(volumeSerial, fileIndex);
+    }
 
     private static FolderEntry ReadFolderEntry(SqliteDataReader r) => new()
     {

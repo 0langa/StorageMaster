@@ -1,6 +1,7 @@
 using System.Runtime.CompilerServices;
 using StorageMaster.Core.Interfaces;
 using StorageMaster.Core.Models;
+using StorageMaster.Core.Scanner;
 
 namespace StorageMaster.Core.Cleanup.Rules;
 
@@ -46,13 +47,14 @@ public sealed class DownloadedInstallersRule : ICleanupRule
             .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
             + Path.DirectorySeparatorChar;
 
-        var files = await _repo.GetLargestFilesAsync(sessionId, topN: 50_000, cancellationToken);
+        var files = await ScanFilePager.LoadAllAsync(_repo, sessionId, cancellationToken);
 
         // ── Suggestion 1: installer files only ──────────────────────────────
         var installers = files
             .Where(f =>
                 InstallerExtensions.Contains(f.Extension) &&
-                f.FullPath.StartsWith(downloadsRoot, StringComparison.OrdinalIgnoreCase))
+                IsInDownloads(f.FullPath, downloadsRoot) &&
+                f.Identity is not null)
             .ToList();
 
         if (installers.Count > 0)
@@ -70,6 +72,7 @@ public sealed class DownloadedInstallersRule : ICleanupRule
                 Risk = CleanupRisk.Low,
                 EstimatedBytes = totalBytes,
                 TargetPaths = installers.Select(f => f.FullPath).ToList(),
+                ExpectedFileSnapshots = CreateSnapshots(installers),
                 IsSystemPath = false,
             };
         }
@@ -83,11 +86,11 @@ public sealed class DownloadedInstallersRule : ICleanupRule
             // per-file success/failure rather than treating the folder as an
             // atomic unit (which would silently skip locked files).
             var allDownloads = files
-                .Where(f => f.FullPath.StartsWith(downloadsRoot, StringComparison.OrdinalIgnoreCase))
+                .Where(f => IsInDownloads(f.FullPath, downloadsRoot))
                 .ToList();
 
             long totalDownloadBytes = allDownloads.Sum(f => f.SizeBytes);
-            if (totalDownloadBytes > 0)
+            if (totalDownloadBytes > 0 && allDownloads.All(static file => file.Identity is not null))
             {
                 // Strip the trailing separator back off for display only.
                 var displayPath = downloadsRoot.TrimEnd(Path.DirectorySeparatorChar);
@@ -103,14 +106,39 @@ public sealed class DownloadedInstallersRule : ICleanupRule
                     Category = Category,
                     Risk = CleanupRisk.Medium,
                     EstimatedBytes = totalDownloadBytes,
+                    SupportsPermanentDelete = false,
                     // Individual file paths — not the folder itself — so the
                     // Downloads directory is preserved and partial failures surface.
                     TargetPaths = allDownloads.Select(f => f.FullPath).ToList(),
+                    ExpectedFileSnapshots = CreateSnapshots(allDownloads),
                     IsSystemPath = false,
                 };
             }
         }
     }
+
+    private static bool IsInDownloads(string path, string downloadsRoot)
+    {
+        try
+        {
+            return ScanOptionValidator.IsPathEqualOrUnder(path, downloadsRoot);
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            return false;
+        }
+    }
+
+    private static IReadOnlyDictionary<string, FileSnapshot> CreateSnapshots(
+        IEnumerable<FileEntry> files) => files.ToDictionary(
+        static file => file.FullPath,
+        static file => new FileSnapshot(
+            file.FullPath,
+            file.Identity!,
+            file.SizeBytes,
+            file.ModifiedUtc,
+            file.Attributes),
+        StringComparer.OrdinalIgnoreCase);
 
     private static string FormatBytes(long bytes) => ByteFormat.Format(bytes);
 }

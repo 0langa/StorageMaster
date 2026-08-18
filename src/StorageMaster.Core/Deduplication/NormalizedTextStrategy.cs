@@ -135,6 +135,10 @@ public sealed class NormalizedTextStrategy : IDuplicateDetectionStrategy
                     : null,
             };
         }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             return ErrorSignature(candidate, "NormalizationError", ex.Message);

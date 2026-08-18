@@ -48,6 +48,9 @@ public sealed class LargeOldFilesCleanupRule : ICleanupRule
             if (file.ModifiedUtc > cutoff)
                 continue;
 
+            if (file.Identity is null)
+                continue;
+
             if (IsProtected(file.FullPath))
                 continue;
 
@@ -62,6 +65,15 @@ public sealed class LargeOldFilesCleanupRule : ICleanupRule
                 Risk = CleanupRisk.Medium,
                 EstimatedBytes = file.SizeBytes,
                 TargetPaths = [file.FullPath],
+                ExpectedFileSnapshots = new Dictionary<string, FileSnapshot>(StringComparer.OrdinalIgnoreCase)
+                {
+                    [file.FullPath] = new FileSnapshot(
+                        file.FullPath,
+                        file.Identity,
+                        file.SizeBytes,
+                        file.ModifiedUtc,
+                        file.Attributes),
+                },
                 IsSystemPath = false,
             };
         }

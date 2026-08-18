@@ -11,9 +11,10 @@ public sealed class SettingsRepository : ISettingsRepository, ISettingsSnapshotP
     private const string Key = "AppSettings";
     private AppSettings _current = new();
 
-    // Serializes whole-settings writers within the process. The DB WriteLock
-    // only guards the SQLite write itself; this lock closes the wider
-    // load-modify-save window so one writer cannot drop another's change.
+    // Serializes mutations issued through this repository instance. The
+    // context's path-keyed WriteLock coordinates independent contexts, while
+    // UpdateAsync's SQLite transaction makes the database read/modify/write
+    // one atomic operation.
     private readonly SemaphoreSlim _mutationLock = new(1, 1);
 
     public SettingsRepository(StorageDbContext db) => _db = db;
@@ -22,8 +23,19 @@ public sealed class SettingsRepository : ISettingsRepository, ISettingsSnapshotP
 
     public async Task<AppSettings> LoadAsync(CancellationToken ct = default)
     {
-        var conn = await _db.GetConnectionAsync(ct);
+        await using var conn = await _db.GetConnectionAsync(ct);
+        var settings = await LoadCoreAsync(conn, transaction: null, ct);
+        _current = Clone(settings);
+        return settings;
+    }
+
+    private static async Task<AppSettings> LoadCoreAsync(
+        SqliteConnection conn,
+        SqliteTransaction? transaction,
+        CancellationToken ct)
+    {
         using var cmd = conn.CreateCommand();
+        cmd.Transaction = transaction;
         cmd.CommandText = "SELECT Value FROM Settings WHERE Key = $key;";
         cmd.Parameters.AddWithValue("$key", Key);
         var result = await cmd.ExecuteScalarAsync(ct);
@@ -32,12 +44,10 @@ public sealed class SettingsRepository : ISettingsRepository, ISettingsSnapshotP
         {
             var settings = JsonSerializer.Deserialize<AppSettings>(json) ?? new AppSettings();
             settings.FfmpegPath = FfmpegPathNormalizer.Normalize(settings.FfmpegPath);
-            _current = Clone(settings);
             return settings;
         }
 
-        _current = new AppSettings();
-        return Clone(_current);
+        return new AppSettings();
     }
 
     public async Task SaveAsync(AppSettings settings, CancellationToken ct = default)
@@ -58,10 +68,27 @@ public sealed class SettingsRepository : ISettingsRepository, ISettingsSnapshotP
         await _mutationLock.WaitAsync(ct);
         try
         {
-            var settings = await LoadAsync(ct);
-            mutate(settings);
-            await SaveCoreAsync(settings, ct);
-            return settings;
+            await _db.WriteLock.WaitAsync(ct);
+            try
+            {
+                await using var conn = await _db.GetConnectionAsync(ct);
+                await using var transaction =
+                    (SqliteTransaction)await conn.BeginTransactionAsync(ct);
+                var settings = await LoadCoreAsync(conn, transaction, ct);
+
+                ct.ThrowIfCancellationRequested();
+                mutate(settings);
+                ct.ThrowIfCancellationRequested();
+
+                await PersistAsync(conn, transaction, settings, ct);
+                await transaction.CommitAsync(ct);
+                _current = Clone(settings);
+                return settings;
+            }
+            finally
+            {
+                _db.WriteLock.Release();
+            }
         }
         finally
         {
@@ -74,23 +101,33 @@ public sealed class SettingsRepository : ISettingsRepository, ISettingsSnapshotP
         await _db.WriteLock.WaitAsync(ct);
         try
         {
-            settings.FfmpegPath = FfmpegPathNormalizer.Normalize(settings.FfmpegPath);
-            var json = JsonSerializer.Serialize(settings);
-            var conn = await _db.GetConnectionAsync(ct);
-            using var cmd = conn.CreateCommand();
-            cmd.CommandText = """
-                INSERT INTO Settings (Key, Value) VALUES ($key, $val)
-                ON CONFLICT(Key) DO UPDATE SET Value = excluded.Value;
-                """;
-            cmd.Parameters.AddWithValue("$key", Key);
-            cmd.Parameters.AddWithValue("$val", json);
-            await cmd.ExecuteNonQueryAsync(ct);
+            await using var conn = await _db.GetConnectionAsync(ct);
+            await PersistAsync(conn, transaction: null, settings, ct);
             _current = Clone(settings);
         }
         finally
         {
             _db.WriteLock.Release();
         }
+    }
+
+    private static async Task PersistAsync(
+        SqliteConnection conn,
+        SqliteTransaction? transaction,
+        AppSettings settings,
+        CancellationToken ct)
+    {
+        settings.FfmpegPath = FfmpegPathNormalizer.Normalize(settings.FfmpegPath);
+        var json = JsonSerializer.Serialize(settings);
+        using var cmd = conn.CreateCommand();
+        cmd.Transaction = transaction;
+        cmd.CommandText = """
+            INSERT INTO Settings (Key, Value) VALUES ($key, $val)
+            ON CONFLICT(Key) DO UPDATE SET Value = excluded.Value;
+            """;
+        cmd.Parameters.AddWithValue("$key", Key);
+        cmd.Parameters.AddWithValue("$val", json);
+        await cmd.ExecuteNonQueryAsync(ct);
     }
 
     private static AppSettings Clone(AppSettings settings) =>

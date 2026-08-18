@@ -22,6 +22,7 @@ public sealed partial class SpaceMapViewModel : ObservableObject
     private double _layoutWidth = 960;
     private double _layoutHeight = 560;
     private bool _suppressSessionReload;
+    private long _loadGeneration;
 
     [ObservableProperty] private bool _isLoading;
     [ObservableProperty] private bool _isDeltaLoading;
@@ -46,6 +47,8 @@ public sealed partial class SpaceMapViewModel : ObservableObject
     public bool HasNodes => LayoutNodes.Count > 0;
     public bool HasSelectedNode => SelectedNode is not null;
     public bool HasDelta => DeltaSummary?.HasComparison == true;
+    public bool CanInteract => !IsLoading;
+    public bool CanExport => HasNodes && !IsLoading;
     public string CurrentFolderDisplay => string.IsNullOrWhiteSpace(CurrentFolderPath) ? "No folder selected" : CurrentFolderPath;
     public string SelectedNodeDisplayName => SelectedNode?.Node.DisplayName ?? "No item selected";
     public string SelectedNodePath => SelectedNode?.Node.FullPath ?? "Select a block in the treemap.";
@@ -58,48 +61,44 @@ public sealed partial class SpaceMapViewModel : ObservableObject
         _navigation = navigation;
     }
 
-    public async Task LoadAsync(long? sessionId = null)
+    public Task LoadAsync(long? sessionId = null, CancellationToken cancellationToken = default)
     {
-        _loadCts?.Cancel();
-        _loadCts = new CancellationTokenSource();
-        var ct = _loadCts.Token;
-
-        IsLoading = true;
-        await Task.Yield();
-        try
+        ResetMap("Loading completed scans...");
+        return RunLoadAsync(async (generation, ct) =>
         {
-            Sessions.Clear();
             var sessions = await _spaceMapRepository.GetSessionRootCandidatesAsync(ct);
+            ct.ThrowIfCancellationRequested();
+            if (!IsCurrentLoad(generation))
+                return;
+
+            Sessions.Clear();
             foreach (var session in sessions)
                 Sessions.Add(session);
 
             OnPropertyChanged(nameof(HasSessions));
 
             var targetSession = sessionId is not null
-                ? Sessions.FirstOrDefault(session => session.Id == sessionId.Value) ?? Sessions.FirstOrDefault()
+                ? Sessions.FirstOrDefault(session => session.Id == sessionId.Value)
                 : Sessions.FirstOrDefault();
 
             _suppressSessionReload = true;
             SelectedSession = targetSession;
             _suppressSessionReload = false;
 
-            if (SelectedSession is null)
+            if (targetSession is null)
             {
-                ResetMap("No completed scans are available.");
+                ResetMap(sessionId is not null
+                    ? "The requested completed scan is not available."
+                    : "No completed scans are available.");
                 return;
             }
 
-            await LoadFolderAsync(SelectedSession.RootPath, ct);
-            await LoadDeltaAsync(ct);
-        }
-        catch (OperationCanceledException)
-        {
-        }
-        finally
-        {
-            IsLoading = false;
-        }
+            await LoadFolderCoreAsync(targetSession, targetSession.RootPath, generation, ct);
+            await LoadDeltaCoreAsync(targetSession, generation, ct);
+        }, "Space map session load failed", cancellationToken);
     }
+
+    public void CancelPendingLoad() => _loadCts?.Cancel();
 
     public void ResizeLayout(double width, double height)
     {
@@ -114,10 +113,19 @@ public sealed partial class SpaceMapViewModel : ObservableObject
     partial void OnMinimumSizeMbChanged(double value)
     {
         MinimumSizeBytes = (long)Math.Max(0, value) * 1024L * 1024L;
-        _ = ReloadCurrentFolderAsync();
+        ObserveReload(ReloadCurrentFolderAsync());
     }
 
-    partial void OnKindFilterChanged(SpaceMapNodeKind? value) => _ = ReloadCurrentFolderAsync();
+    partial void OnKindFilterChanged(SpaceMapNodeKind? value) => ObserveReload(ReloadCurrentFolderAsync());
+
+    partial void OnCurrentFolderPathChanged(string value) =>
+        OnPropertyChanged(nameof(CurrentFolderDisplay));
+
+    partial void OnIsLoadingChanged(bool value)
+    {
+        OnPropertyChanged(nameof(CanInteract));
+        OnPropertyChanged(nameof(CanExport));
+    }
 
     partial void OnSelectedNodeChanged(SpaceMapLayoutNode? value)
     {
@@ -136,7 +144,8 @@ public sealed partial class SpaceMapViewModel : ObservableObject
         if (value is null)
             return;
 
-        _ = ReloadSelectedSessionAsync(value);
+        ResetMap("Loading the selected scan...");
+        ObserveReload(ReloadSelectedSessionAsync(value));
     }
 
     [RelayCommand]
@@ -148,9 +157,13 @@ public sealed partial class SpaceMapViewModel : ObservableObject
             return;
         }
 
-        _loadCts?.Cancel();
-        _loadCts = new CancellationTokenSource();
-        await LoadFolderAsync(layoutNode.Node.FullPath, _loadCts.Token);
+        var session = SelectedSession;
+        if (session is null)
+            return;
+
+        await RunLoadAsync(
+            (generation, ct) => LoadFolderCoreAsync(session, layoutNode.Node.FullPath, generation, ct),
+            "Folder load failed");
     }
 
     [RelayCommand]
@@ -167,9 +180,12 @@ public sealed partial class SpaceMapViewModel : ObservableObject
         if (string.IsNullOrWhiteSpace(parent))
             parent = root;
 
-        _loadCts?.Cancel();
-        _loadCts = new CancellationTokenSource();
-        await LoadFolderAsync(parent, _loadCts.Token);
+        var session = SelectedSession;
+        if (session is null)
+            return;
+        await RunLoadAsync(
+            (generation, ct) => LoadFolderCoreAsync(session, parent, generation, ct),
+            "Parent folder load failed");
     }
 
     [RelayCommand]
@@ -184,30 +200,45 @@ public sealed partial class SpaceMapViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private static void CopyPath(SpaceMapLayoutNode? layoutNode)
+    private void CopyPath(SpaceMapLayoutNode? layoutNode)
     {
         if (layoutNode is null)
             return;
 
-        var dp = new Windows.ApplicationModel.DataTransfer.DataPackage();
-        dp.SetText(layoutNode.Node.FullPath);
-        Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(dp);
+        try
+        {
+            var dp = new Windows.ApplicationModel.DataTransfer.DataPackage();
+            dp.SetText(layoutNode.Node.FullPath);
+            Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(dp);
+            StatusText = "Path copied to the clipboard.";
+        }
+        catch (Exception ex)
+        {
+            StatusText = $"Could not copy the path: {ex.Message}";
+        }
     }
 
     [RelayCommand]
-    private static void RevealInExplorer(SpaceMapLayoutNode? layoutNode)
+    private void RevealInExplorer(SpaceMapLayoutNode? layoutNode)
     {
         if (layoutNode is null)
             return;
 
-        var args = layoutNode.Node.Kind == SpaceMapNodeKind.File
-            ? $"/select,\"{layoutNode.Node.FullPath}\""
-            : $"\"{layoutNode.Node.FullPath}\"";
-
-        Process.Start(new ProcessStartInfo("explorer.exe", args)
+        try
         {
-            UseShellExecute = true,
-        });
+            var args = layoutNode.Node.Kind == SpaceMapNodeKind.File
+                ? $"/select,\"{layoutNode.Node.FullPath}\""
+                : $"\"{layoutNode.Node.FullPath}\"";
+
+            Process.Start(new ProcessStartInfo("explorer.exe", args)
+            {
+                UseShellExecute = true,
+            });
+        }
+        catch (Exception ex)
+        {
+            StatusText = $"Could not open File Explorer: {ex.Message}";
+        }
     }
 
     [RelayCommand]
@@ -234,130 +265,213 @@ public sealed partial class SpaceMapViewModel : ObservableObject
     [RelayCommand]
     private async Task ExportCsvAsync()
     {
-        if (_currentNodes.Count == 0)
+        if (!CanExport)
             return;
 
-        var path = CreateExportPath("csv");
-        var lines = new List<string> { "Kind,Path,SizeBytes,PercentOfParent,FileCount,FolderCount,Category,ModifiedUtc" };
-        lines.AddRange(_currentNodes.Select(static node =>
-            $"{node.Kind},\"{node.FullPath.Replace("\"", "\"\"")}\",{node.SizeBytes},{node.PercentOfParent:F3},{node.FileCount},{node.FolderCount},{node.Category},{node.ModifiedUtc:O}"));
-        await File.WriteAllLinesAsync(path, lines, Encoding.UTF8);
-        StatusText = $"CSV report exported to {path}.";
+        try
+        {
+            var path = CreateExportPath("csv");
+            var lines = new List<string> { "Kind,Path,SizeBytes,PercentOfParent,FileCount,FolderCount,Category,ModifiedUtc" };
+            lines.AddRange(_currentNodes.Select(static node =>
+                $"{node.Kind},\"{node.FullPath.Replace("\"", "\"\"")}\",{node.SizeBytes},{node.PercentOfParent:F3},{node.FileCount},{node.FolderCount},{node.Category},{node.ModifiedUtc:O}"));
+            await File.WriteAllLinesAsync(path, lines, Encoding.UTF8);
+            StatusText = $"CSV report exported to {path}.";
+        }
+        catch (Exception ex)
+        {
+            StatusText = $"CSV export failed: {ex.Message}";
+        }
     }
 
     [RelayCommand]
     private async Task ExportHtmlAsync()
     {
-        if (_currentNodes.Count == 0)
+        if (!CanExport)
             return;
 
-        var path = CreateExportPath("html");
-        var rows = string.Join(Environment.NewLine, _currentNodes.Select(static node =>
-            $"<tr><td>{System.Net.WebUtility.HtmlEncode(node.Kind.ToString())}</td><td>{System.Net.WebUtility.HtmlEncode(node.FullPath)}</td><td>{node.SizeBytes:N0}</td><td>{node.PercentOfParent:N1}%</td><td>{System.Net.WebUtility.HtmlEncode(node.Category.ToString())}</td></tr>"));
-        var html = $$"""
-            <!doctype html>
-            <html><head><meta charset="utf-8"><title>StorageMaster Space Map</title>
-            <style>body{font-family:Segoe UI,Arial,sans-serif;margin:24px}table{border-collapse:collapse;width:100%}td,th{border-bottom:1px solid #ddd;padding:8px;text-align:left}</style>
-            </head><body>
-            <h1>StorageMaster Space Map</h1>
-            <p>{{System.Net.WebUtility.HtmlEncode(CurrentFolderPath)}}</p>
-            <table><thead><tr><th>Kind</th><th>Path</th><th>Bytes</th><th>Parent %</th><th>Category</th></tr></thead><tbody>
-            {{rows}}
-            </tbody></table></body></html>
-            """;
-        await File.WriteAllTextAsync(path, html, Encoding.UTF8);
-        StatusText = $"HTML report exported to {path}.";
-    }
-
-    private async Task ReloadCurrentFolderAsync()
-    {
-        if (SelectedSession is null || string.IsNullOrWhiteSpace(CurrentFolderPath))
-            return;
-
-        _loadCts?.Cancel();
-        _loadCts = new CancellationTokenSource();
-        await LoadFolderAsync(CurrentFolderPath, _loadCts.Token);
-    }
-
-    private async Task ReloadSelectedSessionAsync(ScanSession session)
-    {
-        _loadCts?.Cancel();
-        _loadCts = new CancellationTokenSource();
         try
         {
-            await LoadFolderAsync(session.RootPath, _loadCts.Token);
-            await LoadDeltaAsync(_loadCts.Token);
+            var path = CreateExportPath("html");
+            var rows = string.Join(Environment.NewLine, _currentNodes.Select(static node =>
+                $"<tr><td>{System.Net.WebUtility.HtmlEncode(node.Kind.ToString())}</td><td>{System.Net.WebUtility.HtmlEncode(node.FullPath)}</td><td>{node.SizeBytes:N0}</td><td>{node.PercentOfParent:N1}%</td><td>{System.Net.WebUtility.HtmlEncode(node.Category.ToString())}</td></tr>"));
+            var html = $$"""
+                <!doctype html>
+                <html><head><meta charset="utf-8"><title>StorageMaster Space Map</title>
+                <style>body{font-family:Segoe UI,Arial,sans-serif;margin:24px}table{border-collapse:collapse;width:100%}td,th{border-bottom:1px solid #ddd;padding:8px;text-align:left}</style>
+                </head><body>
+                <h1>StorageMaster Space Map</h1>
+                <p>{{System.Net.WebUtility.HtmlEncode(CurrentFolderPath)}}</p>
+                <table><thead><tr><th>Kind</th><th>Path</th><th>Bytes</th><th>Parent %</th><th>Category</th></tr></thead><tbody>
+                {{rows}}
+                </tbody></table></body></html>
+                """;
+            await File.WriteAllTextAsync(path, html, Encoding.UTF8);
+            StatusText = $"HTML report exported to {path}.";
         }
-        catch (OperationCanceledException)
+        catch (Exception ex)
         {
+            StatusText = $"HTML export failed: {ex.Message}";
         }
     }
 
-    private async Task LoadFolderAsync(string folderPath, CancellationToken ct)
+    private Task ReloadCurrentFolderAsync()
     {
-        if (SelectedSession is null)
+        var session = SelectedSession;
+        var folderPath = CurrentFolderPath;
+        if (session is null || string.IsNullOrWhiteSpace(folderPath))
+            return Task.CompletedTask;
+
+        return RunLoadAsync(
+            (generation, ct) => LoadFolderCoreAsync(session, folderPath, generation, ct),
+            "Folder reload failed");
+    }
+
+    private Task ReloadSelectedSessionAsync(ScanSession session)
+    {
+        return RunLoadAsync(async (generation, ct) =>
+        {
+            await LoadFolderCoreAsync(session, session.RootPath, generation, ct);
+            await LoadDeltaCoreAsync(session, generation, ct);
+        }, "Selected scan load failed");
+    }
+
+    private async Task LoadFolderCoreAsync(
+        ScanSession session,
+        string folderPath,
+        long generation,
+        CancellationToken ct)
+    {
+        if (!IsCurrentLoad(generation))
             return;
 
-        IsLoading = true;
-        try
-        {
-            CurrentFolderPath = folderPath;
-            StatusText = "Loading folder children...";
-            var nodes = await _spaceMapRepository.GetFolderChildrenWithSizesAsync(
-                SelectedSession.Id,
-                folderPath,
-                KindFilter,
-                MinimumSizeBytes,
-                ChildLimit,
-                ct);
+        var kindFilter = KindFilter;
+        var minimumSizeBytes = MinimumSizeBytes;
+        StatusText = "Loading folder children...";
+        var nodes = await _spaceMapRepository.GetFolderChildrenWithSizesAsync(
+            session.Id,
+            folderPath,
+            kindFilter,
+            minimumSizeBytes,
+            ChildLimit,
+            ct);
 
-            _currentNodes = nodes;
-            SelectedNode = null;
-            BuildBreadcrumbs(folderPath);
-            Relayout();
-            StatusText = nodes.Count == 0
-                ? "No children match the current filters."
-                : $"Showing {nodes.Count:N0} largest child item(s). Destructive actions route through cleanup or duplicate review.";
-        }
-        catch (OperationCanceledException)
-        {
-            throw;
-        }
-        finally
-        {
-            IsLoading = false;
-        }
+        ct.ThrowIfCancellationRequested();
+        if (!IsCurrentLoad(generation))
+            return;
+
+        _currentNodes = nodes;
+        CurrentFolderPath = folderPath;
+        SelectedNode = null;
+        BuildBreadcrumbs(session, folderPath);
+        Relayout();
+        StatusText = nodes.Count == 0
+            ? "No children match the current filters."
+            : $"Showing {nodes.Count:N0} largest child item(s). Destructive actions route through cleanup or duplicate review.";
     }
 
-    private async Task LoadDeltaAsync(CancellationToken ct)
+    private async Task LoadDeltaCoreAsync(
+        ScanSession session,
+        long generation,
+        CancellationToken ct)
     {
-        if (SelectedSession is null)
+        if (!IsCurrentLoad(generation))
             return;
 
         IsDeltaLoading = true;
         try
         {
-            var previous = await _spaceMapRepository.GetPreviousComparableSessionAsync(SelectedSession.Id, ct);
+            var previous = await _spaceMapRepository.GetPreviousComparableSessionAsync(session.Id, ct);
+            ct.ThrowIfCancellationRequested();
+            if (!IsCurrentLoad(generation))
+                return;
+
             if (previous is null)
             {
-                DeltaSummary = new ScanDeltaSummary { CurrentSessionId = SelectedSession.Id };
+                DeltaSummary = new ScanDeltaSummary { CurrentSessionId = session.Id };
+                GrowingFolders.Clear();
+                NewLargeFiles.Clear();
+                RemovedFiles.Clear();
                 DeltaStatusText = "No previous completed scan with this root was found.";
+                OnPropertyChanged(nameof(HasDelta));
                 return;
             }
 
-            DeltaSummary = await _spaceMapRepository.GetScanDeltaAsync(SelectedSession.Id, previous.Id, 25, ct);
-            Replace(GrowingFolders, DeltaSummary.GrowingFolders);
-            Replace(NewLargeFiles, DeltaSummary.NewLargeFiles);
-            Replace(RemovedFiles, DeltaSummary.RemovedFiles);
+            var deltaSummary = await _spaceMapRepository.GetScanDeltaAsync(session.Id, previous.Id, 25, ct);
+            ct.ThrowIfCancellationRequested();
+            if (!IsCurrentLoad(generation))
+                return;
+
+            DeltaSummary = deltaSummary;
+            Replace(GrowingFolders, deltaSummary.GrowingFolders);
+            Replace(NewLargeFiles, deltaSummary.NewLargeFiles);
+            Replace(RemovedFiles, deltaSummary.RemovedFiles);
             DeltaStatusText = $"Comparing against scan from {previous.StartedUtc:g}.";
             OnPropertyChanged(nameof(HasDelta));
         }
-        catch (OperationCanceledException)
+        finally
         {
+            if (IsCurrentLoad(generation))
+                IsDeltaLoading = false;
+        }
+    }
+
+    private async Task RunLoadAsync(
+        Func<long, CancellationToken, Task> operation,
+        string failurePrefix,
+        CancellationToken cancellationToken = default)
+    {
+        var generation = Interlocked.Increment(ref _loadGeneration);
+        _loadCts?.Cancel();
+        var loadCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        _loadCts = loadCancellation;
+        IsDeltaLoading = false;
+        IsLoading = true;
+        SelectedNode = null;
+
+        try
+        {
+            await Task.Yield();
+            await operation(generation, loadCancellation.Token);
+        }
+        catch (OperationCanceledException) when (loadCancellation.IsCancellationRequested)
+        {
+            // Superseded loads are expected and must not escape an AsyncRelayCommand.
+        }
+        catch (Exception ex)
+        {
+            if (IsCurrentLoad(generation))
+                StatusText = $"{failurePrefix}: {ex.Message}";
         }
         finally
         {
-            IsDeltaLoading = false;
+            if (IsCurrentLoad(generation))
+            {
+                IsDeltaLoading = false;
+                IsLoading = false;
+                if (ReferenceEquals(_loadCts, loadCancellation))
+                    _loadCts = null;
+            }
+
+            loadCancellation.Dispose();
+        }
+    }
+
+    private bool IsCurrentLoad(long generation) =>
+        generation == Volatile.Read(ref _loadGeneration);
+
+    private void ObserveReload(Task task) => _ = ObserveReloadAsync(task);
+
+    private async Task ObserveReloadAsync(Task task)
+    {
+        try
+        {
+            await task;
+        }
+        catch (Exception ex)
+        {
+            // RunLoadAsync contains repository failures. This final observer
+            // protects future reload implementations from becoming naked tasks.
+            StatusText = $"Space map reload failed: {ex.Message}";
         }
     }
 
@@ -368,6 +482,7 @@ public sealed partial class SpaceMapViewModel : ObservableObject
             LayoutNodes.Add(node);
 
         OnPropertyChanged(nameof(HasNodes));
+        OnPropertyChanged(nameof(CanExport));
     }
 
     private void ResetMap(string message)
@@ -375,17 +490,23 @@ public sealed partial class SpaceMapViewModel : ObservableObject
         _currentNodes = [];
         LayoutNodes.Clear();
         Breadcrumbs.Clear();
+        CurrentFolderPath = string.Empty;
+        SelectedNode = null;
+        DeltaSummary = null;
+        GrowingFolders.Clear();
+        NewLargeFiles.Clear();
+        RemovedFiles.Clear();
+        DeltaStatusText = "Scan Delta needs two completed scans with the same root.";
         StatusText = message;
         OnPropertyChanged(nameof(HasNodes));
+        OnPropertyChanged(nameof(HasDelta));
+        OnPropertyChanged(nameof(CanExport));
     }
 
-    private void BuildBreadcrumbs(string folderPath)
+    private void BuildBreadcrumbs(ScanSession session, string folderPath)
     {
         Breadcrumbs.Clear();
-        if (SelectedSession is null)
-            return;
-
-        var root = SelectedSession.RootPath;
+        var root = session.RootPath;
         Breadcrumbs.Add(root);
 
         var relative = folderPath.StartsWith(root, StringComparison.OrdinalIgnoreCase)

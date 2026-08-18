@@ -22,16 +22,19 @@ public sealed class DriveHealthRepositoryTests : IAsyncDisposable
     [Fact]
     public async Task SaveSnapshotsAsync_PersistsLatestSnapshotPerDrive()
     {
-        var older = Snapshot(@"C:\", DriveHealthStatus.Healthy, DateTime.UtcNow.AddMinutes(-5));
-        var newer = Snapshot(@"C:\", DriveHealthStatus.Warning, DateTime.UtcNow);
-        var other = Snapshot(@"D:\", DriveHealthStatus.Unsupported, DateTime.UtcNow.AddMinutes(-1));
+        var capturedUtc = new DateTime(2025, 8, 17, 12, 34, 56, DateTimeKind.Utc).AddTicks(7_654_321);
+        var older = Snapshot(@"C:\", DriveHealthStatus.Healthy, capturedUtc.AddMinutes(-5));
+        var newer = Snapshot(@"C:\", DriveHealthStatus.Warning, capturedUtc);
+        var other = Snapshot(@"D:\", DriveHealthStatus.Unsupported, capturedUtc.AddMinutes(-1));
 
         await _repo.SaveSnapshotsAsync([older, newer, other]);
 
         var latest = await _repo.GetLatestSnapshotsAsync();
 
         latest.Should().HaveCount(2);
-        latest.Single(static s => s.DriveName == @"C:\").Status.Should().Be(DriveHealthStatus.Warning);
+        var latestSystem = latest.Single(static s => s.DriveName == @"C:\");
+        latestSystem.Status.Should().Be(DriveHealthStatus.Warning);
+        AssertUtcTimestamp(latestSystem.CapturedUtc, capturedUtc);
         latest.Single(static s => s.DriveName == @"D:\").Status.Should().Be(DriveHealthStatus.Unsupported);
     }
 
@@ -70,5 +73,11 @@ public sealed class DriveHealthRepositoryTests : IAsyncDisposable
         {
             try { File.Delete(path); } catch { }
         }
+    }
+
+    private static void AssertUtcTimestamp(DateTime actual, DateTime expected)
+    {
+        actual.Kind.Should().Be(DateTimeKind.Utc);
+        actual.Ticks.Should().Be(expected.Ticks);
     }
 }

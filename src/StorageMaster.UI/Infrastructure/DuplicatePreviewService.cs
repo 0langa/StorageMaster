@@ -1,8 +1,10 @@
 using System.Diagnostics;
+using System.Security.Cryptography;
 using System.Text;
 using SixLabors.ImageSharp;
 using StorageMaster.Core.Interfaces;
 using StorageMaster.Core.Models;
+using StorageMaster.Core.Safety;
 
 namespace StorageMaster.UI.Infrastructure;
 
@@ -193,7 +195,15 @@ public sealed class DuplicatePreviewService(
             "VideoPreviews");
         Directory.CreateDirectory(previewDirectory);
 
-        var outputPath = Path.Combine(previewDirectory, $"{Path.GetFileNameWithoutExtension(sourcePath)}-{Math.Abs(sourcePath.GetHashCode())}.jpg");
+        var source = new FileInfo(sourcePath);
+        if (!source.Exists)
+            return string.Empty;
+
+        var cacheInput = $"{source.FullName}\0{source.Length}\0{source.LastWriteTimeUtc.Ticks}";
+        var cacheKey = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(cacheInput)))[..16];
+        var safeBaseName = string.Concat(Path.GetFileNameWithoutExtension(sourcePath)
+            .Select(static character => Path.GetInvalidFileNameChars().Contains(character) ? '_' : character));
+        var outputPath = Path.Combine(previewDirectory, $"{safeBaseName}-{cacheKey}.jpg");
         if (File.Exists(outputPath))
             return outputPath;
 
@@ -214,12 +224,22 @@ public sealed class DuplicatePreviewService(
         psi.ArgumentList.Add("-vf");
         psi.ArgumentList.Add("scale=320:-1");
         psi.ArgumentList.Add(outputPath);
-        using var process = new Process { StartInfo = psi };
+        psi.RedirectStandardOutput = true;
+        var result = await ExternalProcessRunner.RunAsync(psi, ct);
+        if (result.ExitCode == 0 && File.Exists(outputPath) && new FileInfo(outputPath).Length > 0)
+            return outputPath;
 
-        process.Start();
-        await process.WaitForExitAsync(ct);
-        return process.ExitCode == 0 && File.Exists(outputPath)
-            ? outputPath
-            : string.Empty;
+        try
+        {
+            File.Delete(outputPath);
+        }
+        catch (IOException)
+        {
+        }
+        catch (UnauthorizedAccessException)
+        {
+        }
+
+        return string.Empty;
     }
 }

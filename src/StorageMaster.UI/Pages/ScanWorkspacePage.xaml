@@ -51,7 +51,8 @@
                 </Border>
             </Grid>
 
-            <CommandBar DefaultLabelPosition="Right" Background="Transparent">
+            <CommandBar DefaultLabelPosition="Right" Background="Transparent"
+                        IsEnabled="{x:Bind ViewModel.CanUseSessionActions, Mode=OneWay}">
                 <AppBarButton Icon="List" Label="Results" Command="{x:Bind ViewModel.OpenResultsCommand}" />
                 <AppBarButton Label="Space Map" Command="{x:Bind ViewModel.OpenSpaceMapCommand}">
                     <AppBarButton.Icon>
@@ -122,7 +123,9 @@
                                         Title="Open Space Map"
                                         Message="The interactive treemap opens with this scan context and keeps destructive actions routed through review flows.">
                         <controls:StateView.ActionContent>
-                            <Button Content="Open Space Map" Command="{x:Bind ViewModel.OpenSpaceMapCommand}" Style="{StaticResource AccentButtonStyle}" />
+                            <Button Content="Open Space Map" Command="{x:Bind ViewModel.OpenSpaceMapCommand}"
+                                    IsEnabled="{x:Bind ViewModel.CanUseSessionActions, Mode=OneWay}"
+                                    Style="{StaticResource AccentButtonStyle}" />
                         </controls:StateView.ActionContent>
                     </controls:StateView>
                 </TabViewItem>
@@ -132,7 +135,8 @@
                                         Title="Duplicate review"
                                         Message="{x:Bind ViewModel.DuplicateSummary, Mode=OneWay}">
                         <controls:StateView.ActionContent>
-                            <Button Content="Review duplicates" Command="{x:Bind ViewModel.OpenDuplicatesCommand}" />
+                            <Button Content="Review duplicates" Command="{x:Bind ViewModel.OpenDuplicatesCommand}"
+                                    IsEnabled="{x:Bind ViewModel.CanUseSessionActions, Mode=OneWay}" />
                         </controls:StateView.ActionContent>
                     </controls:StateView>
                 </TabViewItem>

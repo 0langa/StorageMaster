@@ -48,7 +48,7 @@ public sealed class AppSettings
     public bool CleanWindowsUpdateCache { get; set; } = true;
     public bool CleanDeliveryOptimization { get; set; } = true;
     public bool CleanWindowsErrorReports { get; set; } = true;
-    public bool CleanProgramLeftovers { get; set; } = true;
+    public bool CleanProgramLeftovers { get; set; } = false;
     public bool CleanLargeOldFiles { get; set; } = false;   // off by default — higher risk
 
     // ── Update preferences ──────────────────────────────────────────────────

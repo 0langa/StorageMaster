@@ -16,7 +16,7 @@ namespace StorageMaster.Core.Deduplication;
 /// Algorithm:
 ///   1. Probe duration + metadata via ffprobe.
 ///   2. Extract a configured number of frames at deterministic timestamps
-///      (evenly spaced at 10%, 20%, … 100% of duration).
+///      (evenly spaced inside the video, excluding the end-of-stream boundary).
 ///   3. Compute DCT-64 pHash for each frame using <see cref="ImagePHashStrategy"/>.
 ///   4. Fingerprint = list of <c>FrameSampleCount</c> 64-bit hashes.
 ///   5. Two videos match if ≥ <see cref="MinMatchingFrameFraction"/> of their
@@ -149,7 +149,7 @@ public sealed class VideoPHashStrategy : IDuplicateDetectionStrategy
             var frameSampleCount = await ResolveFrameSampleCountAsync(ct);
             var timestamps = Enumerable
                 .Range(1, frameSampleCount)
-                .Select(i => duration * i / frameSampleCount)
+                .Select(i => duration * i / (frameSampleCount + 1))
                 .ToArray();
 
             var frameHashes = new ulong[frameSampleCount];
@@ -163,12 +163,12 @@ public sealed class VideoPHashStrategy : IDuplicateDetectionStrategy
                     await ExtractFrameAsync(tools.FfmpegPath, candidate.File.FullPath,
                         timestamps[fi], framePath, ct);
 
-                    if (File.Exists(framePath))
-                    {
-                        frameHashes[fi] = await Task.Run(
-                            () => ComputeFrameHash(framePath), ct);
-                        File.Delete(framePath);
-                    }
+                    if (!File.Exists(framePath) || new FileInfo(framePath).Length == 0)
+                        throw new InvalidDataException($"FFmpeg did not produce frame {fi + 1}.");
+
+                    frameHashes[fi] = await Task.Run(
+                        () => ComputeFrameHash(framePath), ct);
+                    File.Delete(framePath);
                 }
             }
             finally
@@ -282,18 +282,27 @@ public sealed class VideoPHashStrategy : IDuplicateDetectionStrategy
     private static async Task<double> ProbeDurationAsync(
         string ffprobePath, string videoPath, CancellationToken ct)
     {
-        var psi = new ProcessStartInfo(ffprobePath,
-            $"-v error -show_entries format=duration -of csv=p=0 \"{videoPath}\"")
+        var psi = new ProcessStartInfo(ffprobePath)
         {
             UseShellExecute = false,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             CreateNoWindow = true,
         };
-        using var proc = Process.Start(psi) ?? throw new InvalidOperationException("Could not start ffprobe.");
-        var stdout = await proc.StandardOutput.ReadToEndAsync(ct);
-        await proc.WaitForExitAsync(ct);
-        return double.TryParse(stdout.Trim(), System.Globalization.NumberStyles.Any,
+        psi.ArgumentList.Add("-v");
+        psi.ArgumentList.Add("error");
+        psi.ArgumentList.Add("-show_entries");
+        psi.ArgumentList.Add("format=duration");
+        psi.ArgumentList.Add("-of");
+        psi.ArgumentList.Add("csv=p=0");
+        psi.ArgumentList.Add(videoPath);
+
+        var result = await ExternalProcessRunner.RunAsync(psi, ct);
+        if (result.ExitCode != 0)
+            throw new InvalidDataException(
+                $"ffprobe exited with code {result.ExitCode}: {SummarizeError(result.StandardError)}");
+
+        return double.TryParse(result.StandardOutput.Trim(), System.Globalization.NumberStyles.Any,
             System.Globalization.CultureInfo.InvariantCulture, out var d) ? d : 0d;
     }
 
@@ -301,15 +310,34 @@ public sealed class VideoPHashStrategy : IDuplicateDetectionStrategy
         string ffmpegPath, string videoPath, double timestamp, string outPath, CancellationToken ct)
     {
         var ts = timestamp.ToString("F3", System.Globalization.CultureInfo.InvariantCulture);
-        var psi = new ProcessStartInfo(ffmpegPath,
-            $"-ss {ts} -i \"{videoPath}\" -frames:v 1 -q:v 2 \"{outPath}\" -y")
+        var psi = new ProcessStartInfo(ffmpegPath)
         {
             UseShellExecute = false,
+            RedirectStandardOutput = true,
             RedirectStandardError = true,
             CreateNoWindow = true,
         };
-        using var proc = Process.Start(psi) ?? throw new InvalidOperationException("Could not start ffmpeg.");
-        await proc.WaitForExitAsync(ct);
+        psi.ArgumentList.Add("-ss");
+        psi.ArgumentList.Add(ts);
+        psi.ArgumentList.Add("-i");
+        psi.ArgumentList.Add(videoPath);
+        psi.ArgumentList.Add("-frames:v");
+        psi.ArgumentList.Add("1");
+        psi.ArgumentList.Add("-q:v");
+        psi.ArgumentList.Add("2");
+        psi.ArgumentList.Add(outPath);
+        psi.ArgumentList.Add("-y");
+
+        var result = await ExternalProcessRunner.RunAsync(psi, ct);
+        if (result.ExitCode != 0)
+            throw new InvalidDataException(
+                $"ffmpeg exited with code {result.ExitCode}: {SummarizeError(result.StandardError)}");
+    }
+
+    private static string SummarizeError(string error)
+    {
+        var trimmed = error.Trim();
+        return string.IsNullOrEmpty(trimmed) ? "no diagnostic output" : trimmed;
     }
 
     // ── Frame hash (reuse ImagePHashStrategy DCT logic) ───────────────────────

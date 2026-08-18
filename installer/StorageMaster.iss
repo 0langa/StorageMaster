@@ -116,8 +116,9 @@ begin
       ewWaitUntilTerminated,
       ResultCode) or (ResultCode <> 0) then
   begin
+    // Keep #13#10 mid-line: ISPP treats a leading '#' as a preprocessor directive.
     Result :=
-      'Windows App SDK runtime installation failed. No StorageMaster files were installed.' +
-      #13#10 + 'See %LOCALAPPDATA%\StorageMaster\logs\installer-prereqs.log for details.';
+      'Windows App SDK runtime installation failed. No StorageMaster files were installed.' + #13#10 +
+      'See %LOCALAPPDATA%\StorageMaster\logs\installer-prereqs.log for details.';
   end;
 end;

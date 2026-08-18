@@ -47,6 +47,32 @@ jobs:
         working-directory: turbo-scanner
         run: cargo build --release
 
+      - name: Lint installer script
+        shell: pwsh
+        run: |
+          # ISPP treats any line whose first non-blank character is '#' as a
+          # preprocessor directive, including inside [Code]. A Pascal string
+          # such as #13#10 at the start of a line aborts the compile, and that
+          # only surfaces on a release tag. Catch it here instead.
+          $lines = Get-Content -LiteralPath 'installer\StorageMaster.iss'
+          $inCode = $false
+          $bad = @()
+          for ($i = 0; $i -lt $lines.Count; $i++) {
+              $line = $lines[$i]
+              if ($line -match '^\s*\[([^\]]+)\]\s*$') {
+                  $inCode = $Matches[1] -ieq 'Code'
+                  continue
+              }
+              if ($inCode -and $line -match '^\s*#') {
+                  $bad += "line $($i + 1): $line"
+              }
+          }
+          if ($bad.Count -gt 0) {
+              Write-Error ("Lines in [Code] start with '#' and will be parsed as preprocessor directives:`n" + ($bad -join "`n"))
+              exit 1
+          }
+          Write-Host 'Installer script lint passed.'
+
       - name: Verify formatting
         run: dotnet format StorageMaster.sln --verify-no-changes --no-restore
 

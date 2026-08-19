@@ -131,7 +131,12 @@
                                 <ListView.Header>
                                     <!-- Sortable column headers — click a column name to sort;
                                          click again to toggle direction. ▼/▲ shows active sort. -->
-                                    <Grid ColumnDefinitions="*,130,140,120,36,36" Padding="4,2">
+                                    <!--
+                                        The Type column is wide enough for the longest
+                                        category label ("Executable"); at 120 it was
+                                        clipped by the action buttons beside it.
+                                    -->
+                                    <Grid ColumnDefinitions="*,130,140,150,40,40" Padding="4,2">
                                         <TextBlock Grid.Column="0" Text="File" Style="{StaticResource ColumnHeaderTextStyle}" Margin="8,0,0,0"/>
                                         <Button Grid.Column="1"
                                                 Content="{Binding ViewModel.FileSizeHeader, ElementName=PageRoot}"
@@ -152,7 +157,7 @@
                                 </ListView.Header>
                                 <ListView.ItemTemplate>
                                     <DataTemplate>
-                                        <Grid ColumnDefinitions="*,130,140,120,36,36" Padding="0,4">
+                                        <Grid ColumnDefinitions="*,130,140,150,40,40" Padding="0,4">
                                             <Grid.ContextFlyout>
                                                 <MenuFlyout>
                                                     <MenuFlyoutItem Text="Copy full path"

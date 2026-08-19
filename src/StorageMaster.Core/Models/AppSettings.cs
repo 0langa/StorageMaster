@@ -62,8 +62,17 @@ public sealed class AppSettings
     /// </summary>
     public string AccentId { get; set; } = Theming.ThemeCatalog.DefaultAccentId;
 
-    /// <summary>Interface language. See <see cref="UiLanguage"/> for why this exists.</summary>
-    public UiLanguage Language { get; set; } = UiLanguage.System;
+    /// <summary>
+    /// Interface language. See <see cref="UiLanguage"/> for why this exists.
+    /// <para>
+    /// Defaults to English rather than System because the app's own strings are
+    /// English and no translation ships yet. Following Windows produced the exact
+    /// defect this setting exists to fix — an English app whose switches read
+    /// "Ein"/"Aus" on a German install. When real translations land, the default
+    /// should move back to <see cref="UiLanguage.System"/>.
+    /// </para>
+    /// </summary>
+    public UiLanguage Language { get; set; } = UiLanguage.English;
     public int ScanHistoryRetentionDays { get; set; } = 365;
 
     // ── Cleanup rule toggles (persisted, can be overridden per-session) ─────

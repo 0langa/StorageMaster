@@ -7,7 +7,13 @@
     mc:Ignorable="d"
     Title="StorageMaster">
 
-    <Grid>
+    <!--
+        The window root is painted explicitly. With the Mica backdrop disabled and
+        no background set, any pixel neither the pane nor the content covers falls
+        through to the bare window and renders black — which showed up in light
+        theme as hard black seams between the panels.
+    -->
+    <Grid Background="{StaticResource SmSurfaceSunkenBrush}">
         <NavigationView
             x:Name="NavView"
             AutomationProperties.Name="StorageMaster navigation"
@@ -21,14 +27,27 @@
             SelectionChanged="NavView_SelectionChanged">
 
             <!--
+                The pane background is set here rather than left to
+                NavigationViewDefaultPaneBackground. That key lives in
+                XamlControlsResources' ThemeDictionaries, and a plain override
+                merged at Application level does not reliably win against it — in
+                light theme the rail stayed dark while the page turned light.
+                Setting the resource on this element puts it in the pane's own
+                lookup scope, where it does.
+            -->
+            <NavigationView.Resources>
+                <StaticResource x:Key="NavigationViewDefaultPaneBackground" ResourceKey="SmSurfaceSunkenBrush" />
+                <StaticResource x:Key="NavigationViewExpandedPaneBackground" ResourceKey="SmSurfaceSunkenBrush" />
+                <StaticResource x:Key="NavigationViewContentBackground" ResourceKey="SmSurfaceBaseBrush" />
+            </NavigationView.Resources>
+
+            <!--
                 The header is the app's status strip: identity on the left, live
                 scan and monitoring state on the right, separated from the page by
                 a single rule. Everything below it belongs to the page.
             -->
             <NavigationView.Header>
-                <Grid Padding="24,14,24,10" ColumnDefinitions="Auto,*" ColumnSpacing="20"
-                      BorderBrush="{StaticResource SmStrokeSubtleBrush}"
-                      BorderThickness="0,0,0,1">
+                <Grid Padding="24,14,24,14" ColumnDefinitions="Auto,*" ColumnSpacing="20">
                     <StackPanel Grid.Column="0" Spacing="2" MinWidth="170">
                         <TextBlock Text="StorageMaster"
                                    Style="{StaticResource BodyStrongTextBlockStyle}"
@@ -104,11 +123,22 @@
             </NavigationView.PaneFooter>
 
             <!--
-                The page surface. Painting the base here rather than on each page
-                means every page — including ones this pass did not touch — sits on
-                the same ground, and the Mica chrome stays visible around it.
+                The page surface, lifted off the shell rather than butted against it.
+                Previously the rail met the content on a hard vertical seam and the
+                header on a hard horizontal one, which read as two flat regions
+                jammed together instead of a page resting on a chrome.
+
+                A rounded leading edge with a hairline stroke gives the page an
+                actual boundary, and painting the base here means every page — even
+                ones this pass did not touch — sits on the same ground.
             -->
-            <Frame x:Name="ContentFrame" Background="{StaticResource SmSurfaceBaseBrush}" />
+            <Border Margin="0,0,0,0"
+                    CornerRadius="14,0,0,0"
+                    BorderBrush="{StaticResource SmStrokeSubtleBrush}"
+                    BorderThickness="1,1,0,0"
+                    Background="{StaticResource SmSurfaceBaseBrush}">
+                <Frame x:Name="ContentFrame" Background="Transparent" />
+            </Border>
         </NavigationView>
     </Grid>
 </Window>

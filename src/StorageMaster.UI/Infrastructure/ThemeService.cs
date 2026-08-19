@@ -50,6 +50,11 @@ public sealed class ThemeService(ISettingsRepository settings)
 
     private FrameworkElement? _root;
 
+    // What is currently on screen, which is not necessarily what is persisted:
+    // Settings previews a choice before the user saves it.
+    private ThemePreference _appliedPreference = ThemePreference.Default;
+    private string? _appliedAccentId;
+
     /// <summary>
     /// Creates the brush resources. Must run before any page that references them
     /// is loaded, because a <c>StaticResource</c> that fails to resolve is a
@@ -120,6 +125,8 @@ public sealed class ThemeService(ISettingsRepository settings)
             };
         }
 
+        _appliedPreference = preference;
+        _appliedAccentId = accentId;
         ApplyPalette(ResolveMode(preference), ThemeCatalog.ResolveAccent(accentId));
     }
 
@@ -177,6 +184,12 @@ public sealed class ThemeService(ISettingsRepository settings)
         for (var i = 0; i < CategoricalSlots; i++)
             SetKey($"{Prefix}Categorical{i}Brush", categorical[i % categorical.Count]);
 
+        // The scrim is the one palette entry that must not be opaque: it sits over
+        // live content, and a solid fill turns a modal into a blank grey slab. Dark
+        // mode needs a heavier veil than light because the content beneath it is
+        // already dark.
+        SetKeyArgb("SmScrimBrush", mode == ThemeMode.Dark ? (byte)0xB0 : (byte)0x59, neutral.SurfaceSunken);
+
         ApplyBridgedSystemKeys();
     }
 
@@ -215,6 +228,7 @@ public sealed class ThemeService(ISettingsRepository settings)
         ["NavigationViewExpandedPaneBackground"] = "SmSurfaceSunkenBrush",
         ["NavigationViewContentBackground"] = "SmSurfaceBaseBrush",
         ["SolidBackgroundFillColorBaseBrush"] = "SmSurfaceBaseBrush",
+        ["SmokeFillColorDefaultBrush"] = "SmScrimBrush",
     };
 
     private static void ApplyBridgedSystemKeys()
@@ -222,11 +236,10 @@ public sealed class ThemeService(ISettingsRepository settings)
         foreach (var (systemKey, paletteKey) in BridgedSystemKeys)
         {
             if (Application.Current.Resources.TryGetValue(paletteKey, out var source)
-                && source is SolidColorBrush from
-                && Application.Current.Resources.TryGetValue(systemKey, out var target)
-                && target is SolidColorBrush to)
+                && source is SolidColorBrush from)
             {
-                to.Color = from.Color;
+                // Copy the whole colour including alpha — the scrim depends on it.
+                ApplyToDictionary(Application.Current.Resources, systemKey, from.Color);
             }
         }
     }
@@ -257,6 +270,12 @@ public sealed class ThemeService(ISettingsRepository settings)
     /// how many places end up merging the palette.
     /// </para>
     /// </summary>
+    private static void SetKeyArgb(string resourceKey, byte alpha, Rgb color)
+    {
+        var value = Color.FromArgb(alpha, color.R, color.G, color.B);
+        ApplyToDictionary(Application.Current.Resources, resourceKey, value);
+    }
+
     private static void SetKey(string resourceKey, Rgb color)
     {
         var value = Color.FromArgb(0xFF, color.R, color.G, color.B);
@@ -279,19 +298,19 @@ public sealed class ThemeService(ISettingsRepository settings)
     }
 
     /// <summary>
-    /// Re-applies when the system flips light/dark while the app follows it.
-    /// Without this the neutral surfaces would keep their previous mode's values.
+    /// Re-applies the palette when the element's actual theme changes, so the
+    /// neutral surfaces follow light/dark rather than keeping the previous mode's
+    /// values.
+    /// <para>
+    /// It deliberately re-applies what is currently <em>on screen</em> rather than
+    /// what is persisted. Setting <c>RequestedTheme</c> raises this event, so
+    /// reloading settings here overwrote the user's unsaved preview the instant
+    /// they made it: choosing Light left the app dark, and choosing an accent
+    /// reverted it to the saved one a moment later.
+    /// </para>
     /// </summary>
-    private async void OnActualThemeChanged(FrameworkElement sender, object args)
-    {
-        try
-        {
-            await ApplyFromSettingsAsync().ConfigureAwait(true);
-        }
-        catch (Exception)
-        {
-            // A failed re-theme must never take the app down; the previous palette
-            // stays applied and remains readable.
-        }
-    }
+    private void OnActualThemeChanged(FrameworkElement sender, object args) =>
+        ApplyPalette(
+            ResolveMode(_appliedPreference),
+            ThemeCatalog.ResolveAccent(_appliedAccentId));
 }

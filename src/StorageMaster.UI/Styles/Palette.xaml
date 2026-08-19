@@ -89,4 +89,7 @@
     <!-- driven from SmSurfaceBaseBrush -->
     <SolidColorBrush x:Key="SolidBackgroundFillColorBaseBrush" Color="Transparent" />
 
+    <!-- driven from SmScrimBrush -->
+    <SolidColorBrush x:Key="SmokeFillColorDefaultBrush" Color="Transparent" />
+
 </ResourceDictionary>

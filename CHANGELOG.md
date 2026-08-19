@@ -10,6 +10,54 @@ No unreleased changes.
 
 ---
 
+## [2.3.1] — 2026-08-19 — Visual Verification Pass
+
+The 2.3.0 interface work was never seen rendered before release. Looking at it
+found five defects that a clean build, 482 passing tests and verified contrast
+maths had all missed.
+
+### Fixed
+
+- Cards, gauges and borders were painted with transparent brushes, so the whole
+  page structure was invisible. Each style dictionary merges the palette itself —
+  it must, because a merged dictionary cannot see its siblings while it is parsed
+  — and merging the same source in several places creates a separate brush object
+  per merge. Only the copy reachable from `Application.Resources` was being
+  coloured. Every instance is now updated.
+- The Mica backdrop tinted the entire shell with the desktop wallpaper, which
+  destroyed the step from base to raised surface that the palette exists to
+  create. It is off; the window is painted from the palette so it looks the same
+  on every machine.
+- Choosing Light left the app dark, and choosing an accent silently reverted to
+  the saved one a moment later. Setting `RequestedTheme` raises `ActualThemeChanged`,
+  whose handler reloaded persisted settings and overwrote the unsaved preview.
+- Toggle switches read "Ein"/"Aus" and the navigation entry read "Einstellungen"
+  in an otherwise English app. `ApplicationLanguages.PrimaryLanguageOverride` is
+  the documented fix but is silently ignored for an unpackaged app — the call
+  succeeds and nothing changes. The affected strings are now set explicitly.
+- Treemap blocks used categorical colours at full strength. Those are tuned for
+  legend swatches and thin bars; at treemap scale they overpowered the panel.
+  Fills are blended toward the chart well, the legend keeps the unblended colour,
+  and size rather than saturation carries the signal.
+- The Type column on Results was clipped by the action buttons beside it.
+- With the backdrop disabled and no background on the window root, any pixel
+  neither the pane nor the page covered fell through to the bare window and
+  rendered black — hard black seams between the panels in light theme.
+- The modal veil was an opaque grey fill, which read as a broken page rather than
+  as content behind glass. It is translucent now, heavier in dark theme than light
+  because the content beneath it is already dark.
+- The page now sits on the shell with a rounded leading edge and a hairline
+  stroke, instead of butting against the rail and header on hard seams.
+
+### Changed
+
+- Interface language defaults to English rather than following Windows. The app's
+  own strings are English and no translation ships yet, so following Windows
+  produced exactly the half-translated interface the setting exists to prevent.
+  When real translations land this should move back to System.
+
+---
+
 ## [2.3.0] — 2026-08-19 — Performance, Correctness, And A Dark-First Interface
 
 ### Fixed

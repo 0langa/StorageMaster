@@ -1,4 +1,4 @@
-using StorageMaster.Core.Models;
+﻿using StorageMaster.Core.Models;
 using Windows.Globalization;
 
 namespace StorageMaster.UI.Infrastructure;
@@ -30,8 +30,24 @@ public static class LanguageService
     private const string German = "de-DE";
 
     /// <summary>
+    /// BCP-47 tag for a language, for callers that need to tag the visual tree.
+    /// </summary>
+    public static string TagFor(UiLanguage language) => language switch
+    {
+        UiLanguage.English => English,
+        UiLanguage.German => German,
+        _ => string.Empty,
+    };
+
+    /// <summary>
     /// Applies <paramref name="language"/> to the process. Passing
     /// <see cref="UiLanguage.System"/> clears the override so Windows decides.
+    /// <para>
+    /// Note that this alone is not sufficient for an unpackaged app: the override
+    /// is accepted and then ignored, so built-in control text still follows
+    /// Windows. Styles/Inputs.xaml sets ToggleSwitch content explicitly for that
+    /// reason, and the window root is tagged with the matching language.
+    /// </para>
     /// </summary>
     public static void Apply(UiLanguage language)
     {

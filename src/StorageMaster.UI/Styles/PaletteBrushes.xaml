@@ -50,4 +50,8 @@
     <SolidColorBrush x:Key="SmCategorical6Brush" Color="Transparent" />
     <SolidColorBrush x:Key="SmCategorical7Brush" Color="Transparent" />
 
+    <!-- Modal veil. Translucent on purpose: an opaque grey block reads as a broken
+         page rather than as content behind glass. -->
+    <SolidColorBrush x:Key="SmScrimBrush" Color="Transparent" />
+
 </ResourceDictionary>

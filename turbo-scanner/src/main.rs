@@ -701,7 +701,13 @@ mod tests {
         let version = Args::try_parse_from(["turbo-scanner", "--version"]).unwrap_err();
 
         assert_eq!(version.kind(), clap::error::ErrorKind::DisplayVersion);
-        assert_eq!(version.to_string().trim(), "turbo-scanner 2.3.0");
+        // Compared against the package version rather than a literal: a hardcoded
+        // version here fails the build on every release bump, for a reason that has
+        // nothing to do with what this test guards.
+        assert_eq!(
+            version.to_string().trim(),
+            format!("turbo-scanner {}", env!("CARGO_PKG_VERSION"))
+        );
     }
 
     #[test]

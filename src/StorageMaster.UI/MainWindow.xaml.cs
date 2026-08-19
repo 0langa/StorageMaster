@@ -56,6 +56,17 @@ public sealed partial class MainWindow : Window
         NavView.PaneClosed += (_, _) => UpdatePaneFooterVisibility();
 
         Title = "StorageMaster";
+
+        // NavigationView's built-in settings entry takes its label from the Windows
+        // display language, so it read "Einstellungen" in an otherwise English app.
+        // It has to be relabelled after the template applies — SettingsItem is null
+        // in the constructor — so this hangs off Loaded rather than running here.
+        NavView.Loaded += (_, _) =>
+        {
+            if (NavView.SettingsItem is NavigationViewItem settingsItem)
+                settingsItem.Content = "Settings";
+        };
+
         TryApplyMicaBackdrop();
         ApplyStartupWindowSize();
 

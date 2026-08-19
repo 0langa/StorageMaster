@@ -58,7 +58,15 @@ public partial class App : Application
 
         _window = Services.GetRequiredService<MainWindow>();
         if (_window.Content is FrameworkElement themeRoot)
+        {
             theme.Attach(themeRoot);
+
+            // Tag the tree with the chosen language so control templates resolve
+            // their own text against it rather than the Windows display language.
+            var tag = Infrastructure.LanguageService.TagFor(_startupLanguage);
+            if (!string.IsNullOrEmpty(tag))
+                themeRoot.Language = tag;
+        }
 
         _window.Activate();
         _ = ApplyRequestedThemeAsync();
@@ -153,6 +161,9 @@ public partial class App : Application
     /// exactly what <see cref="UiLanguage.System"/> means anyway.
     /// </para>
     /// </summary>
+    /// <summary>Language resolved at startup, reused when tagging the visual tree.</summary>
+    private static UiLanguage _startupLanguage = UiLanguage.English;
+
     private static void ApplyStartupLanguage()
     {
         try
@@ -167,6 +178,7 @@ public partial class App : Application
                 .GetAwaiter()
                 .GetResult();
 
+            _startupLanguage = settings.Language;
             Infrastructure.LanguageService.Apply(settings.Language);
         }
         catch (Exception)

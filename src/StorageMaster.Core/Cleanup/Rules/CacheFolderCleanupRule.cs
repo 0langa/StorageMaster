@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using StorageMaster.Core.Interfaces;
+using StorageMaster.Core.Localization;
 using StorageMaster.Core.Models;
 
 namespace StorageMaster.Core.Cleanup.Rules;
@@ -14,10 +15,13 @@ public sealed class CacheFolderCleanupRule : ICleanupRule
     private readonly IScanRepository _repo;
 
     public string RuleId => "core.cache-folders";
-    public string DisplayName => "Application Caches";
+    public string DisplayName => Loc.Get("Rule_ApplicationCaches_Name");
     public CleanupCategory Category => CleanupCategory.CacheFolders;
 
-    // (subpath-under-LocalAppData, display-name, risk)
+    // (subpath-under-LocalAppData, display-name key, risk)
+    // The name is held as a catalogue key rather than a resolved string: this
+    // array is initialised once per process, so resolving here would freeze the
+    // folder names in whatever language happened to be active at first use.
     // Note: do NOT add %LocalAppData%\Temp here — TempFilesCleanupRule already
     // covers it at the individual-file level. Adding the folder here would cause
     // "file not found" failures on the temp-file suggestion when both are selected.
@@ -26,15 +30,15 @@ public sealed class CacheFolderCleanupRule : ICleanupRule
     // profile, so listing the Default profile here as well produced two auto-selected
     // suggestions for one directory and double-counted it in the estimated savings
     // shown before the user confirms.
-    private static readonly (string Path, string Name, CleanupRisk Risk)[] KnownCaches =
+    private static readonly (string Path, string NameKey, CleanupRisk Risk)[] KnownCaches =
     [
-        (@"Microsoft\Windows\INetCache",            "IE / Edge Internet Cache",      CleanupRisk.Safe),
-        (@"Microsoft\Windows\WebCache",             "Windows Web Cache",             CleanupRisk.Low),
-        (@"Mozilla\Firefox\Profiles",               "Firefox Profiles Cache",        CleanupRisk.Low),
-        (@"npm-cache",                              "npm Cache",                     CleanupRisk.Safe),
-        (@"pip\Cache",                              "pip Cache",                     CleanupRisk.Safe),
-        (@"NuGet\Cache",                            "NuGet Package Cache",           CleanupRisk.Safe),
-        (@"Yarn\Cache",                             "Yarn Cache",                    CleanupRisk.Safe),
+        (@"Microsoft\Windows\INetCache",            "Rule_ApplicationCaches_InternetCache",   CleanupRisk.Safe),
+        (@"Microsoft\Windows\WebCache",             "Rule_ApplicationCaches_WebCache",        CleanupRisk.Low),
+        (@"Mozilla\Firefox\Profiles",               "Rule_ApplicationCaches_FirefoxProfiles", CleanupRisk.Low),
+        (@"npm-cache",                              "Rule_ApplicationCaches_Npm",             CleanupRisk.Safe),
+        (@"pip\Cache",                              "Rule_ApplicationCaches_Pip",             CleanupRisk.Safe),
+        (@"NuGet\Cache",                            "Rule_ApplicationCaches_NuGet",           CleanupRisk.Safe),
+        (@"Yarn\Cache",                             "Rule_ApplicationCaches_Yarn",            CleanupRisk.Safe),
     ];
 
     public CacheFolderCleanupRule(IScanRepository repo) => _repo = repo;
@@ -52,7 +56,7 @@ public sealed class CacheFolderCleanupRule : ICleanupRule
             f => f,
             StringComparer.OrdinalIgnoreCase);
 
-        foreach (var (subPath, name, risk) in KnownCaches)
+        foreach (var (subPath, nameKey, risk) in KnownCaches)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
@@ -68,9 +72,15 @@ public sealed class CacheFolderCleanupRule : ICleanupRule
             {
                 Id = Guid.NewGuid(),
                 RuleId = RuleId,
-                Title = $"{name} ({FormatBytes(folder.TotalSizeBytes)})",
-                Description = $"Cache folder at {fullPath}. " +
-                                 $"Contains {folder.FileCount:N0} files totalling {FormatBytes(folder.TotalSizeBytes)}.",
+                Title = Loc.Format(
+                    "Rule_ApplicationCaches_Title",
+                    Loc.Get(nameKey),
+                    FormatBytes(folder.TotalSizeBytes)),
+                Description = Loc.Format(
+                    "Rule_ApplicationCaches_Description",
+                    fullPath,
+                    folder.FileCount.ToString("N0"),
+                    FormatBytes(folder.TotalSizeBytes)),
                 Category = Category,
                 Risk = risk,
                 EstimatedBytes = folder.TotalSizeBytes,

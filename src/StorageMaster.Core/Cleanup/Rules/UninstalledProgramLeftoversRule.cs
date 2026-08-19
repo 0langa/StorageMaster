@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using StorageMaster.Core.Interfaces;
+using StorageMaster.Core.Localization;
 using StorageMaster.Core.Models;
 
 namespace StorageMaster.Core.Cleanup.Rules;
@@ -23,7 +24,7 @@ public sealed class UninstalledProgramLeftoversRule : ICleanupRule
     private readonly IInstalledProgramProvider _programProvider;
 
     public string RuleId => "core.program-leftovers";
-    public string DisplayName => "Uninstalled Program Leftovers";
+    public string DisplayName => Loc.Get("Rule_ProgramLeftovers_Name");
     public CleanupCategory Category => CleanupCategory.ProgramLeftovers;
 
     // Folders that exist in AppData for system / framework reasons and must
@@ -127,17 +128,18 @@ public sealed class UninstalledProgramLeftoversRule : ICleanupRule
             {
                 Id = Guid.NewGuid(),
                 RuleId = RuleId,
-                Title = $"Program leftover: {candidate.name}",
-                Description = $"AppData folder that appears to belong to a program no longer installed, " +
-                                 $"unmodified for over 90 days. Review carefully before deleting. " +
-                                 $"Path: {candidate.path}. Size: {FormatBytes(candidate.size)}.",
+                Title = Loc.Format("Rule_ProgramLeftovers_Title", candidate.name),
+                Description = Loc.Format(
+                    "Rule_ProgramLeftovers_Description",
+                    candidate.path,
+                    FormatBytes(candidate.size)),
                 Category = Category,
                 Risk = CleanupRisk.High,
                 EstimatedBytes = candidate.size,
                 SupportsPermanentDelete = false,
                 SupportsQuarantine = false,
                 Confidence = 0.25,
-                SafetyNotes = "Heuristic only. Not proof of uninstallation. Review path and restore from Recycle Bin if needed.",
+                SafetyNotes = Loc.Get("Safety_ProgramLeftovers_Notes"),
                 TargetPaths = [candidate.path],
                 IsSystemPath = false,
             };

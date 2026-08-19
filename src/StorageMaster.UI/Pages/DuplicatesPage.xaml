@@ -1,13 +1,14 @@
 ﻿<Page
     x:Class="StorageMaster.UI.Pages.DuplicatesPage"
     x:Name="PageRoot"
-    AutomationProperties.Name="Duplicates page"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:controls="using:StorageMaster.UI.Controls"
     xmlns:local="using:StorageMaster.UI.Pages"
     xmlns:models="using:StorageMaster.Core.Models"
-    xmlns:converters="using:StorageMaster.UI.Converters">
+    xmlns:converters="using:StorageMaster.UI.Converters"
+    xmlns:i18n="using:StorageMaster.UI.Infrastructure"
+    AutomationProperties.Name="{i18n:Loc Key=Duplicates_Page_Automation}">
 
     <Page.Resources>
         <converters:BoolToVisibilityConverter x:Key="BoolVis" />
@@ -29,46 +30,46 @@
 
         <CommandBar Grid.Row="0" DefaultLabelPosition="Right" Background="Transparent">
             <AppBarButton Icon="Refresh"
-                          Label="Run"
+                          Label="{i18n:Loc Key=Duplicates_Command_Run}"
                           Command="{x:Bind ViewModel.RunAnalysisCommand}"
                           IsEnabled="{x:Bind ViewModel.CanRun, Mode=OneWay}" />
             <AppBarButton Icon="Cancel"
-                          Label="Cancel"
+                          Label="{i18n:Loc Key=Duplicates_Command_Cancel}"
                           Command="{x:Bind ViewModel.CancelAnalysisCommand}"
                           IsEnabled="{x:Bind ViewModel.CanCancel, Mode=OneWay}" />
             <AppBarButton Icon="Delete"
-                          Label="Delete selected"
+                          Label="{i18n:Loc Key=Safety_Duplicates_DeleteSelected}"
                           Command="{x:Bind ViewModel.DeleteSelectedCommand}"
                           IsEnabled="{x:Bind ViewModel.CanDeleteSelected, Mode=OneWay}" />
             <CommandBar.Content>
-                <controls:PageHeader Title="Deduplicate"
-                                     Subtitle="Grouped review, keeper policies, and recoverable deletion defaults." />
+                <controls:PageHeader Title="{i18n:Loc Key=Duplicates_Title}"
+                                     Subtitle="{i18n:Loc Key=Duplicates_Subtitle}" />
             </CommandBar.Content>
             <CommandBar.SecondaryCommands>
                 <AppBarButton Icon="SelectAll"
-                              Label="Select safe exact (page)"
+                              Label="{i18n:Loc Key=Duplicates_Command_SelectSafeExact}"
                               Command="{x:Bind ViewModel.SelectSafeExactDuplicatesOnPageCommand}"
                               IsEnabled="{x:Bind ViewModel.CanModifyDeletionPlan, Mode=OneWay}" />
                 <AppBarButton Icon="ClearSelection"
-                              Label="Deselect page"
+                              Label="{i18n:Loc Key=Duplicates_Command_DeselectPage}"
                               Command="{x:Bind ViewModel.DeselectCurrentPageCommand}"
                               IsEnabled="{x:Bind ViewModel.CanModifyDeletionPlan, Mode=OneWay}" />
                 <AppBarSeparator />
                 <AppBarButton Icon="Save"
-                              Label="Export CSV"
+                              Label="{i18n:Loc Key=Duplicates_Command_ExportCsv}"
                               Command="{x:Bind ViewModel.ExportCsvCommand}" />
                 <AppBarButton Icon="SaveLocal"
-                              Label="Export JSON"
+                              Label="{i18n:Loc Key=Duplicates_Command_ExportJson}"
                               Command="{x:Bind ViewModel.ExportJsonCommand}" />
                 <AppBarButton Icon="Document"
-                              Label="Export HTML"
+                              Label="{i18n:Loc Key=Duplicates_Command_ExportHtml}"
                               Command="{x:Bind ViewModel.ExportHtmlCommand}" />
                 <AppBarButton Icon="Cancel"
-                              Label="Cancel export"
+                              Label="{i18n:Loc Key=Duplicates_Command_CancelExport}"
                               Command="{x:Bind ViewModel.CancelExportCommand}"
                               IsEnabled="{x:Bind ViewModel.CanCancelExport, Mode=OneWay}" />
                 <AppBarButton Icon="OpenFile"
-                              Label="Open export folder"
+                              Label="{i18n:Loc Key=Duplicates_Command_OpenExportFolder}"
                               Command="{x:Bind ViewModel.OpenExportFolderCommand}"
                               IsEnabled="{x:Bind ViewModel.CanOpenExportFolder, Mode=OneWay}" />
             </CommandBar.SecondaryCommands>
@@ -80,8 +81,8 @@
         <StackPanel Spacing="16">
             <InfoBar IsOpen="True"
                      Severity="Informational"
-                     Title="Safety first"
-                     Message="Exact matches can be batch-selected. Fuzzy text, image, and video matches require review; quarantine remains preferred when restore metadata exists." />
+                     Title="{i18n:Loc Key=Safety_Duplicates_InfoBar_Title}"
+                     Message="{i18n:Loc Key=Safety_Duplicates_InfoBar_Message}" />
 
         <Border Style="{StaticResource SectionCardStyle}">
             <Grid RowSpacing="12">
@@ -97,7 +98,7 @@
                     </Grid.ColumnDefinitions>
 
                     <StackPanel Grid.Column="0" Spacing="12">
-                        <TextBlock Text="Start analysis"
+                        <TextBlock Text="{i18n:Loc Key=Duplicates_StartAnalysis_Header}"
                                    Style="{StaticResource BodyStrongTextBlockStyle}" />
                         <TextBlock Text="{x:Bind ViewModel.LatestRunSummary, Mode=OneWay}"
                                    Style="{StaticResource HelperTextStyle}"
@@ -116,32 +117,32 @@
                             </Grid.RowDefinitions>
 
                         <ComboBox Grid.Row="0" Grid.Column="0"
-                                  Header="Scan session"
+                                  Header="{i18n:Loc Key=Duplicates_ScanSession_Header}"
                                   ItemsSource="{x:Bind ViewModel.Sessions}"
                                   SelectedItem="{x:Bind ViewModel.SelectedSession, Mode=TwoWay}"
                                   IsEnabled="{x:Bind ViewModel.CanChangeSession, Mode=OneWay}"
                                   DisplayMemberPath="RootPath" />
 
                         <ComboBox Grid.Row="0" Grid.Column="1"
-                                  Header="File type"
+                                  Header="{i18n:Loc Key=Duplicates_FileType_Header}"
                                   ItemsSource="{x:Bind ViewModel.CategoryOptions}"
                                   SelectedItem="{x:Bind ViewModel.SelectedCategory, Mode=TwoWay}"
                                   DisplayMemberPath="Label" />
 
                         <NumberBox Grid.Row="0" Grid.Column="2"
-                                   Header="Min size (MB)"
+                                   Header="{i18n:Loc Key=Duplicates_MinSize_Header}"
                                    Minimum="0"
                                    SmallChange="1"
                                    SpinButtonPlacementMode="Inline"
                                    Value="{x:Bind ViewModel.MinimumSizeMb, Mode=TwoWay}" />
 
                         <ComboBox Grid.Row="1" Grid.Column="0"
-                                  Header="Scope"
+                                  Header="{i18n:Loc Key=Duplicates_Scope_Header}"
                                   ItemsSource="{x:Bind ViewModel.ScopeModeOptions, Mode=OneWay}"
                                   SelectedItem="{x:Bind ViewModel.SelectedScopeMode, Mode=TwoWay}" />
 
                         <ComboBox Grid.Row="1" Grid.Column="1"
-                                  Header="Keep one file by"
+                                  Header="{i18n:Loc Key=Duplicates_KeeperPolicy_Header}"
                                   ItemsSource="{x:Bind ViewModel.KeeperPolicyOptions, Mode=OneWay}"
                                   SelectedItem="{x:Bind ViewModel.KeeperPolicy, Mode=TwoWay}"
                                   IsEnabled="{x:Bind ViewModel.CanModifyDeletionPlan, Mode=OneWay}" />
@@ -152,22 +153,22 @@
                                    
                                    TextWrapping="WrapWholeWords" />
 
-                        <Expander Header="Folder scope and file filters">
+                        <Expander Header="{i18n:Loc Key=Duplicates_ScopeFilters_Header}">
                             <StackPanel Spacing="12" Padding="0,12,0,0">
-                                <TextBox Header="Included folders"
-                                         PlaceholderText="One path per line"
+                                <TextBox Header="{i18n:Loc Key=Duplicates_IncludedFolders_Header}"
+                                         PlaceholderText="{i18n:Loc Key=Duplicates_PathList_Placeholder}"
                                          AcceptsReturn="True"
                                          Visibility="{x:Bind ViewModel.IsIncludedScopeMode, Mode=OneWay, Converter={StaticResource BoolVis}}"
                                          Text="{x:Bind ViewModel.ScopePathsText, Mode=TwoWay}" />
 
-                                <TextBox Header="Excluded folders"
-                                         PlaceholderText="One path per line"
+                                <TextBox Header="{i18n:Loc Key=Duplicates_ExcludedFolders_Header}"
+                                         PlaceholderText="{i18n:Loc Key=Duplicates_PathList_Placeholder}"
                                          AcceptsReturn="True"
                                          Visibility="{x:Bind ViewModel.IsExcludedScopeMode, Mode=OneWay, Converter={StaticResource BoolVis}}"
                                          Text="{x:Bind ViewModel.ExcludedScopePathsText, Mode=TwoWay}" />
 
-                                <TextBox Header="Custom extensions"
-                                         PlaceholderText=".jpg,.png,.mp4,.pdf"
+                                <TextBox Header="{i18n:Loc Key=Duplicates_CustomExtensions_Header}"
+                                         PlaceholderText="{i18n:Loc Key=Duplicates_CustomExtensions_Placeholder}"
                                          Visibility="{x:Bind ViewModel.IsCustomCategorySelected, Mode=OneWay, Converter={StaticResource BoolVis}}"
                                          Text="{x:Bind ViewModel.CustomExtensionsText, Mode=TwoWay}" />
                             </StackPanel>
@@ -175,23 +176,23 @@
                     </StackPanel>
 
                     <StackPanel Grid.Column="1" Spacing="12">
-                        <TextBlock Text="Match methods"
+                        <TextBlock Text="{i18n:Loc Key=Duplicates_MatchMethods_Header}"
                                    Style="{StaticResource BodyStrongTextBlockStyle}" />
 
                         <Border Style="{StaticResource SubtleCardStyle}">
                             <StackPanel Spacing="10">
-                                <TextBlock Text="Exact match is always on."
+                                <TextBlock Text="{i18n:Loc Key=Duplicates_ExactAlwaysOn}"
                                            FontWeight="SemiBold" />
-                                <ToggleSwitch Header="Text documents"
+                                <ToggleSwitch Header="{i18n:Loc Key=Duplicates_Method_TextDocuments_Header}"
                                               IsOn="{x:Bind ViewModel.IncludeNormalizedText, Mode=TwoWay}" />
-                                <ToggleSwitch Header="Similar images"
+                                <ToggleSwitch Header="{i18n:Loc Key=Duplicates_Method_SimilarImages_Header}"
                                               IsOn="{x:Bind ViewModel.IncludeImagePHash, Mode=TwoWay}"
                                               IsEnabled="{x:Bind ViewModel.IsImagePHashAvailable, Mode=OneWay}" />
                                 <TextBlock Text="{x:Bind ViewModel.ImageMethodSummary, Mode=OneWay}"
                                            Style="{StaticResource HelperTextStyle}"
                                            
                                            TextWrapping="WrapWholeWords" />
-                                <ToggleSwitch Header="Similar videos"
+                                <ToggleSwitch Header="{i18n:Loc Key=Duplicates_Method_SimilarVideos_Header}"
                                               IsOn="{x:Bind ViewModel.IncludeVideoPHash, Mode=TwoWay}"
                                               IsEnabled="{x:Bind ViewModel.IsVideoPHashAvailable, Mode=OneWay}" />
                                 <TextBlock Text="{x:Bind ViewModel.VideoMethodSummary, Mode=OneWay}"
@@ -201,16 +202,16 @@
                             </StackPanel>
                         </Border>
 
-                        <Expander Header="Advanced options">
+                        <Expander Header="{i18n:Loc Key=Duplicates_AdvancedOptions_Header}">
                             <StackPanel Spacing="10" Padding="0,12,0,0">
-                                <ToggleSwitch Header="Include hidden and system files"
+                                <ToggleSwitch Header="{i18n:Loc Key=Duplicates_IncludeHidden_Header}"
                                               IsOn="{x:Bind ViewModel.IncludeHiddenFiles, Mode=TwoWay}" />
-                                <ToggleSwitch Header="Include reparse points"
+                                <ToggleSwitch Header="{i18n:Loc Key=Duplicates_IncludeReparsePoints_Header}"
                                               IsOn="{x:Bind ViewModel.IncludeReparsePoints, Mode=TwoWay}" />
-                                <ToggleSwitch Header="Use Recycle Bin"
+                                <ToggleSwitch Header="{i18n:Loc Key=Safety_Duplicates_UseRecycleBin}"
                                               IsOn="{x:Bind ViewModel.UseRecycleBin, Mode=TwoWay}"
                                               IsEnabled="{x:Bind ViewModel.CanModifyDeletionPlan, Mode=OneWay}" />
-                                <ToggleSwitch Header="Use quarantine"
+                                <ToggleSwitch Header="{i18n:Loc Key=Safety_Duplicates_UseQuarantine}"
                                               IsOn="{x:Bind ViewModel.UseQuarantine, Mode=TwoWay}"
                                               IsEnabled="{x:Bind ViewModel.CanModifyDeletionPlan, Mode=OneWay}" />
                                 <TextBlock Text="{x:Bind ViewModel.DeleteModeSummary, Mode=OneWay}"
@@ -256,14 +257,14 @@
             <!-- Four readouts on one baseline: label above value, same weight. -->
             <Border Grid.Column="0" Style="{StaticResource MetricCardStyle}">
                 <StackPanel Spacing="2">
-                    <TextBlock Text="Groups found" Style="{StaticResource MetricLabelTextStyle}" />
+                    <TextBlock Text="{i18n:Loc Key=Duplicates_Metric_GroupsFound}" Style="{StaticResource MetricLabelTextStyle}" />
                     <TextBlock Text="{x:Bind ViewModel.TotalGroupCount, Mode=OneWay}" Style="{StaticResource MetricTextStyle}" />
                 </StackPanel>
             </Border>
 
             <Border Grid.Column="1" Style="{StaticResource MetricCardStyle}">
                 <StackPanel Spacing="2">
-                    <TextBlock Text="Safe exact" Style="{StaticResource MetricLabelTextStyle}" />
+                    <TextBlock Text="{i18n:Loc Key=Duplicates_Metric_SafeExact}" Style="{StaticResource MetricLabelTextStyle}" />
                     <TextBlock Text="{x:Bind ViewModel.ExactGroupCount, Mode=OneWay}"
                                Style="{StaticResource MetricTextStyle}"
                                Foreground="{StaticResource SmSeverityHealthyTextBrush}" />
@@ -272,7 +273,7 @@
 
             <Border Grid.Column="2" Style="{StaticResource MetricCardStyle}">
                 <StackPanel Spacing="2">
-                    <TextBlock Text="Needs review" Style="{StaticResource MetricLabelTextStyle}" />
+                    <TextBlock Text="{i18n:Loc Key=Duplicates_Metric_NeedsReview}" Style="{StaticResource MetricLabelTextStyle}" />
                     <TextBlock Text="{x:Bind ViewModel.ReviewGroupCount, Mode=OneWay}"
                                Style="{StaticResource MetricTextStyle}"
                                Foreground="{StaticResource SmSeverityWarningTextBrush}" />
@@ -281,7 +282,7 @@
 
             <Border Grid.Column="3" Style="{StaticResource MetricCardStyle}">
                 <StackPanel Spacing="2">
-                    <TextBlock Text="Reclaimable" Style="{StaticResource MetricLabelTextStyle}" />
+                    <TextBlock Text="{i18n:Loc Key=Duplicates_Metric_Reclaimable}" Style="{StaticResource MetricLabelTextStyle}" />
                     <TextBlock Text="{x:Bind ViewModel.ReclaimableText, Mode=OneWay}" Style="{StaticResource MetricTextStyle}" />
                 </StackPanel>
             </Border>
@@ -309,24 +310,24 @@
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
                         <TextBox Grid.Column="0"
-                                 PlaceholderText="Search filename or path"
+                                 PlaceholderText="{i18n:Loc Key=Duplicates_Search_Placeholder}"
                                  IsEnabled="{x:Bind ViewModel.CanModifyDeletionPlan, Mode=OneWay}"
                                  Text="{x:Bind ViewModel.SearchText, Mode=TwoWay}" />
                         <Button Grid.Column="1"
-                                Content="Previous"
+                                Content="{i18n:Loc Key=Duplicates_Page_Previous}"
                                 Command="{x:Bind ViewModel.PreviousGroupsPageCommand}"
                                 IsEnabled="{x:Bind ViewModel.CanLoadPreviousGroups, Mode=OneWay}" />
                         <TextBlock Grid.Column="2"
                                    Text="{x:Bind ViewModel.CurrentPage, Mode=OneWay}"
                                    VerticalAlignment="Center" />
                         <Button Grid.Column="3"
-                                Content="Next"
+                                Content="{i18n:Loc Key=Duplicates_Page_Next}"
                                 Command="{x:Bind ViewModel.NextGroupsPageCommand}"
                                 IsEnabled="{x:Bind ViewModel.CanLoadNextGroups, Mode=OneWay}" />
                     </Grid>
 
                     <Expander Grid.Row="1"
-                              Header="More filters"
+                              Header="{i18n:Loc Key=Duplicates_MoreFilters_Header}"
                               IsEnabled="{x:Bind ViewModel.CanModifyDeletionPlan, Mode=OneWay}">
                         <StackPanel Spacing="12" Padding="0,12,0,0">
                             <Grid ColumnSpacing="12">
@@ -336,29 +337,29 @@
                                     <ColumnDefinition Width="*" />
                                 </Grid.ColumnDefinitions>
                                 <ComboBox Grid.Column="0"
-                                          Header="Sort"
+                                          Header="{i18n:Loc Key=Duplicates_Sort_Header}"
                                           ItemsSource="{x:Bind ViewModel.GroupSortOptions, Mode=OneWay}"
                                           SelectedItem="{x:Bind ViewModel.GroupSortBy, Mode=TwoWay}" />
                                 <NumberBox Grid.Column="1"
-                                           Header="Min confidence"
+                                           Header="{i18n:Loc Key=Duplicates_MinConfidence_Header}"
                                            Minimum="0"
                                            Maximum="1"
                                            SmallChange="0.1"
                                            SpinButtonPlacementMode="Inline"
                                            Value="{x:Bind ViewModel.MinimumConfidenceFilter, Mode=TwoWay}" />
                                 <ComboBox Grid.Column="2"
-                                          Header="Method"
+                                          Header="{i18n:Loc Key=Duplicates_MethodFilter_Header}"
                                           ItemsSource="{x:Bind ViewModel.MethodFilterOptions}"
                                           SelectedItem="{x:Bind ViewModel.SelectedMethodFilter, Mode=TwoWay}"
                                           DisplayMemberPath="Label" />
                             </Grid>
 
                             <StackPanel Orientation="Horizontal" Spacing="16">
-                                <ToggleSwitch Header="Selected only"
+                                <ToggleSwitch Header="{i18n:Loc Key=Duplicates_Filter_SelectedOnly}"
                                               IsOn="{x:Bind ViewModel.FilterSelectedOnly, Mode=TwoWay}" />
-                                <ToggleSwitch Header="Missing only"
+                                <ToggleSwitch Header="{i18n:Loc Key=Duplicates_Filter_MissingOnly}"
                                               IsOn="{x:Bind ViewModel.FilterMissingOnly, Mode=TwoWay}" />
-                                <ToggleSwitch Header="Errored only"
+                                <ToggleSwitch Header="{i18n:Loc Key=Duplicates_Filter_ErroredOnly}"
                                               IsOn="{x:Bind ViewModel.FilterErroredOnly, Mode=TwoWay}" />
                             </StackPanel>
                         </StackPanel>
@@ -428,7 +429,7 @@
                                            Style="{StaticResource HelperTextStyle}" />
                             </StackPanel>
                             <ComboBox Grid.Column="1"
-                                      Header="Keep one file by"
+                                      Header="{i18n:Loc Key=Duplicates_KeeperPolicy_Header}"
                                       Margin="8,0,0,0"
                                       ItemsSource="{x:Bind ViewModel.KeeperPolicyOptions, Mode=OneWay}"
                                       SelectedItem="{x:Bind ViewModel.KeeperPolicy, Mode=TwoWay}"
@@ -509,7 +510,7 @@
                         </ListView>
 
                         <TextBlock Grid.Row="3"
-                                   Text="Select a group to review members."
+                                   Text="{i18n:Loc Key=Duplicates_Members_EmptyState}"
                                    Visibility="{x:Bind ViewModel.HasSelectedGroup, Mode=OneWay, Converter={StaticResource NotBoolVis}}" />
                     </Grid>
                 </Border>
@@ -541,7 +542,7 @@
                         <Button Grid.Row="2"
                                 HorizontalAlignment="Right"
                                 Margin="0,8,0,0"
-                                Content="Load more"
+                                Content="{i18n:Loc Key=Duplicates_Errors_LoadMore}"
                                 Command="{x:Bind ViewModel.LoadMoreErrorsCommand}"
                                 IsEnabled="{x:Bind ViewModel.CanLoadMoreErrors, Mode=OneWay}" />
                     </Grid>
@@ -550,9 +551,9 @@
                 <Border Grid.Row="2" Style="{StaticResource SectionCardStyle}"
                         Visibility="{x:Bind ViewModel.HasQuarantineItems, Mode=OneWay, Converter={StaticResource BoolVis}}">
                     <StackPanel Spacing="8">
-                        <TextBlock Text="All quarantined files — restorable"
+                        <TextBlock Text="{i18n:Loc Key=Safety_Duplicates_Quarantine_Header}"
                                    Style="{StaticResource BodyStrongTextBlockStyle}" />
-                        <TextBlock Text="Includes duplicate-run quarantines and generic cleanup quarantines."
+                        <TextBlock Text="{i18n:Loc Key=Safety_Duplicates_Quarantine_Description}"
                                    Style="{StaticResource MutedTextStyle}"
                                     />
                         <ListView ItemsSource="{x:Bind ViewModel.QuarantineItems, Mode=OneWay}"
@@ -574,7 +575,7 @@
                                             </StackPanel>
                                         </StackPanel>
                                         <Button Grid.Column="1"
-                                                Content="Restore"
+                                                Content="{i18n:Loc Key=Safety_Duplicates_Restore}"
                                                 VerticalAlignment="Center"
                                                 Command="{Binding ElementName=PageRoot, Path=ViewModel.RestoreQuarantinedCommand}"
                                                 CommandParameter="{Binding}" />

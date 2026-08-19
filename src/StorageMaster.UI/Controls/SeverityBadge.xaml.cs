@@ -1,6 +1,7 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
+using StorageMaster.Core.Localization;
 using StorageMaster.Core.Models;
 
 namespace StorageMaster.UI.Controls;
@@ -8,7 +9,7 @@ namespace StorageMaster.UI.Controls;
 public sealed partial class SeverityBadge : UserControl
 {
     public static readonly DependencyProperty TextProperty =
-        DependencyProperty.Register(nameof(Text), typeof(string), typeof(SeverityBadge), new PropertyMetadata("Unknown", OnStateChanged));
+        DependencyProperty.Register(nameof(Text), typeof(string), typeof(SeverityBadge), new PropertyMetadata(Loc.Get("Control_Severity_Unknown"), OnStateChanged));
 
     public static readonly DependencyProperty StatusProperty =
         DependencyProperty.Register(nameof(Status), typeof(DriveHealthStatus), typeof(SeverityBadge), new PropertyMetadata(DriveHealthStatus.Unknown, OnStateChanged));

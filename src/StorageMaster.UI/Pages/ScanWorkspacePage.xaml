@@ -1,11 +1,12 @@
 <Page
     x:Class="StorageMaster.UI.Pages.ScanWorkspacePage"
     x:Name="PageRoot"
-    AutomationProperties.Name="Scan Workspace page"
+    AutomationProperties.Name="{i18n:Loc Key=Workspace_Page_AutomationName}"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:controls="using:StorageMaster.UI.Controls"
     xmlns:converters="using:StorageMaster.UI.Converters"
+    xmlns:i18n="using:StorageMaster.UI.Infrastructure"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d">
@@ -27,25 +28,25 @@
             <Grid ColumnDefinitions="*,*,*,*" ColumnSpacing="{StaticResource ControlSpacing}">
                 <Border Grid.Column="0" Style="{StaticResource MetricCardStyle}">
                     <StackPanel Spacing="2">
-                        <TextBlock Text="Scanned size" Style="{StaticResource MetricLabelTextStyle}" />
+                        <TextBlock Text="{i18n:Loc Key=Workspace_Metric_ScannedSize}" Style="{StaticResource MetricLabelTextStyle}" />
                         <TextBlock Text="{x:Bind ViewModel.TotalSize, Mode=OneWay}" Style="{StaticResource MetricTextStyle}" />
                     </StackPanel>
                 </Border>
                 <Border Grid.Column="1" Style="{StaticResource MetricCardStyle}">
                     <StackPanel Spacing="2">
-                        <TextBlock Text="Files" Style="{StaticResource MetricLabelTextStyle}" />
+                        <TextBlock Text="{i18n:Loc Key=Workspace_Metric_Files}" Style="{StaticResource MetricLabelTextStyle}" />
                         <TextBlock Text="{x:Bind ViewModel.FileCount, Mode=OneWay}" Style="{StaticResource MetricTextStyle}" />
                     </StackPanel>
                 </Border>
                 <Border Grid.Column="2" Style="{StaticResource MetricCardStyle}">
                     <StackPanel Spacing="2">
-                        <TextBlock Text="Folders" Style="{StaticResource MetricLabelTextStyle}" />
+                        <TextBlock Text="{i18n:Loc Key=Workspace_Metric_Folders}" Style="{StaticResource MetricLabelTextStyle}" />
                         <TextBlock Text="{x:Bind ViewModel.FolderCount, Mode=OneWay}" Style="{StaticResource MetricTextStyle}" />
                     </StackPanel>
                 </Border>
                 <Border Grid.Column="3" Style="{StaticResource MetricCardStyle}">
                     <StackPanel Spacing="2">
-                        <TextBlock Text="Errors" Style="{StaticResource MetricLabelTextStyle}" />
+                        <TextBlock Text="{i18n:Loc Key=Workspace_Metric_Errors}" Style="{StaticResource MetricLabelTextStyle}" />
                         <TextBlock Text="{x:Bind ViewModel.ErrorCount, Mode=OneWay}" Style="{StaticResource MetricTextStyle}" />
                     </StackPanel>
                 </Border>
@@ -53,26 +54,26 @@
 
             <CommandBar DefaultLabelPosition="Right" Background="Transparent"
                         IsEnabled="{x:Bind ViewModel.CanUseSessionActions, Mode=OneWay}">
-                <AppBarButton Icon="List" Label="Results" Command="{x:Bind ViewModel.OpenResultsCommand}" />
-                <AppBarButton Label="Space Map" Command="{x:Bind ViewModel.OpenSpaceMapCommand}">
+                <AppBarButton Icon="List" Label="{i18n:Loc Key=Nav_Results}" Command="{x:Bind ViewModel.OpenResultsCommand}" />
+                <AppBarButton Label="{i18n:Loc Key=Nav_SpaceMap}" Command="{x:Bind ViewModel.OpenSpaceMapCommand}">
                     <AppBarButton.Icon>
                         <FontIcon Glyph="{StaticResource IconSpaceMap}" />
                     </AppBarButton.Icon>
                 </AppBarButton>
-                <AppBarButton Icon="Copy" Label="Duplicates" Command="{x:Bind ViewModel.OpenDuplicatesCommand}" />
-                <AppBarButton Icon="Delete" Label="Cleanup" Command="{x:Bind ViewModel.OpenCleanupCommand}" />
+                <AppBarButton Icon="Copy" Label="{i18n:Loc Key=Nav_Duplicates}" Command="{x:Bind ViewModel.OpenDuplicatesCommand}" />
+                <AppBarButton Icon="Delete" Label="{i18n:Loc Key=Nav_Cleanup}" Command="{x:Bind ViewModel.OpenCleanupCommand}" />
             </CommandBar>
 
             <TabView IsAddTabButtonVisible="False">
-                <TabViewItem Header="Overview" IsClosable="False">
+                <TabViewItem Header="{i18n:Loc Key=Workspace_Tab_Overview}" IsClosable="False">
                     <Grid Padding="0,16,0,0" ColumnDefinitions="1.2*,*" ColumnSpacing="{StaticResource CardSpacing}">
                         <Border Grid.Column="0" Style="{StaticResource SectionCardStyle}">
                             <StackPanel Spacing="{StaticResource ControlSpacing}">
-                                <TextBlock Text="File-type composition" Style="{StaticResource SectionHeaderTextStyle}" />
+                                <TextBlock Text="{i18n:Loc Key=Workspace_Overview_Composition}" Style="{StaticResource SectionHeaderTextStyle}" />
                                 <Grid ColumnDefinitions="*,90,120" ColumnSpacing="{StaticResource ControlSpacing}">
-                                    <TextBlock Grid.Column="0" Text="Category" Style="{StaticResource ColumnHeaderTextStyle}" />
-                                    <TextBlock Grid.Column="1" Text="Files" Style="{StaticResource ColumnHeaderNumericTextStyle}" />
-                                    <TextBlock Grid.Column="2" Text="Size" Style="{StaticResource ColumnHeaderNumericTextStyle}" />
+                                    <TextBlock Grid.Column="0" Text="{i18n:Loc Key=Workspace_Column_Category}" Style="{StaticResource ColumnHeaderTextStyle}" />
+                                    <TextBlock Grid.Column="1" Text="{i18n:Loc Key=Workspace_Column_Files}" Style="{StaticResource ColumnHeaderNumericTextStyle}" />
+                                    <TextBlock Grid.Column="2" Text="{i18n:Loc Key=Workspace_Column_Size}" Style="{StaticResource ColumnHeaderNumericTextStyle}" />
                                 </Grid>
                                 <ItemsControl ItemsSource="{x:Bind ViewModel.CategoryBreakdown, Mode=OneWay}">
                                     <ItemsControl.ItemTemplate>
@@ -89,7 +90,7 @@
                         </Border>
                         <Border Grid.Column="1" Style="{StaticResource SectionCardStyle}">
                             <StackPanel Spacing="{StaticResource ControlSpacing}">
-                                <TextBlock Text="Review queue" Style="{StaticResource SectionHeaderTextStyle}" />
+                                <TextBlock Text="{i18n:Loc Key=Workspace_Overview_ReviewQueue}" Style="{StaticResource SectionHeaderTextStyle}" />
                                 <TextBlock Text="{x:Bind ViewModel.DuplicateSummary, Mode=OneWay}" TextWrapping="WrapWholeWords" />
                                 <TextBlock Text="{x:Bind ViewModel.ReclaimableSummary, Mode=OneWay}" Style="{StaticResource HelperTextStyle}" />
                             </StackPanel>
@@ -97,7 +98,7 @@
                     </Grid>
                 </TabViewItem>
 
-                <TabViewItem Header="Files" IsClosable="False">
+                <TabViewItem Header="{i18n:Loc Key=Workspace_Tab_Files}" IsClosable="False">
                     <ListView ItemsSource="{x:Bind ViewModel.LargestFiles, Mode=OneWay}" MaxHeight="{StaticResource ListMaxHeight}" SelectionMode="None">
                         <ListView.ItemTemplate>
                             <DataTemplate>
@@ -110,7 +111,7 @@
                     </ListView>
                 </TabViewItem>
 
-                <TabViewItem Header="Folders" IsClosable="False">
+                <TabViewItem Header="{i18n:Loc Key=Workspace_Tab_Folders}" IsClosable="False">
                     <ListView ItemsSource="{x:Bind ViewModel.LargestFolders, Mode=OneWay}" MaxHeight="{StaticResource ListMaxHeight}" SelectionMode="None">
                         <ListView.ItemTemplate>
                             <DataTemplate>
@@ -123,36 +124,36 @@
                     </ListView>
                 </TabViewItem>
 
-                <TabViewItem Header="Space Map" IsClosable="False">
+                <TabViewItem Header="{i18n:Loc Key=Nav_SpaceMap}" IsClosable="False">
                     <controls:StateView IconGlyph="{StaticResource IconSpaceMap}"
-                                        Title="Open Space Map"
-                                        Message="The interactive treemap opens with this scan context and keeps destructive actions routed through review flows.">
+                                        Title="{i18n:Loc Key=Workspace_SpaceMap_Title}"
+                                        Message="{i18n:Loc Key=Workspace_SpaceMap_Message}">
                         <controls:StateView.ActionContent>
-                            <Button Content="Open Space Map" Command="{x:Bind ViewModel.OpenSpaceMapCommand}"
+                            <Button Content="{i18n:Loc Key=Workspace_SpaceMap_Action}" Command="{x:Bind ViewModel.OpenSpaceMapCommand}"
                                     IsEnabled="{x:Bind ViewModel.CanUseSessionActions, Mode=OneWay}"
                                     Style="{StaticResource AccentButtonStyle}" />
                         </controls:StateView.ActionContent>
                     </controls:StateView>
                 </TabViewItem>
 
-                <TabViewItem Header="Duplicates" IsClosable="False">
+                <TabViewItem Header="{i18n:Loc Key=Nav_Duplicates}" IsClosable="False">
                     <controls:StateView IconGlyph="{StaticResource IconDuplicates}"
-                                        Title="Duplicate review"
+                                        Title="{i18n:Loc Key=Workspace_Duplicates_Title}"
                                         Message="{x:Bind ViewModel.DuplicateSummary, Mode=OneWay}">
                         <controls:StateView.ActionContent>
-                            <Button Content="Review duplicates" Command="{x:Bind ViewModel.OpenDuplicatesCommand}"
+                            <Button Content="{i18n:Loc Key=Workspace_Duplicates_Action}" Command="{x:Bind ViewModel.OpenDuplicatesCommand}"
                                     IsEnabled="{x:Bind ViewModel.CanUseSessionActions, Mode=OneWay}" />
                         </controls:StateView.ActionContent>
                     </controls:StateView>
                 </TabViewItem>
 
-                <TabViewItem Header="Delta" IsClosable="False">
+                <TabViewItem Header="{i18n:Loc Key=Workspace_Tab_Delta}" IsClosable="False">
                     <controls:StateView IconGlyph="{StaticResource IconDelta}"
-                                        Title="Delta insights"
-                                        Message="Scan delta details remain available from Space Map, where comparable scans share the same root." />
+                                        Title="{i18n:Loc Key=Workspace_Delta_Title}"
+                                        Message="{i18n:Loc Key=Workspace_Delta_Message}" />
                 </TabViewItem>
 
-                <TabViewItem Header="Errors" IsClosable="False">
+                <TabViewItem Header="{i18n:Loc Key=Workspace_Tab_Errors}" IsClosable="False">
                     <ListView ItemsSource="{x:Bind ViewModel.Errors, Mode=OneWay}" MaxHeight="{StaticResource ListMaxHeight}" SelectionMode="None">
                         <ListView.ItemTemplate>
                             <DataTemplate>

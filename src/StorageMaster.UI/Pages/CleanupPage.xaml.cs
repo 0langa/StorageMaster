@@ -6,6 +6,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Navigation;
 using StorageMaster.Core.Interfaces;
+using StorageMaster.Core.Localization;
 
 namespace StorageMaster.UI.Pages;
 
@@ -43,7 +44,7 @@ public sealed partial class CleanupPage : Page
         catch (Exception ex)
         {
             if (IsCurrentNavigation(navigationGeneration))
-                ViewModel.StatusMessage = $"Cleanup initialization failed: {ex.Message}";
+                ViewModel.StatusMessage = Loc.Format("Cleanup_Status_InitializationFailed", ex.Message);
         }
     }
 
@@ -81,21 +82,23 @@ public sealed partial class CleanupPage : Page
             var isDryRun = ViewModel.IsDryRun;
             var size = ViewModel.TotalSelectedSize;
 
-            string title = isDryRun ? "Confirm Dry Run Preview" : "Confirm Cleanup";
+            string title = isDryRun
+                ? Loc.Get("Safety_Cleanup_ConfirmDryRun_Title")
+                : Loc.Get("Safety_Cleanup_Confirm_Title");
             string message = isDryRun
-                ? $"This will simulate the cleanup for {size} of selected items without deleting anything. Continue?"
+                ? Loc.Format("Safety_Cleanup_ConfirmDryRun_Message", size)
                 : ViewModel.UseRecycleBin
-                    ? $"This will send {size} of selected files and folders to the Recycle Bin (recoverable). " +
-                      "Disk space remains in use until the Recycle Bin is emptied. Continue?"
-                    : $"This will PERMANENTLY delete {size} of selected files and folders. This cannot be undone. " +
-                      "Displayed size is logical file size; actual reclaimed disk allocation can differ. Continue?";
+                    ? Loc.Format("Safety_Cleanup_ConfirmRecycleBin_Message", size)
+                    : Loc.Format("Safety_Cleanup_ConfirmPermanent_Message", size);
 
             var confirm = new ContentDialog
             {
                 Title = title,
                 Content = message,
-                PrimaryButtonText = isDryRun ? "Run Preview" : "Clean Up",
-                CloseButtonText = "Cancel",
+                PrimaryButtonText = isDryRun
+                    ? Loc.Get("Cleanup_RunPreview_Button")
+                    : Loc.Get("Safety_Cleanup_CleanUp_Button"),
+                CloseButtonText = Loc.Get("Common_Cancel"),
                 DefaultButton = ContentDialogButton.Close,
                 XamlRoot = XamlRoot,
             };
@@ -115,7 +118,7 @@ public sealed partial class CleanupPage : Page
         catch (Exception ex)
         {
             if (IsCurrentNavigation(navigationGeneration))
-                ViewModel.StatusMessage = $"Cleanup UI could not show a confirmed result: {ex.Message}";
+                ViewModel.StatusMessage = Loc.Format("Cleanup_Status_ReportUnavailable", ex.Message);
         }
     }
 
@@ -209,11 +212,15 @@ public sealed partial class CleanupPage : Page
         if (results.Count > 0)
         {
             var amountHeading = isDryRun
-                ? "Est. size"
+                ? Loc.Get("Safety_Cleanup_Report_Column_EstimatedSize")
                 : method == DeletionMethod.RecycleBin
-                    ? "Moved"
-                    : "Deleted";
-            var header = BuildResultRow("Item", "Status", amountHeading, isHeader: true);
+                    ? Loc.Get("Safety_Cleanup_Report_Column_Moved")
+                    : Loc.Get("Safety_Cleanup_Report_Column_Deleted");
+            var header = BuildResultRow(
+                Loc.Get("Safety_Cleanup_Report_Column_Item"),
+                Loc.Get("Safety_Cleanup_Report_Column_Status"),
+                amountHeading,
+                isHeader: true);
             mainStack.Children.Add(header);
 
             var divider = new Border
@@ -307,23 +314,23 @@ public sealed partial class CleanupPage : Page
         var hasFailure = results.Any(result => result.Status is "Failed" or "Skipped");
         string title = isDryRun
             ? results.Count == 0
-                ? "Dry Run Report — Preview failed"
+                ? Loc.Get("Safety_Cleanup_Report_DryRun_PreviewFailed")
                 : previewAllowsExecution
-                    ? "Dry Run Report — Ready for deletion review"
-                    : "Dry Run Report — Preview incomplete"
+                    ? Loc.Get("Safety_Cleanup_Report_DryRun_ReadyForReview")
+                    : Loc.Get("Safety_Cleanup_Report_DryRun_PreviewIncomplete")
             : results.Count == 0
-                ? "Cleanup Report — No confirmed outcome"
+                ? Loc.Get("Safety_Cleanup_Report_NoOutcome")
                 : hasPartial || hasFailure
-                ? "Cleanup Report — Partial or failed outcome"
+                ? Loc.Get("Safety_Cleanup_Report_PartialOrFailed")
                 : method == DeletionMethod.RecycleBin
-                    ? "Cleanup Report — Recycle Bin move complete"
-                    : "Cleanup Report — Permanent deletion complete";
+                    ? Loc.Get("Safety_Cleanup_Report_RecycleBinComplete")
+                    : Loc.Get("Safety_Cleanup_Report_PermanentComplete");
 
         var dialog = new ContentDialog
         {
             Title = title,
             Content = scrollContent,
-            CloseButtonText = "Close",
+            CloseButtonText = Loc.Get("Common_Close"),
             XamlRoot = XamlRoot,
             DefaultButton = ContentDialogButton.Close,
         };
@@ -334,8 +341,8 @@ public sealed partial class CleanupPage : Page
         // real runs get Close only.
         if (isDryRun && previewAllowsExecution)
         {
-            dialog.PrimaryButtonText = "Delete (Recycle Bin)";
-            dialog.SecondaryButtonText = "Delete Permanently";
+            dialog.PrimaryButtonText = Loc.Get("Safety_Cleanup_DeleteRecycleBin_Button");
+            dialog.SecondaryButtonText = Loc.Get("Safety_Cleanup_DeletePermanently_Button");
             dialog.DefaultButton = ContentDialogButton.Primary;
         }
 
@@ -350,12 +357,12 @@ public sealed partial class CleanupPage : Page
 
         var confirm = new ContentDialog
         {
-            Title = "Confirm Permanent Deletion",
-            Content =
-                $"This will permanently delete the exact {ViewModel.LastRunSelectedSizeDisplay} selection from the successful preview. " +
-                "This cannot be undone. Files will be revalidated and changed paths will fail closed. Continue?",
-            PrimaryButtonText = "Delete Permanently",
-            CloseButtonText = "Cancel",
+            Title = Loc.Get("Safety_Cleanup_ConfirmPermanentAfterPreview_Title"),
+            Content = Loc.Format(
+                "Safety_Cleanup_ConfirmPermanentAfterPreview_Message",
+                ViewModel.LastRunSelectedSizeDisplay),
+            PrimaryButtonText = Loc.Get("Safety_Cleanup_DeletePermanently_Button"),
+            CloseButtonText = Loc.Get("Common_Cancel"),
             DefaultButton = ContentDialogButton.Close,
             XamlRoot = XamlRoot,
         };

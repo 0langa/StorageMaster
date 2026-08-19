@@ -1,7 +1,9 @@
 using System.Collections.ObjectModel;
+using System.Globalization;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using StorageMaster.Core.Interfaces;
+using StorageMaster.Core.Localization;
 using StorageMaster.Core.Models;
 using StorageMaster.UI.Converters;
 using StorageMaster.UI.Infrastructure;
@@ -20,18 +22,18 @@ public sealed partial class DashboardViewModel : ObservableObject
     [ObservableProperty] private ScanSession? _latestAttempt;
     [ObservableProperty] private string _totalScannedSize = "—";
     [ObservableProperty] private long _totalFiles;
-    [ObservableProperty] private string _statusMessage = "No scan yet. Start a scan to analyse your disk.";
+    [ObservableProperty] private string _statusMessage = Loc.Get("Dashboard_Status_NoScanYet");
     [ObservableProperty] private bool _hasLastSession;
     [ObservableProperty] private IReadOnlyList<DriveDetail> _drives2 = [];
     [ObservableProperty] private IReadOnlyList<DriveHealthSnapshot> _driveHealthSnapshots = [];
-    [ObservableProperty] private string _heroTitle = "Storage overview";
-    [ObservableProperty] private string _heroSubtitle = "Pick a quick action to start scanning, cleanup, or duplicate review.";
-    [ObservableProperty] private string _recommendedActionText = "Run a scan";
-    [ObservableProperty] private string _latestScanSummary = "No scan history yet.";
+    [ObservableProperty] private string _heroTitle = Loc.Get("Dashboard_Hero_Title_Default");
+    [ObservableProperty] private string _heroSubtitle = Loc.Get("Dashboard_Hero_Subtitle_Default");
+    [ObservableProperty] private string _recommendedActionText = Loc.Get("Dashboard_Action_RunScan");
+    [ObservableProperty] private string _latestScanSummary = Loc.Get("Dashboard_LatestScan_None");
     [ObservableProperty] private string _driveHealthSummary = string.Empty;
     [ObservableProperty] private double _readinessScore;
-    [ObservableProperty] private string _readinessLabel = "health score";
-    [ObservableProperty] private string _readinessDescription = "Score combines scan freshness, low-space pressure, and drive-health warnings.";
+    [ObservableProperty] private string _readinessLabel = Loc.Get("Dashboard_Readiness_Label");
+    [ObservableProperty] private string _readinessDescription = Loc.Get("Dashboard_Readiness_Description_Default");
 
     public ObservableCollection<string> Recommendations { get; } = [];
 
@@ -87,57 +89,75 @@ public sealed partial class DashboardViewModel : ObservableObject
             TotalScannedSize = ByteSizeConverter.Format(LastSession.TotalSizeBytes);
             if (LatestAttempt is { Status: not ScanStatus.Completed } latestAttempt)
             {
-                LatestScanSummary =
-                    $"Latest scan attempt: {latestAttempt.Status}. Last completed scan: {LastSession.RootPath} on {FormatSessionTime(LastSession)}.";
-                StatusMessage =
-                    $"The latest scan did not complete ({latestAttempt.Status}); actionable views use the earlier completed scan of {LastSession.RootPath}.";
-                HeroTitle = "Latest scan needs attention";
-                HeroSubtitle = "Retry the scan. Previous completed results remain available for read-only review.";
-                RecommendedActionText = "Retry scan";
-                Recommendations.Add($"Retry the latest scan; it ended with status {latestAttempt.Status}.");
+                LatestScanSummary = Loc.Format(
+                    "Dashboard_LatestScan_AttemptAndCompleted",
+                    latestAttempt.Status,
+                    LastSession.RootPath,
+                    FormatSessionTime(LastSession));
+                StatusMessage = Loc.Format(
+                    "Dashboard_Status_LatestIncomplete",
+                    latestAttempt.Status,
+                    LastSession.RootPath);
+                HeroTitle = Loc.Get("Dashboard_Hero_Title_NeedsAttention");
+                HeroSubtitle = Loc.Get("Dashboard_Hero_Subtitle_NeedsAttention");
+                RecommendedActionText = Loc.Get("Dashboard_Action_RetryScan");
+                Recommendations.Add(Loc.Format("Dashboard_Recommendation_RetryLatest", latestAttempt.Status));
             }
             else
             {
-                LatestScanSummary = $"Last completed scan: {LastSession.RootPath} on {FormatSessionTime(LastSession)}";
-                StatusMessage = $"Last scan of {LastSession.RootPath} completed {FormatSessionTime(LastSession)}";
-                HeroTitle = "Storage ready";
-                HeroSubtitle = "Jump back into the latest completed scan, duplicates, or cleanup without waiting for a cold load.";
-                RecommendedActionText = lowSpaceDrives.Count > 0 ? "Run Cleanup" : "Open latest Results";
+                LatestScanSummary = Loc.Format(
+                    "Dashboard_LatestScan_Completed",
+                    LastSession.RootPath,
+                    FormatSessionTime(LastSession));
+                StatusMessage = Loc.Format(
+                    "Dashboard_Status_LastScanCompleted",
+                    LastSession.RootPath,
+                    FormatSessionTime(LastSession));
+                HeroTitle = Loc.Get("Dashboard_Hero_Title_Ready");
+                HeroSubtitle = Loc.Get("Dashboard_Hero_Subtitle_Ready");
+                RecommendedActionText = lowSpaceDrives.Count > 0
+                    ? Loc.Get("Dashboard_Action_RunCleanup")
+                    : Loc.Get("Dashboard_Action_OpenLatestResults");
             }
 
             if (LastSession.CompletedUtc is null || LastSession.CompletedUtc < DateTime.UtcNow.AddDays(-14))
-                Recommendations.Add("Run a fresh scan. The latest scan is stale.");
+                Recommendations.Add(Loc.Get("Dashboard_Recommendation_StaleScan"));
             if (lowSpaceDrives.Count > 0)
                 Recommendations.Add(DriveHealthSummary);
             if (healthIssues > 0)
-                Recommendations.Add("Review drive health before running large cleanup or duplicate operations.");
-            Recommendations.Add("Review duplicates before deleting anything large or old.");
+                Recommendations.Add(Loc.Get("Dashboard_Recommendation_ReviewDriveHealth"));
+            Recommendations.Add(Loc.Get("Safety_ReviewDuplicatesBeforeDeleting"));
         }
         else
         {
             TotalFiles = 0;
             TotalScannedSize = "—";
-            HeroTitle = LatestAttempt is null ? "First run" : "No completed scan";
+            HeroTitle = LatestAttempt is null
+                ? Loc.Get("Dashboard_Hero_Title_FirstRun")
+                : Loc.Get("Dashboard_Hero_Title_NoCompletedScan");
             HeroSubtitle = LatestAttempt is null
-                ? "Start with a scan, then StorageMaster can guide cleanup and duplicate review safely."
-                : $"The latest scan ended with status {LatestAttempt.Status}. Retry it before opening downstream actions.";
-            RecommendedActionText = "Start a scan";
+                ? Loc.Get("Dashboard_Hero_Subtitle_FirstRun")
+                : Loc.Format("Dashboard_Hero_Subtitle_NoCompletedScan", LatestAttempt.Status);
+            RecommendedActionText = Loc.Get("Dashboard_Action_StartScan");
             LatestScanSummary = LatestAttempt is null
-                ? "No scan history yet."
-                : $"Latest scan attempt: {LatestAttempt.Status} at {FormatSessionTime(LatestAttempt)}.";
+                ? Loc.Get("Dashboard_LatestScan_None")
+                : Loc.Format(
+                    "Dashboard_LatestScan_AttemptOnly",
+                    LatestAttempt.Status,
+                    FormatSessionTime(LatestAttempt));
             StatusMessage = LatestAttempt is null
                 ? HasDrives
-                    ? "No completed scan yet. Start with a drive below or open a custom path."
-                    : "No drives detected. Connect storage, then start a scan."
-                : $"No completed scan is available. The latest attempt is {LatestAttempt.Status}.";
+                    ? Loc.Get("Dashboard_Status_NoCompletedScan")
+                    : Loc.Get("Dashboard_Status_NoDrives")
+                : Loc.Format("Dashboard_Status_NoCompletedScanAttempt", LatestAttempt.Status);
             if (HasDrives)
                 Recommendations.Add(LatestAttempt is null
-                    ? "Run a first scan so results, duplicate review, and cleanup can use real data."
-                    : "Retry the scan; incomplete scan data is not exposed to cleanup or duplicate actions.");
+                    ? Loc.Get("Dashboard_Recommendation_FirstScan")
+                    : Loc.Get("Dashboard_Recommendation_RetryIncomplete"));
             if (lowSpaceDrives.Count > 0)
                 Recommendations.Add(DriveHealthSummary);
             if (healthIssues > 0)
-                Recommendations.Add("Review drive health before starting your first cleanup.");
+                Recommendations.Add(Loc.Get("Dashboard_Recommendation_ReviewDriveHealthFirstCleanup"));
         }
 
         UpdateReadinessScore(lowSpaceDrives.Count, healthIssues, LatestAttempt);
@@ -218,13 +238,17 @@ public sealed partial class DashboardViewModel : ObservableObject
     private static string BuildDriveHealthSummary(int lowSpaceCount, int healthIssueCount)
     {
         if (lowSpaceCount == 0 && healthIssueCount == 0)
-            return "No drives are currently under the low-space threshold or reporting health warnings.";
+            return Loc.Get("Dashboard_DriveHealth_AllClear");
 
         var parts = new List<string>();
         if (lowSpaceCount > 0)
-            parts.Add($"{lowSpaceCount:N0} drive(s) are running low on free space");
+            parts.Add(Loc.Format(
+                "Dashboard_DriveHealth_LowSpace",
+                lowSpaceCount.ToString("N0", CultureInfo.CurrentCulture)));
         if (healthIssueCount > 0)
-            parts.Add($"{healthIssueCount:N0} drive(s) report health warnings");
+            parts.Add(Loc.Format(
+                "Dashboard_DriveHealth_Warnings",
+                healthIssueCount.ToString("N0", CultureInfo.CurrentCulture)));
         return string.Join("; ", parts) + ".";
     }
 
@@ -248,9 +272,10 @@ public sealed partial class DashboardViewModel : ObservableObject
             score -= Math.Min(35, healthIssueCount * 25);
 
         ReadinessScore = Math.Clamp(score, 0, 100);
-        ReadinessLabel = "health score";
-        ReadinessDescription =
-            $"Storage health score: {ReadinessScore:N0}/100 from scan freshness, low-space threshold, and drive-health warnings.";
+        ReadinessLabel = Loc.Get("Dashboard_Readiness_Label");
+        ReadinessDescription = Loc.Format(
+            "Dashboard_Readiness_Description",
+            ReadinessScore.ToString("N0", CultureInfo.CurrentCulture));
     }
 
     private static string FormatSessionTime(ScanSession session) =>

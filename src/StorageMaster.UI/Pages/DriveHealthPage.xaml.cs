@@ -1,6 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Navigation;
+using StorageMaster.Core.Localization;
 
 namespace StorageMaster.UI.Pages;
 
@@ -23,7 +24,7 @@ public sealed partial class DriveHealthPage : Page
         }
         catch (Exception ex)
         {
-            ViewModel.StatusText = $"Drive health failed to load: {ex.Message}";
+            ViewModel.StatusText = Loc.Format("Health_Error_LoadFailed", ex.Message);
         }
     }
 }

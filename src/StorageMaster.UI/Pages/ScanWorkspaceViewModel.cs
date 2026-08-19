@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using StorageMaster.Core.Interfaces;
+using StorageMaster.Core.Localization;
 using StorageMaster.Core.Models;
 using StorageMaster.UI.Converters;
 using StorageMaster.UI.Infrastructure;
@@ -18,15 +19,15 @@ public sealed partial class ScanWorkspaceViewModel : ObservableObject
     [ObservableProperty] private ScanSession? _session;
     [ObservableProperty] private bool _isLoading;
     [ObservableProperty] private bool _workspaceLoadSucceeded;
-    [ObservableProperty] private string _statusText = "Select a completed scan.";
-    [ObservableProperty] private string _sessionTitle = "Scan workspace";
-    [ObservableProperty] private string _summaryText = "No scan selected.";
+    [ObservableProperty] private string _statusText = Loc.Get("Workspace_Status_SelectScan");
+    [ObservableProperty] private string _sessionTitle = Loc.Get("Workspace_Title");
+    [ObservableProperty] private string _summaryText = Loc.Get("Workspace_Summary_NoScan");
     [ObservableProperty] private string _totalSize = "0 B";
     [ObservableProperty] private string _fileCount = "0";
     [ObservableProperty] private string _folderCount = "0";
     [ObservableProperty] private string _errorCount = "0";
-    [ObservableProperty] private string _duplicateSummary = "No duplicate run yet.";
-    [ObservableProperty] private string _reclaimableSummary = "Run cleanup or duplicate review to estimate savings.";
+    [ObservableProperty] private string _duplicateSummary = Loc.Get("Workspace_Duplicates_None");
+    [ObservableProperty] private string _reclaimableSummary = Loc.Get("Workspace_Reclaimable_Idle");
 
     public ObservableCollection<FileEntry> LargestFiles { get; } = [];
     public ObservableCollection<FolderEntry> LargestFolders { get; } = [];
@@ -69,9 +70,9 @@ public sealed partial class ScanWorkspaceViewModel : ObservableObject
         WorkspaceLoadSucceeded = false;
         IsLoading = true;
         Session = null;
-        SessionTitle = "Scan workspace";
-        SummaryText = "Loading scan session...";
-        StatusText = "Loading persisted scan data...";
+        SessionTitle = Loc.Get("Workspace_Title");
+        SummaryText = Loc.Get("Workspace_Summary_Loading");
+        StatusText = Loc.Get("Workspace_Status_Loading");
         TotalSize = "—";
         FileCount = "—";
         FolderCount = "—";
@@ -88,14 +89,17 @@ public sealed partial class ScanWorkspaceViewModel : ObservableObject
             if (target is null)
             {
                 Reset(sessionId is > 0
-                    ? "The requested scan session is not available."
-                    : "No completed scans are available.");
+                    ? Loc.Get("Workspace_Status_SessionUnavailable")
+                    : Loc.Get("Workspace_Status_NoCompletedScans"));
                 return;
             }
 
             Session = target;
-            SessionTitle = $"Scan: {target.RootPath}";
-            SummaryText = $"{target.Status} · started {target.StartedUtc.ToLocalTime():g}";
+            SessionTitle = Loc.Format("Workspace_Title_ForRoot", target.RootPath);
+            SummaryText = Loc.Format(
+                "Workspace_Summary_StatusStarted",
+                target.Status,
+                target.StartedUtc.ToLocalTime().ToString("g"));
             TotalSize = ByteSizeConverter.Format(target.TotalSizeBytes);
             FileCount = target.TotalFiles.ToString("N0");
             FolderCount = target.TotalFolders.ToString("N0");
@@ -106,11 +110,13 @@ public sealed partial class ScanWorkspaceViewModel : ObservableObject
                 FileCount = "—";
                 FolderCount = "—";
                 ErrorCount = "—";
+                // The scanner's own report is technical detail appended to a localized
+                // sentence — it stays exactly as the scanner wrote it.
                 var failureDetail = string.IsNullOrWhiteSpace(target.ErrorMessage)
                     ? string.Empty
-                    : $" Scanner report: {target.ErrorMessage}";
+                    : " " + Loc.Format("Workspace_Status_ScannerReport", target.ErrorMessage);
                 StatusText =
-                    $"This scan is {target.Status}. Partial scan data is hidden; complete a new scan before opening results, cleanup, duplicates, or Space Map.{failureDetail}";
+                    Loc.Format("Workspace_Status_IncompleteScan", target.Status) + failureDetail;
                 return;
             }
 
@@ -122,7 +128,7 @@ public sealed partial class ScanWorkspaceViewModel : ObservableObject
 
             ct.ThrowIfCancellationRequested();
             WorkspaceLoadSucceeded = true;
-            StatusText = "Workspace data loaded from a completed persisted scan.";
+            StatusText = Loc.Get("Workspace_Status_Loaded");
         }
         finally
         {
@@ -198,13 +204,20 @@ public sealed partial class ScanWorkspaceViewModel : ObservableObject
         var latest = DuplicateRuns.OrderByDescending(static run => run.StartedUtc).FirstOrDefault();
         if (latest is null)
         {
-            DuplicateSummary = "No duplicate run yet.";
-            ReclaimableSummary = "Run duplicate review to estimate recoverable space.";
+            DuplicateSummary = Loc.Get("Workspace_Duplicates_None");
+            ReclaimableSummary = Loc.Get("Workspace_Reclaimable_NoRun");
             return;
         }
 
-        DuplicateSummary = $"{latest.GroupCount:N0} groups · {latest.Status}";
-        ReclaimableSummary = $"{ByteSizeConverter.Format(latest.ReclaimableBytes)} reclaimable from latest duplicate run.";
+        // The group count is formatted here rather than in the resource: Loc.Format
+        // composes with the invariant culture, so the separator would be lost.
+        DuplicateSummary = Loc.Format(
+            "Workspace_Duplicates_Summary",
+            latest.GroupCount.ToString("N0"),
+            latest.Status);
+        ReclaimableSummary = Loc.Format(
+            "Workspace_Reclaimable_Summary",
+            ByteSizeConverter.Format(latest.ReclaimableBytes));
     }
 
     private void ClearWorkspaceData()
@@ -215,8 +228,8 @@ public sealed partial class ScanWorkspaceViewModel : ObservableObject
         CategoryBreakdown.Clear();
         DuplicateRuns.Clear();
         ErrorCount = "0";
-        DuplicateSummary = "No duplicate run yet.";
-        ReclaimableSummary = "Run cleanup or duplicate review to estimate savings.";
+        DuplicateSummary = Loc.Get("Workspace_Duplicates_None");
+        ReclaimableSummary = Loc.Get("Workspace_Reclaimable_Idle");
         OnPropertyChanged(nameof(HasErrors));
         OnPropertyChanged(nameof(HasCategories));
     }
@@ -225,7 +238,7 @@ public sealed partial class ScanWorkspaceViewModel : ObservableObject
     {
         WorkspaceLoadSucceeded = false;
         Session = null;
-        SessionTitle = "Scan workspace";
+        SessionTitle = Loc.Get("Workspace_Title");
         SummaryText = message;
         StatusText = message;
         TotalSize = "0 B";

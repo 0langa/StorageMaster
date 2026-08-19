@@ -1,7 +1,9 @@
 using System.Collections.ObjectModel;
+using System.Globalization;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using StorageMaster.Core.Interfaces;
+using StorageMaster.Core.Localization;
 using StorageMaster.Core.Models;
 
 namespace StorageMaster.UI.Pages;
@@ -11,7 +13,7 @@ public sealed partial class DriveHealthViewModel(
     IDriveHealthRepository repository) : ObservableObject
 {
     [ObservableProperty] private bool _isLoading;
-    [ObservableProperty] private string _statusText = "Refresh drive health to read Windows storage telemetry.";
+    [ObservableProperty] private string _statusText = Loc.Get("Health_Status_Initial");
     [ObservableProperty] private DriveHealthSnapshot? _selectedSnapshot;
 
     public ObservableCollection<DriveHealthSnapshot> Snapshots { get; } = [];
@@ -22,7 +24,7 @@ public sealed partial class DriveHealthViewModel(
         var latest = await repository.GetLatestSnapshotsAsync();
         ReplaceSnapshots(latest);
         if (latest.Count > 0)
-            StatusText = "Showing the latest stored drive health snapshot.";
+            StatusText = Loc.Get("Health_Status_ShowingStored");
         await RefreshAsync();
     }
 
@@ -38,13 +40,17 @@ public sealed partial class DriveHealthViewModel(
             var snapshots = await provider.GetHealthAsync();
             await repository.SaveSnapshotsAsync(snapshots);
             ReplaceSnapshots(snapshots);
+            // The count is formatted in the user's culture before composition:
+            // Loc.Format composes invariantly so it is not formatted twice.
             StatusText = snapshots.Count == 0
-                ? "No ready local drives were found."
-                : $"Captured {snapshots.Count:N0} drive health snapshot(s).";
+                ? Loc.Get("Health_Status_NoDrives")
+                : Loc.Format(
+                    "Health_Status_Captured",
+                    snapshots.Count.ToString("N0", CultureInfo.CurrentCulture));
         }
         catch (Exception ex)
         {
-            StatusText = $"Drive health refresh failed: {ex.Message}";
+            StatusText = Loc.Format("Health_Error_RefreshFailed", ex.Message);
         }
         finally
         {

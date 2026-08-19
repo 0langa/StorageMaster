@@ -17,7 +17,7 @@
     <Grid Background="{StaticResource SmSurfaceSunkenBrush}">
         <NavigationView
             x:Name="NavView"
-            AutomationProperties.Name="StorageMaster navigation"
+            AutomationProperties.Name="{i18n:Loc Key=Nav_AutomationName}"
             PaneDisplayMode="Auto"
             OpenPaneLength="300"
             CompactPaneLength="56"
@@ -54,18 +54,18 @@
                                    Style="{StaticResource BodyStrongTextBlockStyle}"
                                    TextWrapping="NoWrap"
                                    TextTrimming="CharacterEllipsis" />
-                        <TextBlock Text="v2 storage command center"
+                        <TextBlock Text="{i18n:Loc Key=Shell_Subtitle}"
                                    Style="{StaticResource GlobalStatusTextStyle}" />
                     </StackPanel>
                     <Grid Grid.Column="1" ColumnDefinitions="*,Auto" ColumnSpacing="14" VerticalAlignment="Center">
                         <TextBlock x:Name="LatestScanStatusText"
                                    Grid.Column="0"
-                                   Text="No scan loaded"
+                                   Text="{i18n:Loc Key=Shell_NoScanLoaded}"
                                    Style="{StaticResource GlobalStatusTextStyle}"
                                    HorizontalAlignment="Right" />
                         <TextBlock x:Name="WarningStatusText"
                                    Grid.Column="1"
-                                   Text="Monitoring active"
+                                   Text="{i18n:Loc Key=Shell_MonitoringActive}"
                                    Style="{StaticResource GlobalStatusTextStyle}" />
                     </Grid>
                 </Grid>
@@ -114,11 +114,11 @@
                         BorderBrush="{StaticResource SmStrokeSubtleBrush}"
                         BorderThickness="1">
                     <StackPanel Spacing="4">
-                        <TextBlock Text="Global status"
+                        <TextBlock Text="{i18n:Loc Key=Shell_GlobalStatus}"
                                    Style="{StaticResource CaptionTextBlockStyle}"
                                    FontWeight="SemiBold" />
-                        <TextBlock x:Name="PaneLatestScanText" Text="Latest scan unavailable" Style="{StaticResource GlobalStatusTextStyle}" />
-                        <TextBlock x:Name="PaneDiskStatusText" Text="Disk monitor starting" Style="{StaticResource GlobalStatusTextStyle}" />
+                        <TextBlock x:Name="PaneLatestScanText" Text="{i18n:Loc Key=Shell_LatestScanUnavailable}" Style="{StaticResource GlobalStatusTextStyle}" />
+                        <TextBlock x:Name="PaneDiskStatusText" Text="{i18n:Loc Key=Shell_DiskMonitorStarting}" Style="{StaticResource GlobalStatusTextStyle}" />
                     </StackPanel>
                 </Border>
             </NavigationView.PaneFooter>

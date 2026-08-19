@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using StorageMaster.Core.Interfaces;
+using StorageMaster.Core.Localization;
 using StorageMaster.Core.Models;
 
 namespace StorageMaster.Core.Cleanup.Rules;
@@ -14,7 +15,7 @@ namespace StorageMaster.Core.Cleanup.Rules;
 public sealed class BrowserCacheCleanupRule : ICleanupRule
 {
     public string RuleId => "core.browser-cache";
-    public string DisplayName => "Browser Cache";
+    public string DisplayName => Loc.Get("Rule_BrowserCache_Name");
     public CleanupCategory Category => CleanupCategory.BrowserCache;
 
     private static IEnumerable<string> GetCandidatePaths()
@@ -126,10 +127,8 @@ public sealed class BrowserCacheCleanupRule : ICleanupRule
         {
             Id = Guid.NewGuid(),
             RuleId = RuleId,
-            Title = $"Browser cache ({dirCount} cache folder(s))",
-            Description = "Cached web content from Chrome, Edge, Firefox, Brave, and Opera. " +
-                             "Pages will load slightly slower after first visit until the cache " +
-                             $"rebuilds. Estimated savings: {FormatBytes(totalBytes)}.",
+            Title = Loc.Format("Rule_BrowserCache_Title", dirCount),
+            Description = Loc.Format("Rule_BrowserCache_Description", FormatBytes(totalBytes)),
             Category = Category,
             Risk = CleanupRisk.Low,
             EstimatedBytes = totalBytes,

@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using StorageMaster.Core.Interfaces;
+using StorageMaster.Core.Localization;
 using StorageMaster.Core.Models;
 
 namespace StorageMaster.Core.Cleanup.Rules;
@@ -13,7 +14,7 @@ namespace StorageMaster.Core.Cleanup.Rules;
 public sealed class WindowsUpdateCacheRule : ICleanupRule
 {
     public string RuleId => "core.windows-update-cache";
-    public string DisplayName => "Windows Update Cache";
+    public string DisplayName => Loc.Get("Rule_WindowsUpdateCache_Name");
     public CleanupCategory Category => CleanupCategory.WindowsUpdateCache;
 
     private static readonly string CachePath = Path.Combine(
@@ -55,10 +56,10 @@ public sealed class WindowsUpdateCacheRule : ICleanupRule
         {
             Id = Guid.NewGuid(),
             RuleId = RuleId,
-            Title = $"Windows Update cache ({fileCount:N0} files)",
-            Description = "Downloaded update packages that have already been applied. " +
-                             "Windows will re-download them only if the same update needs " +
-                             $"to be re-applied. Estimated savings: {FormatBytes(totalBytes)}.",
+            Title = Loc.Format("Rule_WindowsUpdateCache_Title", fileCount.ToString("N0")),
+            Description = Loc.Format(
+                "Rule_WindowsUpdateCache_Description",
+                FormatBytes(totalBytes)),
             Category = Category,
             Risk = CleanupRisk.Low,
             EstimatedBytes = totalBytes,

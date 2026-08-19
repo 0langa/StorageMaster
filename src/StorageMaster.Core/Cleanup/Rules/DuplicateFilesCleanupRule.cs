@@ -1,4 +1,5 @@
 using StorageMaster.Core.Interfaces;
+using StorageMaster.Core.Localization;
 using StorageMaster.Core.Models;
 
 namespace StorageMaster.Core.Cleanup.Rules;
@@ -12,7 +13,7 @@ namespace StorageMaster.Core.Cleanup.Rules;
 public sealed class DuplicateFilesCleanupRule(IDuplicateRepository duplicateRepository) : ICleanupRule
 {
     public string RuleId => "duplicates.cleanup";
-    public string DisplayName => "Duplicate Files";
+    public string DisplayName => Loc.Get("Rule_DuplicateFiles_Name");
     public CleanupCategory Category => CleanupCategory.DuplicateFiles;
 
     public async IAsyncEnumerable<CleanupSuggestion> AnalyzeAsync(

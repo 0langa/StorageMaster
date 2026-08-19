@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using StorageMaster.Core.Interfaces;
+using StorageMaster.Core.Localization;
 using StorageMaster.Core.Models;
 
 namespace StorageMaster.Core.Cleanup.Rules;
@@ -12,7 +13,7 @@ namespace StorageMaster.Core.Cleanup.Rules;
 public sealed class ThumbnailCacheRule : ICleanupRule
 {
     public string RuleId => "core.thumbnail-cache";
-    public string DisplayName => "Thumbnail Cache";
+    public string DisplayName => Loc.Get("Rule_ThumbnailCache_Name");
     public CleanupCategory Category => CleanupCategory.ThumbnailCache;
 
     public async IAsyncEnumerable<CleanupSuggestion> AnalyzeAsync(
@@ -50,9 +51,8 @@ public sealed class ThumbnailCacheRule : ICleanupRule
         {
             Id = Guid.NewGuid(),
             RuleId = RuleId,
-            Title = $"Thumbnail cache ({paths.Count} file(s))",
-            Description = $"Explorer thumbnail database files. Windows regenerates them automatically " +
-                             $"when folders with images are opened. Estimated savings: {FormatBytes(totalBytes)}.",
+            Title = Loc.Format("Rule_ThumbnailCache_Title", paths.Count),
+            Description = Loc.Format("Rule_ThumbnailCache_Description", FormatBytes(totalBytes)),
             Category = Category,
             Risk = CleanupRisk.Low,
             EstimatedBytes = totalBytes,

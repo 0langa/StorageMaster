@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using StorageMaster.Core.Interfaces;
+using StorageMaster.Core.Localization;
 using StorageMaster.Core.Models;
 
 namespace StorageMaster.Core.Cleanup.Rules;
@@ -12,7 +13,7 @@ namespace StorageMaster.Core.Cleanup.Rules;
 public sealed class DeliveryOptimizationRule : ICleanupRule
 {
     public string RuleId => "core.delivery-optimization";
-    public string DisplayName => "Delivery Optimization Cache";
+    public string DisplayName => Loc.Get("Rule_DeliveryOptimization_Name");
     public CleanupCategory Category => CleanupCategory.DeliveryOptimization;
 
     // The DO cache lives in %WINDIR%\SoftwareDistribution\DeliveryOptimization
@@ -60,10 +61,8 @@ public sealed class DeliveryOptimizationRule : ICleanupRule
         {
             Id = Guid.NewGuid(),
             RuleId = RuleId,
-            Title = $"Delivery Optimization cache ({FormatBytes(totalBytes)})",
-            Description = "Windows stores downloaded update content here to share with other " +
-                             "devices. Deleting it does not affect your installed updates; Windows " +
-                             "will rebuild the cache over time as needed.",
+            Title = Loc.Format("Rule_DeliveryOptimization_Title", FormatBytes(totalBytes)),
+            Description = Loc.Get("Rule_DeliveryOptimization_Description"),
             Category = Category,
             Risk = CleanupRisk.Low,
             EstimatedBytes = totalBytes,

@@ -24,8 +24,70 @@ not. "Die Bereinigung wurde angehalten." is for the user. The exception text aft
 it is for whoever reads the log.
 
 `LocalizationScopeTests` enforces this: it fails if a localized resource turns up
-in a logging or CLI call site, and if a user-facing XAML string is missing a
-`x:Uid`.
+in a logging or CLI call site, and if a user-facing XAML string is left as a
+literal.
+
+## How strings are resolved
+
+Strings are authored as `.resw`, one file per language under
+`src/StorageMaster.Core/Strings/<tag>/Resources.resw`, and are **embedded
+resources read by `LocalizationCatalog`** — not by MRT.
+
+MRT is not an option here. Building `resources.pri` needs
+`Microsoft.Build.Packaging.Pri.Tasks.dll`, which ships only with Visual Studio;
+`dotnet build` cannot load it, and neither can CI. The practical consequence:
+
+- **`x:Uid` does not work.** It is resolved by MRT. XAML uses a markup extension:
+
+  ```xml
+  xmlns:i18n="using:StorageMaster.UI.Infrastructure"
+
+  <TextBlock Text="{i18n:Loc Key=Scan_Title}" />
+  ```
+
+  Unlike `x:Uid`, this sets one property. A control that needs a header *and* a
+  tooltip carries two keys.
+
+- Code outside XAML uses `Loc.Get("Key")` or `Loc.Format("Key", value)` from
+  `StorageMaster.Core.Localization`.
+
+- The catalogue lives in **Core**, not UI, so cleanup rule names — user-facing
+  text authored in a class library — draw on the same strings.
+
+Language changes take effect on pages parsed afterwards, so Settings asks for a
+restart. That restart is needed regardless: built-in WinUI control text follows
+the process language, which cannot be changed in place.
+
+## Key naming
+
+`Area_Thing` or `Area_Thing_Part`, PascalCase segments:
+
+| Key | Where |
+|---|---|
+| `Nav_SpaceMap` | Navigation entry |
+| `Scan_Title` | Page title |
+| `Scan_Start` | Button |
+| `Scan_Empty_Title` | Empty-state heading |
+| `Scan_Empty_Body` | Empty-state text |
+| `Settings_Theme_Header` | Settings card header |
+| `Settings_Theme_Description` | Settings card description |
+| `Common_Cancel` | Shared across pages |
+| `Safety_PermanentDelete` | Destructive-action wording |
+
+`Common_` is for text genuinely reused across pages. Do not reach for it to
+avoid inventing a key: two buttons that happen to read the same in English may
+not in German, and merging them makes that impossible to fix.
+
+`Safety_` marks anything describing deletion or quarantine. Those keys are
+reviewed separately and are exempt from the length checks.
+
+## What is not a string
+
+Leave these alone — they are not read by the user:
+
+- `Tag`, `x:Name`, style and resource keys, converter parameters
+- Icon glyphs, colour names, numeric literals, format strings like `N1`
+- Anything inside `--cli` output, log calls, or exception messages
 
 ## Terminology
 

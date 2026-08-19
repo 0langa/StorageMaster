@@ -10,6 +10,7 @@ using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Windowing;
 using StorageMaster.UI.Infrastructure;
 using StorageMaster.Core.Interfaces;
+using StorageMaster.Core.Localization;
 using StorageMaster.UI.Pages;
 using Windows.Graphics;
 
@@ -64,7 +65,7 @@ public sealed partial class MainWindow : Window
         NavView.Loaded += (_, _) =>
         {
             if (NavView.SettingsItem is NavigationViewItem settingsItem)
-                settingsItem.Content = "Settings";
+                settingsItem.Content = Loc.Get("Nav_Settings");
         };
 
         TryApplyMicaBackdrop();
@@ -367,14 +368,15 @@ public sealed partial class MainWindow : Window
                     // Targeted mutation: a concurrent settings-page save must not
                     // be clobbered by this monitor's whole-snapshot write.
                     await _settingsRepository.UpdateAsync(s => s.LowDiskNotificationState[stateKey] = stamp);
+                    var freeGigabytes = (drive.FreeBytes / 1024 / 1024 / 1024.0).ToString("F1");
                     await _notificationService.ShowWarningAsync(
-                        "Low disk space",
-                        $"{drive.Name} is down to {freePercent}% free ({drive.FreeBytes / 1024 / 1024 / 1024.0:F1} GB).");
+                        Loc.Get("Shell_LowDiskTitle"),
+                        Loc.Format("Shell_LowDiskBody", drive.Name, freePercent, freeGigabytes));
                 }
 
                 PaneDiskStatusText.Text = lowestFreePercent == 100
-                    ? "Drives healthy"
-                    : $"Lowest free space: {lowestFreePercent}%";
+                    ? Loc.Get("Shell_DrivesHealthy")
+                    : Loc.Format("Shell_LowestFreeSpace", $"{lowestFreePercent}%");
                 WarningStatusText.Text = PaneDiskStatusText.Text;
             }
 
@@ -398,7 +400,7 @@ public sealed partial class MainWindow : Window
                 settings.DriveHealthNotificationState[stateKey] = healthStamp;
                 await _settingsRepository.UpdateAsync(s => s.DriveHealthNotificationState[stateKey] = healthStamp);
                 await _notificationService.ShowWarningAsync(
-                    "Drive health needs attention",
+                    Loc.Get("Shell_DriveHealthWarningTitle"),
                     $"{snapshot.DriveName}: {snapshot.Message}");
             }
         }
@@ -415,13 +417,13 @@ public sealed partial class MainWindow : Window
             var latest = (await _scanRepository.GetRecentSessionsAsync(1)).FirstOrDefault();
             if (latest is null)
             {
-                LatestScanStatusText.Text = "No scans yet";
-                PaneLatestScanText.Text = "Start a scan to build workspace data";
+                LatestScanStatusText.Text = Loc.Get("Shell_NoScansYet");
+                PaneLatestScanText.Text = Loc.Get("Shell_StartScanHint");
                 return;
             }
 
-            var completed = latest.CompletedUtc?.ToLocalTime().ToString("g") ?? "in progress";
-            LatestScanStatusText.Text = $"Last scan: {latest.RootPath}";
+            var completed = latest.CompletedUtc?.ToLocalTime().ToString("g") ?? Loc.Get("Shell_ScanInProgress");
+            LatestScanStatusText.Text = Loc.Format("Shell_LastScan", latest.RootPath);
             PaneLatestScanText.Text = $"{latest.Status} · {completed}";
         }
         catch (Exception ex)
@@ -465,7 +467,10 @@ public sealed partial class MainWindow : Window
     private void TrayPauseNotifications_Click(object sender, RoutedEventArgs e)
     {
         _notificationsPausedUntilUtc = DateTimeOffset.UtcNow.AddHours(12);
-        _trayIcon.ShowNotification("Notifications paused", "Low-disk tray notifications are paused for 12 hours.", NotificationIcon.Info);
+        _trayIcon.ShowNotification(
+            Loc.Get("Shell_Tray_NotificationsPausedTitle"),
+            Loc.Get("Shell_Tray_NotificationsPausedBody"),
+            NotificationIcon.Info);
     }
 
     private void TrayExit_Click(object sender, RoutedEventArgs e)
@@ -478,13 +483,13 @@ public sealed partial class MainWindow : Window
     private TaskbarIcon CreateTrayIcon()
     {
         var menu = new MenuFlyout();
-        menu.Items.Add(MakeMenuItem("Open StorageMaster", TrayOpen_Click));
-        menu.Items.Add(MakeMenuItem("Run Smart Clean", TraySmartClean_Click));
-        menu.Items.Add(MakeMenuItem("Start Scan", TrayStartScan_Click));
-        menu.Items.Add(MakeMenuItem("Review Duplicates", TrayReviewDuplicates_Click));
-        menu.Items.Add(MakeMenuItem("Pause Notifications", TrayPauseNotifications_Click));
+        menu.Items.Add(MakeMenuItem(Loc.Get("Shell_Tray_Open"), TrayOpen_Click));
+        menu.Items.Add(MakeMenuItem(Loc.Get("Shell_Tray_SmartClean"), TraySmartClean_Click));
+        menu.Items.Add(MakeMenuItem(Loc.Get("Shell_Tray_StartScan"), TrayStartScan_Click));
+        menu.Items.Add(MakeMenuItem(Loc.Get("Shell_Tray_ReviewDuplicates"), TrayReviewDuplicates_Click));
+        menu.Items.Add(MakeMenuItem(Loc.Get("Shell_Tray_PauseNotifications"), TrayPauseNotifications_Click));
         menu.Items.Add(new MenuFlyoutSeparator());
-        menu.Items.Add(MakeMenuItem("Exit", TrayExit_Click));
+        menu.Items.Add(MakeMenuItem(Loc.Get("Shell_Tray_Exit"), TrayExit_Click));
 
         var trayIcon = new TaskbarIcon
         {

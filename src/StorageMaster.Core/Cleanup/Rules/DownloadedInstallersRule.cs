@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using StorageMaster.Core.Interfaces;
+using StorageMaster.Core.Localization;
 using StorageMaster.Core.Models;
 using StorageMaster.Core.Scanner;
 
@@ -19,7 +20,7 @@ public sealed class DownloadedInstallersRule : ICleanupRule
     private readonly Func<string> _getDownloadsPath;
 
     public string RuleId => "core.downloaded-installers";
-    public string DisplayName => "Downloaded Installers";
+    public string DisplayName => Loc.Get("Rule_DownloadedInstallers_Name");
     public CleanupCategory Category => CleanupCategory.DownloadedInstallers;
 
     private static readonly HashSet<string> InstallerExtensions =
@@ -72,10 +73,12 @@ public sealed class DownloadedInstallersRule : ICleanupRule
             {
                 Id = Guid.NewGuid(),
                 RuleId = RuleId,
-                Title = $"Downloaded installers ({installers.Count:N0} files)",
-                Description = $"Installer files (.exe, .msi, .iso, …) in your Downloads folder. " +
-                                 $"Estimated savings: {FormatBytes(totalBytes)}. " +
-                                 "Review before deleting — some may be needed for reinstallation.",
+                Title = Loc.Format(
+                    "Rule_DownloadedInstallers_Title",
+                    installers.Count.ToString("N0")),
+                Description = Loc.Format(
+                    "Rule_DownloadedInstallers_Description",
+                    FormatBytes(totalBytes)),
                 Category = Category,
                 Risk = CleanupRisk.Low,
                 EstimatedBytes = totalBytes,
@@ -106,11 +109,13 @@ public sealed class DownloadedInstallersRule : ICleanupRule
                 {
                     Id = Guid.NewGuid(),
                     RuleId = "core.clear-downloads-folder",
-                    Title = $"Clear entire Downloads folder ({allDownloads.Count:N0} files)",
-                    Description = $"Removes ALL content from {displayPath}. This includes documents, " +
-                                     $"archives, media, and any other files you may have downloaded. " +
-                                     $"Estimated savings: {FormatBytes(totalDownloadBytes)}. " +
-                                     "This action cannot be easily undone — use Recycle Bin mode.",
+                    Title = Loc.Format(
+                        "Safety_ClearDownloads_Title",
+                        allDownloads.Count.ToString("N0")),
+                    Description = Loc.Format(
+                        "Safety_ClearDownloads_Description",
+                        displayPath,
+                        FormatBytes(totalDownloadBytes)),
                     Category = Category,
                     Risk = CleanupRisk.Medium,
                     EstimatedBytes = totalDownloadBytes,

@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using StorageMaster.Core.Interfaces;
+using StorageMaster.Core.Localization;
 using StorageMaster.Core.Models;
 
 namespace StorageMaster.Core.Cleanup.Rules;
@@ -14,7 +15,7 @@ public sealed class LargeOldFilesCleanupRule : ICleanupRule
     private readonly IScanRepository _repo;
 
     public string RuleId => "core.large-old-files";
-    public string DisplayName => "Large Old Files";
+    public string DisplayName => Loc.Get("Rule_LargeOldFiles_Name");
     public CleanupCategory Category => CleanupCategory.LargeOldFiles;
 
     // Rows read on the first pass, and the ceiling if that pass turns out to have been
@@ -87,9 +88,12 @@ public sealed class LargeOldFilesCleanupRule : ICleanupRule
             {
                 Id = Guid.NewGuid(),
                 RuleId = RuleId,
-                Title = $"Large old file: {file.FileName}",
-                Description = $"{FormatBytes(file.SizeBytes)}, last modified {file.ModifiedUtc:yyyy-MM-dd}. " +
-                                 $"Path: {file.FullPath}",
+                Title = Loc.Format("Rule_LargeOldFiles_Title", file.FileName),
+                Description = Loc.Format(
+                    "Rule_LargeOldFiles_Description",
+                    FormatBytes(file.SizeBytes),
+                    file.ModifiedUtc.ToString("yyyy-MM-dd"),
+                    file.FullPath),
                 Category = Category,
                 Risk = CleanupRisk.Medium,
                 EstimatedBytes = file.SizeBytes,

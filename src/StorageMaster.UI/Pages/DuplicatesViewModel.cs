@@ -4,6 +4,7 @@ using System.Text.Json;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using StorageMaster.Core.Interfaces;
+using StorageMaster.Core.Localization;
 using StorageMaster.Core.Models;
 using StorageMaster.UI.Converters;
 using StorageMaster.UI.Infrastructure;
@@ -22,7 +23,15 @@ public sealed record DuplicateCategoryOption(
     IReadOnlyList<FileTypeCategory> Categories,
     bool UsesCustomExtensions = false);
 
-public sealed record DuplicateMethodFilterOption(string Label, DuplicateMethod? Method);
+public sealed record DuplicateMethodFilterOption(string Label, DuplicateMethod? Method)
+{
+    /// <summary>
+    /// The unlocalized name this option is stored under in
+    /// <c>AppSettings.DefaultDuplicatesReviewMode</c>. <see cref="Label"/> is what the
+    /// user reads and is localized, so a saved setting cannot be matched against it.
+    /// </summary>
+    public string SettingsName { get; init; } = string.Empty;
+}
 
 public sealed partial class DuplicateMemberItem : ObservableObject
 {
@@ -32,7 +41,9 @@ public sealed partial class DuplicateMemberItem : ObservableObject
     public DuplicateGroupMember Member { get; }
     public string SizeText => ByteSizeConverter.Format(Member.SizeBytes);
     public string ModifiedText => Member.ModifiedUtc.ToString("g");
-    public string StatusText => IsKeeper ? "Keeper" : IsSelected ? "Selected" : "Review";
+    public string StatusText => IsKeeper
+        ? Loc.Get("Duplicates_Member_Keeper")
+        : IsSelected ? Loc.Get("Duplicates_Member_Selected") : Loc.Get("Duplicates_Member_Review");
 
     public DuplicateMemberItem(DuplicateGroupMember member)
     {
@@ -58,22 +69,27 @@ public sealed partial class DuplicateGroupItem : ObservableObject
 
     public string MethodText => Group.Method switch
     {
-        DuplicateMethod.ExactSha256 => "Exact match",
-        DuplicateMethod.NormalizedText => "Normalized-equivalent",
-        DuplicateMethod.ImagePHash => "Perceptual image match",
-        DuplicateMethod.VideoPHash => "Perceptual video match",
+        DuplicateMethod.ExactSha256 => Loc.Get("Duplicates_Method_ExactMatch"),
+        DuplicateMethod.NormalizedText => Loc.Get("Duplicates_Method_NormalizedEquivalent"),
+        DuplicateMethod.ImagePHash => Loc.Get("Duplicates_Method_PerceptualImage"),
+        DuplicateMethod.VideoPHash => Loc.Get("Duplicates_Method_PerceptualVideo"),
         _ => Group.Method.ToString(),
     };
 
-    public string BadgeText => CanAutoSelect ? "Auto-selected" : "Review required";
+    public string BadgeText => CanAutoSelect
+        ? Loc.Get("Duplicates_Badge_AutoSelected")
+        : Loc.Get("Duplicates_Badge_ReviewRequired");
     public string ConfidenceText => $"{Group.Confidence:P0}";
     public string TotalSizeText => ByteSizeConverter.Format(Group.TotalBytes);
     public string ReclaimableText => ByteSizeConverter.Format(Group.ReclaimableBytes);
     public int SelectedCount => Members.Count(static member => member.IsSelected && !member.IsKeeper);
     public int MemberCount => Members.Count;
-    public string MemberCountText => $"{MemberCount:N0} file(s)";
-    public string ReclaimableSummaryText => $"Can free {ReclaimableText}";
-    public string SelectedCountText => $"{SelectedCount:N0} selected";
+    // Counts are formatted here, in the user's culture, and composed as text:
+    // Loc.Format composes invariantly so an already-formatted value is not
+    // formatted a second time.
+    public string MemberCountText => Loc.Format("Duplicates_Group_FileCount", MemberCount.ToString("N0"));
+    public string ReclaimableSummaryText => Loc.Format("Duplicates_Group_CanFree", ReclaimableText);
+    public string SelectedCountText => Loc.Format("Duplicates_Group_SelectedCount", SelectedCount.ToString("N0"));
     public bool CanAutoSelect => Group.Method == DuplicateMethod.ExactSha256;
     public bool RequiresReview => !CanAutoSelect;
     public string PathSummary => string.Join(" | ", Members.Take(2).Select(static m => m.Member.FullPath));
@@ -205,7 +221,7 @@ public sealed partial class DuplicatesViewModel : ObservableObject
     [ObservableProperty] private bool _isDeleting;
     [ObservableProperty] private bool _isExporting;
     [ObservableProperty] private bool _isPreviewLoading;
-    [ObservableProperty] private string _statusText = "Choose scan session, run duplicate analysis, review groups, delete copies.";
+    [ObservableProperty] private string _statusText = Loc.Get("Duplicates_Status_Initial");
     [ObservableProperty] private string _progressPhase = string.Empty;
     [ObservableProperty] private int _progressProcessed;
     [ObservableProperty] private int _progressTotal;
@@ -248,21 +264,21 @@ public sealed partial class DuplicatesViewModel : ObservableObject
     public Array GroupSortOptions => Enum.GetValues(typeof(DuplicateGroupSortBy));
     public ObservableCollection<DuplicateMethodFilterOption> MethodFilterOptions { get; } =
     [
-        new("All methods", null),
-        new("Exact", DuplicateMethod.ExactSha256),
-        new("Normalized text", DuplicateMethod.NormalizedText),
-        new("Image pHash", DuplicateMethod.ImagePHash),
-        new("Video pHash", DuplicateMethod.VideoPHash),
+        new(Loc.Get("Duplicates_MethodFilter_All"), null) { SettingsName = "All methods" },
+        new(Loc.Get("Duplicates_MethodFilter_Exact"), DuplicateMethod.ExactSha256) { SettingsName = "Exact" },
+        new(Loc.Get("Duplicates_MethodFilter_NormalizedText"), DuplicateMethod.NormalizedText) { SettingsName = "Normalized text" },
+        new(Loc.Get("Duplicates_MethodFilter_ImagePHash"), DuplicateMethod.ImagePHash) { SettingsName = "Image pHash" },
+        new(Loc.Get("Duplicates_MethodFilter_VideoPHash"), DuplicateMethod.VideoPHash) { SettingsName = "Video pHash" },
     ];
     public ObservableCollection<DuplicateCategoryOption> CategoryOptions { get; } =
     [
-        new("All files", []),
-        new("Images", [FileTypeCategory.Image]),
-        new("Videos", [FileTypeCategory.Video]),
-        new("Audio", [FileTypeCategory.Audio]),
-        new("Documents / text", [FileTypeCategory.Document, FileTypeCategory.SourceCode, FileTypeCategory.Log]),
-        new("Archives", [FileTypeCategory.Archive]),
-        new("Custom extensions", [], true),
+        new(Loc.Get("Duplicates_Category_AllFiles"), []),
+        new(Loc.Get("Duplicates_Category_Images"), [FileTypeCategory.Image]),
+        new(Loc.Get("Duplicates_Category_Videos"), [FileTypeCategory.Video]),
+        new(Loc.Get("Duplicates_Category_Audio"), [FileTypeCategory.Audio]),
+        new(Loc.Get("Duplicates_Category_Documents"), [FileTypeCategory.Document, FileTypeCategory.SourceCode, FileTypeCategory.Log]),
+        new(Loc.Get("Duplicates_Category_Archives"), [FileTypeCategory.Archive]),
+        new(Loc.Get("Duplicates_Category_CustomExtensions"), [], true),
     ];
 
     public bool HasGroups => Groups.Count > 0;
@@ -290,9 +306,9 @@ public sealed partial class DuplicatesViewModel : ObservableObject
     public string ProgressText => ProgressTotal <= 0 ? string.Empty : $"{ProgressProcessed:N0} / {ProgressTotal:N0}";
     public string ScopeHelpText => SelectedScopeMode switch
     {
-        DuplicateScopeMode.IncludedFolders => "Only files inside listed folders are checked.",
-        DuplicateScopeMode.ExcludedFolders => "Everything in scan is checked except listed folders and global exclusions.",
-        _ => "Whole completed scan is checked.",
+        DuplicateScopeMode.IncludedFolders => Loc.Get("Duplicates_ScopeHelp_IncludedFolders"),
+        DuplicateScopeMode.ExcludedFolders => Loc.Get("Duplicates_ScopeHelp_ExcludedFolders"),
+        _ => Loc.Get("Duplicates_ScopeHelp_WholeSession"),
     };
     public int CurrentPage => _currentGroupPage;
     public int TotalGroupCount => (int)_runSummary.GroupCount;
@@ -300,21 +316,29 @@ public sealed partial class DuplicatesViewModel : ObservableObject
     public int ReviewGroupCount => (int)_runSummary.ReviewGroupCount;
     public string ReclaimableText => ByteSizeConverter.Format(_runSummary.ReclaimableBytes);
     public int SelectedDuplicateCount => _allGroups.Sum(static group => group.SelectedCount);
-    public string SelectedDuplicateSummary => $"{SelectedDuplicateCount:N0} file(s) selected on current page";
-    public string ErrorSummary => _runSummary.ErrorCount == 0 ? "No errors or skipped files." : $"{_runSummary.ErrorCount:N0} error / skipped item(s)";
+    public string SelectedDuplicateSummary =>
+        Loc.Format("Duplicates_SelectedSummary", SelectedDuplicateCount.ToString("N0"));
+    public string ErrorSummary => _runSummary.ErrorCount == 0
+        ? Loc.Get("Duplicates_Errors_None")
+        : Loc.Format("Duplicates_Errors_Count", _runSummary.ErrorCount.ToString("N0"));
     public string LatestRunSummary => LatestRun is null
-        ? "No duplicate analysis has been saved for this scan session yet."
-        : $"Last run: {LatestRun.Status} on {LatestRun.CompletedUtc?.ToString("g") ?? LatestRun.StartedUtc.ToString("g")}. " +
-          $"{LatestRun.GroupCount:N0} group(s), {ByteSizeConverter.Format(LatestRun.ReclaimableBytes)} reclaimable, {LatestRun.ErrorCount:N0} error(s).";
+        ? Loc.Get("Duplicates_LatestRun_None")
+        : Loc.Format(
+            "Duplicates_LatestRun_Summary",
+            LatestRun.Status,
+            LatestRun.CompletedUtc?.ToString("g") ?? LatestRun.StartedUtc.ToString("g"),
+            LatestRun.GroupCount.ToString("N0"),
+            ByteSizeConverter.Format(LatestRun.ReclaimableBytes),
+            LatestRun.ErrorCount.ToString("N0"));
     public string DeleteModeSummary => UseQuarantine
-        ? "Delete mode: quarantine. Files can be restored below."
+        ? Loc.Get("Safety_Duplicates_DeleteMode_Quarantine")
         : UseRecycleBin
-            ? "Delete mode: Recycle Bin."
-            : "Delete mode: permanent delete.";
+            ? Loc.Get("Safety_Duplicates_DeleteMode_RecycleBin")
+            : Loc.Get("Safety_Duplicates_DeleteMode_Permanent");
     public string VideoMethodSummary => DescribeMethod(DuplicateMethod.VideoPHash,
-        "Finds visually similar videos. Needs FFmpeg + ffprobe.");
+        Loc.Get("Duplicates_Method_VideoReady"));
     public string ImageMethodSummary => DescribeMethod(DuplicateMethod.ImagePHash,
-        "Finds visually similar images.");
+        Loc.Get("Duplicates_Method_ImageReady"));
 
     public string ProviderSummary
     {
@@ -370,7 +394,7 @@ public sealed partial class DuplicatesViewModel : ObservableObject
         catch (Exception ex)
         {
             if (!cancellationToken.IsCancellationRequested && SelectedSession?.Id == sessionId)
-                StatusText = $"Could not load duplicate runs: {ex.Message}";
+                StatusText = Loc.Format("Duplicates_Error_LoadRuns", ex.Message);
             Debug.WriteLine(ex);
         }
     }
@@ -486,7 +510,7 @@ public sealed partial class DuplicatesViewModel : ObservableObject
         catch (Exception ex)
         {
             if (!token.IsCancellationRequested)
-                StatusText = $"Could not apply duplicate filters: {ex.Message}";
+                StatusText = Loc.Format("Duplicates_Error_ApplyFilters", ex.Message);
             Debug.WriteLine(ex);
         }
     }
@@ -523,7 +547,7 @@ public sealed partial class DuplicatesViewModel : ObservableObject
             IncludeHiddenFiles = settings.ShowHiddenFiles;
             IncludeReparsePoints = false;
             SelectedMethodFilter = MethodFilterOptions.FirstOrDefault(option =>
-                string.Equals(option.Label, settings.DefaultDuplicatesReviewMode, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(option.SettingsName, settings.DefaultDuplicatesReviewMode, StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(option.Method?.ToString(), settings.DefaultDuplicatesReviewMode, StringComparison.OrdinalIgnoreCase))
                 ?? MethodFilterOptions.FirstOrDefault();
 
@@ -554,7 +578,7 @@ public sealed partial class DuplicatesViewModel : ObservableObject
         if (selectedSession is null || selectedCategory is null)
         {
             // Never no-op silently on an enabled button.
-            StatusText = "Select a scan session and file type before running duplicate analysis.";
+            StatusText = Loc.Get("Duplicates_Status_SelectSessionAndType");
             return;
         }
 
@@ -565,7 +589,7 @@ public sealed partial class DuplicatesViewModel : ObservableObject
             .ToList();
         if (selectedCategory.UsesCustomExtensions && extensions.Count == 0)
         {
-            StatusText = "Enter at least one custom extension for custom-scope dedupe.";
+            StatusText = Loc.Get("Duplicates_Status_NeedCustomExtension");
             return;
         }
 
@@ -575,7 +599,7 @@ public sealed partial class DuplicatesViewModel : ObservableObject
             : [];
         if (selectedScopeMode == DuplicateScopeMode.IncludedFolders && includedPaths.Count == 0)
         {
-            StatusText = "Add one or more folder prefixes for included-folder scope.";
+            StatusText = Loc.Get("Duplicates_Status_NeedIncludedFolders");
             return;
         }
 
@@ -596,7 +620,7 @@ public sealed partial class DuplicatesViewModel : ObservableObject
         ProgressProcessed = 0;
         ProgressTotal = 0;
         ProgressPhase = string.Empty;
-        StatusText = "Starting duplicate analysis…";
+        StatusText = Loc.Get("Duplicates_Status_Starting");
         ClearRunState();
 
         try
@@ -639,7 +663,13 @@ public sealed partial class DuplicatesViewModel : ObservableObject
                     ProgressPhase = p.Phase;
                     ProgressProcessed = p.Processed;
                     ProgressTotal = Math.Max(p.Total, 1);
-                    StatusText = $"{p.Phase}: {p.Processed:N0} / {p.Total:N0} ({p.GroupsFound:N0} groups, {p.Errors:N0} errors)";
+                    StatusText = Loc.Format(
+                        "Duplicates_Status_Progress",
+                        p.Phase,
+                        p.Processed.ToString("N0"),
+                        p.Total.ToString("N0"),
+                        p.GroupsFound.ToString("N0"),
+                        p.Errors.ToString("N0"));
                 }),
                 analysisCts.Token);
 
@@ -652,20 +682,23 @@ public sealed partial class DuplicatesViewModel : ObservableObject
                 return;
 
             StatusText = completedRun.Status == DuplicateRunStatus.Cancelled
-                ? "Analysis cancelled."
+                ? Loc.Get("Duplicates_Status_Cancelled")
                 : _runSummary.GroupCount > 0
-                    ? $"Loaded page {_currentGroupPage:N0} of {_runSummary.GroupCount:N0} duplicate group(s). Review before deleting."
-                    : "No duplicate groups found for current scope.";
+                    ? Loc.Format(
+                        "Duplicates_Status_LoadedGroupsForReview",
+                        _currentGroupPage.ToString("N0"),
+                        _runSummary.GroupCount.ToString("N0"))
+                    : Loc.Get("Duplicates_Status_NoGroups");
         }
         catch (OperationCanceledException)
         {
             if (IsCurrentAnalysis(lifetimeVersion, analysisCts, selectedSession.Id))
-                StatusText = "Analysis cancelled.";
+                StatusText = Loc.Get("Duplicates_Status_Cancelled");
         }
         catch (Exception ex)
         {
             if (IsCurrentAnalysis(lifetimeVersion, analysisCts, selectedSession.Id))
-                StatusText = $"Duplicate analysis failed: {ex.Message}";
+                StatusText = Loc.Format("Duplicates_Error_AnalysisFailed", ex.Message);
         }
         finally
         {
@@ -683,7 +716,7 @@ public sealed partial class DuplicatesViewModel : ObservableObject
     private void CancelAnalysis()
     {
         _analysisCts?.Cancel();
-        StatusText = "Cancelling…";
+        StatusText = Loc.Get("Duplicates_Status_Cancelling");
     }
 
     [RelayCommand]
@@ -695,14 +728,14 @@ public sealed partial class DuplicatesViewModel : ObservableObject
         try
         {
             await LoadGroupsPageAsync(_currentGroupPage - 1, CurrentLifetimeToken);
-            StatusText = $"Loaded page {_currentGroupPage:N0}.";
+            StatusText = Loc.Format("Duplicates_Status_LoadedPage", _currentGroupPage.ToString("N0"));
         }
         catch (OperationCanceledException)
         {
         }
         catch (Exception ex)
         {
-            StatusText = $"Could not load the previous duplicate page: {ex.Message}";
+            StatusText = Loc.Format("Duplicates_Error_PreviousPage", ex.Message);
             Debug.WriteLine(ex);
         }
     }
@@ -716,14 +749,14 @@ public sealed partial class DuplicatesViewModel : ObservableObject
         try
         {
             await LoadGroupsPageAsync(_currentGroupPage + 1, CurrentLifetimeToken);
-            StatusText = $"Loaded page {_currentGroupPage:N0}.";
+            StatusText = Loc.Format("Duplicates_Status_LoadedPage", _currentGroupPage.ToString("N0"));
         }
         catch (OperationCanceledException)
         {
         }
         catch (Exception ex)
         {
-            StatusText = $"Could not load the next duplicate page: {ex.Message}";
+            StatusText = Loc.Format("Duplicates_Error_NextPage", ex.Message);
             Debug.WriteLine(ex);
         }
     }
@@ -743,7 +776,7 @@ public sealed partial class DuplicatesViewModel : ObservableObject
         }
         catch (Exception ex)
         {
-            StatusText = $"Could not load more duplicate errors: {ex.Message}";
+            StatusText = Loc.Format("Duplicates_Error_LoadMoreErrors", ex.Message);
             Debug.WriteLine(ex);
         }
     }
@@ -793,7 +826,7 @@ public sealed partial class DuplicatesViewModel : ObservableObject
                 }
 
                 page++;
-                progress.Report($"Exporting CSV page {page - 1:N0}…");
+                progress.Report(Loc.Format("Duplicates_Export_CsvPage", (page - 1).ToString("N0")));
             }
         });
     }
@@ -847,7 +880,7 @@ public sealed partial class DuplicatesViewModel : ObservableObject
                 }
 
                 page++;
-                progress.Report($"Exporting JSON page {page - 1:N0}…");
+                progress.Report(Loc.Format("Duplicates_Export_JsonPage", (page - 1).ToString("N0")));
                 await writer.FlushAsync(ct);
             }
 
@@ -906,7 +939,7 @@ public sealed partial class DuplicatesViewModel : ObservableObject
                 }
 
                 page++;
-                progress.Report($"Exporting HTML page {page - 1:N0}…");
+                progress.Report(Loc.Format("Duplicates_Export_HtmlPage", (page - 1).ToString("N0")));
             }
 
             await writer.WriteLineAsync("</tbody></table></body></html>");
@@ -965,7 +998,7 @@ public sealed partial class DuplicatesViewModel : ObservableObject
                 member.IsSelected = !member.IsKeeper && member.Member.ExistsNow;
         }
 
-        StatusText = $"Selected exact-match duplicates on page {_currentGroupPage:N0}.";
+        StatusText = Loc.Format("Duplicates_Status_SelectedExactOnPage", _currentGroupPage.ToString("N0"));
         RaiseSummaryProperties();
     }
 
@@ -981,7 +1014,7 @@ public sealed partial class DuplicatesViewModel : ObservableObject
                 member.IsSelected = false;
         }
 
-        StatusText = $"Cleared selections on page {_currentGroupPage:N0}.";
+        StatusText = Loc.Format("Duplicates_Status_ClearedSelections", _currentGroupPage.ToString("N0"));
         RaiseSummaryProperties();
     }
 
@@ -996,9 +1029,9 @@ public sealed partial class DuplicatesViewModel : ObservableObject
         var selectedSessionId = SelectedSession?.Id;
         var methodLabel = plan.Method switch
         {
-            DeletionMethod.Quarantine => "quarantine (restorable)",
-            DeletionMethod.RecycleBin => "Recycle Bin",
-            _ => "permanent deletion",
+            DeletionMethod.Quarantine => Loc.Get("Safety_Duplicates_Method_Quarantine"),
+            DeletionMethod.RecycleBin => Loc.Get("Safety_Duplicates_Method_RecycleBin"),
+            _ => Loc.Get("Safety_Duplicates_Method_Permanent"),
         };
 
         // Freeze the exact member/keeper/method plan and disable every editor before
@@ -1007,9 +1040,13 @@ public sealed partial class DuplicatesViewModel : ObservableObject
         try
         {
             var confirmed = await _dialogs.ConfirmAsync(
-                "Delete selected duplicates from current page",
-                $"Delete {plan.SelectedMemberCount:N0} duplicate file(s) from page {plan.Page:N0}?\n\nOne keeper per group stays untouched. Method: {methodLabel}.",
-                $"Delete via {methodLabel}");
+                Loc.Get("Safety_Duplicates_ConfirmDelete_Title"),
+                Loc.Format(
+                    "Safety_Duplicates_ConfirmDelete_Body",
+                    plan.SelectedMemberCount.ToString("N0"),
+                    plan.Page.ToString("N0"),
+                    methodLabel),
+                Loc.Format("Safety_Duplicates_ConfirmDelete_Action", methodLabel));
             if (!confirmed || !IsCurrentLifetime(lifetimeVersion))
                 return;
 
@@ -1036,18 +1073,32 @@ public sealed partial class DuplicatesViewModel : ObservableObject
             var groupErrors = outcome.GroupErrors;
             var persistenceWarnings = outcome.PersistenceWarnings;
             var processedSize = ByteSizeConverter.Format(processedBytes);
+            var processedCount = processedFileCount.ToString("N0");
             var operationSummary = plan.Method switch
             {
-                DeletionMethod.Quarantine => $"Moved {processedSize} across {processedFileCount:N0} file(s) to quarantine",
-                DeletionMethod.RecycleBin => $"Moved {processedSize} across {processedFileCount:N0} file(s) to the Recycle Bin",
-                _ => $"Permanently deleted {processedSize} across {processedFileCount:N0} file(s)",
+                DeletionMethod.Quarantine => Loc.Format("Safety_Duplicates_Outcome_Quarantine", processedSize, processedCount),
+                DeletionMethod.RecycleBin => Loc.Format("Safety_Duplicates_Outcome_RecycleBin", processedSize, processedCount),
+                _ => Loc.Format("Safety_Duplicates_Outcome_Permanent", processedSize, processedCount),
             };
             StatusText = (groupErrors.Count, persistenceWarnings.Count) switch
             {
-                (0, 0) => $"{operationSummary} from page {plan.Page:N0}.",
-                (0, _) => $"{operationSummary}; {persistenceWarnings.Count:N0} bookkeeping warning(s). First warning: {persistenceWarnings[0]}",
-                (_, 0) => $"{operationSummary}; {groupErrors.Count:N0} group(s) failed. First error: {groupErrors[0]}",
-                _ => $"{operationSummary}; {groupErrors.Count:N0} group(s) failed and {persistenceWarnings.Count:N0} bookkeeping warning(s). First issue: {groupErrors[0]}",
+                (0, 0) => Loc.Format("Duplicates_Status_DeleteDone", operationSummary, plan.Page.ToString("N0")),
+                (0, _) => Loc.Format(
+                    "Duplicates_Status_DeleteWarnings",
+                    operationSummary,
+                    persistenceWarnings.Count.ToString("N0"),
+                    persistenceWarnings[0]),
+                (_, 0) => Loc.Format(
+                    "Duplicates_Status_DeleteErrors",
+                    operationSummary,
+                    groupErrors.Count.ToString("N0"),
+                    groupErrors[0]),
+                _ => Loc.Format(
+                    "Duplicates_Status_DeleteErrorsAndWarnings",
+                    operationSummary,
+                    groupErrors.Count.ToString("N0"),
+                    persistenceWarnings.Count.ToString("N0"),
+                    groupErrors[0]),
             };
             await LoadLatestRunAsync(selectedSessionId, CurrentLifetimeToken);
         }
@@ -1057,7 +1108,7 @@ public sealed partial class DuplicatesViewModel : ObservableObject
         catch (Exception ex)
         {
             if (IsCurrentLifetime(lifetimeVersion))
-                StatusText = $"Duplicate deletion failed: {ex.Message}";
+                StatusText = Loc.Format("Duplicates_Error_DeleteFailed", ex.Message);
         }
         finally
         {
@@ -1108,8 +1159,10 @@ public sealed partial class DuplicatesViewModel : ObservableObject
             }
 
             completedGroups++;
-            progress.Report(
-                $"Deleting duplicates… {completedGroups:N0} of {plan.Groups.Count:N0} group(s) processed.");
+            progress.Report(Loc.Format(
+                "Safety_Duplicates_DeletingProgress",
+                completedGroups.ToString("N0"),
+                plan.Groups.Count.ToString("N0")));
         }
 
         return new DuplicateDeletionOutcome(
@@ -1152,14 +1205,14 @@ public sealed partial class DuplicatesViewModel : ObservableObject
         {
             await _duplicateDeletionService.RestoreFromQuarantineAsync(file.Id);
             await LoadLatestRunAsync(SelectedSession?.Id, CurrentLifetimeToken);
-            StatusText = $"Restored {file.OriginalPath}.";
+            StatusText = Loc.Format("Safety_Duplicates_RestoreSucceeded", file.OriginalPath);
         }
         catch (Exception ex)
         {
-            StatusText = $"Restore failed: {ex.Message}";
+            StatusText = Loc.Format("Safety_Duplicates_RestoreFailed", ex.Message);
             await _dialogs.ShowErrorAsync(
-                "Restore failed",
-                $"Could not restore \"{file.OriginalPath}\".\n\n{ex.Message}");
+                Loc.Get("Safety_Duplicates_RestoreFailed_Title"),
+                Loc.Format("Safety_Duplicates_RestoreFailed_Body", file.OriginalPath, ex.Message));
         }
     }
 
@@ -1167,7 +1220,7 @@ public sealed partial class DuplicatesViewModel : ObservableObject
     private void CancelExport()
     {
         _exportCts?.Cancel();
-        ExportStatusText = "Cancelling export…";
+        ExportStatusText = Loc.Get("Duplicates_Export_Cancelling");
     }
 
     [RelayCommand]
@@ -1194,7 +1247,7 @@ public sealed partial class DuplicatesViewModel : ObservableObject
         CancelReviewLoads();
         ClearRunState();
         IsRunLoading = true;
-        StatusText = "Loading duplicate review data…";
+        StatusText = Loc.Get("Duplicates_Status_LoadingReview");
         try
         {
             // Quarantine is global (duplicate runs AND generic cleanup), so it is
@@ -1207,7 +1260,7 @@ public sealed partial class DuplicatesViewModel : ObservableObject
 
             if (sessionId is null)
             {
-                StatusText = "Choose a completed scan session to review duplicates.";
+                StatusText = Loc.Get("Duplicates_Status_ChooseSession");
                 return;
             }
 
@@ -1219,7 +1272,7 @@ public sealed partial class DuplicatesViewModel : ObservableObject
             var latestRun = runs.FirstOrDefault();
             if (latestRun is null)
             {
-                StatusText = "No duplicate analysis has been run for this scan yet.";
+                StatusText = Loc.Get("Duplicates_Status_NoRunYet");
                 return;
             }
 
@@ -1241,8 +1294,11 @@ public sealed partial class DuplicatesViewModel : ObservableObject
                 return;
 
             StatusText = _runSummary.GroupCount > 0
-                ? $"Loaded page {_currentGroupPage:N0} of duplicate groups ({_runSummary.GroupCount:N0} total)."
-                : "Latest duplicate analysis completed without duplicate groups.";
+                ? Loc.Format(
+                    "Duplicates_Status_LoadedGroupsPage",
+                    _currentGroupPage.ToString("N0"),
+                    _runSummary.GroupCount.ToString("N0"))
+                : Loc.Get("Duplicates_Status_RunHadNoGroups");
         }
         finally
         {
@@ -1395,7 +1451,7 @@ public sealed partial class DuplicatesViewModel : ObservableObject
         catch (Exception ex)
         {
             if (IsCurrentPreviewLoad(lifetimeVersion, loadVersion, latestRun.Id, selectedGroup))
-                PreviewSummary = $"Could not load preview: {ex.Message}";
+                PreviewSummary = Loc.Format("Duplicates_Error_PreviewFailed", ex.Message);
             Debug.WriteLine(ex);
         }
         finally
@@ -1564,7 +1620,7 @@ public sealed partial class DuplicatesViewModel : ObservableObject
         var ct = exportCts.Token;
 
         IsExporting = true;
-        ExportStatusText = $"Exporting {extension.ToUpperInvariant()} report…";
+        ExportStatusText = Loc.Format("Duplicates_Export_Running", extension.ToUpperInvariant());
         try
         {
             var progress = new Progress<string>(status =>
@@ -1579,14 +1635,14 @@ public sealed partial class DuplicatesViewModel : ObservableObject
                 return;
 
             LastExportDirectory = exportDir;
-            ExportStatusText = $"{extension.ToUpperInvariant()} export saved to {filePath}.";
+            ExportStatusText = Loc.Format("Duplicates_Export_Saved", extension.ToUpperInvariant(), filePath);
             StatusText = ExportStatusText;
         }
         catch (OperationCanceledException)
         {
             if (IsCurrentExport(lifetimeVersion, exportCts))
             {
-                ExportStatusText = "Export cancelled.";
+                ExportStatusText = Loc.Get("Duplicates_Export_Cancelled");
                 StatusText = ExportStatusText;
             }
         }
@@ -1594,7 +1650,7 @@ public sealed partial class DuplicatesViewModel : ObservableObject
         {
             if (IsCurrentExport(lifetimeVersion, exportCts))
             {
-                ExportStatusText = $"Export failed: {ex.Message}";
+                ExportStatusText = Loc.Format("Duplicates_Export_Failed", ex.Message);
                 StatusText = ExportStatusText;
             }
         }
@@ -1794,10 +1850,10 @@ public sealed partial class DuplicatesViewModel : ObservableObject
     private string DescribeMethod(DuplicateMethod method, string readyText)
     {
         if (!_strategyMap.TryGetValue(method, out var strategy))
-            return "Unavailable.";
+            return Loc.Get("Duplicates_Method_Unavailable");
 
         return strategy.IsAvailable
             ? readyText
-            : strategy.UnavailableReason ?? "Unavailable.";
+            : strategy.UnavailableReason ?? Loc.Get("Duplicates_Method_Unavailable");
     }
 }

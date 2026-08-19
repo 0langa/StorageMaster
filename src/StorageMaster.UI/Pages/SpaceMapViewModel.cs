@@ -1,10 +1,12 @@
 using System.Collections.ObjectModel;
 using System.Diagnostics;
+using System.Globalization;
 using System.Text;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.UI.Dispatching;
 using StorageMaster.Core.Interfaces;
+using StorageMaster.Core.Localization;
 using StorageMaster.Core.Models;
 using StorageMaster.Core.SpaceMap;
 using StorageMaster.UI.Converters;
@@ -47,8 +49,8 @@ public sealed partial class SpaceMapViewModel : ObservableObject
     [ObservableProperty] private bool _isDeltaLoading;
     [ObservableProperty] private ScanSession? _selectedSession;
     [ObservableProperty] private string _currentFolderPath = string.Empty;
-    [ObservableProperty] private string _statusText = "Select a completed scan to render disk usage.";
-    [ObservableProperty] private string _deltaStatusText = "Scan Delta needs two completed scans with the same root.";
+    [ObservableProperty] private string _statusText = Loc.Get("SpaceMap_Status_SelectScan");
+    [ObservableProperty] private string _deltaStatusText = Loc.Get("SpaceMap_Delta_NeedsTwoScans");
     [ObservableProperty] private long _minimumSizeBytes;
     [ObservableProperty] private double _minimumSizeMb;
     [ObservableProperty] private SpaceMapNodeKind? _kindFilter;
@@ -68,11 +70,19 @@ public sealed partial class SpaceMapViewModel : ObservableObject
     public bool HasDelta => DeltaSummary?.HasComparison == true;
     public bool CanInteract => !IsLoading;
     public bool CanExport => HasNodes && !IsLoading;
-    public string CurrentFolderDisplay => string.IsNullOrWhiteSpace(CurrentFolderPath) ? "No folder selected" : CurrentFolderPath;
-    public string SelectedNodeDisplayName => SelectedNode?.Node.DisplayName ?? "No item selected";
-    public string SelectedNodePath => SelectedNode?.Node.FullPath ?? "Select a block in the treemap.";
+    public string CurrentFolderDisplay => string.IsNullOrWhiteSpace(CurrentFolderPath) ? Loc.Get("SpaceMap_Selection_NoFolder") : CurrentFolderPath;
+    public string SelectedNodeDisplayName => SelectedNode?.Node.DisplayName ?? Loc.Get("SpaceMap_Selection_NoItem");
+    public string SelectedNodePath => SelectedNode?.Node.FullPath ?? Loc.Get("SpaceMap_Selection_NoPath");
     public string SelectedNodeSize => SelectedNode is null ? "—" : ByteSizeConverter.Format(SelectedNode.Node.SizeBytes);
-    public string SelectedNodePercent => SelectedNode is null ? "—" : $"{SelectedNode.Node.PercentOfParent:N1}% of parent";
+
+    // The number is formatted here, in the user's culture, and composed as text:
+    // Loc.Format composes invariantly so an already-formatted value is not
+    // formatted a second time.
+    public string SelectedNodePercent => SelectedNode is null
+        ? "—"
+        : Loc.Format(
+            "SpaceMap_Selection_PercentOfParent",
+            SelectedNode.Node.PercentOfParent.ToString("N1", CultureInfo.CurrentCulture));
 
     public SpaceMapViewModel(ISpaceMapRepository spaceMapRepository, INavigationService navigation)
     {
@@ -82,7 +92,7 @@ public sealed partial class SpaceMapViewModel : ObservableObject
 
     public Task LoadAsync(long? sessionId = null, CancellationToken cancellationToken = default)
     {
-        ResetMap("Loading completed scans...");
+        ResetMap(Loc.Get("SpaceMap_Status_LoadingScans"));
         return RunLoadAsync(async (generation, ct) =>
         {
             var sessions = await _spaceMapRepository.GetSessionRootCandidatesAsync(ct);
@@ -107,14 +117,14 @@ public sealed partial class SpaceMapViewModel : ObservableObject
             if (targetSession is null)
             {
                 ResetMap(sessionId is not null
-                    ? "The requested completed scan is not available."
-                    : "No completed scans are available.");
+                    ? Loc.Get("SpaceMap_Status_RequestedScanUnavailable")
+                    : Loc.Get("SpaceMap_Status_NoCompletedScans"));
                 return;
             }
 
             await LoadFolderCoreAsync(targetSession, targetSession.RootPath, generation, ct);
             await LoadDeltaCoreAsync(targetSession, generation, ct);
-        }, "Space map session load failed", cancellationToken);
+        }, Loc.Get("SpaceMap_Error_SessionLoad"), cancellationToken);
     }
 
     public void CancelPendingLoad() => _loadCts?.Cancel();
@@ -192,7 +202,7 @@ public sealed partial class SpaceMapViewModel : ObservableObject
         if (value is null)
             return;
 
-        ResetMap("Loading the selected scan...");
+        ResetMap(Loc.Get("SpaceMap_Status_LoadingSelectedScan"));
         ObserveReload(ReloadSelectedSessionAsync(value));
     }
 
@@ -211,7 +221,7 @@ public sealed partial class SpaceMapViewModel : ObservableObject
 
         await RunLoadAsync(
             (generation, ct) => LoadFolderCoreAsync(session, layoutNode.Node.FullPath, generation, ct),
-            "Folder load failed");
+            Loc.Get("SpaceMap_Error_FolderLoad"));
     }
 
     [RelayCommand]
@@ -233,7 +243,7 @@ public sealed partial class SpaceMapViewModel : ObservableObject
             return;
         await RunLoadAsync(
             (generation, ct) => LoadFolderCoreAsync(session, parent, generation, ct),
-            "Parent folder load failed");
+            Loc.Get("SpaceMap_Error_ParentFolderLoad"));
     }
 
     [RelayCommand]
@@ -258,11 +268,11 @@ public sealed partial class SpaceMapViewModel : ObservableObject
             var dp = new Windows.ApplicationModel.DataTransfer.DataPackage();
             dp.SetText(layoutNode.Node.FullPath);
             Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(dp);
-            StatusText = "Path copied to the clipboard.";
+            StatusText = Loc.Get("SpaceMap_Status_PathCopied");
         }
         catch (Exception ex)
         {
-            StatusText = $"Could not copy the path: {ex.Message}";
+            StatusText = Loc.Format("SpaceMap_Error_CopyPath", ex.Message);
         }
     }
 
@@ -285,7 +295,7 @@ public sealed partial class SpaceMapViewModel : ObservableObject
         }
         catch (Exception ex)
         {
-            StatusText = $"Could not open File Explorer: {ex.Message}";
+            StatusText = Loc.Format("SpaceMap_Error_OpenExplorer", ex.Message);
         }
     }
 
@@ -323,11 +333,11 @@ public sealed partial class SpaceMapViewModel : ObservableObject
             lines.AddRange(_currentNodes.Select(static node =>
                 $"{node.Kind},\"{node.FullPath.Replace("\"", "\"\"")}\",{node.SizeBytes},{node.PercentOfParent:F3},{node.FileCount},{node.FolderCount},{node.Category},{node.ModifiedUtc:O}"));
             await File.WriteAllLinesAsync(path, lines, Encoding.UTF8);
-            StatusText = $"CSV report exported to {path}.";
+            StatusText = Loc.Format("SpaceMap_Export_CsvSucceeded", path);
         }
         catch (Exception ex)
         {
-            StatusText = $"CSV export failed: {ex.Message}";
+            StatusText = Loc.Format("SpaceMap_Export_CsvFailed", ex.Message);
         }
     }
 
@@ -354,11 +364,11 @@ public sealed partial class SpaceMapViewModel : ObservableObject
                 </tbody></table></body></html>
                 """;
             await File.WriteAllTextAsync(path, html, Encoding.UTF8);
-            StatusText = $"HTML report exported to {path}.";
+            StatusText = Loc.Format("SpaceMap_Export_HtmlSucceeded", path);
         }
         catch (Exception ex)
         {
-            StatusText = $"HTML export failed: {ex.Message}";
+            StatusText = Loc.Format("SpaceMap_Export_HtmlFailed", ex.Message);
         }
     }
 
@@ -371,7 +381,7 @@ public sealed partial class SpaceMapViewModel : ObservableObject
 
         return RunLoadAsync(
             (generation, ct) => LoadFolderCoreAsync(session, folderPath, generation, ct),
-            "Folder reload failed");
+            Loc.Get("SpaceMap_Error_FolderReload"));
     }
 
     private Task ReloadSelectedSessionAsync(ScanSession session)
@@ -380,7 +390,7 @@ public sealed partial class SpaceMapViewModel : ObservableObject
         {
             await LoadFolderCoreAsync(session, session.RootPath, generation, ct);
             await LoadDeltaCoreAsync(session, generation, ct);
-        }, "Selected scan load failed");
+        }, Loc.Get("SpaceMap_Error_SelectedScanLoad"));
     }
 
     private async Task LoadFolderCoreAsync(
@@ -394,7 +404,7 @@ public sealed partial class SpaceMapViewModel : ObservableObject
 
         var kindFilter = KindFilter;
         var minimumSizeBytes = MinimumSizeBytes;
-        StatusText = "Loading folder children...";
+        StatusText = Loc.Get("SpaceMap_Status_LoadingChildren");
         var nodes = await _spaceMapRepository.GetFolderChildrenWithSizesAsync(
             session.Id,
             folderPath,
@@ -413,8 +423,10 @@ public sealed partial class SpaceMapViewModel : ObservableObject
         BuildBreadcrumbs(session, folderPath);
         Relayout();
         StatusText = nodes.Count == 0
-            ? "No children match the current filters."
-            : $"Showing {nodes.Count:N0} largest child item(s). Destructive actions route through cleanup or duplicate review.";
+            ? Loc.Get("SpaceMap_Status_NoChildrenMatchFilters")
+            : Loc.Format(
+                "Safety_SpaceMap_ChildrenShown",
+                nodes.Count.ToString("N0", CultureInfo.CurrentCulture));
     }
 
     private async Task LoadDeltaCoreAsync(
@@ -439,7 +451,7 @@ public sealed partial class SpaceMapViewModel : ObservableObject
                 GrowingFolders.Clear();
                 NewLargeFiles.Clear();
                 RemovedFiles.Clear();
-                DeltaStatusText = "No previous completed scan with this root was found.";
+                DeltaStatusText = Loc.Get("SpaceMap_Delta_NoPreviousScan");
                 OnPropertyChanged(nameof(HasDelta));
                 return;
             }
@@ -453,7 +465,9 @@ public sealed partial class SpaceMapViewModel : ObservableObject
             Replace(GrowingFolders, deltaSummary.GrowingFolders);
             Replace(NewLargeFiles, deltaSummary.NewLargeFiles);
             Replace(RemovedFiles, deltaSummary.RemovedFiles);
-            DeltaStatusText = $"Comparing against scan from {previous.StartedUtc:g}.";
+            DeltaStatusText = Loc.Format(
+                "SpaceMap_Delta_ComparingAgainst",
+                previous.StartedUtc.ToString("g", CultureInfo.CurrentCulture));
             OnPropertyChanged(nameof(HasDelta));
         }
         finally
@@ -463,6 +477,11 @@ public sealed partial class SpaceMapViewModel : ObservableObject
         }
     }
 
+    /// <summary>
+    /// Runs a load, reporting failure as <paramref name="failurePrefix"/> followed by
+    /// the technical detail. The prefix arrives already localized — the detail after
+    /// it comes from the exception and stays English, as the logs do.
+    /// </summary>
     private async Task RunLoadAsync(
         Func<long, CancellationToken, Task> operation,
         string failurePrefix,
@@ -519,7 +538,7 @@ public sealed partial class SpaceMapViewModel : ObservableObject
         {
             // RunLoadAsync contains repository failures. This final observer
             // protects future reload implementations from becoming naked tasks.
-            StatusText = $"Space map reload failed: {ex.Message}";
+            StatusText = Loc.Format("SpaceMap_Error_ReloadFailed", ex.Message);
         }
     }
 
@@ -582,7 +601,7 @@ public sealed partial class SpaceMapViewModel : ObservableObject
         GrowingFolders.Clear();
         NewLargeFiles.Clear();
         RemovedFiles.Clear();
-        DeltaStatusText = "Scan Delta needs two completed scans with the same root.";
+        DeltaStatusText = Loc.Get("SpaceMap_Delta_NeedsTwoScans");
         StatusText = message;
         OnPropertyChanged(nameof(HasNodes));
         OnPropertyChanged(nameof(HasDelta));

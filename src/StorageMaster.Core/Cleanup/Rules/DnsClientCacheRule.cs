@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using StorageMaster.Core.Interfaces;
+using StorageMaster.Core.Localization;
 using StorageMaster.Core.Models;
 
 namespace StorageMaster.Core.Cleanup.Rules;
@@ -18,7 +19,7 @@ namespace StorageMaster.Core.Cleanup.Rules;
 public sealed class DnsClientCacheRule : ICleanupRule
 {
     public string RuleId => "core.dns-cache";
-    public string DisplayName => "DNS Client Cache";
+    public string DisplayName => Loc.Get("Rule_DnsCache_Name");
     public CleanupCategory Category => CleanupCategory.DnsCache;
 
     public async IAsyncEnumerable<CleanupSuggestion> AnalyzeAsync(
@@ -34,9 +35,8 @@ public sealed class DnsClientCacheRule : ICleanupRule
         {
             Id = Guid.NewGuid(),
             RuleId = RuleId,
-            Title = "DNS client cache",
-            Description = "Flushes the Windows DNS resolver cache (runs ipconfig /flushdns). " +
-                             "Removes stale domain resolution entries. No disk space freed.",
+            Title = Loc.Get("Rule_DnsCache_Title"),
+            Description = Loc.Get("Rule_DnsCache_Description"),
             Category = Category,
             Risk = CleanupRisk.Low,
             EstimatedBytes = 0,

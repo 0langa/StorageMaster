@@ -4,6 +4,7 @@ using CommunityToolkit.Mvvm.Input;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml.Controls;
 using StorageMaster.Core.Interfaces;
+using StorageMaster.Core.Localization;
 using StorageMaster.Core.Models;
 using StorageMaster.UI.Converters;
 using StorageMaster.UI.Infrastructure;
@@ -45,7 +46,7 @@ public sealed partial class SmartCleanerViewModel : ObservableObject
     [ObservableProperty] private bool _isCleaning;
     [ObservableProperty] private bool _hasResults;
     [ObservableProperty] private bool _cleaningDone;
-    [ObservableProperty] private string _statusText = "Click \"Scan & Analyse\" to find junk files automatically.";
+    [ObservableProperty] private string _statusText = Loc.Get("Smart_Status_Initial");
     [ObservableProperty] private string _progressText = string.Empty;
     [ObservableProperty] private string _totalSizeText = string.Empty;
     [ObservableProperty] private string _freedText = string.Empty;
@@ -98,7 +99,7 @@ public sealed partial class SmartCleanerViewModel : ObservableObject
         UnsubscribeGroups();
         Groups.Clear();
         SelectedGroupCount = 0;
-        StatusText = "Scanning your PC for junk files…";
+        StatusText = Loc.Get("Smart_Status_Scanning");
 
         var dispatcherQueue = _dispatcherQueue;
         var progress = new Progress<string>(message =>
@@ -126,20 +127,25 @@ public sealed partial class SmartCleanerViewModel : ObservableObject
             }
 
             foreach (var warning in analysis.Warnings)
-                FailureDetails.Add($"Scan warning — {warning.Path}: {warning.Message}");
+                FailureDetails.Add(Loc.Format(
+                    "Smart_FailureDetails_ScanWarning",
+                    warning.Path,
+                    warning.Message));
             HasFailureDetails = FailureDetails.Count > 0;
 
             UpdateTotalSize();
             HasResults = Groups.Count > 0;
             StatusText = (Groups.Count, analysis.IsPartial) switch
             {
-                ( > 0, true) =>
-                    $"Found {Groups.Count} junk category/categories, but {analysis.Warnings.Count} path(s) could not be inspected. Only confirmed files are listed.",
-                ( > 0, false) =>
-                    $"Found {Groups.Count} category/categories of junk. Select what to remove.",
-                (0, true) =>
-                    $"Scan incomplete: {analysis.Warnings.Count} path(s) could not be inspected and no removable files were confirmed.",
-                _ => "Great news — no significant junk found on this PC!",
+                ( > 0, true) => Loc.Format(
+                    "Smart_Status_FoundPartial",
+                    Groups.Count,
+                    analysis.Warnings.Count),
+                ( > 0, false) => Loc.Format("Smart_Status_Found", Groups.Count),
+                (0, true) => Loc.Format(
+                    "Smart_Status_ScanIncomplete",
+                    analysis.Warnings.Count),
+                _ => Loc.Get("Smart_Status_NoJunk"),
             };
             ProgressText = string.Empty;
         }
@@ -147,7 +153,7 @@ public sealed partial class SmartCleanerViewModel : ObservableObject
         {
             if (IsCurrentOperation(operationVersion, operationCts))
             {
-                StatusText = "Scan cancelled.";
+                StatusText = Loc.Get("Smart_Status_ScanCancelled");
                 ProgressText = string.Empty;
             }
         }
@@ -155,7 +161,7 @@ public sealed partial class SmartCleanerViewModel : ObservableObject
         {
             if (IsCurrentOperation(operationVersion, operationCts))
             {
-                StatusText = $"Scan failed: {ex.Message}";
+                StatusText = Loc.Format("Smart_Status_ScanFailed", ex.Message);
                 ProgressText = string.Empty;
             }
         }
@@ -185,7 +191,7 @@ public sealed partial class SmartCleanerViewModel : ObservableObject
         CompletionSeverity = InfoBarSeverity.Success;
         FreedText = string.Empty;
         ClearFailureDetails();
-        StatusText = "Waiting for cleanup confirmation…";
+        StatusText = Loc.Get("Smart_Status_AwaitingConfirmation");
         var cleanupStarted = false;
 
         var dispatcherQueue = _dispatcherQueue;
@@ -204,18 +210,26 @@ public sealed partial class SmartCleanerViewModel : ObservableObject
         {
             var totalBytes = selected.Sum(static group => group.EstimatedBytes);
             var confirmationText = UseRecycleBin
-                ? $"Move {selected.Count} junk group(s), about {ByteSizeConverter.Format(totalBytes)}, to the Recycle Bin?\n\nDisk space is reclaimed only after the Recycle Bin is emptied."
-                : $"Permanently delete {selected.Count} junk group(s), about {ByteSizeConverter.Format(totalBytes)}?\n\nThis cannot be undone.";
+                ? Loc.Format(
+                    "Safety_Smart_Confirm_RecycleBin_Message",
+                    selected.Count,
+                    ByteSizeConverter.Format(totalBytes))
+                : Loc.Format(
+                    "Safety_Smart_Confirm_Permanent_Message",
+                    selected.Count,
+                    ByteSizeConverter.Format(totalBytes));
             var confirmed = await _dialogs.ConfirmAsync(
-                "Confirm cleanup",
+                Loc.Get("Safety_Smart_Confirm_Title"),
                 confirmationText,
-                UseRecycleBin ? "Move selected" : "Delete selected");
+                UseRecycleBin
+                    ? Loc.Get("Safety_Smart_Confirm_MoveButton")
+                    : Loc.Get("Safety_Smart_Confirm_DeleteButton"));
 
             if (!confirmed || !IsCurrentOperation(operationVersion, operationCts))
                 return;
 
             var method = UseRecycleBin ? DeletionMethod.RecycleBin : DeletionMethod.Permanent;
-            StatusText = "Cleaning…";
+            StatusText = Loc.Get("Smart_Status_Cleaning");
             cleanupStarted = true;
             var result = await _service.CleanAsync(selected, method, progress, operationCts.Token);
             if (!IsCurrentOperation(operationVersion, operationCts))
@@ -230,7 +244,7 @@ public sealed partial class SmartCleanerViewModel : ObservableObject
                 if (cleanupStarted)
                     InvalidateGroups();
                 CompletionSeverity = InfoBarSeverity.Warning;
-                StatusText = "Cleanup cancelled. Scan again before retrying because file state may have changed.";
+                StatusText = Loc.Get("Smart_Status_CleanupCancelled");
                 CleaningDone = true;
             }
         }
@@ -240,10 +254,10 @@ public sealed partial class SmartCleanerViewModel : ObservableObject
             {
                 if (cleanupStarted)
                     InvalidateGroups();
-                FailureDetails.Add($"Cleanup error: {ex.Message}");
+                FailureDetails.Add(Loc.Format("Smart_FailureDetails_CleanupError", ex.Message));
                 HasFailureDetails = true;
                 CompletionSeverity = InfoBarSeverity.Error;
-                StatusText = "Cleanup failed. Scan again before retrying because file state may have changed.";
+                StatusText = Loc.Get("Smart_Status_CleanupFailed");
                 CleaningDone = true;
             }
         }
@@ -263,7 +277,9 @@ public sealed partial class SmartCleanerViewModel : ObservableObject
         if (_operationCts is not { IsCancellationRequested: false } operationCts)
             return;
 
-        StatusText = IsCleaning ? "Cancelling cleanup…" : "Cancelling scan…";
+        StatusText = IsCleaning
+            ? Loc.Get("Smart_Status_CancellingCleanup")
+            : Loc.Get("Smart_Status_CancellingScan");
         operationCts.Cancel();
     }
 
@@ -290,43 +306,45 @@ public sealed partial class SmartCleanerViewModel : ObservableObject
         foreach (var failure in result.Failures)
             FailureDetails.Add($"{failure.Path}: {failure.Error}");
         foreach (var warning in result.AuditWarnings)
-            FailureDetails.Add($"Audit warning: {warning}");
+            FailureDetails.Add(Loc.Format("Smart_FailureDetails_AuditWarning", warning));
         if (!string.IsNullOrWhiteSpace(result.ErrorMessage))
-            FailureDetails.Add($"Cleanup error: {result.ErrorMessage}");
+            FailureDetails.Add(Loc.Format("Smart_FailureDetails_CleanupError", result.ErrorMessage));
         HasFailureDetails = FailureDetails.Count > 0;
 
         var processedText = ByteSizeConverter.Format(result.BytesProcessed);
         var operationSummary = method == DeletionMethod.RecycleBin
-            ? $"Moved {processedText} to the Recycle Bin. Disk space returns after the Recycle Bin is emptied."
-            : $"Permanently deleted {processedText}; deletion service reported about {FreedText} reclaimed.";
+            ? Loc.Format("Safety_Smart_Summary_RecycleBin", processedText)
+            : Loc.Format("Safety_Smart_Summary_Permanent", processedText, FreedText);
 
         if (result.SuccessfulPathCount == 0)
         {
             CompletionSeverity = result.WasCancelled ? InfoBarSeverity.Warning : InfoBarSeverity.Error;
             StatusText = result.WasCancelled
-                ? "Cleanup cancelled before any path was removed. Scan again before retrying."
-                : $"Nothing was removed. {result.Failures.Count} path(s) failed or were skipped. Scan again before retrying.";
+                ? Loc.Get("Smart_Status_CancelledNothingRemoved")
+                : Loc.Format("Smart_Status_NothingRemoved", result.Failures.Count);
         }
         else if (result.WasCancelled)
         {
             CompletionSeverity = InfoBarSeverity.Warning;
-            StatusText = $"Cleanup cancelled after partial progress. {operationSummary} Scan again before retrying.";
+            StatusText = Loc.Format("Smart_Status_CancelledPartial", operationSummary);
         }
         else if (result.Failures.Count > 0 || result.ErrorMessage is not null)
         {
             CompletionSeverity = InfoBarSeverity.Warning;
-            StatusText = $"Cleanup partially completed. {operationSummary} " +
-                         $"{result.Failures.Count} path(s) failed or were skipped. Scan again before retrying.";
+            StatusText = Loc.Format(
+                "Smart_Status_PartiallyCompleted",
+                operationSummary,
+                result.Failures.Count);
         }
         else if (result.AuditWarnings.Count > 0)
         {
             CompletionSeverity = InfoBarSeverity.Warning;
-            StatusText = $"Cleanup completed. {operationSummary} Audit record warning shown below.";
+            StatusText = Loc.Format("Smart_Status_CompletedWithAuditWarning", operationSummary);
         }
         else
         {
             CompletionSeverity = InfoBarSeverity.Success;
-            StatusText = $"Cleanup completed. {operationSummary}";
+            StatusText = Loc.Format("Smart_Status_Completed", operationSummary);
         }
 
         CleaningDone = true;

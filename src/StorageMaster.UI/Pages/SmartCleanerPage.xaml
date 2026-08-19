@@ -1,11 +1,12 @@
 ﻿<Page
     x:Class="StorageMaster.UI.Pages.SmartCleanerPage"
-    AutomationProperties.Name="Smart Cleaner page"
+    AutomationProperties.Name="{i18n:Loc Key=Smart_AutomationName}"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:controls="using:StorageMaster.UI.Controls"
     xmlns:local="using:StorageMaster.UI.Pages"
     xmlns:converters="using:StorageMaster.UI.Converters"
+    xmlns:i18n="using:StorageMaster.UI.Infrastructure"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d">
@@ -24,15 +25,15 @@
                 appears only once there is something to clean, next to the total
                 it would remove.
             -->
-            <controls:PageHeader Title="Smart Cleaner"
-                                 Subtitle="Scans seven common junk sources and removes only what you select.">
+            <controls:PageHeader Title="{i18n:Loc Key=Smart_Title}"
+                                 Subtitle="{i18n:Loc Key=Smart_Subtitle}">
                 <controls:PageHeader.ActionContent>
                     <StackPanel Orientation="Horizontal" Spacing="{StaticResource ControlSpacing}">
-                        <Button Content="Cancel"
+                        <Button Content="{i18n:Loc Key=Common_Cancel}"
                                 Style="{StaticResource CommandButtonStyle}"
                                 Command="{x:Bind ViewModel.CancelCurrentCommand}"
                                 Visibility="{x:Bind ViewModel.IsBusy, Mode=OneWay, Converter={StaticResource BoolVis}}" />
-                        <Button Content="Scan &amp; Analyse"
+                        <Button Content="{i18n:Loc Key=Smart_Analyse}"
                                 Style="{StaticResource AccentButtonStyle}"
                                 MinHeight="36"
                                 Command="{x:Bind ViewModel.AnalyseCommand}"
@@ -47,15 +48,15 @@
                         <FontIcon Glyph="{StaticResource IconSmartCleaner}" FontSize="28"
                                   Foreground="{StaticResource SmAccentOnSurfaceBrush}" />
                         <StackPanel VerticalAlignment="Center" Spacing="2">
-                            <TextBlock Text="One-click junk removal"
+                            <TextBlock Text="{i18n:Loc Key=Smart_Card_Header}"
                                        Style="{StaticResource SectionHeaderTextStyle}" />
-                            <TextBlock Text="Analysis is read-only. Nothing is removed until you select categories and confirm."
+                            <TextBlock Text="{i18n:Loc Key=Safety_Smart_ReadOnlyNotice}"
                                        Style="{StaticResource HelperTextStyle}" />
                         </StackPanel>
                     </StackPanel>
 
                     <!-- Deletion mode -->
-                    <ToggleSwitch Header="Send deletions to Recycle Bin (recommended)"
+                    <ToggleSwitch Header="{i18n:Loc Key=Safety_Smart_UseRecycleBin_Header}"
                                   IsOn="{x:Bind ViewModel.UseRecycleBin, Mode=TwoWay}"
                                   IsEnabled="{x:Bind ViewModel.CanAnalyze, Mode=OneWay}" />
                 </StackPanel>
@@ -86,14 +87,14 @@
 
             <!-- Completion banner -->
             <InfoBar IsOpen="True" Severity="{x:Bind ViewModel.CompletionSeverity, Mode=OneWay}"
-                      Title="Cleanup result"
+                      Title="{i18n:Loc Key=Smart_Result_Title}"
                       Message="{x:Bind ViewModel.StatusText, Mode=OneWay}"
                       Visibility="{x:Bind ViewModel.CleaningDone, Mode=OneWay, Converter={StaticResource BoolVis}}" />
 
             <Border Style="{StaticResource SectionCardStyle}"
                     Visibility="{x:Bind ViewModel.HasFailureDetails, Mode=OneWay, Converter={StaticResource BoolVis}}">
                 <StackPanel Spacing="{StaticResource TightSpacing}">
-                    <TextBlock Text="Failure and audit details" Style="{StaticResource SectionHeaderTextStyle}" />
+                    <TextBlock Text="{i18n:Loc Key=Smart_FailureDetails_Header}" Style="{StaticResource SectionHeaderTextStyle}" />
                     <ListView ItemsSource="{x:Bind ViewModel.FailureDetails}"
                               MaxHeight="240" SelectionMode="None">
                         <ListView.ItemTemplate>
@@ -114,12 +115,12 @@
                 <Border Style="{StaticResource SectionCardStyle}" Padding="{StaticResource CardPaddingCompact}">
                     <Grid ColumnDefinitions="*,Auto" ColumnSpacing="{StaticResource ControlSpacing}">
                         <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="2">
-                            <TextBlock Text="Total selected to clean" Style="{StaticResource MetricLabelTextStyle}"/>
+                            <TextBlock Text="{i18n:Loc Key=Smart_TotalSelected_Label}" Style="{StaticResource MetricLabelTextStyle}"/>
                             <TextBlock Text="{x:Bind ViewModel.TotalSizeText, Mode=OneWay}"
                                        Style="{StaticResource MetricTextStyle}" />
                         </StackPanel>
                         <Button Grid.Column="1"
-                                Content="Clean Selected"
+                                Content="{i18n:Loc Key=Safety_Smart_CleanSelected_Button}"
                                 Style="{StaticResource AccentButtonStyle}"
                                 MinHeight="36"
                                 Command="{x:Bind ViewModel.CleanCommand}"

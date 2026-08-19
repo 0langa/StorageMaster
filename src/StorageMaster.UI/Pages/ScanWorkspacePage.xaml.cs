@@ -1,6 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Navigation;
+using StorageMaster.Core.Localization;
 
 namespace StorageMaster.UI.Pages;
 
@@ -42,7 +43,7 @@ public sealed partial class ScanWorkspacePage : Page
         catch (Exception ex)
         {
             if (ReferenceEquals(_loadCancellation, loadCancellation))
-                ViewModel.StatusText = $"Workspace failed to load: {ex.Message}";
+                ViewModel.StatusText = Loc.Format("Workspace_Status_LoadFailed", ex.Message);
         }
         finally
         {

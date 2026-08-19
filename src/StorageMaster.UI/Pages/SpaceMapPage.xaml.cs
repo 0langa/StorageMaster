@@ -10,6 +10,7 @@ using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
 using Microsoft.UI.Xaml.Navigation;
+using StorageMaster.Core.Localization;
 using StorageMaster.Core.Models;
 using StorageMaster.Core.SpaceMap;
 using StorageMaster.UI.Controls;
@@ -60,7 +61,7 @@ public sealed partial class SpaceMapPage : Page
         {
             _logger.LogError(ex, "Space map session load failed");
             if (ReferenceEquals(_loadCancellation, loadCancellation))
-                ViewModel.StatusText = "Failed to load session data.";
+                ViewModel.StatusText = Loc.Get("SpaceMap_Error_SessionDataLoad");
         }
         finally
         {
@@ -141,7 +142,7 @@ public sealed partial class SpaceMapPage : Page
     {
         if (!ViewModel.CanExport || TreemapCanvas.Children.Count == 0)
         {
-            ViewModel.StatusText = "Nothing to export. Load a scan folder first.";
+            ViewModel.StatusText = Loc.Get("SpaceMap_Export_NothingToExport");
             return;
         }
 
@@ -165,12 +166,12 @@ public sealed partial class SpaceMapPage : Page
                 pixels.ToArray());
             await encoder.FlushAsync();
 
-            ViewModel.StatusText = $"PNG screenshot exported to {path}.";
+            ViewModel.StatusText = Loc.Format("SpaceMap_Export_PngSucceeded", path);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "PNG export failed");
-            ViewModel.StatusText = $"PNG export failed: {ex.Message}";
+            ViewModel.StatusText = Loc.Format("SpaceMap_Export_PngFailed", ex.Message);
         }
     }
 
@@ -181,7 +182,7 @@ public sealed partial class SpaceMapPage : Page
         {
             flyout.Items.Add(new MenuFlyoutItem
             {
-                Text = "Drill into folder",
+                Text = Loc.Get("SpaceMap_Action_DrillIntoFolder"),
                 Command = ViewModel.DrillIntoCommand,
                 CommandParameter = layout,
             });
@@ -189,25 +190,25 @@ public sealed partial class SpaceMapPage : Page
 
         flyout.Items.Add(new MenuFlyoutItem
         {
-            Text = "Copy path",
+            Text = Loc.Get("SpaceMap_Action_CopyPath"),
             Command = ViewModel.CopyPathCommand,
             CommandParameter = layout,
         });
         flyout.Items.Add(new MenuFlyoutItem
         {
-            Text = "Reveal in Explorer",
+            Text = Loc.Get("SpaceMap_Action_RevealInExplorer"),
             Command = ViewModel.RevealInExplorerCommand,
             CommandParameter = layout,
         });
         flyout.Items.Add(new MenuFlyoutSeparator());
         flyout.Items.Add(new MenuFlyoutItem
         {
-            Text = "Send to Cleanup review",
+            Text = Loc.Get("SpaceMap_Action_SendToCleanup"),
             Command = ViewModel.SendToCleanupReviewCommand,
         });
         flyout.Items.Add(new MenuFlyoutItem
         {
-            Text = "Send to Duplicate review",
+            Text = Loc.Get("SpaceMap_Action_SendToDuplicate"),
             Command = ViewModel.SendToDuplicateReviewCommand,
         });
         return flyout;

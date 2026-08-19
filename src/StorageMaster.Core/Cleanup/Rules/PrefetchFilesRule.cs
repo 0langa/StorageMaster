@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using StorageMaster.Core.Interfaces;
+using StorageMaster.Core.Localization;
 using StorageMaster.Core.Models;
 
 namespace StorageMaster.Core.Cleanup.Rules;
@@ -20,7 +21,7 @@ public sealed class PrefetchFilesRule : ICleanupRule
     private readonly IAdminService _adminService;
 
     public string RuleId => "core.prefetch-files";
-    public string DisplayName => "Prefetch Files";
+    public string DisplayName => Loc.Get("Rule_PrefetchFiles_Name");
     public CleanupCategory Category => CleanupCategory.PrefetchFiles;
 
     public PrefetchFilesRule(IAdminService adminService)
@@ -62,10 +63,8 @@ public sealed class PrefetchFilesRule : ICleanupRule
         {
             Id = Guid.NewGuid(),
             RuleId = RuleId,
-            Title = $"Prefetch files ({paths.Count:N0} files)",
-            Description = $"App launch prefetch data in C:\\Windows\\Prefetch. Windows rebuilds these " +
-                             $"within days of normal use. First launch of each app may be slightly slower. " +
-                             $"Estimated savings: {FormatBytes(totalBytes)}.",
+            Title = Loc.Format("Rule_PrefetchFiles_Title", paths.Count.ToString("N0")),
+            Description = Loc.Format("Rule_PrefetchFiles_Description", FormatBytes(totalBytes)),
             Category = Category,
             Risk = CleanupRisk.Medium,
             EstimatedBytes = totalBytes,

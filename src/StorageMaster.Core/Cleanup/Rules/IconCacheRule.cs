@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using StorageMaster.Core.Interfaces;
+using StorageMaster.Core.Localization;
 using StorageMaster.Core.Models;
 
 namespace StorageMaster.Core.Cleanup.Rules;
@@ -13,7 +14,7 @@ namespace StorageMaster.Core.Cleanup.Rules;
 public sealed class IconCacheRule : ICleanupRule
 {
     public string RuleId => "core.icon-cache";
-    public string DisplayName => "Icon Cache";
+    public string DisplayName => Loc.Get("Rule_IconCache_Name");
     public CleanupCategory Category => CleanupCategory.IconCache;
 
     public async IAsyncEnumerable<CleanupSuggestion> AnalyzeAsync(
@@ -51,9 +52,8 @@ public sealed class IconCacheRule : ICleanupRule
         {
             Id = Guid.NewGuid(),
             RuleId = RuleId,
-            Title = $"Icon cache ({paths.Count} file(s))",
-            Description = $"Explorer icon cache database files. Windows rebuilds them automatically. " +
-                             $"Deleting may cause temporary icon refresh. Estimated savings: {FormatBytes(totalBytes)}.",
+            Title = Loc.Format("Rule_IconCache_Title", paths.Count),
+            Description = Loc.Format("Rule_IconCache_Description", FormatBytes(totalBytes)),
             Category = Category,
             Risk = CleanupRisk.Low,
             EstimatedBytes = totalBytes,

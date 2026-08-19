@@ -1,12 +1,13 @@
 ﻿<Page
     x:Class="StorageMaster.UI.Pages.ResultsPage"
     x:Name="PageRoot"
-    AutomationProperties.Name="Results page"
+    AutomationProperties.Name="{i18n:Loc Key=Results_Page_AutomationName}"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:controls="using:StorageMaster.UI.Controls"
     xmlns:converters="using:StorageMaster.UI.Converters"
     xmlns:local="using:StorageMaster.UI.Pages"
+    xmlns:i18n="using:StorageMaster.UI.Infrastructure"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d">
@@ -26,35 +27,35 @@
         <ScrollViewer Padding="{StaticResource PagePaddingWide}">
             <StackPanel Spacing="{StaticResource SectionSpacing}" MaxWidth="{StaticResource PageMaxWidth}" HorizontalAlignment="Center">
 
-                <controls:PageHeader Title="Results"
+                <controls:PageHeader Title="{i18n:Loc Key=Results_Title}"
                                      Subtitle="{x:Bind ViewModel.ScanRoot, Mode=OneWay}">
                     <controls:PageHeader.ActionContent>
                         <StackPanel Orientation="Horizontal" Spacing="{StaticResource TightSpacing}">
                             <Button Content="{StaticResource IconDelete}"
                                     Style="{StaticResource IconCommandButtonStyle}"
-                                    ToolTipService.ToolTip="Delete this scan from history"
-                                    AutomationProperties.Name="Delete this scan from history"
+                                    ToolTipService.ToolTip="{i18n:Loc Key=Safety_DeleteScanFromHistory}"
+                                    AutomationProperties.Name="{i18n:Loc Key=Safety_DeleteScanFromHistory}"
                                     Command="{x:Bind ViewModel.DeleteSessionCommand}" />
-                            <Button Content="Workspace"
+                            <Button Content="{i18n:Loc Key=Results_OpenWorkspace}"
                                     Style="{StaticResource AccentButtonStyle}"
                                     MinHeight="36"
                                     Command="{x:Bind ViewModel.OpenWorkspaceCommand}"
-                                    ToolTipService.ToolTip="Open unified scan workspace" />
+                                    ToolTipService.ToolTip="{i18n:Loc Key=Results_OpenWorkspace_Tooltip}" />
                         </StackPanel>
                     </controls:PageHeader.ActionContent>
                 </controls:PageHeader>
 
                 <InfoBar IsOpen="True"
                          Severity="Informational"
-                         Title="Scan data changed after cleanup"
+                         Title="{i18n:Loc Key=Results_SessionNote_Title}"
                          Message="{x:Bind ViewModel.SessionNote, Mode=OneWay}"
                          Visibility="{x:Bind ViewModel.HasSessionNote, Mode=OneWay, Converter={StaticResource BoolVis}}" />
 
                 <Border Style="{StaticResource SectionCardStyle}"
                         Visibility="{x:Bind ViewModel.HasSession, Mode=OneWay, Converter={StaticResource InvBoolVis}}">
                     <StackPanel Spacing="{StaticResource TightSpacing}">
-                        <TextBlock Text="No completed scan selected." Style="{StaticResource BodyStrongTextBlockStyle}" />
-                        <TextBlock Text="Run a scan first, then return here for results, duplicates, and cleanup."
+                        <TextBlock Text="{i18n:Loc Key=Results_Empty_Title}" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                        <TextBlock Text="{i18n:Loc Key=Results_Empty_Body}"
                                    Style="{StaticResource HelperTextStyle}" />
                     </StackPanel>
                 </Border>
@@ -63,19 +64,19 @@
                 <Border Style="{StaticResource SectionCardStyle}">
                     <Grid ColumnDefinitions="*,*,*,*" ColumnSpacing="{StaticResource ControlSpacing}">
                         <StackPanel Grid.Column="0" Spacing="2">
-                            <TextBlock Text="Scan root" Style="{StaticResource MetricLabelTextStyle}" />
+                            <TextBlock Text="{i18n:Loc Key=Results_Summary_ScanRoot}" Style="{StaticResource MetricLabelTextStyle}" />
                             <TextBlock Text="{x:Bind ViewModel.ScanRoot, Mode=OneWay}" Style="{StaticResource MetricValueTextStyle}" />
                         </StackPanel>
                         <StackPanel Grid.Column="1" Spacing="2">
-                            <TextBlock Text="Date" Style="{StaticResource MetricLabelTextStyle}" />
+                            <TextBlock Text="{i18n:Loc Key=Results_Summary_Date}" Style="{StaticResource MetricLabelTextStyle}" />
                             <TextBlock Text="{x:Bind ViewModel.ScanDate, Mode=OneWay}" Style="{StaticResource MetricValueTextStyle}" />
                         </StackPanel>
                         <StackPanel Grid.Column="2" Spacing="2">
-                            <TextBlock Text="Total size" Style="{StaticResource MetricLabelTextStyle}" />
+                            <TextBlock Text="{i18n:Loc Key=Results_Summary_TotalSize}" Style="{StaticResource MetricLabelTextStyle}" />
                             <TextBlock Text="{x:Bind ViewModel.TotalSize, Mode=OneWay}" Style="{StaticResource MetricValueTextStyle}" />
                         </StackPanel>
                         <StackPanel Grid.Column="3" Spacing="2">
-                            <TextBlock Text="Files" Style="{StaticResource MetricLabelTextStyle}" />
+                            <TextBlock Text="{i18n:Loc Key=Results_Summary_Files}" Style="{StaticResource MetricLabelTextStyle}" />
                             <TextBlock Text="{x:Bind ViewModel.TotalFiles, Mode=OneWay}" Style="{StaticResource MetricValueTextStyle}" />
                         </StackPanel>
                     </Grid>
@@ -86,24 +87,24 @@
                     <Grid ColumnDefinitions="*,Auto" ColumnSpacing="{StaticResource TightSpacing}">
                         <TextBox Grid.Column="0"
                                  Style="{StaticResource SearchTextBoxStyle}"
-                                 PlaceholderText="Filter by path or name…"
+                                 PlaceholderText="{i18n:Loc Key=Results_Filter_Placeholder}"
                                  Text="{x:Bind ViewModel.FilterText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
                         <Button Grid.Column="1"
                                 Content="{StaticResource IconClear}"
                                 Style="{StaticResource IconCommandButtonStyle}"
                                 VerticalAlignment="Center"
-                                ToolTipService.ToolTip="Clear filter"
-                                AutomationProperties.Name="Clear filter"
+                                ToolTipService.ToolTip="{i18n:Loc Key=Results_ClearFilter}"
+                                AutomationProperties.Name="{i18n:Loc Key=Results_ClearFilter}"
                                 Command="{x:Bind ViewModel.ClearFilterCommand}"/>
                     </Grid>
                     <TextBlock Text="{x:Bind ViewModel.FilterCountLabel, Mode=OneWay}"
                                Style="{StaticResource MutedTextStyle}"/>
                     <StackPanel Orientation="Horizontal" Spacing="{StaticResource TightSpacing}"
                                 Visibility="{x:Bind ViewModel.HasCategoryFilter, Mode=OneWay, Converter={StaticResource BoolVis}}">
-                        <TextBlock Text="Category filter active"
+                        <TextBlock Text="{i18n:Loc Key=Results_CategoryFilterActive}"
                                    Style="{StaticResource MutedTextStyle}"
                                    VerticalAlignment="Center"/>
-                        <HyperlinkButton Content="Clear category"
+                        <HyperlinkButton Content="{i18n:Loc Key=Results_ClearCategoryFilter}"
                                          Command="{x:Bind ViewModel.ClearCategoryFilterCommand}"
                                          Padding="0" />
                     </StackPanel>
@@ -114,7 +115,7 @@
                        SelectionChanged="ResultsPivot_SelectionChanged">
 
                     <!-- Largest Files -->
-                    <PivotItem Header="Largest Files">
+                    <PivotItem Header="{i18n:Loc Key=Results_Tab_LargestFiles}">
                         <StackPanel>
                             <!--
                                 Bounded on purpose. The page root is a ScrollViewer,
@@ -137,7 +138,7 @@
                                         clipped by the action buttons beside it.
                                     -->
                                     <Grid ColumnDefinitions="*,130,140,150,40,40" Padding="4,2">
-                                        <TextBlock Grid.Column="0" Text="File" Style="{StaticResource ColumnHeaderTextStyle}" Margin="8,0,0,0"/>
+                                        <TextBlock Grid.Column="0" Text="{i18n:Loc Key=Results_Column_File}" Style="{StaticResource ColumnHeaderTextStyle}" Margin="8,0,0,0"/>
                                         <Button Grid.Column="1"
                                                 Content="{Binding ViewModel.FileSizeHeader, ElementName=PageRoot}"
                                                 Command="{Binding ViewModel.SortFilesByCommand, ElementName=PageRoot}"
@@ -160,18 +161,18 @@
                                         <Grid ColumnDefinitions="*,130,140,150,40,40" Padding="0,4">
                                             <Grid.ContextFlyout>
                                                 <MenuFlyout>
-                                                    <MenuFlyoutItem Text="Copy full path"
+                                                    <MenuFlyoutItem Text="{i18n:Loc Key=Results_CopyFullPath}"
                                                                     Command="{Binding ViewModel.CopyFilePathCommand, ElementName=PageRoot}"
                                                                     CommandParameter="{Binding}">
                                                         <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE8C8;"/></MenuFlyoutItem.Icon>
                                                     </MenuFlyoutItem>
-                                                    <MenuFlyoutItem Text="Open in Explorer"
+                                                    <MenuFlyoutItem Text="{i18n:Loc Key=Results_OpenInExplorer}"
                                                                     Command="{Binding ViewModel.OpenInExplorerCommand, ElementName=PageRoot}"
                                                                     CommandParameter="{Binding}">
                                                         <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE8DA;"/></MenuFlyoutItem.Icon>
                                                     </MenuFlyoutItem>
                                                     <MenuFlyoutSeparator/>
-                                                    <MenuFlyoutItem Text="Send to Recycle Bin"
+                                                    <MenuFlyoutItem Text="{i18n:Loc Key=Safety_SendToRecycleBin}"
                                                                     Command="{Binding ViewModel.DeleteFileCommand, ElementName=PageRoot}"
                                                                     CommandParameter="{Binding}">
                                                         <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE74D;"/></MenuFlyoutItem.Icon>
@@ -197,8 +198,8 @@
                                                     Content="{StaticResource IconOpenInExplorer}"
                                                     Style="{StaticResource IconCommandButtonStyle}"
                                                     MinWidth="32" MinHeight="32" Padding="0"
-                                                    ToolTipService.ToolTip="Open containing folder in Explorer"
-                                                    AutomationProperties.Name="Open containing folder in Explorer"
+                                                    ToolTipService.ToolTip="{i18n:Loc Key=Results_OpenContainingFolder}"
+                                                    AutomationProperties.Name="{i18n:Loc Key=Results_OpenContainingFolder}"
                                                     Command="{Binding ViewModel.OpenInExplorerCommand, ElementName=PageRoot}"
                                                     CommandParameter="{Binding}"
                                                     VerticalAlignment="Center"/>
@@ -206,8 +207,8 @@
                                                     Content="{StaticResource IconDelete}"
                                                     Style="{StaticResource IconCommandButtonStyle}"
                                                     MinWidth="32" MinHeight="32" Padding="0"
-                                                    ToolTipService.ToolTip="Send to Recycle Bin"
-                                                    AutomationProperties.Name="Send to Recycle Bin"
+                                                    ToolTipService.ToolTip="{i18n:Loc Key=Safety_SendToRecycleBin}"
+                                                    AutomationProperties.Name="{i18n:Loc Key=Safety_SendToRecycleBin}"
                                                     Command="{Binding ViewModel.DeleteFileCommand, ElementName=PageRoot}"
                                                     CommandParameter="{Binding}"
                                                     VerticalAlignment="Center"/>
@@ -215,7 +216,7 @@
                                     </DataTemplate>
                                 </ListView.ItemTemplate>
                             </ListView>
-                            <Button Content="Load more files"
+                            <Button Content="{i18n:Loc Key=Results_LoadMoreFiles}"
                                     Style="{StaticResource CommandButtonStyle}"
                                     Margin="0,12,0,0"
                                     HorizontalAlignment="Left"
@@ -225,7 +226,7 @@
                     </PivotItem>
 
                     <!-- Largest Folders -->
-                    <PivotItem Header="Largest Folders">
+                    <PivotItem Header="{i18n:Loc Key=Results_Tab_LargestFolders}">
                         <StackPanel>
                             <ListView ItemsSource="{x:Bind ViewModel.LargestFolders}"
                                       SelectionMode="None" Margin="0,8,0,0"
@@ -233,7 +234,7 @@
                                       MaxHeight="{StaticResource ListMaxHeightTall}">
                                 <ListView.Header>
                                     <Grid ColumnDefinitions="*,130,100,36" Padding="4,2">
-                                        <TextBlock Grid.Column="0" Text="Folder" Style="{StaticResource ColumnHeaderTextStyle}" Margin="8,0,0,0"/>
+                                        <TextBlock Grid.Column="0" Text="{i18n:Loc Key=Results_Column_Folder}" Style="{StaticResource ColumnHeaderTextStyle}" Margin="8,0,0,0"/>
                                         <Button Grid.Column="1"
                                                 Content="{Binding ViewModel.FolderSizeHeader, ElementName=PageRoot}"
                                                 Command="{Binding ViewModel.SortFoldersByCommand, ElementName=PageRoot}"
@@ -251,12 +252,12 @@
                                         <Grid ColumnDefinitions="*,130,100,36" Padding="0,4">
                                             <Grid.ContextFlyout>
                                                 <MenuFlyout>
-                                                    <MenuFlyoutItem Text="Copy full path"
+                                                    <MenuFlyoutItem Text="{i18n:Loc Key=Results_CopyFullPath}"
                                                                     Command="{Binding ViewModel.CopyFolderPathCommand, ElementName=PageRoot}"
                                                                     CommandParameter="{Binding}">
                                                         <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE8C8;"/></MenuFlyoutItem.Icon>
                                                     </MenuFlyoutItem>
-                                                    <MenuFlyoutItem Text="Open in Explorer"
+                                                    <MenuFlyoutItem Text="{i18n:Loc Key=Results_OpenInExplorer}"
                                                                     Command="{Binding ViewModel.OpenFolderInExplorerCommand, ElementName=PageRoot}"
                                                                     CommandParameter="{Binding}">
                                                         <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE8DA;"/></MenuFlyoutItem.Icon>
@@ -277,8 +278,8 @@
                                                     Content="{StaticResource IconOpenInExplorer}"
                                                     Style="{StaticResource IconCommandButtonStyle}"
                                                     MinWidth="32" MinHeight="32" Padding="0"
-                                                    ToolTipService.ToolTip="Open in Explorer"
-                                                    AutomationProperties.Name="Open in Explorer"
+                                                    ToolTipService.ToolTip="{i18n:Loc Key=Results_OpenInExplorer}"
+                                                    AutomationProperties.Name="{i18n:Loc Key=Results_OpenInExplorer}"
                                                     Command="{Binding ViewModel.OpenFolderInExplorerCommand, ElementName=PageRoot}"
                                                     CommandParameter="{Binding}"
                                                     VerticalAlignment="Center"/>
@@ -286,7 +287,7 @@
                                     </DataTemplate>
                                 </ListView.ItemTemplate>
                             </ListView>
-                            <Button Content="Load more folders"
+                            <Button Content="{i18n:Loc Key=Results_LoadMoreFolders}"
                                     Style="{StaticResource CommandButtonStyle}"
                                     Margin="0,12,0,0"
                                     HorizontalAlignment="Left"
@@ -296,15 +297,15 @@
                     </PivotItem>
 
                     <!-- File Types -->
-                    <PivotItem Header="File Types">
+                    <PivotItem Header="{i18n:Loc Key=Results_Tab_FileTypes}">
                         <ListView ItemsSource="{x:Bind ViewModel.CategoryBreakdown}"
                                   SelectionMode="None" Margin="0,8,0,0"
                                   MaxHeight="{StaticResource ListMaxHeightTall}">
                             <ListView.Header>
                                 <Grid ColumnDefinitions="*,120,80" Padding="12,4">
-                                    <TextBlock Grid.Column="0" Text="Category" Style="{StaticResource ColumnHeaderTextStyle}"/>
-                                    <TextBlock Grid.Column="1" Text="Total size" Style="{StaticResource ColumnHeaderNumericTextStyle}"/>
-                                    <TextBlock Grid.Column="2" Text="Files" Style="{StaticResource ColumnHeaderNumericTextStyle}"/>
+                                    <TextBlock Grid.Column="0" Text="{i18n:Loc Key=Results_Column_Category}" Style="{StaticResource ColumnHeaderTextStyle}"/>
+                                    <TextBlock Grid.Column="1" Text="{i18n:Loc Key=Results_Column_TotalSize}" Style="{StaticResource ColumnHeaderNumericTextStyle}"/>
+                                    <TextBlock Grid.Column="2" Text="{i18n:Loc Key=Results_Column_Files}" Style="{StaticResource ColumnHeaderNumericTextStyle}"/>
                                 </Grid>
                             </ListView.Header>
                             <ListView.ItemTemplate>
@@ -334,7 +335,7 @@
                     <PivotItem x:Name="ErrorsPivotItem">
                         <PivotItem.Header>
                             <StackPanel Orientation="Horizontal" Spacing="6">
-                                <TextBlock Text="Errors"/>
+                                <TextBlock Text="{i18n:Loc Key=Results_Tab_Errors}"/>
                                 <Border BorderBrush="{StaticResource SmSeverityCriticalTextBrush}"
                                         BorderThickness="1"
                                         CornerRadius="{StaticResource ChipCornerRadius}" Padding="6,1"
@@ -358,9 +359,9 @@
                                   MaxHeight="{StaticResource ListMaxHeightTall}">
                             <ListView.Header>
                                 <Grid ColumnDefinitions="*,140,200" Padding="12,4">
-                                    <TextBlock Grid.Column="0" Text="Path" Style="{StaticResource ColumnHeaderTextStyle}"/>
-                                    <TextBlock Grid.Column="1" Text="Error type" Style="{StaticResource ColumnHeaderTextStyle}"/>
-                                    <TextBlock Grid.Column="2" Text="Message" Style="{StaticResource ColumnHeaderTextStyle}"/>
+                                    <TextBlock Grid.Column="0" Text="{i18n:Loc Key=Results_Column_Path}" Style="{StaticResource ColumnHeaderTextStyle}"/>
+                                    <TextBlock Grid.Column="1" Text="{i18n:Loc Key=Results_Column_ErrorType}" Style="{StaticResource ColumnHeaderTextStyle}"/>
+                                    <TextBlock Grid.Column="2" Text="{i18n:Loc Key=Results_Column_Message}" Style="{StaticResource ColumnHeaderTextStyle}"/>
                                 </Grid>
                             </ListView.Header>
                             <ListView.ItemTemplate>
@@ -387,7 +388,7 @@
                     </PivotItem>
 
                     <!-- Folder Tree -->
-                    <PivotItem x:Name="FolderTreePivotItem" Header="Folder Tree">
+                    <PivotItem x:Name="FolderTreePivotItem" Header="{i18n:Loc Key=Results_Tab_FolderTree}">
                         <StackPanel Spacing="{StaticResource TightSpacing}" Margin="0,8,0,0">
                             <TextBlock Text="{x:Bind ViewModel.FolderTreeStatusText, Mode=OneWay}"
                                        Style="{StaticResource HelperTextStyle}" />

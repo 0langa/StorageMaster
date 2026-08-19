@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using StorageMaster.Core.Interfaces;
+using StorageMaster.Core.Localization;
 using StorageMaster.Core.Models;
 
 namespace StorageMaster.Core.Cleanup.Rules;
@@ -13,7 +14,7 @@ namespace StorageMaster.Core.Cleanup.Rules;
 public sealed class WindowsErrorReportingRule : ICleanupRule
 {
     public string RuleId => "core.windows-error-reporting";
-    public string DisplayName => "Windows Error Reports";
+    public string DisplayName => Loc.Get("Rule_WindowsErrorReporting_Name");
     public CleanupCategory Category => CleanupCategory.WindowsErrorReporting;
 
     private static IEnumerable<string> GetCandidatePaths()
@@ -80,10 +81,10 @@ public sealed class WindowsErrorReportingRule : ICleanupRule
         {
             Id = Guid.NewGuid(),
             RuleId = RuleId,
-            Title = $"Windows Error Reports ({paths.Count} location(s))",
-            Description = "Crash dumps and diagnostic reports generated when programs or Windows " +
-                             "itself encounters an error. Safe to delete — Microsoft has already " +
-                             $"received any reports you chose to send. Estimated savings: {FormatBytes(totalBytes)}.",
+            Title = Loc.Format("Rule_WindowsErrorReporting_Title", paths.Count),
+            Description = Loc.Format(
+                "Rule_WindowsErrorReporting_Description",
+                FormatBytes(totalBytes)),
             Category = Category,
             Risk = CleanupRisk.Low,
             EstimatedBytes = totalBytes,

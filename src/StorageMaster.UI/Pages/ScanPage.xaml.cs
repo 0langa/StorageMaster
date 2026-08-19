@@ -1,6 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Navigation;
+using StorageMaster.Core.Localization;
 using Windows.Storage.Pickers;
 using WinRT.Interop;
 
@@ -47,7 +48,7 @@ public sealed partial class ScanPage : Page
                 !ViewModel.IsScanning)
             {
                 ViewModel.HasError = true;
-                ViewModel.ErrorMessage = $"Scan page failed to initialize: {ex.Message}";
+                ViewModel.ErrorMessage = Loc.Format("Scan_Error_InitializeFailed", ex.Message);
             }
         }
         finally
@@ -86,7 +87,7 @@ public sealed partial class ScanPage : Page
         }
         catch (Exception ex)
         {
-            ViewModel.ErrorMessage = $"Could not open folder picker: {ex.Message}";
+            ViewModel.ErrorMessage = Loc.Format("Scan_Error_FolderPickerFailed", ex.Message);
             ViewModel.HasError = true;
         }
         finally

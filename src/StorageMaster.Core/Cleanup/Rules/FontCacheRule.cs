@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using StorageMaster.Core.Interfaces;
+using StorageMaster.Core.Localization;
 using StorageMaster.Core.Models;
 
 namespace StorageMaster.Core.Cleanup.Rules;
@@ -13,7 +14,7 @@ namespace StorageMaster.Core.Cleanup.Rules;
 public sealed class FontCacheRule : ICleanupRule
 {
     public string RuleId => "core.font-cache";
-    public string DisplayName => "Font Cache";
+    public string DisplayName => Loc.Get("Rule_FontCache_Name");
     public CleanupCategory Category => CleanupCategory.FontCache;
 
     private static IEnumerable<string> GetCandidatePaths()
@@ -63,9 +64,8 @@ public sealed class FontCacheRule : ICleanupRule
         {
             Id = Guid.NewGuid(),
             RuleId = RuleId,
-            Title = $"Font cache ({paths.Count} folder(s))",
-            Description = $"Windows font rendering cache. The Font Cache Service rebuilds it " +
-                             $"automatically on the next boot. Estimated savings: {FormatBytes(totalBytes)}.",
+            Title = Loc.Format("Rule_FontCache_Title", paths.Count),
+            Description = Loc.Format("Rule_FontCache_Description", FormatBytes(totalBytes)),
             Category = Category,
             Risk = CleanupRisk.Low,
             EstimatedBytes = totalBytes,

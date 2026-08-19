@@ -1,4 +1,5 @@
 ﻿using System.Collections.ObjectModel;
+using System.Globalization;
 using System.Reflection;
 using System.Text.Json;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -6,6 +7,7 @@ using CommunityToolkit.Mvvm.Input;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using StorageMaster.Core.Interfaces;
+using StorageMaster.Core.Localization;
 using StorageMaster.Core.Models;
 using StorageMaster.Core.Theming;
 using StorageMaster.Core.Scheduling;
@@ -59,7 +61,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     [ObservableProperty] private AccentOption? _accent;
     [ObservableProperty] private UiLanguage _language = UiLanguage.System;
     [ObservableProperty] private bool _languageRestartPending;
-    [ObservableProperty] private string _databaseSizeText = "Calculating…";
+    [ObservableProperty] private string _databaseSizeText = Loc.Get("Settings_Database_Calculating");
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(CanCompact))]
     private bool _isCompacting;
@@ -196,12 +198,14 @@ public sealed partial class SettingsViewModel : ObservableObject
                 .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
                 ?.InformationalVersion
                 ?? assembly.GetName().Version?.ToString(3)
-                ?? "Unknown";
+                ?? Loc.Get("Settings_Version_Unknown");
         }
     }
 
     public string UpdateAvailableText => AvailableUpdate is { } u
-        ? $"Version {u.TagName.TrimStart('v', 'V')} is available  (released {u.PublishedAt:d MMMM yyyy})"
+        ? Loc.Format("Settings_Update_AvailableDetail",
+            u.TagName.TrimStart('v', 'V'),
+            u.PublishedAt.ToString("d MMMM yyyy", CultureInfo.CurrentCulture))
         : string.Empty;
 
     public Uri? ReleaseNotesUri => AvailableUpdate is { } u
@@ -231,16 +235,16 @@ public sealed partial class SettingsViewModel : ObservableObject
         ThemeCatalog.Accents.Select(a => new AccentOption(a.Id, AccentDisplayName(a.Id))).ToArray();
 
     /// <summary>
-    /// Display names live here rather than in the catalogue so Core stays free of
-    /// presentation concerns. When localisation lands these become resource lookups
-    /// keyed by <c>ThemeAccent.DisplayNameKey</c>.
+    /// Display names come from the string catalogue rather than from
+    /// <see cref="ThemeCatalog"/>, so the accent ids stay presentation-free while the
+    /// names a user reads follow the UI language.
     /// </summary>
     private static string AccentDisplayName(string id) => id switch
     {
-        "aurora" => "Aurora — teal",
-        "ember" => "Ember — amber",
-        "verdant" => "Verdant — green",
-        "violet" => "Violet — purple",
+        "aurora" => Loc.Get("Settings_Accent_Aurora"),
+        "ember" => Loc.Get("Settings_Accent_Ember"),
+        "verdant" => Loc.Get("Settings_Accent_Verdant"),
+        "violet" => Loc.Get("Settings_Accent_Violet"),
         _ => id,
     };
 
@@ -268,10 +272,10 @@ public sealed partial class SettingsViewModel : ObservableObject
     public Array ScheduledJobFrequencyOptions => Enum.GetValues(typeof(ScheduledJobFrequency));
     public Array ScheduledJobDayOptions => Enum.GetValues(typeof(DayOfWeek));
 
-    public string LargeFileThresholdLabel => $"Large file threshold: {LargeFileSizeMb} MB";
-    public string OldFileAgeThresholdLabel => $"Old file threshold: {OldFileAgeDays} days";
-    public string ScanParallelismLabel => $"Parallelism: {ScanParallelism} threads";
-    public string ScanHistoryRetentionLabel => $"Keep scan history for {ScanHistoryRetentionDays} days";
+    public string LargeFileThresholdLabel => Loc.Format("Settings_LargeFileThreshold_Label", LargeFileSizeMb);
+    public string OldFileAgeThresholdLabel => Loc.Format("Settings_OldFileThreshold_Label", OldFileAgeDays);
+    public string ScanParallelismLabel => Loc.Format("Settings_Parallelism_Label", ScanParallelism);
+    public string ScanHistoryRetentionLabel => Loc.Format("Settings_ScanHistoryRetention_Label", ScanHistoryRetentionDays);
     public bool HasUpdateStatusMessage => !string.IsNullOrWhiteSpace(UpdateStatusMessage);
     public bool HasSavedMessage => !string.IsNullOrWhiteSpace(SavedMessage);
     public bool HasLoadError => !string.IsNullOrWhiteSpace(LoadError);
@@ -290,16 +294,16 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     public string SelectedCategoryTitle => SelectedCategory switch
     {
-        SettingsCategory.General => "General & Appearance",
-        SettingsCategory.Scanning => "Scanning & Performance",
-        SettingsCategory.Cleanup => "Cleanup & Safety",
-        SettingsCategory.Duplicates => "Duplicates & Matching",
-        SettingsCategory.ResultsHistory => "Results & History",
-        SettingsCategory.Scheduling => "Scheduling & Automation",
-        SettingsCategory.TrayNotifications => "Background, Tray & Notifications",
-        SettingsCategory.Updates => "Updates & Security",
-        SettingsCategory.AdvancedDiagnostics => "Advanced Diagnostics & About",
-        _ => "Settings",
+        SettingsCategory.General => Loc.Get("Settings_Category_General_Title"),
+        SettingsCategory.Scanning => Loc.Get("Settings_Category_Scanning_Title"),
+        SettingsCategory.Cleanup => Loc.Get("Settings_Category_Cleanup_Title"),
+        SettingsCategory.Duplicates => Loc.Get("Settings_Category_Duplicates_Title"),
+        SettingsCategory.ResultsHistory => Loc.Get("Settings_Category_ResultsHistory_Title"),
+        SettingsCategory.Scheduling => Loc.Get("Settings_Category_Scheduling_Title"),
+        SettingsCategory.TrayNotifications => Loc.Get("Settings_Category_TrayNotifications_Title"),
+        SettingsCategory.Updates => Loc.Get("Settings_Category_Updates_Title"),
+        SettingsCategory.AdvancedDiagnostics => Loc.Get("Settings_Category_AdvancedDiagnostics_Title"),
+        _ => Loc.Get("Settings_Title"),
     };
 
     public bool IsGeneralSelected => SelectedCategory == SettingsCategory.General;
@@ -337,15 +341,15 @@ public sealed partial class SettingsViewModel : ObservableObject
 
         _allCategories =
         [
-            new SettingsCategoryItem(SettingsCategory.General, "General & Appearance", "Theme, density, landing page, and scan path.", "\uE771"),
-            new SettingsCategoryItem(SettingsCategory.Scanning, "Scanning & Performance", "Parallelism, hidden files, exclusions, and retention.", "\uE8B5"),
-            new SettingsCategoryItem(SettingsCategory.Cleanup, "Cleanup & Safety", "Deletion behaviour, thresholds, and default rules.", "\uE74C"),
-            new SettingsCategoryItem(SettingsCategory.Duplicates, "Duplicates & Matching", "Detection methods, keeper policy, and FFmpeg.", "\uE8B7"),
-            new SettingsCategoryItem(SettingsCategory.ResultsHistory, "Results & History", "History retention and default page size.", "\uE81C"),
-            new SettingsCategoryItem(SettingsCategory.Scheduling, "Scheduling & Automation", "Scheduled scans, cleanup jobs, and triggers.", "\uE8C0"),
-            new SettingsCategoryItem(SettingsCategory.TrayNotifications, "Background, Tray & Notifications", "Tray minimise, startup, and low-disk alerts.", "\uE7E8"),
-            new SettingsCategoryItem(SettingsCategory.Updates, "Updates & Security", "Startup checks, pre-releases, and signing.", "\uE8C3"),
-            new SettingsCategoryItem(SettingsCategory.AdvancedDiagnostics, "Advanced Diagnostics & About", "Diagnostics export and version info.", "\uE9CE"),
+            new SettingsCategoryItem(SettingsCategory.General, Loc.Get("Settings_Category_General_Title"), Loc.Get("Settings_Category_General_Description"), "\uE771"),
+            new SettingsCategoryItem(SettingsCategory.Scanning, Loc.Get("Settings_Category_Scanning_Title"), Loc.Get("Settings_Category_Scanning_Description"), "\uE8B5"),
+            new SettingsCategoryItem(SettingsCategory.Cleanup, Loc.Get("Settings_Category_Cleanup_Title"), Loc.Get("Settings_Category_Cleanup_Description"), "\uE74C"),
+            new SettingsCategoryItem(SettingsCategory.Duplicates, Loc.Get("Settings_Category_Duplicates_Title"), Loc.Get("Settings_Category_Duplicates_Description"), "\uE8B7"),
+            new SettingsCategoryItem(SettingsCategory.ResultsHistory, Loc.Get("Settings_Category_ResultsHistory_Title"), Loc.Get("Settings_Category_ResultsHistory_Description"), "\uE81C"),
+            new SettingsCategoryItem(SettingsCategory.Scheduling, Loc.Get("Settings_Category_Scheduling_Title"), Loc.Get("Settings_Category_Scheduling_Description"), "\uE8C0"),
+            new SettingsCategoryItem(SettingsCategory.TrayNotifications, Loc.Get("Settings_Category_TrayNotifications_Title"), Loc.Get("Settings_Category_TrayNotifications_Description"), "\uE7E8"),
+            new SettingsCategoryItem(SettingsCategory.Updates, Loc.Get("Settings_Category_Updates_Title"), Loc.Get("Settings_Category_Updates_Description"), "\uE8C3"),
+            new SettingsCategoryItem(SettingsCategory.AdvancedDiagnostics, Loc.Get("Settings_Category_AdvancedDiagnostics_Title"), Loc.Get("Settings_Category_AdvancedDiagnostics_Description"), "\uE9CE"),
         ];
 
         foreach (var c in _allCategories)
@@ -430,7 +434,7 @@ public sealed partial class SettingsViewModel : ObservableObject
 
         AvailableUpdate = _updateService.LastCheckResult;
         if (AvailableUpdate is not null)
-            UpdateStatusMessage = $"Update to {AvailableUpdate.Version.ToString(3)} is ready to download.";
+            UpdateStatusMessage = Loc.Format("Settings_Update_ReadyToDownload", AvailableUpdate.Version.ToString(3));
 
         RefreshCategorySummaries();
         IsLoaded = true;
@@ -442,8 +446,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         IsLoaded = false;
         LoadError = exception.Message;
         FeedbackSeverity = InfoBarSeverity.Error;
-        SavedMessage =
-            $"Settings could not be loaded. Editing is disabled to avoid overwriting stored values: {exception.Message}";
+        SavedMessage = Loc.Format("Settings_LoadFailed", exception.Message);
     }
 
     public void AddExcludedPath(string path)
@@ -582,7 +585,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         OnPropertyChanged(nameof(CanSave));
         if (!CanSave)
         {
-            EditorValidationMessage = "Fix validation errors before saving.";
+            EditorValidationMessage = Loc.Get("Settings_Validation_FixErrors");
             return;
         }
 
@@ -598,14 +601,14 @@ public sealed partial class SettingsViewModel : ObservableObject
             _loadedSettings = CloneSettings(settings);
             _editorSnapshot = CloneSettings(settings);
             RefreshCategorySummaries();
-            await ShowSavedMessageAsync("Settings saved.");
+            await ShowSavedMessageAsync(Loc.Get("Settings_Saved"));
         }
         catch (Exception ex)
         {
             ReportOperationFailure(
                 persisted
-                    ? "Settings were stored, but Windows startup registration failed. Review the startup setting before retrying."
-                    : "Settings were not saved.",
+                    ? Loc.Get("Settings_Save_StartupRegistrationFailed")
+                    : Loc.Get("Settings_Save_Failed"),
                 ex);
         }
     }
@@ -620,12 +623,12 @@ public sealed partial class SettingsViewModel : ObservableObject
         {
             await _repo.SaveAsync(new AppSettings());
             await LoadAsync();
-            await ShowSavedMessageAsync("Settings reset to defaults.");
+            await ShowSavedMessageAsync(Loc.Get("Settings_Reset_Done"));
         }
         catch (Exception ex)
         {
             ReportOperationFailure(
-                "Settings reset did not complete. Reload Settings before editing again.",
+                Loc.Get("Settings_Reset_Failed"),
                 ex);
             IsLoaded = false;
         }
@@ -637,7 +640,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     private async Task CheckForUpdatesAsync()
     {
         IsCheckingForUpdates = true;
-        UpdateStatusMessage = "Checking for updates…";
+        UpdateStatusMessage = Loc.Get("Settings_Update_Checking");
         AvailableUpdate = null;
 
         try
@@ -645,13 +648,13 @@ public sealed partial class SettingsViewModel : ObservableObject
             var info = await _updateService.CheckAsync(IncludePrerelease);
             AvailableUpdate = info;
             UpdateStatusMessage = info is not null
-                ? $"Update to {info.Version.ToString(3)} is available."
-                : "No compatible update is currently available.";
+                ? Loc.Format("Settings_Update_Available", info.Version.ToString(3))
+                : Loc.Get("Settings_Update_None");
             await RecordDiagnosticsBestEffortAsync(UpdateStatusMessage);
         }
         catch (Exception ex)
         {
-            UpdateStatusMessage = $"Update check failed: {ex.Message}";
+            UpdateStatusMessage = Loc.Format("Settings_Update_CheckFailed", ex.Message);
             await RecordDiagnosticsBestEffortAsync(UpdateStatusMessage);
         }
         finally
@@ -668,32 +671,32 @@ public sealed partial class SettingsViewModel : ObservableObject
         _downloadCts = new CancellationTokenSource();
         IsDownloadingUpdate = true;
         DownloadProgress = 0;
-        UpdateStatusMessage = "Downloading update…";
+        UpdateStatusMessage = Loc.Get("Settings_Update_Downloading");
 
         try
         {
             var progress = new Progress<double>(p =>
             {
                 DownloadProgress = p;
-                UpdateStatusMessage = $"Downloading… {p:F0}%";
+                UpdateStatusMessage = Loc.Format("Settings_Update_DownloadProgress", p);
             });
 
             var path = await _updateService.DownloadAsync(
                 AvailableUpdate, progress, _downloadCts.Token);
 
-            UpdateStatusMessage = "Launching installer…";
+            UpdateStatusMessage = Loc.Get("Settings_Update_LaunchingInstaller");
 
             if (await _updateService.LaunchInstallerAsync(path, _downloadCts.Token))
                 Application.Current.Exit();
             else
                 UpdateStatusMessage = _updateService.LastFailureKind == UpdateFailureKind.UserCancelledElevation
-                    ? "Installer launch cancelled at the elevation prompt."
-                    : "Could not launch installer. Run it manually from %TEMP%\\StorageMaster\\Updates\\.";
+                    ? Loc.Get("Settings_Update_ElevationCancelled")
+                    : Loc.Get("Settings_Update_LaunchFailed");
             await RecordDiagnosticsBestEffortAsync(UpdateStatusMessage);
         }
         catch (OperationCanceledException)
         {
-            UpdateStatusMessage = "Download cancelled.";
+            UpdateStatusMessage = Loc.Get("Settings_Update_DownloadCancelled");
             DownloadProgress = 0;
         }
         catch (UpdateException ex)
@@ -701,24 +704,24 @@ public sealed partial class SettingsViewModel : ObservableObject
             UpdateStatusMessage = ex.Kind switch
             {
                 UpdateFailureKind.DownloadFileInUse =>
-                    "Download failed: installer file is locked by another process. Close open installers and retry.",
+                    Loc.Get("Settings_Update_DownloadFailed_FileInUse"),
                 UpdateFailureKind.ChecksumMismatch =>
-                    "Download failed: checksum verification mismatch. Please retry.",
+                    Loc.Get("Settings_Update_DownloadFailed_Checksum"),
                 UpdateFailureKind.InvalidSignature =>
-                    "Download failed: installer trust verification failed.",
+                    Loc.Get("Settings_Update_DownloadFailed_Signature"),
                 UpdateFailureKind.NetworkTimeout =>
-                    "Download failed: network timeout while fetching release asset.",
+                    Loc.Get("Settings_Update_DownloadFailed_Timeout"),
                 UpdateFailureKind.MissingInstallerAsset =>
-                    "Download failed: release installer asset is missing.",
+                    Loc.Get("Settings_Update_DownloadFailed_MissingAsset"),
                 UpdateFailureKind.InsecureDownloadUrl =>
-                    "Download failed: updater refused a non-HTTPS download URL.",
-                _ => $"Download failed: {ex.Message}",
+                    Loc.Get("Settings_Update_DownloadFailed_InsecureUrl"),
+                _ => Loc.Format("Settings_Update_DownloadFailed", ex.Message),
             };
             await RecordDiagnosticsBestEffortAsync(UpdateStatusMessage);
         }
         catch (Exception ex)
         {
-            UpdateStatusMessage = $"Download failed: {ex.Message}";
+            UpdateStatusMessage = Loc.Format("Settings_Update_DownloadFailed", ex.Message);
             await RecordDiagnosticsBestEffortAsync(UpdateStatusMessage);
         }
         finally
@@ -761,13 +764,13 @@ public sealed partial class SettingsViewModel : ObservableObject
             await Task.WhenAll(deletions);
             await RefreshDatabaseSizeAsync();
             await ShowSavedMessageAsync(deletions.Length > 0
-                ? $"Deleted {deletions.Length} old scan session(s). Compact the database to release the space on disk."
-                : "No scan history matched the current retention window.");
+                ? Loc.Format("Safety_ScanHistory_SessionsDeleted", deletions.Length)
+                : Loc.Get("Settings_ScanHistory_NoneMatched"));
         }
         catch (Exception ex)
         {
             ReportOperationFailure(
-                "History purge stopped. Some sessions may already have been deleted; refresh scan history before retrying.",
+                Loc.Get("Safety_ScanHistory_PurgeStopped"),
                 ex);
         }
         finally
@@ -786,11 +789,11 @@ public sealed partial class SettingsViewModel : ObservableObject
         try
         {
             var bundlePath = await _diagnostics.ExportBundleAsync();
-            await ShowSavedMessageAsync($"Diagnostics bundle exported: {bundlePath}", 4000);
+            await ShowSavedMessageAsync(Loc.Format("Settings_Diagnostics_Exported", bundlePath), 4000);
         }
         catch (Exception ex)
         {
-            ReportOperationFailure("Diagnostics export failed; no complete bundle was confirmed.", ex);
+            ReportOperationFailure(Loc.Get("Settings_Diagnostics_ExportFailed"), ex);
         }
         finally
         {
@@ -929,11 +932,11 @@ public sealed partial class SettingsViewModel : ObservableObject
     private void ValidateDefaultScanPath()
     {
         DefaultScanPathError = string.IsNullOrWhiteSpace(DefaultScanPath)
-            ? "Default scan path is required."
+            ? Loc.Get("Settings_ScanPath_Required")
             : !Path.IsPathRooted(DefaultScanPath)
-                ? "Default scan path must be an absolute path."
+                ? Loc.Get("Settings_ScanPath_MustBeAbsolute")
                 : !Directory.Exists(DefaultScanPath)
-                    ? "Default scan path does not exist."
+                    ? Loc.Get("Settings_ScanPath_NotFound")
                     : string.Empty;
         OnPropertyChanged(nameof(CanSave));
     }
@@ -949,11 +952,11 @@ public sealed partial class SettingsViewModel : ObservableObject
         FfmpegPathError = string.IsNullOrWhiteSpace(normalized)
             ? string.Empty
             : !resolved.HasFfmpeg
-                ? "FFmpeg path does not exist."
+                ? Loc.Get("Settings_FfmpegPath_NotFound")
                 : !string.Equals(Path.GetFileName(normalized), "ffmpeg.exe", StringComparison.OrdinalIgnoreCase)
-                    ? "FFmpeg path must point to ffmpeg.exe."
+                    ? Loc.Get("Settings_FfmpegPath_MustBeExe")
                     : !resolved.HasFfprobe
-                        ? "ffprobe.exe must be in the same folder as ffmpeg.exe."
+                        ? Loc.Get("Settings_FfmpegPath_FfprobeMissing")
                     : string.Empty;
         OnPropertyChanged(nameof(CanSave));
     }
@@ -963,16 +966,15 @@ public sealed partial class SettingsViewModel : ObservableObject
         var resolved = FfmpegToolResolver.Resolve(FfmpegPath, AppContext.BaseDirectory);
         if (resolved.IsComplete)
         {
-            var prefix = string.IsNullOrWhiteSpace(FfmpegPath)
-                ? $"Auto-detected from {resolved.Source}"
-                : "Ready";
-            return $"{prefix}: {resolved.FfmpegPath}";
+            return string.IsNullOrWhiteSpace(FfmpegPath)
+                ? Loc.Format("Settings_Ffmpeg_AutoDetected", resolved.Source, resolved.FfmpegPath)
+                : Loc.Format("Settings_Ffmpeg_Ready", resolved.FfmpegPath);
         }
 
         if (resolved.HasFfmpeg)
-            return "Found ffmpeg.exe, but ffprobe.exe is missing beside it.";
+            return Loc.Get("Settings_Ffmpeg_FfprobeMissingBeside");
 
-        return "Tip: leave this blank if StorageMaster bundles FFmpeg in tools\\ffmpeg or if FFmpeg is on PATH.";
+        return Loc.Get("Settings_Ffmpeg_BlankTip");
     }
 
     private static AppSettings CloneSettings(AppSettings settings) =>
@@ -987,12 +989,12 @@ public sealed partial class SettingsViewModel : ObservableObject
         try
         {
             await RefreshScheduledJobsCoreAsync();
-            await ShowSavedMessageAsync("Scheduled jobs refreshed.", 2000);
+            await ShowSavedMessageAsync(Loc.Get("Settings_Scheduler_JobsRefreshed"), 2000);
         }
         catch (Exception ex)
         {
             ReportOperationFailure(
-                "Scheduled jobs could not be refreshed. Existing editor state was preserved.",
+                Loc.Get("Settings_Scheduler_RefreshFailed"),
                 ex);
         }
     }
@@ -1050,13 +1052,13 @@ public sealed partial class SettingsViewModel : ObservableObject
         catch (Exception ex)
         {
             job = null!;
-            ReportOperationFailure("Scheduled job was not saved because its plan is invalid.", ex);
+            ReportOperationFailure(Loc.Get("Settings_Scheduler_InvalidPlan"), ex);
             return false;
         }
     }
 
     public void ReportScheduledJobUiFailure(Exception exception) =>
-        ReportOperationFailure("Scheduled job operation failed.", exception);
+        ReportOperationFailure(Loc.Get("Settings_Scheduler_OperationFailed"), exception);
 
     public async Task SaveScheduledJobAsync(ScheduledJobDefinition job)
     {
@@ -1068,8 +1070,7 @@ public sealed partial class SettingsViewModel : ObservableObject
             !ScheduledJobExecutionPolicy.Evaluate(scheduledTasksEnabled: true, job).CanExecute)
         {
             FeedbackSeverity = InfoBarSeverity.Warning;
-            SavedMessage =
-                "Enabled scheduled cleanup requires current consent for its exact target, rules, schedule, and Recycle Bin safety policy.";
+            SavedMessage = Loc.Get("Safety_Scheduler_CleanupConsentRequired");
             return;
         }
 
@@ -1083,14 +1084,14 @@ public sealed partial class SettingsViewModel : ObservableObject
             await RefreshScheduledJobsCoreAsync();
             ScheduledTasksEnabled = ScheduledJobs.Any(item => item.Info.Job.Enabled);
             SelectedScheduledJob = ScheduledJobs.FirstOrDefault(item => item.Info.Job.Id == job.Id);
-            await ShowSavedMessageAsync("Scheduled job saved.", 2500);
+            await ShowSavedMessageAsync(Loc.Get("Settings_Scheduler_JobSaved"), 2500);
         }
         catch (Exception ex)
         {
             ReportOperationFailure(
                 taskMutationCompleted
-                    ? "Scheduled job was saved, but the editor refresh failed. Do not retry until you refresh the job list."
-                    : "Scheduled job was not saved; prior task/settings state was restored where possible.",
+                    ? Loc.Get("Settings_Scheduler_SavedRefreshFailed")
+                    : Loc.Get("Settings_Scheduler_SaveFailed"),
                 ex);
         }
         finally
@@ -1114,14 +1115,14 @@ public sealed partial class SettingsViewModel : ObservableObject
             deletionCompleted = true;
             await RefreshScheduledJobsCoreAsync();
             NewScheduledJob();
-            await ShowSavedMessageAsync("Scheduled job deleted.", 2500);
+            await ShowSavedMessageAsync(Loc.Get("Safety_Scheduler_JobDeleted"), 2500);
         }
         catch (Exception ex)
         {
             ReportOperationFailure(
                 deletionCompleted
-                    ? "Scheduled job was deleted, but the editor refresh failed. Refresh before another change."
-                    : "Scheduled job deletion failed; prior task/settings state was restored where possible.",
+                    ? Loc.Get("Safety_Scheduler_DeletedRefreshFailed")
+                    : Loc.Get("Safety_Scheduler_DeleteFailed"),
                 ex);
         }
         finally
@@ -1197,34 +1198,40 @@ public sealed partial class SettingsViewModel : ObservableObject
                     c.HasWarning = false;
                     break;
                 case SettingsCategory.Scanning:
-                    c.StatusSummary = $"{ScanParallelism} threads · {ExcludedPaths.Count} exclusions";
+                    c.StatusSummary = Loc.Format("Settings_Summary_Scanning", ScanParallelism, ExcludedPaths.Count);
                     c.HasWarning = false;
                     break;
                 case SettingsCategory.Cleanup:
-                    c.StatusSummary = PreferRecycleBin ? "Recycle Bin preferred" : "Permanent delete enabled";
+                    c.StatusSummary = PreferRecycleBin
+                        ? Loc.Get("Safety_Summary_RecycleBinPreferred")
+                        : Loc.Get("Safety_Summary_PermanentDeleteEnabled");
                     c.HasWarning = !PreferRecycleBin;
-                    c.WarningText = "Permanent deletion is risky. Enable Recycle Bin for safety.";
+                    c.WarningText = Loc.Get("Safety_Warning_PermanentDeletionRisky");
                     break;
                 case SettingsCategory.Duplicates:
-                    c.StatusSummary = $"{DuplicateKeeperPolicy} keeper · {DuplicateMinimumSizeMb} MB min";
+                    c.StatusSummary = Loc.Format("Settings_Summary_Duplicates", DuplicateKeeperPolicy, DuplicateMinimumSizeMb);
                     c.HasWarning = false;
                     break;
                 case SettingsCategory.ResultsHistory:
-                    c.StatusSummary = $"{ScanHistoryRetentionDays} days retention";
+                    c.StatusSummary = Loc.Format("Settings_Summary_ResultsHistory", ScanHistoryRetentionDays);
                     c.HasWarning = false;
                     break;
                 case SettingsCategory.Scheduling:
-                    c.StatusSummary = $"{ScheduledJobs.Count} job(s)";
+                    c.StatusSummary = Loc.Format("Settings_Summary_Scheduling", ScheduledJobs.Count);
                     c.HasWarning = false;
                     break;
                 case SettingsCategory.TrayNotifications:
-                    c.StatusSummary = MinimizeToTray ? "Tray enabled" : "Tray disabled";
+                    c.StatusSummary = MinimizeToTray
+                        ? Loc.Get("Settings_Summary_TrayEnabled")
+                        : Loc.Get("Settings_Summary_TrayDisabled");
                     c.HasWarning = false;
                     break;
                 case SettingsCategory.Updates:
-                    c.StatusSummary = CheckOnStartup ? "Auto-check on" : "Manual checks";
+                    c.StatusSummary = CheckOnStartup
+                        ? Loc.Get("Settings_Summary_UpdatesAutoCheck")
+                        : Loc.Get("Settings_Summary_UpdatesManual");
                     c.HasWarning = !RequireSignedUpdates;
-                    c.WarningText = "Signed updates are recommended for security.";
+                    c.WarningText = Loc.Get("Settings_Warning_SignedUpdatesRecommended");
                     break;
                 case SettingsCategory.AdvancedDiagnostics:
                     c.StatusSummary = $"v{CurrentVersion}";
@@ -1262,7 +1269,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     {
         if (_database is null)
         {
-            DatabaseSizeText = "Unavailable";
+            DatabaseSizeText = Loc.Get("Settings_Database_Unavailable");
             return;
         }
 
@@ -1272,7 +1279,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         }
         catch (Exception)
         {
-            DatabaseSizeText = "Unavailable";
+            DatabaseSizeText = Loc.Get("Settings_Database_Unavailable");
         }
     }
 
@@ -1293,12 +1300,12 @@ public sealed partial class SettingsViewModel : ObservableObject
             var reclaimed = await _database.CompactAsync();
             await RefreshDatabaseSizeAsync();
             await ShowSavedMessageAsync(reclaimed > 0
-                ? $"Compacted the database and released {FormatBytes(reclaimed)}."
-                : "Database compacted. There was no unused space to release.");
+                ? Loc.Format("Settings_Database_Compacted", FormatBytes(reclaimed))
+                : Loc.Get("Settings_Database_CompactedNoSpace"));
         }
         catch (Exception ex)
         {
-            ReportOperationFailure("Could not compact the database. No scan data was removed.", ex);
+            ReportOperationFailure(Loc.Get("Safety_Database_CompactFailed"), ex);
         }
         finally
         {

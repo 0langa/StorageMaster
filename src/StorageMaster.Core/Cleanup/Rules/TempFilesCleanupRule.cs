@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using StorageMaster.Core.Interfaces;
+using StorageMaster.Core.Localization;
 using StorageMaster.Core.Models;
 using StorageMaster.Core.Scanner;
 
@@ -15,7 +16,7 @@ public sealed class TempFilesCleanupRule : ICleanupRule
     private readonly IScanRepository _repo;
 
     public string RuleId => "core.temp-files";
-    public string DisplayName => "Temporary Files";
+    public string DisplayName => Loc.Get("Rule_TempFiles_Name");
     public CleanupCategory Category => CleanupCategory.TempFiles;
 
     // Known safe temp locations, canonicalized once so path traversal aliases
@@ -47,9 +48,8 @@ public sealed class TempFilesCleanupRule : ICleanupRule
         {
             Id = Guid.NewGuid(),
             RuleId = RuleId,
-            Title = $"Temporary files ({targets.Count:N0} files)",
-            Description = $"Files in canonical Windows temp folders. " +
-                             $"Estimated savings: {FormatBytes(totalBytes)}.",
+            Title = Loc.Format("Rule_TempFiles_Title", targets.Count.ToString("N0")),
+            Description = Loc.Format("Rule_TempFiles_Description", FormatBytes(totalBytes)),
             Category = Category,
             Risk = CleanupRisk.Low,
             EstimatedBytes = totalBytes,

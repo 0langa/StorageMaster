@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using StorageMaster.Core.Interfaces;
+using StorageMaster.Core.Localization;
 using StorageMaster.Core.Models;
 
 namespace StorageMaster.Core.Cleanup.Rules;
@@ -14,7 +15,7 @@ public sealed class RecycleBinCleanupRule : ICleanupRule
     private readonly IRecycleBinInfoProvider _recycleBin;
 
     public string RuleId => "core.recycle-bin";
-    public string DisplayName => "Recycle Bin";
+    public string DisplayName => Loc.Get("Rule_RecycleBin_Name");
     public CleanupCategory Category => CleanupCategory.RecycleBin;
 
     public RecycleBinCleanupRule(IRecycleBinInfoProvider recycleBin) => _recycleBin = recycleBin;
@@ -32,15 +33,17 @@ public sealed class RecycleBinCleanupRule : ICleanupRule
         {
             Id = Guid.NewGuid(),
             RuleId = RuleId,
-            Title = $"Recycle Bin ({info.ItemCount:N0} items)",
-            Description = $"Recycle Bin currently holds {FormatBytes(info.SizeBytes)} across {info.ItemCount:N0} items. " +
-                             "Emptying it is irreversible.",
+            Title = Loc.Format("Rule_RecycleBin_Title", info.ItemCount.ToString("N0")),
+            Description = Loc.Format(
+                "Safety_RecycleBin_Description",
+                FormatBytes(info.SizeBytes),
+                info.ItemCount.ToString("N0")),
             Category = Category,
             Risk = CleanupRisk.Medium,
             EstimatedBytes = info.SizeBytes,
             SupportsRecycleBin = false,
             SupportsQuarantine = false,
-            SafetyNotes = "Permanent deletion only. Emptying the Recycle Bin cannot be undone.",
+            SafetyNotes = Loc.Get("Safety_RecycleBin_Notes"),
             // Sentinel value — the deleter recognises this and calls SHEmptyRecycleBin.
             TargetPaths = ["::RecycleBin::"],
             IsSystemPath = false,

@@ -1,6 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Navigation;
+using StorageMaster.Core.Localization;
 
 namespace StorageMaster.UI.Pages;
 
@@ -18,7 +19,9 @@ public sealed partial class DuplicatesPage : Page
 
     /// <summary>x:Bind helper: labels where a quarantined file came from.</summary>
     public static string DescribeQuarantineSource(long? memberId) =>
-        memberId is null ? "· Cleanup quarantine" : "· Duplicate quarantine";
+        memberId is null
+            ? Loc.Get("Safety_Duplicates_QuarantineSource_Cleanup")
+            : Loc.Get("Safety_Duplicates_QuarantineSource_Duplicate");
 
     protected override async void OnNavigatedTo(NavigationEventArgs e)
     {

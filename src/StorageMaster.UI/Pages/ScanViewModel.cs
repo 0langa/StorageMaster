@@ -1,8 +1,10 @@
-﻿using CommunityToolkit.Mvvm.ComponentModel;
+﻿using System.Globalization;
+using CommunityToolkit.Mvvm.ComponentModel;
 using StorageMaster.Platform.Windows;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.UI.Dispatching;
 using StorageMaster.Core.Interfaces;
+using StorageMaster.Core.Localization;
 using StorageMaster.Core.Models;
 using StorageMaster.Core.Scanner;
 using StorageMaster.UI.Converters;
@@ -45,10 +47,10 @@ public sealed partial class ScanViewModel : ObservableObject
     [ObservableProperty] private bool _isProgressIndeterminate = true;
     [ObservableProperty] private string _selectedScanMode = "Standard Scan";
     [ObservableProperty] private string _elapsedTime = "0s";
-    [ObservableProperty] private string _scanSpeed = "Calculating";
-    [ObservableProperty] private string _scanFileRate = "Calculating";
-    [ObservableProperty] private string _estimatedRemainingTime = "Calculating";
-    [ObservableProperty] private string _scanStepText = "Step 1 of 4 · Choose scope";
+    [ObservableProperty] private string _scanSpeed = Loc.Get("Scan_Calculating");
+    [ObservableProperty] private string _scanFileRate = Loc.Get("Scan_Calculating");
+    [ObservableProperty] private string _estimatedRemainingTime = Loc.Get("Scan_Calculating");
+    [ObservableProperty] private string _scanStepText = Loc.Get("Scan_Step1");
 
     /// <summary>True when the process already holds administrator privileges.</summary>
     public bool IsRunningAsAdmin => _admin.IsRunningAsAdmin;
@@ -63,7 +65,22 @@ public sealed partial class ScanViewModel : ObservableObject
     public bool CanBrowse => !IsInitializing && !IsScanning;
     public bool CanCancel => IsScanning;
 
+    /// <summary>
+    /// The selected mode's display name. <see cref="SelectedScanMode"/> stays the
+    /// English token the mode buttons pass as a command parameter and the scan
+    /// configuration is keyed off, so the heading above the options resolves its
+    /// own catalogue string rather than showing that token.
+    /// </summary>
+    public string SelectedScanModeDisplay => SelectedScanMode switch
+    {
+        "Quick Scan" => Loc.Get("Scan_Mode_Quick"),
+        "Deep Scan" => Loc.Get("Scan_Mode_Deep"),
+        "Custom Scan" => Loc.Get("Scan_Mode_Custom"),
+        _ => Loc.Get("Scan_Mode_Standard"),
+    };
+
     partial void OnDeepScanChanged(bool value) => OnPropertyChanged(nameof(NeedsElevation));
+    partial void OnSelectedScanModeChanged(string value) => OnPropertyChanged(nameof(SelectedScanModeDisplay));
     partial void OnSelectedPathChanged(string value) => ValidateSelectedPath(value);
     partial void OnIsInitializingChanged(bool value)
     {
@@ -159,7 +176,7 @@ public sealed partial class ScanViewModel : ObservableObject
         DeepScan = SelectedScanMode == "Deep Scan";
         if (SelectedScanMode == "Quick Scan")
             UseTurboScanner = TurboScannerAvailable;
-        ScanStepText = "Step 2 of 4 · Choose scan mode";
+        ScanStepText = Loc.Get("Scan_Step2");
     }
 
     [RelayCommand]
@@ -182,12 +199,12 @@ public sealed partial class ScanViewModel : ObservableObject
         {
             HasError = false;
             ErrorMessage = string.Empty;
-            ProgressText = "Elevated deep scan started in a separate command-line worker. Refresh Results when it completes.";
+            ProgressText = Loc.Get("Scan_Elevation_Started");
         }
         else
         {
             HasError = true;
-            ErrorMessage = "Could not start the elevated scan worker.";
+            ErrorMessage = Loc.Get("Scan_Elevation_Failed");
         }
     }
 
@@ -227,13 +244,13 @@ public sealed partial class ScanViewModel : ObservableObject
         ErrorCount = 0;
         ProgressValue = 0;
         IsProgressIndeterminate = true;
-        ProgressText = "Preparing scan...";
+        ProgressText = Loc.Get("Scan_Progress_Preparing");
         CurrentFile = rootPath;
         ElapsedTime = "0s";
-        ScanSpeed = "Calculating";
-        ScanFileRate = "Calculating";
-        EstimatedRemainingTime = "Calculating";
-        ScanStepText = "Step 3 of 4 · Run scan";
+        ScanSpeed = Loc.Get("Scan_Calculating");
+        ScanFileRate = Loc.Get("Scan_Calculating");
+        EstimatedRemainingTime = Loc.Get("Scan_Calculating");
+        ScanStepText = Loc.Get("Scan_Step3");
         _scanStartedUtc = DateTime.UtcNow;
         _lastProgressUtc = _scanStartedUtc;
         _lastProgressBytes = 0;
@@ -288,29 +305,32 @@ public sealed partial class ScanViewModel : ObservableObject
                 case ScanStatus.Completed:
                     _lastSessionId = session.Id;
                     ScanComplete = true;
-                    ScanStepText = "Step 4 of 4 · Review results";
-                    ProgressText = $"Scan complete — {ByteSizeConverter.Format(session.TotalSizeBytes)} in {session.TotalFiles:N0} files";
+                    ScanStepText = Loc.Get("Scan_Step4");
+                    ProgressText = Loc.Format(
+                        "Scan_Progress_Complete",
+                        ByteSizeConverter.Format(session.TotalSizeBytes),
+                        session.TotalFiles.ToString("N0", CultureInfo.CurrentCulture));
                     break;
                 case ScanStatus.Cancelled:
                     ScanComplete = false;
-                    ProgressText = "Scan cancelled.";
-                    ScanStepText = "Scan cancelled";
+                    ProgressText = Loc.Get("Scan_Progress_Cancelled");
+                    ScanStepText = Loc.Get("Scan_Step_Cancelled");
                     break;
                 case ScanStatus.Failed:
                     ScanComplete = false;
                     HasError = true;
                     ErrorMessage = string.IsNullOrWhiteSpace(session.ErrorMessage)
-                        ? "The scanner reported a failure without additional details."
+                        ? Loc.Get("Scan_Error_NoDetails")
                         : session.ErrorMessage;
-                    ProgressText = "Scan failed.";
-                    ScanStepText = "Scan failed";
+                    ProgressText = Loc.Get("Scan_Progress_Failed");
+                    ScanStepText = Loc.Get("Scan_Step_Failed");
                     break;
                 default:
                     ScanComplete = false;
                     HasError = true;
-                    ErrorMessage = $"The scanner returned non-terminal status {session.Status}.";
-                    ProgressText = "Scan did not complete.";
-                    ScanStepText = "Scan failed";
+                    ErrorMessage = Loc.Format("Scan_Error_NonTerminalStatus", session.Status);
+                    ProgressText = Loc.Get("Scan_Progress_DidNotComplete");
+                    ScanStepText = Loc.Get("Scan_Step_Failed");
                     break;
             }
         }
@@ -318,8 +338,8 @@ public sealed partial class ScanViewModel : ObservableObject
         {
             ScanComplete = false;
             _lastSessionId = 0;
-            ProgressText = "Scan cancelled.";
-            ScanStepText = "Scan cancelled";
+            ProgressText = Loc.Get("Scan_Progress_Cancelled");
+            ScanStepText = Loc.Get("Scan_Step_Cancelled");
         }
         catch (Exception ex)
         {
@@ -327,8 +347,8 @@ public sealed partial class ScanViewModel : ObservableObject
             _lastSessionId = 0;
             HasError = true;
             ErrorMessage = ex.Message;
-            ProgressText = "Scan failed.";
-            ScanStepText = "Scan failed";
+            ProgressText = Loc.Get("Scan_Progress_Failed");
+            ScanStepText = Loc.Get("Scan_Step_Failed");
         }
         finally
         {
@@ -387,7 +407,10 @@ public sealed partial class ScanViewModel : ObservableObject
         CurrentFile = p.CurrentPath.Length > 80
             ? "…" + p.CurrentPath[^77..]
             : p.CurrentPath;
-        ProgressText = $"{ByteSizeConverter.Format(p.BytesScanned)} scanned · {p.FilesScanned:N0} files";
+        ProgressText = Loc.Format(
+            "Scan_Progress_Running",
+            ByteSizeConverter.Format(p.BytesScanned),
+            p.FilesScanned.ToString("N0", CultureInfo.CurrentCulture));
 
         if (_estimatedScanBytes > 0)
         {
@@ -427,37 +450,37 @@ public sealed partial class ScanViewModel : ObservableObject
         var candidate = path?.Trim();
         if (string.IsNullOrWhiteSpace(candidate))
         {
-            ScanPathError = "Choose a folder or drive to scan.";
+            ScanPathError = Loc.Get("Scan_PathError_Empty");
             return;
         }
 
         if (!Path.IsPathRooted(candidate))
         {
-            ScanPathError = "Scan path must be an absolute Windows path.";
+            ScanPathError = Loc.Get("Scan_PathError_NotAbsolute");
             return;
         }
 
         if (!Directory.Exists(candidate))
         {
-            ScanPathError = "Scan path does not exist or is not currently available.";
+            ScanPathError = Loc.Get("Scan_PathError_Missing");
             return;
         }
 
         var root = Path.GetPathRoot(candidate);
         if (!string.IsNullOrWhiteSpace(root) && !IsDriveReady(root))
         {
-            ScanPathError = "Selected drive is not ready.";
+            ScanPathError = Loc.Get("Scan_PathError_DriveNotReady");
             return;
         }
 
         if (ProbeAppDataWritable() is { } probeFailure)
         {
-            ScanPathError = $"Startup preflight failed: {probeFailure}";
+            ScanPathError = Loc.Format("Scan_PathError_PreflightFailed", probeFailure);
             return;
         }
 
         ScanPathError = string.Empty;
-        ScanStepText = "Step 1 of 4 · Choose scope";
+        ScanStepText = Loc.Get("Scan_Step1");
     }
 
     /// <summary>How long a readiness answer is trusted before the volume is asked again.</summary>
@@ -590,28 +613,32 @@ public sealed partial class ScanViewModel : ObservableObject
     private static string FormatFileRate(double filesPerSecond)
     {
         if (filesPerSecond <= 0)
-            return "Calculating";
+            return Loc.Get("Scan_Calculating");
 
         if (filesPerSecond < 1)
-            return $"{filesPerSecond * 60:N0} files/min";
+            return Loc.Format(
+                "Scan_FileRate_PerMinute",
+                (filesPerSecond * 60).ToString("N0", CultureInfo.CurrentCulture));
 
-        return $"{filesPerSecond:N0} files/s";
+        return Loc.Format(
+            "Scan_FileRate_PerSecond",
+            filesPerSecond.ToString("N0", CultureInfo.CurrentCulture));
     }
 
     private string EstimateRemainingText(long bytesScanned)
     {
         if (_smoothedBytesPerSecond <= 1)
-            return "Estimating…";
+            return Loc.Get("Scan_Eta_Estimating");
 
         // An estimate is only offered when the scan covers a whole drive, because
         // that is the only case with a trustworthy total. Extrapolating a subtree
         // from drive usage produced figures like "10h 33m" that were pure noise.
         if (_estimatedScanBytes <= 0)
-            return "No estimate for a subtree";
+            return Loc.Get("Scan_Eta_NoSubtreeEstimate");
 
         var remainingBytes = _estimatedScanBytes - bytesScanned;
         if (remainingBytes <= 0)
-            return "Finalizing";
+            return Loc.Get("Scan_Eta_Finalizing");
 
         return FormatDuration(TimeSpan.FromSeconds(remainingBytes / _smoothedBytesPerSecond));
     }

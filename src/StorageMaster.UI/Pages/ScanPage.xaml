@@ -1,13 +1,14 @@
 ﻿<Page
     x:Class="StorageMaster.UI.Pages.ScanPage"
-    AutomationProperties.Name="Scan page"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:controls="using:StorageMaster.UI.Controls"
     xmlns:converters="using:StorageMaster.UI.Converters"
+    xmlns:i18n="using:StorageMaster.UI.Infrastructure"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-    mc:Ignorable="d">
+    mc:Ignorable="d"
+    AutomationProperties.Name="{i18n:Loc Key=Scan_AutomationName}">
 
     <Page.Resources>
         <converters:BoolToVisibilityConverter x:Key="BoolVis" />
@@ -26,20 +27,20 @@
                 Start Scan is the page's single primary action and lives in the
                 header, where every other page puts its primary action.
             -->
-            <controls:PageHeader Title="Scan"
+            <controls:PageHeader Title="{i18n:Loc Key=Scan_Title}"
                                  Subtitle="{x:Bind ViewModel.ScanStepText, Mode=OneWay}">
                 <controls:PageHeader.ActionContent>
                     <StackPanel Orientation="Horizontal" Spacing="{StaticResource ControlSpacing}">
-                        <Button Content="Cancel"
+                        <Button Content="{i18n:Loc Key=Common_Cancel}"
                                 Style="{StaticResource CommandButtonStyle}"
                                 Command="{x:Bind ViewModel.CancelScanCommand}"
                                 IsEnabled="{x:Bind ViewModel.CanCancel, Mode=OneWay}"
                                 Visibility="{x:Bind ViewModel.IsScanning, Mode=OneWay, Converter={StaticResource BoolVis}}" />
-                        <Button Content="View Results"
+                        <Button Content="{i18n:Loc Key=Scan_ViewResults}"
                                 Style="{StaticResource CommandButtonStyle}"
                                 Command="{x:Bind ViewModel.ViewResultsCommand}"
                                 Visibility="{x:Bind ViewModel.ScanComplete, Mode=OneWay, Converter={StaticResource BoolVis}}" />
-                        <Button Content="Start Scan"
+                        <Button Content="{i18n:Loc Key=Scan_Start}"
                                 Style="{StaticResource AccentButtonStyle}"
                                 MinHeight="36"
                                 Command="{x:Bind ViewModel.StartScanCommand}"
@@ -72,35 +73,35 @@
                           ColumnSpacing="{StaticResource ControlSpacing}" RowSpacing="{StaticResource ControlSpacing}"
                           Margin="0,4,0,0">
                         <StackPanel Grid.Column="0" Spacing="2">
-                            <TextBlock Text="Files" Style="{StaticResource MetricLabelTextStyle}" />
+                            <TextBlock Text="{i18n:Loc Key=Scan_Metric_Files}" Style="{StaticResource MetricLabelTextStyle}" />
                             <TextBlock Text="{x:Bind ViewModel.FilesScanned, Mode=OneWay}" Style="{StaticResource MetricValueTextStyle}" />
                         </StackPanel>
                         <StackPanel Grid.Column="1" Spacing="2">
-                            <TextBlock Text="Folders" Style="{StaticResource MetricLabelTextStyle}" />
+                            <TextBlock Text="{i18n:Loc Key=Scan_Metric_Folders}" Style="{StaticResource MetricLabelTextStyle}" />
                             <TextBlock Text="{x:Bind ViewModel.FoldersScanned, Mode=OneWay}" Style="{StaticResource MetricValueTextStyle}" />
                         </StackPanel>
                         <StackPanel Grid.Column="2" Spacing="2">
-                            <TextBlock Text="Size" Style="{StaticResource MetricLabelTextStyle}" />
+                            <TextBlock Text="{i18n:Loc Key=Scan_Metric_Size}" Style="{StaticResource MetricLabelTextStyle}" />
                             <TextBlock Text="{x:Bind ViewModel.BytesScanned, Mode=OneWay}" Style="{StaticResource MetricValueTextStyle}" />
                         </StackPanel>
                         <StackPanel Grid.Column="3" Spacing="2">
-                            <TextBlock Text="Errors" Style="{StaticResource MetricLabelTextStyle}" />
+                            <TextBlock Text="{i18n:Loc Key=Scan_Metric_Errors}" Style="{StaticResource MetricLabelTextStyle}" />
                             <TextBlock Text="{x:Bind ViewModel.ErrorCount, Mode=OneWay}" Style="{StaticResource MetricValueTextStyle}" />
                         </StackPanel>
                         <StackPanel Grid.Row="1" Grid.Column="0" Spacing="2">
-                            <TextBlock Text="Speed" Style="{StaticResource MetricLabelTextStyle}" />
+                            <TextBlock Text="{i18n:Loc Key=Scan_Metric_Speed}" Style="{StaticResource MetricLabelTextStyle}" />
                             <TextBlock Text="{x:Bind ViewModel.ScanSpeed, Mode=OneWay}" Style="{StaticResource MetricValueTextStyle}" />
                         </StackPanel>
                         <StackPanel Grid.Row="1" Grid.Column="1" Spacing="2">
-                            <TextBlock Text="Elapsed" Style="{StaticResource MetricLabelTextStyle}" />
+                            <TextBlock Text="{i18n:Loc Key=Scan_Metric_Elapsed}" Style="{StaticResource MetricLabelTextStyle}" />
                             <TextBlock Text="{x:Bind ViewModel.ElapsedTime, Mode=OneWay}" Style="{StaticResource MetricValueTextStyle}" />
                         </StackPanel>
                         <StackPanel Grid.Row="1" Grid.Column="2" Spacing="2">
-                            <TextBlock Text="File rate" Style="{StaticResource MetricLabelTextStyle}" />
+                            <TextBlock Text="{i18n:Loc Key=Scan_Metric_FileRate}" Style="{StaticResource MetricLabelTextStyle}" />
                             <TextBlock Text="{x:Bind ViewModel.ScanFileRate, Mode=OneWay}" Style="{StaticResource MetricValueTextStyle}" />
                         </StackPanel>
                         <StackPanel Grid.Row="1" Grid.Column="3" Spacing="2">
-                            <TextBlock Text="ETA" Style="{StaticResource MetricLabelTextStyle}" />
+                            <TextBlock Text="{i18n:Loc Key=Scan_Metric_Eta}" Style="{StaticResource MetricLabelTextStyle}" />
                             <TextBlock Text="{x:Bind ViewModel.EstimatedRemainingTime, Mode=OneWay}"
                                        Style="{StaticResource MetricValueTextStyle}" />
                         </StackPanel>
@@ -110,15 +111,15 @@
 
             <Border Style="{StaticResource SectionCardStyle}">
                 <StackPanel Spacing="{StaticResource ControlSpacing}">
-                    <TextBlock Text="Select path to scan"
+                    <TextBlock Text="{i18n:Loc Key=Scan_SelectPath_Header}"
                                Style="{StaticResource SectionHeaderTextStyle}" />
                     <Grid ColumnDefinitions="*,Auto" ColumnSpacing="{StaticResource TightSpacing}">
                         <TextBox Grid.Column="0"
                                  Style="{StaticResource SearchTextBoxStyle}"
-                                 PlaceholderText="e.g. C:\ or C:\Users"
+                                 PlaceholderText="{i18n:Loc Key=Scan_Path_Placeholder}"
                                  Text="{x:Bind ViewModel.SelectedPath, Mode=TwoWay}"
                                  IsEnabled="{x:Bind ViewModel.CanBrowse, Mode=OneWay}" />
-                        <Button Grid.Column="1" Content="Browse…"
+                        <Button Grid.Column="1" Content="{i18n:Loc Key=Scan_Browse}"
                                 Style="{StaticResource CommandButtonStyle}"
                                 IsEnabled="{x:Bind ViewModel.CanBrowse, Mode=OneWay}"
                                 Click="BrowseButton_Click" />
@@ -156,8 +157,8 @@
                         VerticalContentAlignment="Top" Padding="14,12" MinHeight="108"
                         CornerRadius="{StaticResource TileCornerRadius}">
                     <StackPanel Spacing="4" HorizontalAlignment="Stretch">
-                        <TextBlock Text="Quick Scan" Style="{StaticResource BodyStrongTextBlockStyle}" />
-                        <TextBlock Text="Fast metadata pass for common storage review." Style="{StaticResource HelperTextStyle}" />
+                        <TextBlock Text="{i18n:Loc Key=Scan_Mode_Quick}" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                        <TextBlock Text="{i18n:Loc Key=Scan_Mode_Quick_Description}" Style="{StaticResource HelperTextStyle}" />
                     </StackPanel>
                 </Button>
                 <Button Grid.Column="1" Command="{x:Bind ViewModel.SelectScanModeCommand}" CommandParameter="Standard Scan"
@@ -166,8 +167,8 @@
                         VerticalContentAlignment="Top" Padding="14,12" MinHeight="108"
                         CornerRadius="{StaticResource TileCornerRadius}">
                     <StackPanel Spacing="4" HorizontalAlignment="Stretch">
-                        <TextBlock Text="Standard Scan" Style="{StaticResource BodyStrongTextBlockStyle}" />
-                        <TextBlock Text="Recommended balance for routine drive scans." Style="{StaticResource HelperTextStyle}" />
+                        <TextBlock Text="{i18n:Loc Key=Scan_Mode_Standard}" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                        <TextBlock Text="{i18n:Loc Key=Scan_Mode_Standard_Description}" Style="{StaticResource HelperTextStyle}" />
                     </StackPanel>
                 </Button>
                 <Button Grid.Column="2" Command="{x:Bind ViewModel.SelectScanModeCommand}" CommandParameter="Deep Scan"
@@ -176,8 +177,8 @@
                         VerticalContentAlignment="Top" Padding="14,12" MinHeight="108"
                         CornerRadius="{StaticResource TileCornerRadius}">
                     <StackPanel Spacing="4" HorizontalAlignment="Stretch">
-                        <TextBlock Text="Deep Scan" Style="{StaticResource BodyStrongTextBlockStyle}" />
-                        <TextBlock Text="Protected folders and access-denied reporting." Style="{StaticResource HelperTextStyle}" />
+                        <TextBlock Text="{i18n:Loc Key=Scan_Mode_Deep}" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                        <TextBlock Text="{i18n:Loc Key=Scan_Mode_Deep_Description}" Style="{StaticResource HelperTextStyle}" />
                     </StackPanel>
                 </Button>
                 <Button Grid.Column="3" Command="{x:Bind ViewModel.SelectScanModeCommand}" CommandParameter="Custom Scan"
@@ -186,25 +187,25 @@
                         VerticalContentAlignment="Top" Padding="14,12" MinHeight="108"
                         CornerRadius="{StaticResource TileCornerRadius}">
                     <StackPanel Spacing="4" HorizontalAlignment="Stretch">
-                        <TextBlock Text="Custom Scan" Style="{StaticResource BodyStrongTextBlockStyle}" />
-                        <TextBlock Text="Use current toggles and persisted exclusions." Style="{StaticResource HelperTextStyle}" />
+                        <TextBlock Text="{i18n:Loc Key=Scan_Mode_Custom}" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                        <TextBlock Text="{i18n:Loc Key=Scan_Mode_Custom_Description}" Style="{StaticResource HelperTextStyle}" />
                     </StackPanel>
                 </Button>
             </Grid>
 
             <Border Style="{StaticResource SectionCardStyle}">
                 <StackPanel Spacing="{StaticResource ControlSpacing}">
-                    <TextBlock Text="{x:Bind ViewModel.SelectedScanMode, Mode=OneWay}" Style="{StaticResource SectionHeaderTextStyle}" />
-                    <ToggleSwitch Header="Deep Scan"
+                    <TextBlock Text="{x:Bind ViewModel.SelectedScanModeDisplay, Mode=OneWay}" Style="{StaticResource SectionHeaderTextStyle}" />
+                    <ToggleSwitch Header="{i18n:Loc Key=Scan_Mode_Deep}"
                                   IsOn="{x:Bind ViewModel.DeepScan, Mode=TwoWay}"
                                   IsEnabled="{x:Bind ViewModel.CanBrowse, Mode=OneWay}" />
-                    <TextBlock Text="Attempts protected directories, disables the default system excludes, and records access-denied errors instead of silently skipping them. Administrator mode is recommended."
+                    <TextBlock Text="{i18n:Loc Key=Scan_DeepScan_Description}"
                                Style="{StaticResource HelperTextStyle}" />
 
                     <!-- Admin status banner (only shown when deep scan is on) -->
                     <InfoBar IsOpen="True" Severity="Success"
-                             Title="Running as Administrator"
-                             Message="All files and system folders are accessible."
+                             Title="{i18n:Loc Key=Scan_Admin_Title}"
+                             Message="{i18n:Loc Key=Scan_Admin_Message}"
                              Visibility="{x:Bind ViewModel.IsRunningAsAdmin, Mode=OneWay, Converter={StaticResource BoolVis}}" />
 
                     <!-- Elevation prompt (deep scan on, not yet admin) -->
@@ -213,14 +214,14 @@
                             Visibility="{x:Bind ViewModel.NeedsElevation, Mode=OneWay, Converter={StaticResource BoolVis}}">
                         <Grid ColumnDefinitions="*,Auto" ColumnSpacing="{StaticResource ControlSpacing}">
                             <StackPanel Grid.Column="0" Spacing="2" VerticalAlignment="Center">
-                                <TextBlock Text="Administrator privileges recommended"
+                                <TextBlock Text="{i18n:Loc Key=Scan_Elevation_Title}"
                                            Style="{StaticResource BodyStrongTextBlockStyle}"
                                            Foreground="{StaticResource SmSeverityWarningTextBrush}" />
-                                <TextBlock Text="Without admin rights, access-denied errors will be recorded for protected system folders. Use the button to relaunch with full privileges."
+                                <TextBlock Text="{i18n:Loc Key=Scan_Elevation_Description}"
                                            Style="{StaticResource HelperTextStyle}" />
                             </StackPanel>
                             <Button Grid.Column="1"
-                                    Content="Run as Administrator"
+                                    Content="{i18n:Loc Key=Scan_Elevation_Button}"
                                     Style="{StaticResource CommandButtonStyle}"
                                     Command="{x:Bind ViewModel.RequestElevationCommand}"
                                     IsEnabled="{x:Bind ViewModel.CanBrowse, Mode=OneWay}"
@@ -232,25 +233,25 @@
 
             <Border Style="{StaticResource SectionCardStyle}">
                 <StackPanel Spacing="{StaticResource ControlSpacing}">
-                    <ToggleSwitch Header="Turbo Scanner (Rust-powered)"
+                    <ToggleSwitch Header="{i18n:Loc Key=Scan_Turbo_Header}"
                                   IsOn="{x:Bind ViewModel.UseTurboScanner, Mode=TwoWay}"
                                   IsEnabled="{x:Bind ViewModel.CanBrowse, Mode=OneWay}" />
-                    <TextBlock Text="Uses a native Rust engine with parallel work-stealing traversal — significantly faster on NVMe/SSD drives with many files. Falls back to the managed scanner automatically if the engine binary is not found."
+                    <TextBlock Text="{i18n:Loc Key=Scan_Turbo_Description}"
                                Style="{StaticResource HelperTextStyle}" />
                     <InfoBar IsOpen="True" Severity="Warning"
-                             Title="Turbo Scanner binary not found"
-                             Message="turbo-scanner.exe was not found next to the application. Build from source or install a release build to enable this feature."
+                             Title="{i18n:Loc Key=Scan_Turbo_Missing_Title}"
+                             Message="{i18n:Loc Key=Scan_Turbo_Missing_Message}"
                              Visibility="{x:Bind ViewModel.TurboScannerAvailable, Mode=OneWay, Converter={StaticResource InvBoolVis}}" />
                 </StackPanel>
             </Border>
 
             <InfoBar IsOpen="True" Severity="Success"
-                     Title="Scan complete. Workspace ready."
+                     Title="{i18n:Loc Key=Scan_Complete_Title}"
                      Message="{x:Bind ViewModel.ProgressText, Mode=OneWay}"
                      Visibility="{x:Bind ViewModel.ScanComplete, Mode=OneWay, Converter={StaticResource BoolVis}}" />
 
             <InfoBar IsOpen="True" Severity="Error"
-                     Title="Scan failed"
+                     Title="{i18n:Loc Key=Scan_Failed_Title}"
                      Message="{x:Bind ViewModel.ErrorMessage, Mode=OneWay}"
                      Visibility="{x:Bind ViewModel.HasError, Mode=OneWay, Converter={StaticResource BoolVis}}" />
 

@@ -1,11 +1,12 @@
 ﻿<Page
     x:Class="StorageMaster.UI.Pages.CleanupPage"
-    AutomationProperties.Name="Cleanup page"
+    AutomationProperties.Name="{i18n:Loc Key=Cleanup_AutomationName}"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:controls="using:StorageMaster.UI.Controls"
     xmlns:local="using:StorageMaster.UI.Pages"
     xmlns:converters="using:StorageMaster.UI.Converters"
+    xmlns:i18n="using:StorageMaster.UI.Infrastructure"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d">
@@ -26,10 +27,10 @@
                 further down, next to the dry-run checkbox and the selected total,
                 so the destructive step is never the first button in reach.
             -->
-            <controls:PageHeader Title="Cleanup"
-                                 Subtitle="Preview recoverable cleanup candidates before any destructive operation.">
+            <controls:PageHeader Title="{i18n:Loc Key=Cleanup_Title}"
+                                 Subtitle="{i18n:Loc Key=Cleanup_Subtitle}">
                 <controls:PageHeader.ActionContent>
-                    <Button Content="Analyse for cleanup opportunities"
+                    <Button Content="{i18n:Loc Key=Cleanup_Analyse}"
                             Style="{StaticResource AccentButtonStyle}"
                             MinHeight="36"
                             Command="{x:Bind ViewModel.AnalyseCommand}"
@@ -39,14 +40,14 @@
 
             <InfoBar IsOpen="True"
                      Severity="Informational"
-                     Title="Review before delete"
-                     Message="Analysis is read-only. Execution keeps Recycle Bin as the recommended path and dry-run can preview the exact selected categories." />
+                     Title="{i18n:Loc Key=Safety_Cleanup_ReviewNotice_Title}"
+                     Message="{i18n:Loc Key=Safety_Cleanup_ReviewNotice_Message}" />
 
             <!-- ── Session selector ────────────────────────────────────────── -->
             <Border Style="{StaticResource SectionCardStyle}">
                 <StackPanel Spacing="{StaticResource ControlSpacing}">
-                    <TextBlock Text="Select scan session" Style="{StaticResource SectionHeaderTextStyle}" />
-                    <TextBlock Text="Cleanup uses a completed scan so recommendations stay explainable and reversible by default."
+                    <TextBlock Text="{i18n:Loc Key=Cleanup_Session_Header}" Style="{StaticResource SectionHeaderTextStyle}" />
+                    <TextBlock Text="{i18n:Loc Key=Cleanup_Session_Description}"
                                Style="{StaticResource HelperTextStyle}" />
                     <ComboBox ItemsSource="{x:Bind ViewModel.RecentSessions}"
                               SelectedItem="{x:Bind ViewModel.SelectedSession, Mode=TwoWay}"
@@ -68,23 +69,23 @@
             <!-- ── Cleanup Options (grouped, expandable categories) ────────── -->
             <Border Style="{StaticResource SectionCardStyle}">
                 <StackPanel Spacing="{StaticResource CardSpacing}">
-                    <TextBlock Text="Cleanup options" Style="{StaticResource SectionHeaderTextStyle}" />
-                    <TextBlock Text="Leave risky categories off unless you understand the side effects. Dry run stays available before any deletion."
+                    <TextBlock Text="{i18n:Loc Key=Cleanup_Options_Header}" Style="{StaticResource SectionHeaderTextStyle}" />
+                    <TextBlock Text="{i18n:Loc Key=Safety_Cleanup_Options_Description}"
                                Style="{StaticResource HelperTextStyle}" />
 
                     <!-- Deletion mode row -->
                     <Grid ColumnDefinitions="*,*" ColumnSpacing="20">
                         <ToggleSwitch Grid.Column="0"
-                                      Header="Send to Recycle Bin (recommended)"
+                                      Header="{i18n:Loc Key=Safety_Cleanup_UseRecycleBin_Header}"
                                       IsEnabled="{x:Bind ViewModel.CanChangeAnalysisScope, Mode=OneWay}"
                                       IsOn="{x:Bind ViewModel.UseRecycleBin, Mode=TwoWay}" />
                         <ToggleSwitch Grid.Column="1"
-                                      Header="Clear entire Downloads folder (sub-option)"
+                                      Header="{i18n:Loc Key=Safety_Cleanup_ClearEntireDownloads_Header}"
                                       IsEnabled="{x:Bind ViewModel.CanChangeAnalysisScope, Mode=OneWay}"
                                       IsOn="{x:Bind ViewModel.ClearEntireDownloads, Mode=TwoWay}" />
                     </Grid>
 
-                    <TextBlock Text="Categories to include" Style="{StaticResource MetricLabelTextStyle}" />
+                    <TextBlock Text="{i18n:Loc Key=Cleanup_Categories_Label}" Style="{StaticResource MetricLabelTextStyle}" />
 
                     <!-- ── Grouped category list ──────────────────────────── -->
                     <ItemsControl ItemsSource="{x:Bind ViewModel.CategoryGroups}"
@@ -214,7 +215,7 @@
             <StackPanel Visibility="{x:Bind ViewModel.HasResults, Mode=OneWay, Converter={StaticResource BoolVis}}"
                         Spacing="12">
 
-                <TextBlock Text="Suggestions" Style="{StaticResource SectionHeaderTextStyle}" />
+                <TextBlock Text="{i18n:Loc Key=Cleanup_Suggestions_Header}" Style="{StaticResource SectionHeaderTextStyle}" />
 
                 <!--  A ListView measured with infinite height has an infinite viewport,
                       so ItemsStackPanel culls nothing and realises every row. The page
@@ -293,16 +294,16 @@
                     <Grid ColumnDefinitions="*,Auto" ColumnSpacing="{StaticResource ControlSpacing}">
                         <StackPanel Grid.Column="0" Spacing="{StaticResource TightSpacing}">
                             <StackPanel Spacing="2">
-                                <TextBlock Text="Selected" Style="{StaticResource MetricLabelTextStyle}"/>
+                                <TextBlock Text="{i18n:Loc Key=Cleanup_SelectedTotal_Label}" Style="{StaticResource MetricLabelTextStyle}"/>
                                 <TextBlock Text="{x:Bind ViewModel.TotalSelectedSize, Mode=OneWay}"
                                            Style="{StaticResource MetricTextStyle}"/>
                             </StackPanel>
-                            <CheckBox Content="Dry run (preview only)"
+                            <CheckBox Content="{i18n:Loc Key=Cleanup_DryRun_Checkbox}"
                                       IsEnabled="{x:Bind ViewModel.CanChangeAnalysisScope, Mode=OneWay}"
                                       IsChecked="{x:Bind ViewModel.IsDryRun, Mode=TwoWay}" />
                         </StackPanel>
                         <Button Grid.Column="1"
-                                Content="Clean Up Selected…"
+                                Content="{i18n:Loc Key=Safety_Cleanup_CleanUpSelected_Button}"
                                 Style="{StaticResource AccentButtonStyle}"
                                 MinHeight="36"
                                 VerticalAlignment="Center"

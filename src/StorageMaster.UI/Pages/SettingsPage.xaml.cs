@@ -3,6 +3,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Navigation;
+using StorageMaster.Core.Localization;
 using StorageMaster.Core.Models;
 using StorageMaster.Core.Scheduling;
 using Windows.Storage.Pickers;
@@ -104,7 +105,9 @@ public sealed partial class SettingsPage : Page
         }
         catch (Exception ex)
         {
-            ViewModel.SavedMessage = $"Could not open folder picker: {ex.Message}";
+            // The user-facing sentence is localized; the exception detail appended to
+            // it stays English, the same way the logs read it.
+            ViewModel.SavedMessage = Loc.Format("Settings_FolderPicker_Error", ex.Message);
         }
     }
 
@@ -119,24 +122,19 @@ public sealed partial class SettingsPage : Page
             {
                 var rules = string.Join(", ", ScheduledCleanupPolicy.GetEffectiveRules(job.RulesCsv));
                 var schedule = job.Frequency == ScheduledJobFrequency.Weekly
-                    ? $"Weekly on {job.WeeklyDay} at {job.StartTimeLocal}"
-                    : $"Daily at {job.StartTimeLocal}";
+                    ? Loc.Format("Settings_Schedule_Weekly", job.WeeklyDay, job.StartTimeLocal)
+                    : Loc.Format("Settings_Schedule_Daily", job.StartTimeLocal);
                 var confirmation = new ContentDialog
                 {
-                    Title = "Enable Unattended Cleanup?",
-                    Content =
-                        $"Job: {job.Name}\n" +
-                        $"Target: {job.TargetPath}\n" +
-                        $"Rules: {rules}\n" +
-                        $"Schedule: {schedule}\n" +
-                        "Deletion method: Recycle Bin\n" +
-                        "Allowed risk: Safe or Low only\n" +
-                        "Clear entire Downloads folder: Disabled\n\n" +
-                        "StorageMaster will run this exact cleanup plan automatically. " +
-                        "Any later plan change invalidates consent and blocks execution until you review and save it again. " +
-                        "Disk allocation remains used until the Recycle Bin is emptied.",
-                    PrimaryButtonText = "Enable Scheduled Cleanup",
-                    CloseButtonText = "Cancel",
+                    Title = Loc.Get("Safety_Settings_ScheduledCleanupDialog_Title"),
+                    Content = Loc.Format(
+                        "Safety_Settings_ScheduledCleanupDialog_Body",
+                        job.Name,
+                        job.TargetPath,
+                        rules,
+                        schedule),
+                    PrimaryButtonText = Loc.Get("Safety_Settings_ScheduledCleanupDialog_Confirm"),
+                    CloseButtonText = Loc.Get("Common_Cancel"),
                     DefaultButton = ContentDialogButton.Close,
                     XamlRoot = XamlRoot,
                 };

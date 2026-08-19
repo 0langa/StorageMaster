@@ -3,6 +3,7 @@ using System.Diagnostics;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using StorageMaster.Core.Interfaces;
+using StorageMaster.Core.Localization;
 using StorageMaster.Core.Models;
 using StorageMaster.UI.Converters;
 using StorageMaster.UI.Infrastructure;
@@ -69,8 +70,8 @@ public sealed partial class ResultsViewModel : ObservableObject
     [ObservableProperty] private string _selectedCategoryFilter = string.Empty;
     [ObservableProperty] private string _sessionNote = string.Empty;
     [ObservableProperty] private bool _hasSession;
-    [ObservableProperty] private string _errorsStatusText = "Open Errors to load scan issues.";
-    [ObservableProperty] private string _folderTreeStatusText = "Open Folder Tree to load the hierarchy.";
+    [ObservableProperty] private string _errorsStatusText = Loc.Get("Results_Errors_Status_Idle");
+    [ObservableProperty] private string _folderTreeStatusText = Loc.Get("Results_FolderTree_Status_Idle");
 
     private long _sessionId;
     private List<FolderTreeNode> _folderTreeRoots = [];
@@ -94,11 +95,20 @@ public sealed partial class ResultsViewModel : ObservableObject
     public bool HasCategoryBreakdown => CategoryBreakdown.Count > 0;
     public bool HasFolderTreeRoots => _folderTreeRoots.Count > 0;
 
-    public string FileSizeHeader => "Size" + Indicator("Size", _fileSortColumn, _fileSortDesc);
-    public string FileModifiedHeader => "Modified" + Indicator("Modified", _fileSortColumn, _fileSortDesc);
-    public string FileTypeHeader => "Type" + Indicator("Type", _fileSortColumn, _fileSortDesc);
-    public string FolderSizeHeader => "Total Size" + Indicator("Size", _folderSortColumn, _folderSortDesc);
-    public string FolderFilesHeader => "Files" + Indicator("Files", _folderSortColumn, _folderSortDesc);
+    public string FileSizeHeader =>
+        Loc.Get("Results_Column_Size") + Indicator("Size", _fileSortColumn, _fileSortDesc);
+
+    public string FileModifiedHeader =>
+        Loc.Get("Results_Column_Modified") + Indicator("Modified", _fileSortColumn, _fileSortDesc);
+
+    public string FileTypeHeader =>
+        Loc.Get("Results_Column_Type") + Indicator("Type", _fileSortColumn, _fileSortDesc);
+
+    public string FolderSizeHeader =>
+        Loc.Get("Results_Column_FolderTotalSize") + Indicator("Size", _folderSortColumn, _folderSortDesc);
+
+    public string FolderFilesHeader =>
+        Loc.Get("Results_Column_Files") + Indicator("Files", _folderSortColumn, _folderSortDesc);
 
     public ResultsViewModel(
         IScanRepository repo,
@@ -173,9 +183,9 @@ public sealed partial class ResultsViewModel : ObservableObject
             ErrorCount = errorCount;
             OnPropertyChanged(nameof(HasErrors));
             ErrorsStatusText = ErrorCount == 0
-                ? "No scan errors were recorded for this session."
-                : "Open Errors to load paged scan issues.";
-            FolderTreeStatusText = "Open Folder Tree to build the hierarchy on demand.";
+                ? Loc.Get("Results_Errors_Status_None")
+                : Loc.Get("Results_Errors_Status_Paged");
+            FolderTreeStatusText = Loc.Get("Results_FolderTree_Status_OnDemand");
 
             StartSecondaryLoad(sessionVersion, sessionId, ct);
         }
@@ -185,7 +195,7 @@ public sealed partial class ResultsViewModel : ObservableObject
         catch (Exception ex)
         {
             if (IsCurrentSession(sessionVersion, sessionId, ct))
-                FilterCountLabel = $"Could not load scan results: {ex.Message}";
+                FilterCountLabel = Loc.Format("Results_Status_LoadFailed", ex.Message);
             Debug.WriteLine(ex);
         }
         finally
@@ -244,7 +254,7 @@ public sealed partial class ResultsViewModel : ObservableObject
         CancellationToken ct)
     {
         IsErrorsLoading = true;
-        ErrorsStatusText = "Loading scan issues…";
+        ErrorsStatusText = Loc.Get("Results_Errors_Status_Loading");
 
         try
         {
@@ -264,8 +274,8 @@ public sealed partial class ResultsViewModel : ObservableObject
             CanLoadMoreErrors = _loadedErrorCount < ErrorCount;
             _errorsLoaded = true;
             ErrorsStatusText = ScanErrors.Count == 0
-                ? "No scan issues were recorded for this session."
-                : $"Loaded {ScanErrors.Count:N0} of {ErrorCount:N0} scan issue(s).";
+                ? Loc.Get("Results_Errors_Status_Empty")
+                : LoadedErrorsLabel();
         }
         catch (OperationCanceledException)
         {
@@ -273,7 +283,7 @@ public sealed partial class ResultsViewModel : ObservableObject
         catch (Exception ex)
         {
             if (IsCurrentErrorLoad(sessionVersion, sessionId, loadVersion))
-                ErrorsStatusText = $"Could not load scan issues: {ex.Message}";
+                ErrorsStatusText = Loc.Format("Results_Errors_Status_LoadFailed", ex.Message);
             Debug.WriteLine(ex);
         }
         finally
@@ -309,7 +319,7 @@ public sealed partial class ResultsViewModel : ObservableObject
         CancellationToken ct)
     {
         BeginTreeLoad(sessionVersion, sessionId);
-        FolderTreeStatusText = "Loading top-level folders…";
+        FolderTreeStatusText = Loc.Get("Results_FolderTree_Status_LoadingRoots");
 
         try
         {
@@ -325,8 +335,8 @@ public sealed partial class ResultsViewModel : ObservableObject
             _folderTreeRoots = nodes;
             _folderTreeLoaded = true;
             FolderTreeStatusText = nodes.Count == 0
-                ? "No folder rows are available for this session."
-                : "Expand a folder to load only its direct children.";
+                ? Loc.Get("Results_FolderTree_Status_Empty")
+                : Loc.Get("Results_FolderTree_Status_Ready");
             OnPropertyChanged(nameof(FolderTreeRoots));
             OnPropertyChanged(nameof(HasFolderTreeRoots));
         }
@@ -336,7 +346,7 @@ public sealed partial class ResultsViewModel : ObservableObject
         catch (Exception ex)
         {
             if (IsCurrentSession(sessionVersion, sessionId))
-                FolderTreeStatusText = $"Could not load folder tree: {ex.Message}";
+                FolderTreeStatusText = Loc.Format("Results_FolderTree_Status_LoadFailed", ex.Message);
             Debug.WriteLine(ex);
         }
         finally
@@ -358,7 +368,7 @@ public sealed partial class ResultsViewModel : ObservableObject
 
         BeginTreeLoad(sessionVersion, sessionId);
         node.IsLoadingChildren = true;
-        FolderTreeStatusText = $"Loading children of {node.DisplayName}…";
+        FolderTreeStatusText = Loc.Format("Results_FolderTree_Status_LoadingChildren", node.DisplayName);
         try
         {
             var children = await _repo.GetFolderChildrenAsync(sessionId, node.Folder.FullPath, ct);
@@ -372,8 +382,11 @@ public sealed partial class ResultsViewModel : ObservableObject
 
             node.SetChildren(nodes);
             FolderTreeStatusText = children.Count == 0
-                ? $"{node.DisplayName} has no nested folders."
-                : $"Loaded {children.Count:N0} child folder(s) for {node.DisplayName}.";
+                ? Loc.Format("Results_FolderTree_Status_NoChildren", node.DisplayName)
+                : Loc.Format(
+                    "Results_FolderTree_Status_ChildrenLoaded",
+                    children.Count.ToString("N0"),
+                    node.DisplayName);
         }
         catch (OperationCanceledException)
         {
@@ -381,7 +394,13 @@ public sealed partial class ResultsViewModel : ObservableObject
         catch (Exception ex)
         {
             if (IsCurrentSession(sessionVersion, sessionId))
-                FolderTreeStatusText = $"Could not load children of {node.DisplayName}: {ex.Message}";
+            {
+                FolderTreeStatusText = Loc.Format(
+                    "Results_FolderTree_Status_ChildrenLoadFailed",
+                    node.DisplayName,
+                    ex.Message);
+            }
+
             Debug.WriteLine(ex);
         }
         finally
@@ -412,7 +431,7 @@ public sealed partial class ResultsViewModel : ObservableObject
         catch (Exception ex)
         {
             if (!ct.IsCancellationRequested)
-                FilterCountLabel = $"Could not filter scan results: {ex.Message}";
+                FilterCountLabel = Loc.Format("Results_Status_FilterFailed", ex.Message);
             Debug.WriteLine(ex);
         }
     }
@@ -478,9 +497,11 @@ public sealed partial class ResultsViewModel : ObservableObject
             return;
 
         var confirmed = await _dialogs.ConfirmAsync(
-            "Delete this scan?",
-            $"Permanently remove scan of \"{ScanRoot}\" ({ScanDate}) from history?\n\nThis cannot be undone.",
-            "Delete");
+            Loc.Get("Safety_DeleteScan_Title"),
+            Loc.Format("Safety_DeleteScan_Body", ScanRoot, ScanDate)
+                + "\n\n"
+                + Loc.Get("Safety_CannotBeUndone"),
+            Loc.Get("Common_Delete"));
         if (!confirmed)
             return;
 
@@ -523,18 +544,25 @@ public sealed partial class ResultsViewModel : ObservableObject
     private async Task DeleteFileAsync(FileEntry file)
     {
         var confirmed = await _dialogs.ConfirmAsync(
-            "Send to Recycle Bin?",
-            $"Move \"{file.FileName}\" ({ByteSizeConverter.Format(file.SizeBytes)}) to the Recycle Bin?",
-            "Send to Recycle Bin");
+            Loc.Get("Safety_SendToRecycleBin_Title"),
+            Loc.Format(
+                "Safety_SendToRecycleBin_Body",
+                file.FileName,
+                ByteSizeConverter.Format(file.SizeBytes)),
+            Loc.Get("Safety_SendToRecycleBin"));
         if (!confirmed)
             return;
 
         var outcome = await _resultDeletionService.DeleteAsync(file, DeletionMethod.RecycleBin);
         if (!outcome.Success)
         {
+            // The reason comes from the deletion service and stays as it is — only the
+            // sentence around it, and the fallback when there is no reason, are localized.
             await _dialogs.ShowErrorAsync(
-                "Could not delete file",
-                $"\"{file.FileName}\" was not moved to the Recycle Bin.\n\n{outcome.Error ?? "The file may be locked or access was denied."}");
+                Loc.Get("Safety_DeleteFile_Error_Title"),
+                Loc.Format("Safety_DeleteFile_Error_Body", file.FileName)
+                    + "\n\n"
+                    + (outcome.Error ?? Loc.Get("Safety_DeleteFile_Error_Fallback")));
             return;
         }
 
@@ -546,7 +574,7 @@ public sealed partial class ResultsViewModel : ObservableObject
         if (!string.IsNullOrWhiteSpace(outcome.Error))
         {
             await _dialogs.ShowErrorAsync(
-                "File moved with a bookkeeping warning",
+                Loc.Get("Safety_DeleteFile_Warning_Title"),
                 outcome.Error);
         }
     }
@@ -565,7 +593,7 @@ public sealed partial class ResultsViewModel : ObservableObject
         }
         catch (Exception ex)
         {
-            FilterCountLabel = $"Could not load scan results: {ex.Message}";
+            FilterCountLabel = Loc.Format("Results_Status_LoadFailed", ex.Message);
             Debug.WriteLine(ex);
         }
     }
@@ -600,7 +628,7 @@ public sealed partial class ResultsViewModel : ObservableObject
         }
         catch (Exception ex)
         {
-            FilterCountLabel = $"Could not load more files: {ex.Message}";
+            FilterCountLabel = Loc.Format("Results_Status_LoadMoreFilesFailed", ex.Message);
             Debug.WriteLine(ex);
         }
     }
@@ -620,7 +648,7 @@ public sealed partial class ResultsViewModel : ObservableObject
         }
         catch (Exception ex)
         {
-            FilterCountLabel = $"Could not load more folders: {ex.Message}";
+            FilterCountLabel = Loc.Format("Results_Status_LoadMoreFoldersFailed", ex.Message);
             Debug.WriteLine(ex);
         }
     }
@@ -654,7 +682,7 @@ public sealed partial class ResultsViewModel : ObservableObject
                 ScanErrors.Add(error);
             _loadedErrorCount += page.Count;
             CanLoadMoreErrors = _loadedErrorCount < ErrorCount;
-            ErrorsStatusText = $"Loaded {ScanErrors.Count:N0} of {ErrorCount:N0} scan issue(s).";
+            ErrorsStatusText = LoadedErrorsLabel();
         }
         catch (OperationCanceledException)
         {
@@ -662,7 +690,7 @@ public sealed partial class ResultsViewModel : ObservableObject
         catch (Exception ex)
         {
             if (IsCurrentErrorLoad(sessionVersion, sessionId, loadVersion))
-                ErrorsStatusText = $"Could not load more scan issues: {ex.Message}";
+                ErrorsStatusText = Loc.Format("Results_Errors_Status_LoadMoreFailed", ex.Message);
             Debug.WriteLine(ex);
         }
         finally
@@ -921,8 +949,8 @@ public sealed partial class ResultsViewModel : ObservableObject
         CanLoadMoreFiles = false;
         CanLoadMoreFolders = false;
         CanLoadMoreErrors = false;
-        ErrorsStatusText = "Open Errors to load scan issues.";
-        FolderTreeStatusText = "Open Folder Tree to load the hierarchy.";
+        ErrorsStatusText = Loc.Get("Results_Errors_Status_Idle");
+        FolderTreeStatusText = Loc.Get("Results_FolderTree_Status_Idle");
         OnPropertyChanged(nameof(FolderTreeRoots));
         OnPropertyChanged(nameof(HasFolderTreeRoots));
         OnPropertyChanged(nameof(HasCategoryBreakdown));
@@ -938,7 +966,7 @@ public sealed partial class ResultsViewModel : ObservableObject
         TotalSize = "—";
         TotalFiles = 0;
         SessionNote = string.Empty;
-        FilterCountLabel = "No completed scan sessions yet.";
+        FilterCountLabel = Loc.Get("Results_Status_NoSessions");
         HasSession = false;
     }
 
@@ -1024,10 +1052,20 @@ public sealed partial class ResultsViewModel : ObservableObject
 
     private void UpdateFilterCountLabel()
     {
+        // Counts are formatted here rather than inside the resource: Loc.Format composes
+        // with the invariant culture so the user's thousands separator survives.
+        var shown = LargestFiles.Count.ToString("N0");
+        var total = TotalFiles.ToString("N0");
+
         FilterCountLabel = HasCategoryFilter
-            ? $"Showing {LargestFiles.Count:N0} of {TotalFiles:N0} files in {SelectedCategoryFilter}."
-            : $"Showing {LargestFiles.Count:N0} of {TotalFiles:N0} files.";
+            ? Loc.Format("Results_Filter_CountInCategory", shown, total, SelectedCategoryFilter)
+            : Loc.Format("Results_Filter_Count", shown, total);
     }
+
+    private string LoadedErrorsLabel() => Loc.Format(
+        "Results_Errors_Status_Loaded",
+        ScanErrors.Count.ToString("N0"),
+        ErrorCount.ToString("N0"));
 
     private static string Indicator(string col, string current, bool desc) =>
         current == col ? (desc ? " ▼" : " ▲") : string.Empty;

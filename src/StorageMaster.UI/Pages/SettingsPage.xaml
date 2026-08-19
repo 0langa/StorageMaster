@@ -1,12 +1,13 @@
 ﻿<Page
     x:Class="StorageMaster.UI.Pages.SettingsPage"
-    AutomationProperties.Name="Settings page"
+    AutomationProperties.Name="{i18n:Loc Key=Settings_Page_AutomationName}"
     x:Name="PageRoot"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:converters="using:StorageMaster.UI.Converters"
     xmlns:controls="using:StorageMaster.UI.Controls"
     xmlns:local="using:StorageMaster.UI.Pages"
+    xmlns:i18n="using:StorageMaster.UI.Infrastructure"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d">
@@ -31,68 +32,68 @@
         <DataTemplate x:Key="GeneralTemplate" x:DataType="local:SettingsViewModel">
             <StackPanel Spacing="20">
                 <StackPanel Spacing="4">
-                    <TextBlock Text="Theme" Style="{StaticResource CaptionTextBlockStyle}" />
+                    <TextBlock Text="{i18n:Loc Key=Settings_Theme_Label}" Style="{StaticResource CaptionTextBlockStyle}" />
                     <ComboBox ItemsSource="{x:Bind ThemeOptions, Mode=OneWay}"
                               SelectedItem="{x:Bind Theme, Mode=TwoWay}"
-                              AutomationProperties.Name="Theme"
-                              AutomationProperties.HelpText="Choose Light, Dark, or Default to follow Windows." />
+                              AutomationProperties.Name="{i18n:Loc Key=Settings_Theme_Label}"
+                              AutomationProperties.HelpText="{i18n:Loc Key=Settings_Theme_AutomationHelp}" />
                 </StackPanel>
 
                 <StackPanel Spacing="4">
-                    <TextBlock Text="Accent" Style="{StaticResource CaptionTextBlockStyle}" />
+                    <TextBlock Text="{i18n:Loc Key=Settings_Accent_Label}" Style="{StaticResource CaptionTextBlockStyle}" />
                     <ComboBox ItemsSource="{x:Bind AccentOptions}"
                               SelectedItem="{x:Bind Accent, Mode=TwoWay}"
                               DisplayMemberPath="DisplayName"
-                              AutomationProperties.Name="Accent colour"
-                              AutomationProperties.HelpText="Accent used for emphasis and selection. Every accent is contrast-checked in both themes." />
-                    <TextBlock Text="Applies immediately. Severity colours stay fixed so a warning always reads as a warning."
+                              AutomationProperties.Name="{i18n:Loc Key=Settings_Accent_AutomationName}"
+                              AutomationProperties.HelpText="{i18n:Loc Key=Settings_Accent_AutomationHelp}" />
+                    <TextBlock Text="{i18n:Loc Key=Settings_Accent_Description}"
                                Style="{StaticResource HelperTextStyle}" />
                 </StackPanel>
 
                 <StackPanel Spacing="4">
-                    <TextBlock Text="Language" Style="{StaticResource CaptionTextBlockStyle}" />
+                    <TextBlock Text="{i18n:Loc Key=Settings_Language_Label}" Style="{StaticResource CaptionTextBlockStyle}" />
                     <ComboBox ItemsSource="{x:Bind LanguageOptions, Mode=OneWay}"
                               SelectedItem="{x:Bind Language, Mode=TwoWay}"
-                              AutomationProperties.Name="Interface language"
-                              AutomationProperties.HelpText="Also pins the text Windows supplies for built-in controls, so the interface is not half translated." />
+                              AutomationProperties.Name="{i18n:Loc Key=Settings_Language_AutomationName}"
+                              AutomationProperties.HelpText="{i18n:Loc Key=Settings_Language_AutomationHelp}" />
                     <InfoBar IsOpen="{x:Bind LanguageRestartPending, Mode=OneWay}"
                              Severity="Informational"
                              IsClosable="False"
-                             Title="Restart required"
-                             Message="Windows supplies the text for built-in controls when they are created, so the new language applies after StorageMaster restarts." />
+                             Title="{i18n:Loc Key=Settings_Language_Restart_Title}"
+                             Message="{i18n:Loc Key=Settings_Language_Restart_Message}" />
                 </StackPanel>
 
                 <StackPanel Spacing="4">
-                    <TextBlock Text="UI density" Style="{StaticResource CaptionTextBlockStyle}" />
+                    <TextBlock Text="{i18n:Loc Key=Settings_UiDensity_Label}" Style="{StaticResource CaptionTextBlockStyle}" />
                     <ComboBox ItemsSource="{x:Bind UiDensityOptions, Mode=OneWay}"
                               SelectedItem="{x:Bind UiDensity, Mode=TwoWay}"
-                              AutomationProperties.Name="UI density"
-                              AutomationProperties.HelpText="Compact shows more content. Comfortable adds extra spacing." />
+                              AutomationProperties.Name="{i18n:Loc Key=Settings_UiDensity_Label}"
+                              AutomationProperties.HelpText="{i18n:Loc Key=Settings_UiDensity_AutomationHelp}" />
                 </StackPanel>
 
-                <ToggleSwitch Header="Reduce animations"
+                <ToggleSwitch Header="{i18n:Loc Key=Settings_ReduceAnimations_Header}"
                               IsOn="{x:Bind ReduceAnimations, Mode=TwoWay}"
-                              AutomationProperties.Name="Reduce animations"
-                              AutomationProperties.HelpText="Turns off motion effects for accessibility and performance." />
+                              AutomationProperties.Name="{i18n:Loc Key=Settings_ReduceAnimations_Header}"
+                              AutomationProperties.HelpText="{i18n:Loc Key=Settings_ReduceAnimations_AutomationHelp}" />
 
-                <ToggleSwitch Header="Expand advanced options by default"
+                <ToggleSwitch Header="{i18n:Loc Key=Settings_ExpandAdvanced_Header}"
                               IsOn="{x:Bind ExpandAdvancedOptionsByDefault, Mode=TwoWay}"
-                              AutomationProperties.Name="Expand advanced options by default"
-                              AutomationProperties.HelpText="When enabled, advanced sections start expanded instead of collapsed." />
+                              AutomationProperties.Name="{i18n:Loc Key=Settings_ExpandAdvanced_Header}"
+                              AutomationProperties.HelpText="{i18n:Loc Key=Settings_ExpandAdvanced_AutomationHelp}" />
 
                 <StackPanel Spacing="4">
-                    <TextBlock Text="Default landing page" Style="{StaticResource CaptionTextBlockStyle}" />
+                    <TextBlock Text="{i18n:Loc Key=Settings_DefaultLandingPage_Label}" Style="{StaticResource CaptionTextBlockStyle}" />
                     <TextBox Text="{x:Bind DefaultLandingPage, Mode=TwoWay}"
                              PlaceholderText="Dashboard"
-                             AutomationProperties.Name="Default landing page"
-                             AutomationProperties.HelpText="Page name shown on startup, e.g. Dashboard or Scan." />
+                             AutomationProperties.Name="{i18n:Loc Key=Settings_DefaultLandingPage_Label}"
+                             AutomationProperties.HelpText="{i18n:Loc Key=Settings_DefaultLandingPage_AutomationHelp}" />
                 </StackPanel>
 
                 <StackPanel Spacing="4">
-                    <TextBlock Text="Default scan path" Style="{StaticResource CaptionTextBlockStyle}" />
+                    <TextBlock Text="{i18n:Loc Key=Settings_DefaultScanPath_Label}" Style="{StaticResource CaptionTextBlockStyle}" />
                     <TextBox Text="{x:Bind DefaultScanPath, Mode=TwoWay}"
-                             AutomationProperties.Name="Default scan path"
-                             AutomationProperties.HelpText="Folder selected by default when starting a new scan." />
+                             AutomationProperties.Name="{i18n:Loc Key=Settings_DefaultScanPath_Label}"
+                             AutomationProperties.HelpText="{i18n:Loc Key=Settings_DefaultScanPath_AutomationHelp}" />
                     <TextBlock Text="{x:Bind DefaultScanPathError, Mode=OneWay}"
                                Foreground="{ThemeResource SystemFillColorCriticalBrush}"
                                Visibility="{x:Bind HasDefaultScanPathError, Mode=OneWay, Converter={StaticResource BoolVis}}"
@@ -109,28 +110,28 @@
                     <TextBlock Text="{x:Bind ScanParallelismLabel, Mode=OneWay}" Style="{StaticResource CaptionTextBlockStyle}" />
                     <Slider Minimum="1" Maximum="16" StepFrequency="1"
                             Value="{x:Bind ScanParallelism, Mode=TwoWay}"
-                            AutomationProperties.Name="Scan parallelism"
-                            AutomationProperties.HelpText="Number of parallel threads used during file scanning." />
+                            AutomationProperties.Name="{i18n:Loc Key=Settings_ScanParallelism_AutomationName}"
+                            AutomationProperties.HelpText="{i18n:Loc Key=Settings_ScanParallelism_AutomationHelp}" />
                 </StackPanel>
 
-                <ToggleSwitch Header="Show hidden files in results"
+                <ToggleSwitch Header="{i18n:Loc Key=Settings_ShowHiddenFiles_Header}"
                               IsOn="{x:Bind ShowHiddenFiles, Mode=TwoWay}"
-                              AutomationProperties.Name="Show hidden files"
-                              AutomationProperties.HelpText="Includes files with the hidden attribute in scans." />
+                              AutomationProperties.Name="{i18n:Loc Key=Settings_ShowHiddenFiles_AutomationName}"
+                              AutomationProperties.HelpText="{i18n:Loc Key=Settings_ShowHiddenFiles_AutomationHelp}" />
 
-                <ToggleSwitch Header="Skip system folders"
+                <ToggleSwitch Header="{i18n:Loc Key=Settings_SkipSystemFolders_Header}"
                               IsOn="{x:Bind SkipSystemFolders, Mode=TwoWay}"
-                              AutomationProperties.Name="Skip system folders"
-                              AutomationProperties.HelpText="Skips Windows and Program Files directories to avoid instability." />
+                              AutomationProperties.Name="{i18n:Loc Key=Settings_SkipSystemFolders_Header}"
+                              AutomationProperties.HelpText="{i18n:Loc Key=Settings_SkipSystemFolders_AutomationHelp}" />
 
-                <ToggleSwitch Header="Use Turbo Scanner by default"
+                <ToggleSwitch Header="{i18n:Loc Key=Settings_UseTurboScanner_Header}"
                               IsOn="{x:Bind UseTurboScanner, Mode=TwoWay}"
-                              AutomationProperties.Name="Use Turbo Scanner by default"
-                              AutomationProperties.HelpText="Uses the Rust-powered native scanner when available beside the executable." />
+                              AutomationProperties.Name="{i18n:Loc Key=Settings_UseTurboScanner_Header}"
+                              AutomationProperties.HelpText="{i18n:Loc Key=Settings_UseTurboScanner_AutomationHelp}" />
 
                 <StackPanel Spacing="12">
-                    <TextBlock Text="Excluded Paths" Style="{StaticResource BodyStrongTextBlockStyle}" />
-                    <TextBlock Text="These folders are skipped during every scan."
+                    <TextBlock Text="{i18n:Loc Key=Settings_ExcludedPaths_Header}" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                    <TextBlock Text="{i18n:Loc Key=Settings_ExcludedPaths_Description}"
                                Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.7" />
                     <ListView ItemsSource="{x:Bind ExcludedPaths}" SelectionMode="None" MaxHeight="200">
                         <ListView.ItemTemplate>
@@ -142,20 +143,20 @@
                                     </Grid.ColumnDefinitions>
                                     <TextBlock Text="{x:Bind}" VerticalAlignment="Center"
                                                TextTrimming="CharacterEllipsis"
-                                               AutomationProperties.Name="Excluded path" />
-                                    <Button Grid.Column="1" Content="Remove"
+                                               AutomationProperties.Name="{i18n:Loc Key=Settings_ExcludedPaths_ItemAutomationName}" />
+                                    <Button Grid.Column="1" Content="{i18n:Loc Key=Settings_ExcludedPaths_Remove}"
                                             Tag="{x:Bind}"
                                             Click="RemovePath_Click"
                                             Margin="8,0,0,0"
-                                            AutomationProperties.Name="Remove excluded path"
-                                            AutomationProperties.HelpText="Remove this folder from the exclusion list." />
+                                            AutomationProperties.Name="{i18n:Loc Key=Settings_ExcludedPaths_Remove_AutomationName}"
+                                            AutomationProperties.HelpText="{i18n:Loc Key=Settings_ExcludedPaths_Remove_AutomationHelp}" />
                                 </Grid>
                             </DataTemplate>
                         </ListView.ItemTemplate>
                     </ListView>
-                    <Button Content="Add Folder..." Click="AddExcludedFolder_Click"
-                            AutomationProperties.Name="Add excluded folder"
-                            AutomationProperties.HelpText="Choose a folder to exclude from all future scans." />
+                    <Button Content="{i18n:Loc Key=Settings_ExcludedPaths_AddFolder}" Click="AddExcludedFolder_Click"
+                            AutomationProperties.Name="{i18n:Loc Key=Settings_ExcludedPaths_AddFolder_AutomationName}"
+                            AutomationProperties.HelpText="{i18n:Loc Key=Settings_ExcludedPaths_AddFolder_AutomationHelp}" />
                 </StackPanel>
             </StackPanel>
         </DataTemplate>
@@ -163,132 +164,132 @@
         <!-- Cleanup & Safety -->
         <DataTemplate x:Key="CleanupTemplate" x:DataType="local:SettingsViewModel">
             <StackPanel Spacing="20">
-                <InfoBar Message="Cleanup permanently removes files. Enable Recycle Bin or dry-run until you are confident."
+                <InfoBar Message="{i18n:Loc Key=Safety_Settings_CleanupWarning}"
                          Severity="Informational" IsOpen="True" IsClosable="False" />
 
-                <ToggleSwitch Header="Send to Recycle Bin (recommended)"
+                <ToggleSwitch Header="{i18n:Loc Key=Safety_Settings_PreferRecycleBin_Header}"
                               IsOn="{x:Bind PreferRecycleBin, Mode=TwoWay}"
-                              AutomationProperties.Name="Prefer Recycle Bin"
-                              AutomationProperties.HelpText="Moves deleted files to the Recycle Bin so they can be restored. Turning this off enables permanent deletion." />
+                              AutomationProperties.Name="{i18n:Loc Key=Safety_Settings_PreferRecycleBin_AutomationName}"
+                              AutomationProperties.HelpText="{i18n:Loc Key=Safety_Settings_PreferRecycleBin_AutomationHelp}" />
 
-                <ToggleSwitch Header="Dry-run mode by default"
+                <ToggleSwitch Header="{i18n:Loc Key=Safety_Settings_DryRun_Header}"
                               IsOn="{x:Bind DryRunByDefault, Mode=TwoWay}"
-                              AutomationProperties.Name="Dry-run mode by default"
-                              AutomationProperties.HelpText="Previews what would be deleted without actually removing anything." />
+                              AutomationProperties.Name="{i18n:Loc Key=Safety_Settings_DryRun_Header}"
+                              AutomationProperties.HelpText="{i18n:Loc Key=Safety_Settings_DryRun_AutomationHelp}" />
 
                 <StackPanel Spacing="4">
                     <TextBlock Text="{x:Bind LargeFileThresholdLabel, Mode=OneWay}" Style="{StaticResource CaptionTextBlockStyle}" />
                     <Slider Minimum="50" Maximum="5000" StepFrequency="50"
                             Value="{x:Bind LargeFileSizeMb, Mode=TwoWay}"
-                            AutomationProperties.Name="Large file threshold"
-                            AutomationProperties.HelpText="Files larger than this are flagged as large-file cleanup candidates." />
+                            AutomationProperties.Name="{i18n:Loc Key=Settings_LargeFileThreshold_AutomationName}"
+                            AutomationProperties.HelpText="{i18n:Loc Key=Settings_LargeFileThreshold_AutomationHelp}" />
                 </StackPanel>
 
                 <StackPanel Spacing="4">
                     <TextBlock Text="{x:Bind OldFileAgeThresholdLabel, Mode=OneWay}" Style="{StaticResource CaptionTextBlockStyle}" />
                     <Slider Minimum="30" Maximum="3650" StepFrequency="30"
                             Value="{x:Bind OldFileAgeDays, Mode=TwoWay}"
-                            AutomationProperties.Name="Old file age threshold"
-                            AutomationProperties.HelpText="Files older than this are flagged as old-file cleanup candidates." />
+                            AutomationProperties.Name="{i18n:Loc Key=Settings_OldFileAgeThreshold_AutomationName}"
+                            AutomationProperties.HelpText="{i18n:Loc Key=Settings_OldFileAgeThreshold_AutomationHelp}" />
                 </StackPanel>
 
-                <TextBlock Text="Default cleanup rules" Style="{StaticResource BodyStrongTextBlockStyle}" />
-                <TextBlock Text="Rules enabled here are selected by default on the Cleanup page."
+                <TextBlock Text="{i18n:Loc Key=Settings_DefaultCleanupRules_Header}" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                <TextBlock Text="{i18n:Loc Key=Settings_DefaultCleanupRules_Description}"
                            Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.7" TextWrapping="Wrap" />
 
                 <StackPanel Spacing="10">
-                    <ToggleSwitch Header="Recycle Bin" IsOn="{x:Bind CleanRecycleBin, Mode=TwoWay}" />
-                    <ToggleSwitch Header="Temp files" IsOn="{x:Bind CleanTempFiles, Mode=TwoWay}" />
-                    <ToggleSwitch Header="Downloaded installers" IsOn="{x:Bind CleanDownloadedInstallers, Mode=TwoWay}" />
-                    <ToggleSwitch Header="Cache folders" IsOn="{x:Bind CleanCacheFolders, Mode=TwoWay}" />
-                    <ToggleSwitch Header="Browser cache" IsOn="{x:Bind CleanBrowserCache, Mode=TwoWay}" />
-                    <ToggleSwitch Header="Windows Update cache" IsOn="{x:Bind CleanWindowsUpdateCache, Mode=TwoWay}" />
-                    <ToggleSwitch Header="Delivery Optimization cache" IsOn="{x:Bind CleanDeliveryOptimization, Mode=TwoWay}" />
-                    <ToggleSwitch Header="Windows Error Reporting" IsOn="{x:Bind CleanWindowsErrorReports, Mode=TwoWay}" />
-                    <ToggleSwitch Header="Program leftovers" IsOn="{x:Bind CleanProgramLeftovers, Mode=TwoWay}" />
-                    <ToggleSwitch Header="Large old files" IsOn="{x:Bind CleanLargeOldFiles, Mode=TwoWay}" />
-                    <ToggleSwitch Header="Thumbnail cache" IsOn="{x:Bind CleanThumbnailCache, Mode=TwoWay}" />
-                    <ToggleSwitch Header="Icon cache" IsOn="{x:Bind CleanIconCache, Mode=TwoWay}" />
-                    <ToggleSwitch Header="Font cache" IsOn="{x:Bind CleanFontCache, Mode=TwoWay}" />
-                    <ToggleSwitch Header="DNS cache" IsOn="{x:Bind CleanDnsCache, Mode=TwoWay}" />
-                    <ToggleSwitch Header="Prefetch files" IsOn="{x:Bind CleanPrefetchFiles, Mode=TwoWay}" />
-                    <ToggleSwitch Header="Microsoft Store logs" IsOn="{x:Bind CleanStoreLogs, Mode=TwoWay}" />
+                    <ToggleSwitch Header="{i18n:Loc Key=Settings_Rule_RecycleBin}" IsOn="{x:Bind CleanRecycleBin, Mode=TwoWay}" />
+                    <ToggleSwitch Header="{i18n:Loc Key=Settings_Rule_TempFiles}" IsOn="{x:Bind CleanTempFiles, Mode=TwoWay}" />
+                    <ToggleSwitch Header="{i18n:Loc Key=Settings_Rule_DownloadedInstallers}" IsOn="{x:Bind CleanDownloadedInstallers, Mode=TwoWay}" />
+                    <ToggleSwitch Header="{i18n:Loc Key=Settings_Rule_CacheFolders}" IsOn="{x:Bind CleanCacheFolders, Mode=TwoWay}" />
+                    <ToggleSwitch Header="{i18n:Loc Key=Settings_Rule_BrowserCache}" IsOn="{x:Bind CleanBrowserCache, Mode=TwoWay}" />
+                    <ToggleSwitch Header="{i18n:Loc Key=Settings_Rule_WindowsUpdateCache}" IsOn="{x:Bind CleanWindowsUpdateCache, Mode=TwoWay}" />
+                    <ToggleSwitch Header="{i18n:Loc Key=Settings_Rule_DeliveryOptimization}" IsOn="{x:Bind CleanDeliveryOptimization, Mode=TwoWay}" />
+                    <ToggleSwitch Header="{i18n:Loc Key=Settings_Rule_WindowsErrorReporting}" IsOn="{x:Bind CleanWindowsErrorReports, Mode=TwoWay}" />
+                    <ToggleSwitch Header="{i18n:Loc Key=Settings_Rule_ProgramLeftovers}" IsOn="{x:Bind CleanProgramLeftovers, Mode=TwoWay}" />
+                    <ToggleSwitch Header="{i18n:Loc Key=Settings_Rule_LargeOldFiles}" IsOn="{x:Bind CleanLargeOldFiles, Mode=TwoWay}" />
+                    <ToggleSwitch Header="{i18n:Loc Key=Settings_Rule_ThumbnailCache}" IsOn="{x:Bind CleanThumbnailCache, Mode=TwoWay}" />
+                    <ToggleSwitch Header="{i18n:Loc Key=Settings_Rule_IconCache}" IsOn="{x:Bind CleanIconCache, Mode=TwoWay}" />
+                    <ToggleSwitch Header="{i18n:Loc Key=Settings_Rule_FontCache}" IsOn="{x:Bind CleanFontCache, Mode=TwoWay}" />
+                    <ToggleSwitch Header="{i18n:Loc Key=Settings_Rule_DnsCache}" IsOn="{x:Bind CleanDnsCache, Mode=TwoWay}" />
+                    <ToggleSwitch Header="{i18n:Loc Key=Settings_Rule_PrefetchFiles}" IsOn="{x:Bind CleanPrefetchFiles, Mode=TwoWay}" />
+                    <ToggleSwitch Header="{i18n:Loc Key=Settings_Rule_StoreLogs}" IsOn="{x:Bind CleanStoreLogs, Mode=TwoWay}" />
                 </StackPanel>
 
-                <ToggleSwitch Header="Clear entire Downloads folder"
+                <ToggleSwitch Header="{i18n:Loc Key=Safety_Settings_ClearEntireDownloads_Header}"
                               IsOn="{x:Bind ClearEntireDownloads, Mode=TwoWay}"
-                              AutomationProperties.Name="Clear entire Downloads folder"
-                              AutomationProperties.HelpText="Clears all files in Downloads, not just installer files. Requires the Downloaded Installers rule to be enabled." />
+                              AutomationProperties.Name="{i18n:Loc Key=Safety_Settings_ClearEntireDownloads_Header}"
+                              AutomationProperties.HelpText="{i18n:Loc Key=Safety_Settings_ClearEntireDownloads_AutomationHelp}" />
             </StackPanel>
         </DataTemplate>
 
         <!-- Duplicates & Matching -->
         <DataTemplate x:Key="DuplicatesTemplate" x:DataType="local:SettingsViewModel">
             <StackPanel Spacing="20">
-                <InfoBar Message="Perceptual matching can return false positives. Always review fuzzy results before deleting."
+                <InfoBar Message="{i18n:Loc Key=Safety_Settings_FuzzyMatchWarning}"
                          Severity="Warning" IsOpen="True" IsClosable="False" />
 
                 <Grid ColumnDefinitions="*,*" ColumnSpacing="12">
                     <NumberBox Grid.Column="0"
-                               Header="Minimum size (MB)"
+                               Header="{i18n:Loc Key=Settings_DuplicateMinimumSize_Header}"
                                Minimum="0"
                                SpinButtonPlacementMode="Inline"
                                Value="{x:Bind DuplicateMinimumSizeMb, Mode=TwoWay}"
-                               AutomationProperties.Name="Duplicate minimum size"
-                               AutomationProperties.HelpText="Files smaller than this are ignored during duplicate analysis." />
+                               AutomationProperties.Name="{i18n:Loc Key=Settings_DuplicateMinimumSize_AutomationName}"
+                               AutomationProperties.HelpText="{i18n:Loc Key=Settings_DuplicateMinimumSize_AutomationHelp}" />
                     <ComboBox Grid.Column="1"
-                              Header="Keeper policy"
+                              Header="{i18n:Loc Key=Settings_KeeperPolicy_Header}"
                               ItemsSource="{x:Bind KeeperPolicyOptions, Mode=OneWay}"
                               SelectedItem="{x:Bind DuplicateKeeperPolicy, Mode=TwoWay}"
-                              AutomationProperties.Name="Keeper policy"
-                              AutomationProperties.HelpText="Which file to keep when duplicates are found, e.g. newest or largest." />
+                              AutomationProperties.Name="{i18n:Loc Key=Settings_KeeperPolicy_Header}"
+                              AutomationProperties.HelpText="{i18n:Loc Key=Settings_KeeperPolicy_AutomationHelp}" />
                 </Grid>
 
-                <ToggleSwitch Header="Enable normalized text review"
+                <ToggleSwitch Header="{i18n:Loc Key=Settings_NormalizedTextReview_Header}"
                               IsOn="{x:Bind DuplicateUseNormalizedText, Mode=TwoWay}"
-                              AutomationProperties.Name="Enable normalized text review"
-                              AutomationProperties.HelpText="Compares text files after normalising line endings and whitespace." />
+                              AutomationProperties.Name="{i18n:Loc Key=Settings_NormalizedTextReview_Header}"
+                              AutomationProperties.HelpText="{i18n:Loc Key=Settings_NormalizedTextReview_AutomationHelp}" />
 
-                <ToggleSwitch Header="Enable image perceptual review"
+                <ToggleSwitch Header="{i18n:Loc Key=Settings_ImagePerceptualReview_Header}"
                               IsOn="{x:Bind DuplicateUseImagePHash, Mode=TwoWay}"
-                              AutomationProperties.Name="Enable image perceptual review"
-                              AutomationProperties.HelpText="Groups visually similar images using perceptual hash. Slower but finds resized or re-encoded photos." />
+                              AutomationProperties.Name="{i18n:Loc Key=Settings_ImagePerceptualReview_Header}"
+                              AutomationProperties.HelpText="{i18n:Loc Key=Settings_ImagePerceptualReview_AutomationHelp}" />
 
-                <ToggleSwitch Header="Enable video perceptual review"
+                <ToggleSwitch Header="{i18n:Loc Key=Settings_VideoPerceptualReview_Header}"
                               IsOn="{x:Bind DuplicateUseVideoPHash, Mode=TwoWay}"
-                              AutomationProperties.Name="Enable video perceptual review"
-                              AutomationProperties.HelpText="Groups visually similar videos using frame hashes. Requires FFmpeg and ffprobe." />
+                              AutomationProperties.Name="{i18n:Loc Key=Settings_VideoPerceptualReview_Header}"
+                              AutomationProperties.HelpText="{i18n:Loc Key=Settings_VideoPerceptualReview_AutomationHelp}" />
 
                 <Grid ColumnDefinitions="*,*" ColumnSpacing="12">
                     <NumberBox Grid.Column="0"
-                               Header="Image pHash threshold"
+                               Header="{i18n:Loc Key=Settings_ImagePHashThreshold_Header}"
                                Minimum="2" Maximum="12"
                                SpinButtonPlacementMode="Inline"
                                Value="{x:Bind DuplicateImagePHashThreshold, Mode=TwoWay}"
-                               AutomationProperties.Name="Image perceptual hash threshold"
-                               AutomationProperties.HelpText="Lower values require closer visual match. 6 is a balanced default." />
+                               AutomationProperties.Name="{i18n:Loc Key=Settings_ImagePHashThreshold_AutomationName}"
+                               AutomationProperties.HelpText="{i18n:Loc Key=Settings_ImagePHashThreshold_AutomationHelp}" />
                     <NumberBox Grid.Column="1"
-                               Header="Video frame threshold"
+                               Header="{i18n:Loc Key=Settings_VideoFrameThreshold_Header}"
                                Minimum="2" Maximum="16"
                                SpinButtonPlacementMode="Inline"
                                Value="{x:Bind DuplicateVideoFrameThreshold, Mode=TwoWay}"
-                               AutomationProperties.Name="Video frame threshold"
-                               AutomationProperties.HelpText="Number of sampled frames compared for video similarity." />
+                               AutomationProperties.Name="{i18n:Loc Key=Settings_VideoFrameThreshold_Header}"
+                               AutomationProperties.HelpText="{i18n:Loc Key=Settings_VideoFrameThreshold_AutomationHelp}" />
                 </Grid>
 
-                <NumberBox Header="Max video duration (seconds)"
+                <NumberBox Header="{i18n:Loc Key=Settings_MaxVideoDuration_Header}"
                            Minimum="60"
                            SpinButtonPlacementMode="Inline"
                            Value="{x:Bind DuplicateMaxVideoDurationSeconds, Mode=TwoWay}"
-                           AutomationProperties.Name="Maximum video duration"
-                           AutomationProperties.HelpText="Videos longer than this are skipped in perceptual analysis to save time." />
+                           AutomationProperties.Name="{i18n:Loc Key=Settings_MaxVideoDuration_AutomationName}"
+                           AutomationProperties.HelpText="{i18n:Loc Key=Settings_MaxVideoDuration_AutomationHelp}" />
 
                 <StackPanel Spacing="4">
-                    <TextBlock Text="FFmpeg executable path (optional)" Style="{StaticResource CaptionTextBlockStyle}" />
+                    <TextBlock Text="{i18n:Loc Key=Settings_FfmpegPath_Label}" Style="{StaticResource CaptionTextBlockStyle}" />
                     <TextBox Text="{x:Bind FfmpegPath, Mode=TwoWay}"
                              PlaceholderText="C:\Tools\ffmpeg\bin\ffmpeg.exe"
-                             AutomationProperties.Name="FFmpeg executable path"
-                             AutomationProperties.HelpText="Path to ffmpeg.exe. Leave blank to auto-detect from bundled tools or PATH." />
+                             AutomationProperties.Name="{i18n:Loc Key=Settings_FfmpegPath_AutomationName}"
+                             AutomationProperties.HelpText="{i18n:Loc Key=Settings_FfmpegPath_AutomationHelp}" />
                     <TextBlock Text="{x:Bind FfmpegPathError, Mode=OneWay}"
                                Foreground="{ThemeResource SystemFillColorCriticalBrush}"
                                Visibility="{x:Bind HasFfmpegPathError, Mode=OneWay, Converter={StaticResource BoolVis}}"
@@ -298,16 +299,16 @@
                                Style="{StaticResource CaptionTextBlockStyle}"
                                Opacity="0.72"
                                TextWrapping="Wrap" />
-                    <TextBlock Text="Video pHash requires ffmpeg.exe and ffprobe.exe in the same directory."
+                    <TextBlock Text="{i18n:Loc Key=Settings_FfmpegPath_Description}"
                                Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.65" TextWrapping="Wrap" />
                 </StackPanel>
 
                 <StackPanel Spacing="4">
-                    <TextBlock Text="Default review mode" Style="{StaticResource CaptionTextBlockStyle}" />
+                    <TextBlock Text="{i18n:Loc Key=Settings_DefaultReviewMode_Label}" Style="{StaticResource CaptionTextBlockStyle}" />
                     <TextBox Text="{x:Bind DefaultDuplicatesReviewMode, Mode=TwoWay}"
                              PlaceholderText="Exact"
-                             AutomationProperties.Name="Default duplicates review mode"
-                             AutomationProperties.HelpText="Default method selected when opening Duplicates, e.g. Exact or NormalizedText." />
+                             AutomationProperties.Name="{i18n:Loc Key=Settings_DefaultReviewMode_AutomationName}"
+                             AutomationProperties.HelpText="{i18n:Loc Key=Settings_DefaultReviewMode_AutomationHelp}" />
                 </StackPanel>
             </StackPanel>
         </DataTemplate>
@@ -319,39 +320,39 @@
                     <TextBlock Text="{x:Bind ScanHistoryRetentionLabel, Mode=OneWay}" Style="{StaticResource CaptionTextBlockStyle}" />
                     <Slider Minimum="30" Maximum="1825" StepFrequency="30"
                             Value="{x:Bind ScanHistoryRetentionDays, Mode=TwoWay}"
-                            AutomationProperties.Name="Scan history retention"
-                            AutomationProperties.HelpText="How many days to keep completed scan sessions in the database." />
+                            AutomationProperties.Name="{i18n:Loc Key=Settings_ScanHistoryRetention_AutomationName}"
+                            AutomationProperties.HelpText="{i18n:Loc Key=Settings_ScanHistoryRetention_AutomationHelp}" />
                 </StackPanel>
 
                 <StackPanel Spacing="4">
-                    <TextBlock Text="Default results page size" Style="{StaticResource CaptionTextBlockStyle}" />
+                    <TextBlock Text="{i18n:Loc Key=Settings_ResultsPageSize_Label}" Style="{StaticResource CaptionTextBlockStyle}" />
                     <NumberBox Minimum="10" Maximum="1000" SpinButtonPlacementMode="Inline"
                                Value="{x:Bind DefaultResultsPageSize, Mode=TwoWay}"
-                               AutomationProperties.Name="Default results page size"
-                               AutomationProperties.HelpText="Number of rows loaded per page on the Results page." />
+                               AutomationProperties.Name="{i18n:Loc Key=Settings_ResultsPageSize_Label}"
+                               AutomationProperties.HelpText="{i18n:Loc Key=Settings_ResultsPageSize_AutomationHelp}" />
                 </StackPanel>
 
-                <Button Content="Delete Scan History Older Than Retention Window"
+                <Button Content="{i18n:Loc Key=Safety_Settings_PurgeHistory_Button}"
                         Command="{x:Bind PurgeOldHistoryCommand}"
                         IsEnabled="{x:Bind CanPurgeHistory, Mode=OneWay}"
-                        AutomationProperties.Name="Purge old scan history"
-                        AutomationProperties.HelpText="Permanently removes scan sessions older than the retention days." />
+                        AutomationProperties.Name="{i18n:Loc Key=Safety_Settings_PurgeHistory_AutomationName}"
+                        AutomationProperties.HelpText="{i18n:Loc Key=Safety_Settings_PurgeHistory_AutomationHelp}" />
 
                 <Border Style="{StaticResource SubtleCardStyle}">
                     <StackPanel Spacing="8">
-                        <TextBlock Text="Space used by StorageMaster" Style="{StaticResource SectionHeaderTextStyle}" />
+                        <TextBlock Text="{i18n:Loc Key=Settings_DatabaseSize_Header}" Style="{StaticResource SectionHeaderTextStyle}" />
                         <TextBlock Text="{x:Bind DatabaseSizeText, Mode=OneWay}" Style="{StaticResource MetricTextStyle}" />
-                        <TextBlock Text="Scan history, duplicate signatures and drive-health samples, including the write-ahead log. Deleting history frees space inside the file but does not shrink it until the database is compacted."
+                        <TextBlock Text="{i18n:Loc Key=Settings_DatabaseSize_Description}"
                                    Style="{StaticResource HelperTextStyle}" />
-                        <Button Content="Compact database"
+                        <Button Content="{i18n:Loc Key=Settings_CompactDatabase_Button}"
                                 Command="{x:Bind CompactDatabaseCommand}"
                                 IsEnabled="{x:Bind CanCompact, Mode=OneWay}"
-                                AutomationProperties.Name="Compact database"
-                                AutomationProperties.HelpText="Rebuilds the database file to release space already freed by deleted scan history. No scan data is removed." />
+                                AutomationProperties.Name="{i18n:Loc Key=Settings_CompactDatabase_Button}"
+                                AutomationProperties.HelpText="{i18n:Loc Key=Settings_CompactDatabase_AutomationHelp}" />
                     </StackPanel>
                 </Border>
 
-                <TextBlock Text="Installer uninstall now preserves your database and settings in %LOCALAPPDATA%\StorageMaster by default."
+                <TextBlock Text="{i18n:Loc Key=Settings_UninstallPreservesData_Description}"
                            Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.7" TextWrapping="Wrap" />
             </StackPanel>
         </DataTemplate>
@@ -361,18 +362,18 @@
             <StackPanel Spacing="20">
                 <InfoBar IsOpen="True"
                          Severity="Warning"
-                         Title="Scheduled cleanup runs unattended"
-                         Message="Enabled cleanup jobs require dedicated confirmation. They rescan, revalidate targets, and move supported files to the Recycle Bin; allocation is reclaimed only after the bin is emptied." />
+                         Title="{i18n:Loc Key=Safety_Settings_ScheduledCleanup_Title}"
+                         Message="{i18n:Loc Key=Safety_Settings_ScheduledCleanup_Message}" />
 
-                <ToggleSwitch Header="Enable scheduled tasks"
+                <ToggleSwitch Header="{i18n:Loc Key=Settings_ScheduledTasks_Header}"
                               IsOn="{x:Bind ScheduledTasksEnabled, Mode=TwoWay}"
-                              AutomationProperties.Name="Enable scheduled tasks"
-                              AutomationProperties.HelpText="Allows StorageMaster to register Windows Scheduled Tasks for scans and cleanup." />
+                              AutomationProperties.Name="{i18n:Loc Key=Settings_ScheduledTasks_Header}"
+                              AutomationProperties.HelpText="{i18n:Loc Key=Settings_ScheduledTasks_AutomationHelp}" />
 
                 <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="12">
-                    <TextBlock Grid.Column="0" Text="Scheduled Jobs" Style="{StaticResource BodyStrongTextBlockStyle}" VerticalAlignment="Center" />
-                    <Button Grid.Column="1" Content="Refresh" Command="{x:Bind RefreshScheduledJobsCommand}" />
-                    <Button Grid.Column="2" Content="New Job" Command="{x:Bind NewScheduledJobCommand}" />
+                    <TextBlock Grid.Column="0" Text="{i18n:Loc Key=Settings_ScheduledJobs_Header}" Style="{StaticResource BodyStrongTextBlockStyle}" VerticalAlignment="Center" />
+                    <Button Grid.Column="1" Content="{i18n:Loc Key=Common_Refresh}" Command="{x:Bind RefreshScheduledJobsCommand}" />
+                    <Button Grid.Column="2" Content="{i18n:Loc Key=Settings_ScheduledJobs_New}" Command="{x:Bind NewScheduledJobCommand}" />
                 </Grid>
 
                 <ListView ItemsSource="{x:Bind ScheduledJobs}"
@@ -391,46 +392,46 @@
 
                 <Grid ColumnDefinitions="*,*" ColumnSpacing="12">
                     <TextBox Grid.Column="0"
-                             Header="Job name"
+                             Header="{i18n:Loc Key=Settings_ScheduledJob_Name_Header}"
                              Text="{x:Bind ScheduledJobName, Mode=TwoWay}" />
                     <TextBox Grid.Column="1"
-                             Header="Target path"
+                             Header="{i18n:Loc Key=Settings_ScheduledJob_TargetPath_Header}"
                              Text="{x:Bind ScheduledJobTargetPath, Mode=TwoWay}" />
                 </Grid>
 
                 <Grid ColumnDefinitions="*,*,*" ColumnSpacing="12">
                     <ComboBox Grid.Column="0"
-                              Header="Action"
+                              Header="{i18n:Loc Key=Settings_ScheduledJob_Action_Header}"
                               ItemsSource="{x:Bind ScheduledJobKindOptions, Mode=OneWay}"
                               SelectedItem="{x:Bind ScheduledJobKind, Mode=TwoWay}" />
                     <ComboBox Grid.Column="1"
-                              Header="Frequency"
+                              Header="{i18n:Loc Key=Settings_ScheduledJob_Frequency_Header}"
                               ItemsSource="{x:Bind ScheduledJobFrequencyOptions, Mode=OneWay}"
                               SelectedItem="{x:Bind ScheduledJobFrequency, Mode=TwoWay}" />
                     <ComboBox Grid.Column="2"
-                              Header="Weekly day"
+                              Header="{i18n:Loc Key=Settings_ScheduledJob_WeeklyDay_Header}"
                               ItemsSource="{x:Bind ScheduledJobDayOptions, Mode=OneWay}"
                               SelectedItem="{x:Bind ScheduledJobDay, Mode=TwoWay}" />
                 </Grid>
 
                 <Grid ColumnDefinitions="*,*" ColumnSpacing="12">
                     <TextBox Grid.Column="0"
-                             Header="Start time (HH:mm)"
+                             Header="{i18n:Loc Key=Settings_ScheduledJob_StartTime_Header}"
                              Text="{x:Bind ScheduledJobTime, Mode=TwoWay}" />
                     <TextBox Grid.Column="1"
-                             Header="Cleanup rules CSV"
+                             Header="{i18n:Loc Key=Settings_ScheduledJob_RulesCsv_Header}"
                              PlaceholderText="TempFiles,CacheFolders,BrowserCache"
                              Text="{x:Bind ScheduledJobRulesCsv, Mode=TwoWay}" />
                 </Grid>
 
-                <ToggleSwitch Header="Enabled"
+                <ToggleSwitch Header="{i18n:Loc Key=Settings_ScheduledJob_Enabled_Header}"
                               IsOn="{x:Bind ScheduledJobEnabled, Mode=TwoWay}" />
 
                 <StackPanel Orientation="Horizontal" Spacing="12">
-                    <Button Content="Save Job"
+                    <Button Content="{i18n:Loc Key=Settings_ScheduledJob_Save}"
                             Click="SaveScheduledJob_Click"
                             IsEnabled="{x:Bind CanSaveScheduledJob, Mode=OneWay}" />
-                    <Button Content="Delete Job"
+                    <Button Content="{i18n:Loc Key=Settings_ScheduledJob_Delete}"
                             Command="{x:Bind DeleteScheduledJobCommand}"
                             IsEnabled="{x:Bind CanDeleteScheduledJob, Mode=OneWay}" />
                 </StackPanel>
@@ -440,44 +441,44 @@
         <!-- Background, Tray & Notifications -->
         <DataTemplate x:Key="TrayNotificationsTemplate" x:DataType="local:SettingsViewModel">
             <StackPanel Spacing="20">
-                <ToggleSwitch Header="Minimize to tray instead of closing"
+                <ToggleSwitch Header="{i18n:Loc Key=Settings_MinimizeToTray_Header}"
                               IsOn="{x:Bind MinimizeToTray, Mode=TwoWay}"
-                              AutomationProperties.Name="Minimize to tray"
-                              AutomationProperties.HelpText="Keeps StorageMaster running in the system tray when you close the window." />
+                              AutomationProperties.Name="{i18n:Loc Key=Settings_MinimizeToTray_AutomationName}"
+                              AutomationProperties.HelpText="{i18n:Loc Key=Settings_MinimizeToTray_AutomationHelp}" />
 
-                <ToggleSwitch Header="Start in tray on Windows sign-in"
+                <ToggleSwitch Header="{i18n:Loc Key=Settings_StartTrayOnLogin_Header}"
                               IsOn="{x:Bind StartTrayOnLogin, Mode=TwoWay}"
-                              AutomationProperties.Name="Start in tray on sign-in"
-                              AutomationProperties.HelpText="Launches StorageMaster automatically when you log in." />
+                              AutomationProperties.Name="{i18n:Loc Key=Settings_StartTrayOnLogin_AutomationName}"
+                              AutomationProperties.HelpText="{i18n:Loc Key=Settings_StartTrayOnLogin_AutomationHelp}" />
 
-                <ToggleSwitch Header="Enable low-disk tray notifications"
+                <ToggleSwitch Header="{i18n:Loc Key=Settings_LowDiskNotifications_Header}"
                               IsOn="{x:Bind EnableLowDiskNotifications, Mode=TwoWay}"
-                              AutomationProperties.Name="Enable low-disk notifications"
-                              AutomationProperties.HelpText="Shows a tray balloon when a drive drops below the warning threshold." />
+                              AutomationProperties.Name="{i18n:Loc Key=Settings_LowDiskNotifications_AutomationName}"
+                              AutomationProperties.HelpText="{i18n:Loc Key=Settings_LowDiskNotifications_AutomationHelp}" />
 
-                <ToggleSwitch Header="Enable drive-health notifications"
+                <ToggleSwitch Header="{i18n:Loc Key=Settings_DriveHealthNotifications_Header}"
                               IsOn="{x:Bind EnableDriveHealthNotifications, Mode=TwoWay}"
-                              AutomationProperties.Name="Enable drive-health notifications"
-                              AutomationProperties.HelpText="Shows a tray balloon when Windows storage telemetry reports a warning or unhealthy disk." />
+                              AutomationProperties.Name="{i18n:Loc Key=Settings_DriveHealthNotifications_Header}"
+                              AutomationProperties.HelpText="{i18n:Loc Key=Settings_DriveHealthNotifications_AutomationHelp}" />
 
                 <Grid ColumnDefinitions="*,*" ColumnSpacing="12">
                     <NumberBox Grid.Column="0"
-                               Header="Warning at % free"
+                               Header="{i18n:Loc Key=Settings_LowDiskWarningPercent_Header}"
                                Minimum="1" Maximum="99"
                                SpinButtonPlacementMode="Inline"
                                Value="{x:Bind LowDiskWarningPercent, Mode=TwoWay}"
-                               AutomationProperties.Name="Low disk warning percent"
-                               AutomationProperties.HelpText="Free-space percentage that triggers a warning notification." />
+                               AutomationProperties.Name="{i18n:Loc Key=Settings_LowDiskWarningPercent_AutomationName}"
+                               AutomationProperties.HelpText="{i18n:Loc Key=Settings_LowDiskWarningPercent_AutomationHelp}" />
                     <NumberBox Grid.Column="1"
-                               Header="Critical at % free"
+                               Header="{i18n:Loc Key=Settings_LowDiskCriticalPercent_Header}"
                                Minimum="1" Maximum="99"
                                SpinButtonPlacementMode="Inline"
                                Value="{x:Bind LowDiskCriticalPercent, Mode=TwoWay}"
-                               AutomationProperties.Name="Low disk critical percent"
-                               AutomationProperties.HelpText="Free-space percentage that triggers a critical notification." />
+                               AutomationProperties.Name="{i18n:Loc Key=Settings_LowDiskCriticalPercent_AutomationName}"
+                               AutomationProperties.HelpText="{i18n:Loc Key=Settings_LowDiskCriticalPercent_AutomationHelp}" />
                 </Grid>
 
-                <TextBlock Text="Low-disk and drive-health notifications are debounced per drive for 12 hours. Pause is also available from the tray menu."
+                <TextBlock Text="{i18n:Loc Key=Settings_Notifications_Description}"
                            Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.65" TextWrapping="Wrap" />
             </StackPanel>
         </DataTemplate>
@@ -488,35 +489,35 @@
                 <Grid ColumnDefinitions="*,Auto">
                     <StackPanel Grid.Column="0" VerticalAlignment="Center">
                         <TextBlock Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.7">
-                            <Run Text="Current version: "/>
+                            <Run Text="{i18n:Loc Key=Settings_CurrentVersion_Label}"/>
                             <Run Text="{x:Bind CurrentVersion}" FontWeight="SemiBold"/>
                         </TextBlock>
                     </StackPanel>
                     <ToggleSwitch Grid.Column="1"
-                                  Header="Check on startup"
+                                  Header="{i18n:Loc Key=Settings_CheckOnStartup_Header}"
                                   IsOn="{x:Bind CheckOnStartup, Mode=TwoWay}"
                                   OnContent="" OffContent=""
                                   MinWidth="0"
-                                  AutomationProperties.Name="Check for updates on startup"
-                                  AutomationProperties.HelpText="Automatically looks for new releases when the app starts." />
+                                  AutomationProperties.Name="{i18n:Loc Key=Settings_CheckOnStartup_AutomationName}"
+                                  AutomationProperties.HelpText="{i18n:Loc Key=Settings_CheckOnStartup_AutomationHelp}" />
                 </Grid>
 
-                <ToggleSwitch Header="Include pre-release versions"
+                <ToggleSwitch Header="{i18n:Loc Key=Settings_IncludePrerelease_Header}"
                               IsOn="{x:Bind IncludePrerelease, Mode=TwoWay}"
-                              AutomationProperties.Name="Include pre-release versions"
-                              AutomationProperties.HelpText="Offers beta and preview builds during update checks." />
+                              AutomationProperties.Name="{i18n:Loc Key=Settings_IncludePrerelease_Header}"
+                              AutomationProperties.HelpText="{i18n:Loc Key=Settings_IncludePrerelease_AutomationHelp}" />
 
-                <ToggleSwitch Header="Require signed update installers"
+                <ToggleSwitch Header="{i18n:Loc Key=Settings_RequireSignedUpdates_Header}"
                               IsOn="{x:Bind RequireSignedUpdates, Mode=TwoWay}"
-                              AutomationProperties.Name="Require signed update installers"
-                              AutomationProperties.HelpText="Only installs updates that pass code-signature verification." />
+                              AutomationProperties.Name="{i18n:Loc Key=Settings_RequireSignedUpdates_Header}"
+                              AutomationProperties.HelpText="{i18n:Loc Key=Settings_RequireSignedUpdates_AutomationHelp}" />
 
                 <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
-                    <Button Content="Check for Updates"
+                    <Button Content="{i18n:Loc Key=Settings_CheckForUpdates_Button}"
                             Command="{x:Bind CheckForUpdatesCommand}"
                             IsEnabled="{x:Bind CanCheckForUpdates, Mode=OneWay}"
-                            AutomationProperties.Name="Check for updates"
-                            AutomationProperties.HelpText="Manually query GitHub for the latest release." />
+                            AutomationProperties.Name="{i18n:Loc Key=Settings_CheckForUpdates_AutomationName}"
+                            AutomationProperties.HelpText="{i18n:Loc Key=Settings_CheckForUpdates_AutomationHelp}" />
                     <ProgressRing IsActive="{x:Bind IsCheckingForUpdates, Mode=OneWay}"
                                   Width="20" Height="20"
                                   Visibility="{x:Bind IsCheckingForUpdates, Mode=OneWay, Converter={StaticResource BoolVis}}" />
@@ -529,18 +530,18 @@
                         <StackPanel Spacing="6">
                             <TextBlock Text="{x:Bind UpdateAvailableText, Mode=OneWay}"
                                        FontWeight="SemiBold" TextWrapping="Wrap" />
-                            <HyperlinkButton Content="View release notes on GitHub"
+                            <HyperlinkButton Content="{i18n:Loc Key=Settings_ViewReleaseNotes}"
                                              NavigateUri="{x:Bind ReleaseNotesUri, Mode=OneWay}"
                                              Padding="0" />
                             <ProgressBar Value="{x:Bind DownloadProgress, Mode=OneWay}"
                                          Maximum="100" Height="6"
                                          Visibility="{x:Bind IsDownloadingUpdate, Mode=OneWay, Converter={StaticResource BoolVis}}" />
                             <StackPanel Orientation="Horizontal" Spacing="8">
-                                <Button Content="Download &amp; Install"
+                                <Button Content="{i18n:Loc Key=Settings_DownloadAndInstall}"
                                         Style="{StaticResource AccentButtonStyle}"
                                         Command="{x:Bind DownloadAndInstallCommand}"
                                         IsEnabled="{x:Bind CanDownloadAndInstall, Mode=OneWay}" />
-                                <Button Content="Cancel"
+                                <Button Content="{i18n:Loc Key=Common_Cancel}"
                                         Command="{x:Bind CancelDownloadCommand}"
                                         Visibility="{x:Bind IsDownloadingUpdate, Mode=OneWay, Converter={StaticResource BoolVis}}" />
                             </StackPanel>
@@ -561,18 +562,18 @@
                 <StackPanel Spacing="4">
                     <TextBlock Text="StorageMaster" Style="{StaticResource BodyStrongTextBlockStyle}" />
                     <TextBlock Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.7">
-                        <Run Text="Version "/>
+                        <Run Text="{i18n:Loc Key=Settings_About_VersionLabel}"/>
                         <Run Text="{x:Bind CurrentVersion}" />
                     </TextBlock>
-                    <TextBlock Text="Disk usage analyser and cleanup tool for Windows."
+                    <TextBlock Text="{i18n:Loc Key=Settings_About_Tagline}"
                                Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.6" TextWrapping="Wrap"/>
                 </StackPanel>
 
-                <Button Content="Export Diagnostics"
+                <Button Content="{i18n:Loc Key=Settings_ExportDiagnostics_Button}"
                         Command="{x:Bind ExportDiagnosticsCommand}"
                         IsEnabled="{x:Bind CanExportDiagnostics, Mode=OneWay}"
-                        AutomationProperties.Name="Export diagnostics"
-                        AutomationProperties.HelpText="Creates a zip with logs, version info, and settings for support." />
+                        AutomationProperties.Name="{i18n:Loc Key=Settings_ExportDiagnostics_AutomationName}"
+                        AutomationProperties.HelpText="{i18n:Loc Key=Settings_ExportDiagnostics_AutomationHelp}" />
             </StackPanel>
         </DataTemplate>
     </Page.Resources>
@@ -582,12 +583,12 @@
         <ScrollViewer Padding="32,24"
                       Visibility="{x:Bind ViewModel.IsEditorOpen, Mode=OneWay, Converter={StaticResource InvBoolVis}}">
             <StackPanel Spacing="24" MaxWidth="1120" HorizontalAlignment="Center">
-                <TextBlock Text="Settings" Style="{StaticResource TitleLargeTextBlockStyle}" />
+                <TextBlock Text="{i18n:Loc Key=Settings_Title}" Style="{StaticResource TitleLargeTextBlockStyle}" />
 
-                <TextBox PlaceholderText="Search settings..."
+                <TextBox PlaceholderText="{i18n:Loc Key=Settings_Search_Placeholder}"
                          Text="{x:Bind ViewModel.SearchQuery, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                         AutomationProperties.Name="Search settings"
-                         AutomationProperties.HelpText="Filter categories by title or description." />
+                         AutomationProperties.Name="{i18n:Loc Key=Settings_Search_AutomationName}"
+                         AutomationProperties.HelpText="{i18n:Loc Key=Settings_Search_AutomationHelp}" />
 
                 <GridView ItemsSource="{x:Bind ViewModel.FilteredCategories, Mode=OneWay}"
                           SelectionMode="None"
@@ -670,8 +671,8 @@
                                    Style="{StaticResource TitleTextBlockStyle}" />
                         <Button Grid.Column="1"
                                 Command="{x:Bind ViewModel.CloseEditorCommand}"
-                                AutomationProperties.Name="Close settings editor"
-                                AutomationProperties.HelpText="Close the settings editor without saving."
+                                AutomationProperties.Name="{i18n:Loc Key=Settings_Editor_Close_AutomationName}"
+                                AutomationProperties.HelpText="{i18n:Loc Key=Settings_Editor_Close_AutomationHelp}"
                                 Padding="8">
                             <FontIcon Glyph="&#xE711;" FontSize="16" />
                         </Button>
@@ -692,22 +693,22 @@
                                    VerticalAlignment="Center"
                                    TextWrapping="Wrap" />
                         <Button Grid.Column="1"
-                                Content="Reset Category"
+                                Content="{i18n:Loc Key=Settings_Editor_ResetCategory}"
                                 Command="{x:Bind ViewModel.ResetCategoryCommand}"
-                                AutomationProperties.Name="Reset category to defaults"
-                                AutomationProperties.HelpText="Revert all settings in this category to their factory defaults." />
+                                AutomationProperties.Name="{i18n:Loc Key=Settings_Editor_ResetCategory_AutomationName}"
+                                AutomationProperties.HelpText="{i18n:Loc Key=Settings_Editor_ResetCategory_AutomationHelp}" />
                         <Button Grid.Column="2"
-                                Content="Cancel"
+                                Content="{i18n:Loc Key=Common_Cancel}"
                                 Command="{x:Bind ViewModel.CancelCategoryCommand}"
-                                AutomationProperties.Name="Cancel changes"
-                                AutomationProperties.HelpText="Discard any edits made in this category." />
+                                AutomationProperties.Name="{i18n:Loc Key=Settings_Editor_Cancel_AutomationName}"
+                                AutomationProperties.HelpText="{i18n:Loc Key=Settings_Editor_Cancel_AutomationHelp}" />
                         <Button Grid.Column="3"
-                                Content="Save"
+                                Content="{i18n:Loc Key=Common_Save}"
                                 Style="{StaticResource AccentButtonStyle}"
                                 Command="{x:Bind ViewModel.SaveCommand}"
                                 IsEnabled="{x:Bind ViewModel.CanSave, Mode=OneWay}"
-                                AutomationProperties.Name="Save settings"
-                                AutomationProperties.HelpText="Validate and save all settings." />
+                                AutomationProperties.Name="{i18n:Loc Key=Settings_Editor_Save_AutomationName}"
+                                AutomationProperties.HelpText="{i18n:Loc Key=Settings_Editor_Save_AutomationHelp}" />
                     </Grid>
                 </Grid>
             </Border>

@@ -2218,6 +2218,18 @@ Pro Gruppe bleibt eine beizubehaltende Datei unangetastet. Methode: {2}.</value>
     <value>In den Papierkorb verschieben?</value>
     <comment>[safety] Title of the confirmation dialog shown before a file is moved to the Windows Recycle Bin. Must clearly mean the recoverable move, never permanent deletion.</comment>
   </data>
+  <data name="Safety_Settings_AlwaysAdmin_AutomationHelp" xml:space="preserve">
+    <value>Wenn aktiviert, wird StorageMaster bei jedem Start mit Administratorrechten neu gestartet.</value>
+    <comment>[accessibility] Screen-reader help for the always-administrator switch.</comment>
+  </data>
+  <data name="Safety_Settings_AlwaysAdmin_Description" xml:space="preserve">
+    <value>Tiefenüberprüfungen benötigen dann keine Bestätigung mehr. Lassen Sie diese Option aus, sofern Sie nicht häufig Tiefenüberprüfungen durchführen: Sämtliche Vorgänge der App laufen dann mit Administratorrechten, nicht nur die Überprüfung. Eine einzelne Tiefenüberprüfung lässt sich auf der Seite „Überprüfung“ gesondert mit erhöhten Rechten ausführen.</value>
+    <comment>[safety] Helper text under the always-administrator switch. Explains the trade-off honestly rather than only the benefit.</comment>
+  </data>
+  <data name="Safety_Settings_AlwaysAdmin_Header" xml:space="preserve">
+    <value>Immer als Administrator ausführen</value>
+    <comment>[safety] Settings switch turning on always running the app as administrator.</comment>
+  </data>
   <data name="Safety_Settings_CleanupWarning" xml:space="preserve">
     <value>Die Bereinigung entfernt Dateien endgültig. Aktivieren Sie den Papierkorb oder den Testlauf, bis Sie sich sicher sind.</value>
     <comment>[safety] SAFETY. Information bar pinned at the top of the Cleanup and Safety settings category, above the deletion switches. Warns that cleanup destroys files and points at the two safety nets below it. Must not be softened or shortened; permanently must stay unmistakable.</comment>
@@ -2386,6 +2398,10 @@ Der Speicherplatz wird erst freigegeben, nachdem der Papierkorb geleert wurde.</
     <value>Als Administrator ausführen</value>
     <comment>[button] Button in the amber warning panel on the Scan page that restarts the scan in a separate process with Windows administrator rights.</comment>
   </data>
+  <data name="Scan_Elevation_Declined" xml:space="preserve">
+    <value>Für die Tiefenüberprüfung ist eine Administratorbestätigung erforderlich. Es wurde nichts überprüft.</value>
+    <comment>[status] Shown when the user dismisses the Windows elevation prompt. Not an error — a choice.</comment>
+  </data>
   <data name="Scan_Elevation_Description" xml:space="preserve">
     <value>Ohne Administratorrechte werden für geschützte Systemordner Fehler wegen verweigerter Zugriffe protokolliert. Verwenden Sie die Schaltfläche, um die Anwendung mit vollen Rechten neu zu starten.</value>
     <comment>[description] Body of the amber warning panel on the Scan page, explaining what happens without administrator rights. "The button" is the Scan_Elevation_Button beside this text.</comment>
@@ -2401,6 +2417,10 @@ Der Speicherplatz wird erst freigegeben, nachdem der Papierkorb geleert wurde.</
   <data name="Scan_Elevation_Title" xml:space="preserve">
     <value>Administratorrechte empfohlen</value>
     <comment>[title] Heading of the amber warning panel on the Scan page shown when deep scan is on but the app does not have Windows administrator rights.</comment>
+  </data>
+  <data name="Scan_Elevation_Waiting" xml:space="preserve">
+    <value>Warten auf die Administratorbestätigung…</value>
+    <comment>[status] Shown on the Scan page while Windows asks the user to approve the elevated deep scan.</comment>
   </data>
   <data name="Scan_Error_FolderPickerFailed" xml:space="preserve">
     <value>Die Ordnerauswahl konnte nicht geöffnet werden: {0}</value>
@@ -2553,6 +2573,10 @@ Der Speicherplatz wird erst freigegeben, nachdem der Papierkorb geleert wurde.</
   <data name="Scan_Progress_Running" xml:space="preserve">
     <value>{0} überprüft · {1} Dateien</value>
     <comment>[status] Live status line above the progress bar while a scan runs. {0} is a formatted size such as "1.4 GB", {1} a formatted file count. The separator is a middle dot with a space on each side.</comment>
+  </data>
+  <data name="Scan_Progress_Running_Elevated" xml:space="preserve">
+    <value>Überprüfung mit Administratorrechten…</value>
+    <comment>[status] Progress line while the elevated worker is scanning.</comment>
   </data>
   <data name="Scan_SelectPath_Header" xml:space="preserve">
     <value>Zu überprüfenden Pfad auswählen</value>

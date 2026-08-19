@@ -2218,6 +2218,18 @@ One keeper per group stays untouched. Method: {2}.</value>
     <value>Send to Recycle Bin?</value>
     <comment>[safety] Title of the confirmation dialog shown before a file is moved to the Windows Recycle Bin. Must clearly mean the recoverable move, never permanent deletion.</comment>
   </data>
+  <data name="Safety_Settings_AlwaysAdmin_AutomationHelp" xml:space="preserve">
+    <value>When on, StorageMaster restarts with administrator rights every time it opens.</value>
+    <comment>[accessibility] Screen-reader help for the always-administrator switch.</comment>
+  </data>
+  <data name="Safety_Settings_AlwaysAdmin_Description" xml:space="preserve">
+    <value>Deep scans then need no prompt. Leave this off unless you deep-scan often: everything the app does runs with administrator rights, not just the scan. A single deep scan can be elevated on its own from the Scan page.</value>
+    <comment>[safety] Helper text under the always-administrator switch. Explains the trade-off honestly rather than only the benefit.</comment>
+  </data>
+  <data name="Safety_Settings_AlwaysAdmin_Header" xml:space="preserve">
+    <value>Always run as administrator</value>
+    <comment>[safety] Settings switch turning on always running the app as administrator.</comment>
+  </data>
   <data name="Safety_Settings_CleanupWarning" xml:space="preserve">
     <value>Cleanup permanently removes files. Enable Recycle Bin or dry-run until you are confident.</value>
     <comment>[safety] SAFETY. Information bar pinned at the top of the Cleanup and Safety settings category, above the deletion switches. Warns that cleanup destroys files and points at the two safety nets below it. Must not be softened or shortened; permanently must stay unmistakable.</comment>
@@ -2386,6 +2398,10 @@ Disk space is reclaimed only after the Recycle Bin is emptied.</value>
     <value>Run as Administrator</value>
     <comment>[button] Button in the amber warning panel on the Scan page that restarts the scan in a separate process with Windows administrator rights.</comment>
   </data>
+  <data name="Scan_Elevation_Declined" xml:space="preserve">
+    <value>Deep scan needs administrator approval. Nothing was scanned.</value>
+    <comment>[status] Shown when the user dismisses the Windows elevation prompt. Not an error — a choice.</comment>
+  </data>
   <data name="Scan_Elevation_Description" xml:space="preserve">
     <value>Without admin rights, access-denied errors will be recorded for protected system folders. Use the button to relaunch with full privileges.</value>
     <comment>[description] Body of the amber warning panel on the Scan page, explaining what happens without administrator rights. "The button" is the Scan_Elevation_Button beside this text.</comment>
@@ -2401,6 +2417,10 @@ Disk space is reclaimed only after the Recycle Bin is emptied.</value>
   <data name="Scan_Elevation_Title" xml:space="preserve">
     <value>Administrator privileges recommended</value>
     <comment>[title] Heading of the amber warning panel on the Scan page shown when deep scan is on but the app does not have Windows administrator rights.</comment>
+  </data>
+  <data name="Scan_Elevation_Waiting" xml:space="preserve">
+    <value>Waiting for administrator approval…</value>
+    <comment>[status] Shown on the Scan page while Windows asks the user to approve the elevated deep scan.</comment>
   </data>
   <data name="Scan_Error_FolderPickerFailed" xml:space="preserve">
     <value>Could not open folder picker: {0}</value>
@@ -2553,6 +2573,10 @@ Disk space is reclaimed only after the Recycle Bin is emptied.</value>
   <data name="Scan_Progress_Running" xml:space="preserve">
     <value>{0} scanned · {1} files</value>
     <comment>[status] Live status line above the progress bar while a scan runs. {0} is a formatted size such as "1.4 GB", {1} a formatted file count. The separator is a middle dot with a space on each side.</comment>
+  </data>
+  <data name="Scan_Progress_Running_Elevated" xml:space="preserve">
+    <value>Scanning with administrator rights…</value>
+    <comment>[status] Progress line while the elevated worker is scanning.</comment>
   </data>
   <data name="Scan_SelectPath_Header" xml:space="preserve">
     <value>Select path to scan</value>

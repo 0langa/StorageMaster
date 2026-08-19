@@ -57,6 +57,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     [ObservableProperty] private string _defaultScanPath = @"C:\";
     [ObservableProperty] private int _scanParallelism = 4;
     [ObservableProperty] private bool _showHiddenFiles = false;
+    [ObservableProperty] private bool _alwaysRunAsAdministrator = false;
     [ObservableProperty] private bool _skipSystemFolders = true;
     [ObservableProperty] private bool _useTurboScanner = false;
     [ObservableProperty] private ThemePreference _theme = ThemePreference.Default;
@@ -511,6 +512,7 @@ public sealed partial class SettingsViewModel : ObservableObject
                 ScanParallelism = defaults.ScanParallelism;
                 UseTurboScanner = defaults.UseTurboScanner;
                 ShowHiddenFiles = defaults.ShowHiddenFiles;
+                AlwaysRunAsAdministrator = defaults.AlwaysRunAsAdministrator;
                 SkipSystemFolders = defaults.SkipSystemFolders;
                 ScanHistoryRetentionDays = defaults.ScanHistoryRetentionDays;
                 ExcludedPaths.Clear();
@@ -820,6 +822,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         settings.DefaultScanPath = DefaultScanPath;
         settings.ScanParallelism = ScanParallelism;
         settings.ShowHiddenFiles = ShowHiddenFiles;
+        settings.AlwaysRunAsAdministrator = AlwaysRunAsAdministrator;
         settings.SkipSystemFolders = SkipSystemFolders;
         settings.UseTurboScanner = UseTurboScanner;
         settings.Theme = Theme;
@@ -880,6 +883,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         DefaultScanPath = s.DefaultScanPath;
         ScanParallelism = s.ScanParallelism;
         ShowHiddenFiles = s.ShowHiddenFiles;
+        AlwaysRunAsAdministrator = s.AlwaysRunAsAdministrator;
         SkipSystemFolders = s.SkipSystemFolders;
         UseTurboScanner = s.UseTurboScanner;
         Theme = s.Theme;

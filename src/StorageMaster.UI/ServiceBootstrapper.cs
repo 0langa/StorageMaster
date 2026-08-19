@@ -100,6 +100,7 @@ internal static class ServiceBootstrapper
         services.AddSingleton<IFileDeleter, FileDeleter>();
         services.AddSingleton<IRecycleBinInfoProvider, RecycleBinInfoProvider>();
         services.AddSingleton<IAdminService, AdminService>();
+        services.AddSingleton<Infrastructure.ElevatedScanRunner>();
         services.AddSingleton<IInstalledProgramProvider, InstalledProgramProvider>();
         services.AddSingleton<IFileIdentityProvider, FileIdentityProvider>();
         services.AddSingleton<IDirectoryFileIdentityProvider, DirectoryFileIdentityProvider>();
@@ -195,7 +196,8 @@ internal static class ServiceBootstrapper
             sp.GetRequiredService<IDriveInfoProvider>(),
             sp.GetRequiredService<INavigationService>(),
             sp.GetRequiredService<IAdminService>(),
-            sp.GetRequiredService<ISettingsRepository>()));
+            sp.GetRequiredService<ISettingsRepository>(),
+            sp.GetRequiredService<Infrastructure.ElevatedScanRunner>()));
         services.AddTransient<ResultsViewModel>();
         services.AddTransient<DuplicatesViewModel>();
         services.AddTransient<CleanupViewModel>();

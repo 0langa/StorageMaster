@@ -126,6 +126,7 @@ public sealed class CommandRunner(
         var turbo = options.ContainsKey("--turbo");
         var deep = options.ContainsKey("--deep");
         var jsonPath = GetOptionalOption(options, "--json");
+        var progressPath = GetOptionalOption(options, "--progress");
 
         if (!Path.IsPathRooted(path) || !Directory.Exists(path))
             throw new CommandLineException("Scan path must be an existing absolute path.", 2);
@@ -153,7 +154,13 @@ public sealed class CommandRunner(
             : managedScanner;
 
         await output.WriteLineAsync($"Scanning {path}...");
-        var session = await activeScanner.ScanAsync(scanOptions, new Progress<ScanProgress>(), ct);
+
+        // --progress turns this run into a worker for the UI: it appends JSON lines
+        // the app tails so an elevated deep scan shows its progress in the window
+        // the user is looking at rather than behind a console. Without the option
+        // the sink stays a no-op and nothing is written.
+        using var progressWriter = ElevatedScanProgressWriter.Create(progressPath);
+        var session = await activeScanner.ScanAsync(scanOptions, progressWriter.Sink, ct);
 
         var payload = new
         {
@@ -172,6 +179,7 @@ public sealed class CommandRunner(
         // Use a fresh token for the tiny terminal payload so the actual status is reported
         // instead of being replaced by a second OperationCanceledException here.
         await MaybeWriteJsonAsync(jsonPath, payload, CancellationToken.None);
+        progressWriter.WriteCompletion(session);
         switch (session.Status)
         {
             case ScanStatus.Completed:

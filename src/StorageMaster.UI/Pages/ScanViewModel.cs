@@ -20,6 +20,7 @@ public sealed partial class ScanViewModel : ObservableObject
     private readonly INavigationService _nav;
     private readonly IAdminService _admin;
     private readonly ISettingsRepository _settings;
+    private readonly ElevatedScanRunner _elevatedScan;
 
     private CancellationTokenSource? _cts;
     private long _initializationGeneration;
@@ -114,7 +115,8 @@ public sealed partial class ScanViewModel : ObservableObject
         IDriveInfoProvider drives,
         INavigationService nav,
         IAdminService admin,
-        ISettingsRepository settings)
+        ISettingsRepository settings,
+        ElevatedScanRunner elevatedScan)
     {
         _scanner = scanner;
         _turboScanner = turboScanner;
@@ -122,6 +124,7 @@ public sealed partial class ScanViewModel : ObservableObject
         _nav = nav;
         _admin = admin;
         _settings = settings;
+        _elevatedScan = elevatedScan;
     }
 
     public async Task InitializeAsync(
@@ -179,10 +182,58 @@ public sealed partial class ScanViewModel : ObservableObject
         ScanStepText = Loc.Get("Scan_Step2");
     }
 
-    [RelayCommand]
-    private void RequestElevation()
+    /// <summary>
+    /// Resets every counter and label to the start of a scan.
+    /// <para>
+    /// Shared by the ordinary scan and the elevated one so the two cannot drift:
+    /// a field left over from a previous run reads as real data, and the elevated
+    /// path is the one a user reaches least often and would notice least quickly.
+    /// </para>
+    /// </summary>
+    private void BeginScanningState(string rootPath)
     {
-        if (!CanBrowse)
+        IsScanning = true;
+        ScanComplete = false;
+        _lastSessionId = 0;
+        HasError = false;
+        ErrorMessage = string.Empty;
+        FilesScanned = 0;
+        FoldersScanned = 0;
+        BytesScanned = "0 B";
+        ErrorCount = 0;
+        ProgressValue = 0;
+        IsProgressIndeterminate = true;
+        ProgressText = Loc.Get("Scan_Progress_Preparing");
+        CurrentFile = rootPath;
+        ElapsedTime = "0s";
+        ScanSpeed = Loc.Get("Scan_Calculating");
+        ScanFileRate = Loc.Get("Scan_Calculating");
+        EstimatedRemainingTime = Loc.Get("Scan_Calculating");
+        ScanStepText = Loc.Get("Scan_Step3");
+        _scanStartedUtc = DateTime.UtcNow;
+        _lastProgressUtc = _scanStartedUtc;
+        _lastProgressBytes = 0;
+        _lastProgressFiles = 0;
+        // The drive-usage estimate only bounds the scan when the whole drive is scanned.
+        _estimatedScanBytes = IsDriveRoot(rootPath) ? EstimateScanBytes(rootPath) : 0;
+        _smoothedBytesPerSecond = 0;
+        _smoothedFilesPerSecond = 0;
+    }
+
+    /// <summary>
+    /// Runs a deep scan through a short-lived elevated worker, showing its progress
+    /// here rather than in a console the user cannot follow.
+    /// <para>
+    /// Only the scan is elevated, and only while it runs. The window stays
+    /// unelevated: it reads the worker's one-way progress channel and never sends
+    /// anything back, so this is not a route to running the app as administrator.
+    /// The always-administrator setting is the separate, explicit way to do that.
+    /// </para>
+    /// </summary>
+    [RelayCommand]
+    private async Task RequestElevationAsync()
+    {
+        if (!CanBrowse || IsScanning)
             return;
 
         ValidateSelectedPath(SelectedPath);
@@ -193,19 +244,109 @@ public sealed partial class ScanViewModel : ObservableObject
             return;
         }
 
-        var arguments = $"--cli scan --path {CommandLineArguments.Quote(SelectedPath)} --deep" +
-                        (UseTurboScanner && TurboScannerAvailable ? " --turbo" : string.Empty);
-        if (_admin.TryStartElevated(arguments))
+        var rootPath = SelectedPath.Trim();
+        var useTurboScanner = UseTurboScanner && TurboScannerAvailable;
+        var scanGeneration = Interlocked.Increment(ref _scanGeneration);
+        Interlocked.Exchange(ref _activeScanGeneration, scanGeneration);
+
+        var cancellation = new CancellationTokenSource();
+        _cts = cancellation;
+
+        BeginScanningState(rootPath);
+        ProgressText = Loc.Get("Scan_Elevation_Waiting");
+
+        var dispatcher = DispatcherQueue.GetForCurrentThread();
+
+        try
         {
-            HasError = false;
-            ErrorMessage = string.Empty;
-            ProgressText = Loc.Get("Scan_Elevation_Started");
+            var result = await _elevatedScan.RunAsync(
+                rootPath,
+                useTurboScanner,
+                report =>
+                {
+                    void ApplyIfCurrent()
+                    {
+                        if (scanGeneration != Volatile.Read(ref _activeScanGeneration))
+                            return;
+
+                        if (!report.IsComplete)
+                            ProgressText = Loc.Get("Scan_Progress_Running_Elevated");
+
+                        OnProgress(new ScanProgress
+                        {
+                            CurrentPath = report.CurrentPath,
+                            FilesScanned = report.FilesScanned,
+                            FoldersScanned = report.FoldersScanned,
+                            BytesScanned = report.BytesScanned,
+                            ErrorCount = report.ErrorCount,
+                            IsComplete = report.IsComplete,
+                        });
+                    }
+
+                    if (dispatcher is null || dispatcher.HasThreadAccess)
+                        ApplyIfCurrent();
+                    else
+                        dispatcher.TryEnqueue(ApplyIfCurrent);
+                },
+                cancellation.Token);
+
+            ApplyElevatedResult(result);
         }
-        else
+        catch (OperationCanceledException)
         {
+            ScanComplete = false;
+            ProgressText = Loc.Get("Scan_Progress_Cancelled");
+            ScanStepText = Loc.Get("Scan_Step_Cancelled");
+        }
+        catch (Exception ex)
+        {
+            ScanComplete = false;
             HasError = true;
-            ErrorMessage = Loc.Get("Scan_Elevation_Failed");
+            ErrorMessage = ex.Message;
+            ProgressText = Loc.Get("Scan_Progress_Failed");
+            ScanStepText = Loc.Get("Scan_Step_Failed");
         }
+        finally
+        {
+            Interlocked.CompareExchange(ref _activeScanGeneration, 0, scanGeneration);
+            IsScanning = false;
+            if (ReferenceEquals(_cts, cancellation))
+                _cts = null;
+            cancellation.Dispose();
+        }
+    }
+
+    private void ApplyElevatedResult(ElevatedScanRunner.Result result)
+    {
+        if (!result.Started)
+        {
+            // The UAC prompt was declined. That is a choice, not a failure, so it
+            // does not raise the error state.
+            ScanComplete = false;
+            ProgressText = Loc.Get("Scan_Elevation_Declined");
+            ScanStepText = Loc.Get("Scan_Step_Cancelled");
+            return;
+        }
+
+        if (result.Completed && result.SessionId is long sessionId)
+        {
+            _lastSessionId = sessionId;
+            ScanComplete = true;
+            ScanStepText = Loc.Get("Scan_Step4");
+            ProgressText = Loc.Format(
+                "Scan_Progress_Complete",
+                BytesScanned,
+                FilesScanned.ToString("N0", CultureInfo.CurrentCulture));
+            return;
+        }
+
+        ScanComplete = false;
+        HasError = true;
+        ErrorMessage = string.IsNullOrWhiteSpace(result.Error)
+            ? Loc.Get("Scan_Elevation_Failed")
+            : result.Error;
+        ProgressText = Loc.Get("Scan_Progress_Failed");
+        ScanStepText = Loc.Get("Scan_Step_Failed");
     }
 
     [RelayCommand]
@@ -233,32 +374,7 @@ public sealed partial class ScanViewModel : ObservableObject
         var scanCancellation = new CancellationTokenSource();
         _cts = scanCancellation;
 
-        IsScanning = true;
-        ScanComplete = false;
-        _lastSessionId = 0;
-        HasError = false;
-        ErrorMessage = string.Empty;
-        FilesScanned = 0;
-        FoldersScanned = 0;
-        BytesScanned = "0 B";
-        ErrorCount = 0;
-        ProgressValue = 0;
-        IsProgressIndeterminate = true;
-        ProgressText = Loc.Get("Scan_Progress_Preparing");
-        CurrentFile = rootPath;
-        ElapsedTime = "0s";
-        ScanSpeed = Loc.Get("Scan_Calculating");
-        ScanFileRate = Loc.Get("Scan_Calculating");
-        EstimatedRemainingTime = Loc.Get("Scan_Calculating");
-        ScanStepText = Loc.Get("Scan_Step3");
-        _scanStartedUtc = DateTime.UtcNow;
-        _lastProgressUtc = _scanStartedUtc;
-        _lastProgressBytes = 0;
-        _lastProgressFiles = 0;
-        // The drive-usage estimate only bounds the scan when the whole drive is scanned.
-        _estimatedScanBytes = IsDriveRoot(rootPath) ? EstimateScanBytes(rootPath) : 0;
-        _smoothedBytesPerSecond = 0;
-        _smoothedFilesPerSecond = 0;
+        BeginScanningState(rootPath);
 
         try
         {

@@ -48,6 +48,13 @@ public static class Program
             WinRT.ComWrappersSupport.InitializeComWrappers();
             App.SetServices(ServiceBootstrapper.BuildServices());
 
+            // Before any window exists: if the user opted into always running as
+            // administrator, hand off to an elevated copy and leave. Declining the
+            // prompt falls through and starts normally — the setting is a
+            // preference, not a precondition.
+            if (Infrastructure.ElevationRelaunch.TryRelaunchElevated(App.Services, args))
+                return;
+
             Application.Start(p =>
             {
                 var context = new DispatcherQueueSynchronizationContext(DispatcherQueue.GetForCurrentThread());

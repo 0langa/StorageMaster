@@ -80,6 +80,23 @@ public sealed class AppSettings
     /// </para>
     /// </summary>
     public UiLanguage Language { get; set; } = UiLanguage.System;
+    /// <summary>
+    /// Relaunch elevated at startup, so deep scans need no prompt.
+    /// <para>
+    /// Off by default and deliberately opt-in. Running a file manager as
+    /// administrator all the time means every bug in it is an administrator bug,
+    /// and the app does not need those rights for anything but reading protected
+    /// folders during a deep scan. The on-demand path elevates a single short-lived
+    /// scan worker instead, which is why that is the default route.
+    /// </para>
+    /// <para>
+    /// It is offered because a user who deep-scans routinely would otherwise
+    /// approve a prompt every time, and a prompt approved by reflex protects
+    /// nobody.
+    /// </para>
+    /// </summary>
+    public bool AlwaysRunAsAdministrator { get; set; }
+
     public int ScanHistoryRetentionDays { get; set; } = 365;
 
     // ── Cleanup rule toggles (persisted, can be overridden per-session) ─────

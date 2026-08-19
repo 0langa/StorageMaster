@@ -122,6 +122,16 @@
                               AutomationProperties.Name="{i18n:Loc Key=Settings_ShowHiddenFiles_AutomationName}"
                               AutomationProperties.HelpText="{i18n:Loc Key=Settings_ShowHiddenFiles_AutomationHelp}" />
 
+                <StackPanel Spacing="4">
+                    <ToggleSwitch Header="{i18n:Loc Key=Safety_Settings_AlwaysAdmin_Header}"
+                                  IsOn="{x:Bind AlwaysRunAsAdministrator, Mode=TwoWay}"
+                                  AutomationProperties.Name="{i18n:Loc Key=Safety_Settings_AlwaysAdmin_Header}"
+                                  AutomationProperties.HelpText="{i18n:Loc Key=Safety_Settings_AlwaysAdmin_AutomationHelp}" />
+                    <TextBlock Text="{i18n:Loc Key=Safety_Settings_AlwaysAdmin_Description}"
+                               Style="{StaticResource HelperTextStyle}"
+                               TextWrapping="Wrap" />
+                </StackPanel>
+
                 <ToggleSwitch Header="{i18n:Loc Key=Settings_SkipSystemFolders_Header}"
                               IsOn="{x:Bind SkipSystemFolders, Mode=TwoWay}"
                               AutomationProperties.Name="{i18n:Loc Key=Settings_SkipSystemFolders_Header}"

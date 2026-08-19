@@ -1,4 +1,4 @@
-using Microsoft.Extensions.DependencyInjection;
+﻿using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
@@ -33,6 +33,7 @@ public sealed partial class SettingsPage : Page
         try
         {
             await ViewModel.LoadAsync(navigationCts.Token);
+            await ViewModel.RefreshDatabaseSizeAsync();
         }
         catch (OperationCanceledException) when (navigationCts.IsCancellationRequested)
         {

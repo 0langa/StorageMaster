@@ -257,6 +257,46 @@ public sealed class SmartCleanerServiceTests
             It.IsAny<CancellationToken>()), Times.Never);
     }
 
+    [Fact]
+    public async Task CleanAsync_ThumbnailSource_AcceptsOnlyThumbcacheFilesDirectlyInTheExplorerFolder()
+    {
+        // The boundary roots are resolved once per group now; the per-path name and
+        // parent checks that keep this source narrow must survive that hoist.
+        var explorerRoot = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "Microsoft",
+            "Windows",
+            "Explorer");
+        var stamp = Guid.NewGuid().ToString("N");
+        var thumbnail = SnapshotFor(Path.Combine(explorerRoot, $"thumbcache_{stamp}.db"), 90, 12);
+        var otherFile = SnapshotFor(Path.Combine(explorerRoot, $"notes_{stamp}.txt"), 91);
+        var nested = SnapshotFor(Path.Combine(explorerRoot, $"nested_{stamp}", $"thumbcache_{stamp}.db"), 92);
+        var enumerator = CreateValidationEnumerator(expected => new TrackingLease(expected));
+        var deletedPaths = new List<string>();
+        var deleter = new Mock<IFileDeleter>();
+        deleter.Setup(service => service.DeleteAsync(
+                It.IsAny<DeletionRequest>(),
+                It.IsAny<CancellationToken>()))
+            .Returns<DeletionRequest, CancellationToken>((request, _) =>
+            {
+                deletedPaths.Add(request.Path);
+                return Task.FromResult(new DeletionOutcome(
+                    request.Path,
+                    true,
+                    request.ExpectedSnapshot!.SizeBytes));
+            });
+        var service = CreateService(deleter.Object, enumerator.Object, CreateLog().Object);
+
+        var result = await service.CleanAsync(
+            [GroupFor(SmartCleanSource.ThumbnailCache, thumbnail, otherFile, nested)],
+            DeletionMethod.RecycleBin);
+
+        deletedPaths.Should().ContainSingle().Which.Should().Be(thumbnail.Path);
+        result.BytesProcessed.Should().Be(12);
+        result.Failures.Select(failure => failure.Path)
+            .Should().BeEquivalentTo(new[] { otherFile.Path, nested.Path });
+    }
+
     private static SmartCleanerService CreateService(
         IFileDeleter deleter,
         INoFollowFileEnumerator enumerator,
@@ -286,6 +326,18 @@ public sealed class SmartCleanerServiceTests
             .Returns(Task.CompletedTask);
         return log;
     }
+
+    private static SmartCleanGroup GroupFor(SmartCleanSource source, params FileSnapshot[] snapshots) =>
+        new(
+            source,
+            source.ToString(),
+            "test",
+            string.Empty,
+            snapshots.Sum(static snapshot => snapshot.SizeBytes),
+            snapshots.Select(static snapshot => snapshot.Path).ToArray(),
+            snapshots.ToDictionary(
+                static snapshot => snapshot.Path,
+                StringComparer.OrdinalIgnoreCase));
 
     private static SmartCleanGroup GroupFor(params FileSnapshot[] snapshots) =>
         new(

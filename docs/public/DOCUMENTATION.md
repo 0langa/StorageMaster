@@ -1,7 +1,9 @@
 # StorageMaster — Full Technical Documentation
 
+<!-- schema-version: 15 -->
+
 > **Version:** 2.2.1 | **Current-state review:** 2026-08-18 | **.NET 8 / WinUI 3 / Windows App SDK 1.6**
-> **Current storage/safety state:** schema v12 uses independent SQLite connection leases, normalized file/folder identity, exact UTC timestamp reads, duplicate recovery journals, and nullable stable scan-time file identity. Historical identity-less rows stay readable but require rescan before destructive scan-backed actions.
+> **Current storage/safety state:** schema v15 uses independent SQLite connection leases, normalized file/folder identity, exact UTC timestamp reads, duplicate recovery journals, nullable stable scan-time file identity, a materialized folder parent path, scan-session ownership with startup recovery, and indexed foreign-key cascade paths. Historical identity-less rows stay readable but require rescan before destructive scan-backed actions. `DatabaseSchema.CurrentVersion` is authoritative for the schema number.
 
 ---
 
@@ -79,6 +81,7 @@ StorageMaster.UI.exe --cli dedupe scan --session <id> --methods exact,text,image
 StorageMaster.UI.exe --cli cleanup analyze --session <id> [--json <file>]
 StorageMaster.UI.exe --cli cleanup execute --session <id> --rules <csv> --recycle-bin|--quarantine --confirm
 StorageMaster.UI.exe --cli health report [--json <file>]
+StorageMaster.UI.exe --cli version
 StorageMaster.UI.exe --headless jobs run --id <job-id>
 ```
 
@@ -138,6 +141,21 @@ All settings are persisted in the SQLite `Settings` table as JSON under the key 
 |---------|------|---------|-------------|
 | `LargeFileSizeMb` | `int` | `500` | Minimum file size in MB |
 | `OldFileAgeDays` | `int` | `365` | Minimum age in days since last-write |
+
+#### Appearance and interface
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `Theme` | `ThemePreference` | `Default` | `Default` follows Windows; `Light` / `Dark` pin it |
+| `AccentId` | `string` | `"aurora"` | One of `ThemeCatalog.Accents` (`aurora`, `ember`, `verdant`, `violet`). Persisted as a string so an accent retired in a later version resolves back to the default rather than failing to deserialize. Applied live — `ThemeService` mutates the existing brushes, so no restart or renavigation is needed |
+| `Language` | `UiLanguage` | `System` | `System` / `English` / `German`. Sets `ApplicationLanguages.PrimaryLanguageOverride`, which controls the text WinUI supplies for its built-in controls; without it a German Windows install rendered an English app with German toggle switches. It does **not** translate StorageMaster's own strings, which are English only. The override is read when a control is created, so Settings reports that a restart is required |
+| `ScanHistoryRetentionDays` | `int` | `365` | Scan-history retention window |
+| `UiDensity` | `UiDensity` | `Default` | `Compact` / `Default` / `Comfortable` |
+| `ReduceAnimations` | `bool` | `false` | Suppress non-essential animation |
+| `DefaultLandingPage` | `string` | `"Dashboard"` | Page shown at startup |
+| `DefaultResultsPageSize` | `int` | `100` | Rows per page in Results |
+| `DefaultDuplicatesReviewMode` | `string` | `"Exact"` | Initial Duplicates review method |
+| `ExpandAdvancedOptionsByDefault` | `bool` | `false` | Start advanced option panels expanded |
 
 #### Tray and health notifications
 
@@ -436,7 +454,12 @@ The `StorageDbContext` singleton manages initialization, migration, and database
 
 Multiple contexts in one process coordinate initialization and writes by canonical database path. Independent processes rely on SQLite's immediate writer reservation and bounded 30-second timeout; migration re-reads the schema version after acquiring that reservation.
 
-**Schema migration** runs automatically on first `GetConnectionAsync()`.
+**Schema migration** runs automatically on first `GetConnectionAsync()`. Every missing level up to `DatabaseSchema.CurrentVersion` is applied in order, and each level is applied and stamped inside a single transaction. Some levels rebuild a table to change a constraint, so migrations are not append-column-only.
+
+Adding a level means adding a new `V<N>Statements` array plus its entry in the `MigrateAsync` chain. Two rules hold:
+
+- **Never edit an existing level.** It has already run against user databases; changing it makes those and a fresh database diverge while both report the same version.
+- **Never compute path casing in SQL.** SQLite's `upper()` is ASCII-only, while the application normalizes with `ToUpperInvariant`; the two disagree on any path with non-ASCII letters. A backfill must derive from an already-normalized column — v13 splits the parent off `NormalizedFullPath` for exactly this reason. See [Troubleshooting](#16-troubleshooting) for the legacy rows where this rule was not yet in force.
 
 ---
 
@@ -529,7 +552,8 @@ v2 adds shared visual tokens/styles, reusable page/state/gauge/badge/card contro
 - **Turbo Scanner toggle** — uses Rust binary when available; greyed out with InfoBar warning when `turbo-scanner.exe` not found
 - **Deep Scan toggle** — includes system directories; shows elevation prompt when not running as admin
 - Start/Cancel buttons
-- Live progress display (files, folders, bytes, errors, elapsed time, sample speed, conservative ETA)
+- Live progress display: files, folders, bytes, errors, elapsed time, a smoothed throughput figure, and a smoothed file rate. Both rates use an exponential moving average because the scanner reports every 300 ms and raw per-sample rates swing wildly between a folder of media and a folder of source files. The file rate is shown alongside throughput because bytes per second is the wrong meter for trees of small files — MB/s collapses while the scanner is working hard — and it switches to files/min when the per-second figure would round to zero
+- Time remaining is offered only when the scan covers a whole drive, which is the only case with a trustworthy total. A subtree reports "No estimate for a subtree" rather than extrapolating from drive usage
 - InfoBar for success and error states
 - Scan completion action opens the unified Scan Workspace.
 
@@ -708,7 +732,9 @@ CREATE TABLE ScanSessions (
     TotalFiles        INTEGER NOT NULL DEFAULT 0,
     TotalFolders      INTEGER NOT NULL DEFAULT 0,
     AccessDeniedCount INTEGER NOT NULL DEFAULT 0,
-    ErrorMessage      TEXT
+    ErrorMessage      TEXT,
+    OwnerProcessId         INTEGER,   -- v14: which process owns a Running session
+    OwnerProcessStartedUtc TEXT       -- v14: guards against recycled process ids
 );
 
 CREATE TABLE FileEntries (
@@ -740,7 +766,8 @@ CREATE TABLE FolderEntries (
     SubFolderCount  INTEGER NOT NULL DEFAULT 0,
     IsReparsePoint  INTEGER NOT NULL DEFAULT 0,
     WasAccessDenied INTEGER NOT NULL DEFAULT 0,
-    NormalizedFullPath TEXT NOT NULL,
+    NormalizedFullPath   TEXT NOT NULL,
+    ParentNormalizedPath TEXT,          -- v13: NULL for a root
     UNIQUE (SessionId, NormalizedFullPath)
 );
 
@@ -1068,6 +1095,20 @@ SQLite WAL normally allows readers alongside one writer; SQLite still serializes
 1. Close other StorageMaster UI/CLI instances and retry.
 2. Check filesystem permissions and free space for `%LOCALAPPDATA%\StorageMaster`.
 3. Preserve `storagemaster.db`, `storagemaster.db-wal`, and `storagemaster.db-shm` together for diagnosis; do not delete WAL/SHM files while any process may have the database open.
+
+### Checking which schema version a database is on
+
+```powershell
+sqlite3 "$env:LOCALAPPDATA\StorageMaster\storagemaster.db" "SELECT MAX(Version) FROM SchemaVersion;"
+```
+
+The expected value is `DatabaseSchema.CurrentVersion` for the build you are running. A lower number means migration has not run yet — it happens on the first database access after an upgrade, not at install time. A higher number means the database was last opened by a newer build; downgrade is not supported.
+
+### A folder shows as empty in the tree or Space Map, but has contents on disk
+
+This affects one specific case: a folder whose path contains non-ASCII letters (umlauts, accents) in a scan session whose rows were **already in the database** when it ran migration v6 or v11. Those two levels backfilled `NormalizedFullPath` using SQLite's `upper()`, which is ASCII-only, while the application matches on `ToUpperInvariant`. The two values never meet, so the subtree reads as empty in the folder tree and Space Map drill-down, and scoped duplicate scans skip it.
+
+Re-scanning the root writes correct values and fixes it. No file data is affected, and any session scanned after those migrations ran is unaffected.
 
 ### Test failures after schema change
 

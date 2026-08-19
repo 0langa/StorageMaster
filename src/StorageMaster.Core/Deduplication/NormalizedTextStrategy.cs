@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Security.Cryptography;
 using System.Text;
 using StorageMaster.Core.Interfaces;
@@ -96,20 +97,44 @@ public sealed class NormalizedTextStrategy : IDuplicateDetectionStrategy
                 useAsync: true);
             using var reader = new StreamReader(stream, detectEncodingFromByteOrderMarks: true);
 
-            var capacity = (int)Math.Min(candidate.File.SizeBytes, 1_000_000);
-            var sb = new StringBuilder(capacity);
-
-            while (!reader.EndOfStream)
+            // SHA-256 is a streaming hash. Buffering the whole normalized document
+            // — StringBuilder chunks, then one contiguous string, then a byte[] —
+            // peaked at several times the file size on the large-object heap for a
+            // 50 MB input and bought nothing. Feeding it line by line produces the
+            // identical byte stream (a line break can never split a surrogate pair)
+            // and therefore the identical signature, at one line of live memory.
+            using var incremental = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+            var lineBuffer = ArrayPool<byte>.Shared.Rent(8 * 1024);
+            var normalizedByteCount = 0L;
+            try
             {
-                ct.ThrowIfCancellationRequested();
-                var line = await reader.ReadLineAsync(ct) ?? string.Empty;
-                // TrimEnd removes trailing whitespace; Normalize(FormC) canonicalises Unicode.
-                sb.Append(line.TrimEnd().Normalize(NormalizationForm.FormC));
-                sb.Append('\n');
+                while (!reader.EndOfStream)
+                {
+                    ct.ThrowIfCancellationRequested();
+                    var line = await reader.ReadLineAsync(ct) ?? string.Empty;
+                    // TrimEnd removes trailing whitespace; Normalize(FormC) canonicalises Unicode.
+                    var normalizedLine = line.TrimEnd().Normalize(NormalizationForm.FormC);
+
+                    var required = Encoding.UTF8.GetMaxByteCount(normalizedLine.Length) + 1;
+                    if (lineBuffer.Length < required)
+                    {
+                        var grown = ArrayPool<byte>.Shared.Rent(required);
+                        ArrayPool<byte>.Shared.Return(lineBuffer);
+                        lineBuffer = grown;
+                    }
+
+                    var written = Encoding.UTF8.GetBytes(normalizedLine.AsSpan(), lineBuffer.AsSpan());
+                    lineBuffer[written++] = (byte)'\n';
+                    incremental.AppendData(lineBuffer, 0, written);
+                    normalizedByteCount += written;
+                }
+            }
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(lineBuffer);
             }
 
-            var normalized = Encoding.UTF8.GetBytes(sb.ToString());
-            var hash = Convert.ToHexString(SHA256.HashData(normalized)).ToLowerInvariant();
+            var hash = Convert.ToHexString(incremental.GetHashAndReset()).ToLowerInvariant();
             var after = _snapshotProvider is null
                 ? null
                 : await _snapshotProvider.TakeSnapshotAsync(candidate.File.FullPath, ct);
@@ -125,7 +150,7 @@ public sealed class NormalizedTextStrategy : IDuplicateDetectionStrategy
                 Algorithm = Algorithm,
                 AlgorithmVersion = AlgorithmVersion,
                 SignatureText = hash,
-                MetadataJson = $"{{\"normalizedBytes\":{normalized.Length}}}",
+                MetadataJson = $"{{\"normalizedBytes\":{normalizedByteCount}}}",
                 ComputedUtc = DateTime.UtcNow,
                 Status = "Ready",
                 SourceSizeBytes = before?.SizeBytes ?? candidate.File.SizeBytes,

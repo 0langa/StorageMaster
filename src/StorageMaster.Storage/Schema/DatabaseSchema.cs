@@ -1,4 +1,4 @@
-namespace StorageMaster.Storage.Schema;
+﻿namespace StorageMaster.Storage.Schema;
 
 /// <summary>
 /// Single source of truth for the SQLite schema.
@@ -7,7 +7,7 @@ namespace StorageMaster.Storage.Schema;
 /// </summary>
 internal static class DatabaseSchema
 {
-    internal const int CurrentVersion = 12;
+    internal const int CurrentVersion = 15;
 
     /// <summary>SQL executed once at version 1 creation.</summary>
     internal static readonly string[] V1Statements =
@@ -470,5 +470,103 @@ internal static class DatabaseSchema
     [
         "ALTER TABLE FileEntries ADD COLUMN IdentityVolumeSerial TEXT;",
         "ALTER TABLE FileEntries ADD COLUMN IdentityFileIndex TEXT;",
+    ];
+
+    /// <summary>
+    /// V13: materialise each folder's parent so tree and drill-down queries become
+    /// indexed equality lookups.
+    /// <para>
+    /// Before this level, every parent/child query derived the relationship inside
+    /// the predicate — either <c>parent.FullPath = substr(child.FullPath, ...)</c>
+    /// or <c>substr(NormalizedFullPath, 1, n) = prefix</c>. Neither form can use an
+    /// index: the only index over <c>FullPath</c> is <c>COLLATE NOCASE</c> and the
+    /// predicates compare with the default BINARY collation, and applying
+    /// <c>substr()</c> to a column defeats indexing outright. SQLite fell back to
+    /// constraining on <c>SessionId</c> alone, so a folder tree over a 213k-folder
+    /// session cost roughly 4.5e10 row visits.
+    /// </para>
+    /// <para>
+    /// The backfill derives the parent by pure substring on the already-normalised
+    /// path. It must never recompute the normalisation itself: SQLite's
+    /// <c>upper()</c> is ASCII-only while <see cref="ScanOptionValidator"/> uses
+    /// <c>ToUpperInvariant</c>, so any SQL-side casing would disagree on paths
+    /// containing non-ASCII characters.
+    /// </para>
+    /// <para>
+    /// <c>rtrim(p, replace(p, '\', ''))</c> strips the trailing path segment:
+    /// the second argument is the set of every character in the path except the
+    /// separator, so trimming from the right stops exactly at the final separator.
+    /// A path that is its own trim result is a root and gets NULL.
+    /// </para>
+    /// </summary>
+    internal static readonly string[] V13Statements =
+    [
+        "ALTER TABLE FolderEntries ADD COLUMN ParentNormalizedPath TEXT;",
+        """
+        UPDATE FolderEntries
+        SET ParentNormalizedPath = (
+            SELECT CASE
+                       WHEN trimmed = NormalizedFullPath OR length(trimmed) = 0 THEN NULL
+                       WHEN length(trimmed) = 3 AND substr(trimmed, 2, 2) = ':\' THEN trimmed
+                       ELSE substr(trimmed, 1, length(trimmed) - 1)
+                   END
+            FROM (SELECT rtrim(NormalizedFullPath, replace(NormalizedFullPath, '\', '')) AS trimmed)
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS IX_FolderEntries_Session_Parent_Size ON FolderEntries (SessionId, ParentNormalizedPath, TotalSizeBytes DESC);",
+    ];
+
+    /// <summary>
+    /// V14: record which process owns a Running session so an abandoned scan can be
+    /// told apart from a live one.
+    /// <para>
+    /// Nothing previously reconciled sessions left Running by a crash or a kill, so
+    /// they accumulated forever and were indistinguishable from a scan in progress.
+    /// Marking every Running session dead at startup would be wrong: a headless CLI
+    /// scan can legitimately be running while the UI starts. Recording the owning
+    /// process id together with its start time makes the check exact — the id alone
+    /// is not enough, because Windows recycles process ids and an unrelated new
+    /// process would otherwise keep a dead scan looking alive forever.
+    /// </para>
+    /// <para>
+    /// Existing Running rows get NULL and are therefore treated as unowned, which is
+    /// correct: they predate ownership tracking and no live process claims them.
+    /// </para>
+    /// </summary>
+    internal static readonly string[] V14Statements =
+    [
+        "ALTER TABLE ScanSessions ADD COLUMN OwnerProcessId INTEGER;",
+        "ALTER TABLE ScanSessions ADD COLUMN OwnerProcessStartedUtc TEXT;",
+    ];
+
+    /// <summary>
+    /// V15: index the columns SQLite needs for foreign-key cascade checks and for
+    /// the errored-only duplicate filter.
+    /// <para>
+    /// Three tables reference FileEntries(Id) ON DELETE CASCADE, and none of the
+    /// referencing columns was indexed. With PRAGMA foreign_keys=ON, SQLite must
+    /// find child rows for every parent row it deletes, so each cascade step
+    /// degraded into a full scan of the child table. Deleting a scan session that
+    /// did not itself own the populated duplicate tables was measured at roughly
+    /// 11 ms per file row — about an hour and a half for a 500k-file session, with
+    /// the write lock held throughout. "Purge old history" issues many such
+    /// deletes at once.
+    /// </para>
+    /// <para>
+    /// DuplicateErrors additionally gets a (RunId, FileEntryId) index. The
+    /// errored-only duplicate filter correlates on exactly that pair, but the only
+    /// existing index was (RunId, ErrorType), so every error row of the run was
+    /// re-walked for every candidate group. The filter is slowest precisely when it
+    /// has nothing to show, because a file whose hash failed cannot become a group
+    /// member and therefore never matches.
+    /// </para>
+    /// </summary>
+    internal static readonly string[] V15Statements =
+    [
+        "CREATE INDEX IF NOT EXISTS IX_DuplicateGroupMembers_FileEntryId ON DuplicateGroupMembers (FileEntryId);",
+        "CREATE INDEX IF NOT EXISTS IX_DuplicateGroups_RepresentativeFileEntryId ON DuplicateGroups (RepresentativeFileEntryId);",
+        "CREATE INDEX IF NOT EXISTS IX_DuplicateErrors_FileEntryId ON DuplicateErrors (FileEntryId);",
+        "CREATE INDEX IF NOT EXISTS IX_DuplicateErrors_Run_File ON DuplicateErrors (RunId, FileEntryId);",
+        "CREATE INDEX IF NOT EXISTS IX_DuplicateSignatures_FileEntryId ON DuplicateSignatures (FileEntryId);",
     ];
 }

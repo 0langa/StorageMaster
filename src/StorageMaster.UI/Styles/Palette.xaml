@@ -1,0 +1,82 @@
+﻿<ResourceDictionary
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!--
+        Bridges the runtime palette published by ThemeService onto the WinUI
+        system brush keys that control templates read.
+
+        Why this file exists: the app owns its own surface, accent and severity
+        colours, but the WinUI control templates (Button, ToggleSwitch, Slider,
+        ProgressBar, NavigationView, InfoBar, CommandBar…) look up *their* keys,
+        not ours. Re-templating every control to accept our brushes would be a
+        large, fragile surface. Re-pointing a dozen documented lightweight-styling
+        keys at the same live SolidColorBrush objects gets the whole control set
+        to follow the selected theme and accent instead, and keeps working for
+        pages this pass did not touch.
+
+        Precedence: MergedDictionaries are searched last-to-first, so this
+        dictionary must stay merged *after* XamlControlsResources in App.xaml.
+
+        These are declared as real brush objects rather than <StaticResource>
+        aliases. An alias has to resolve while App.xaml is being parsed, and the
+        runtime palette is created by ThemeService after InitializeComponent has
+        returned — so an alias here fails the XAML compile outright. ThemeService
+        assigns the Color of each brush below, which is what makes the whole WinUI
+        control set follow the selected theme and accent.
+
+        Deliberately NOT bridged: TextFillColorPrimary/Secondary/Tertiary. The
+        palette is applied asynchronously after the first frame, so a brush that
+        is still transparent at first paint would flash the app's body text away.
+        Surfaces and fills degrade to "flat for one frame", which is invisible;
+        text would not.
+    -->
+
+    <!-- Surfaces: cards read as raised, secondary fills as sunken wells. -->
+
+    <!-- driven from SmSurfaceRaisedBrush -->
+    <SolidColorBrush x:Key="CardBackgroundFillColorDefaultBrush" Color="Transparent" />
+    <!-- driven from SmSurfaceSunkenBrush -->
+    <SolidColorBrush x:Key="CardBackgroundFillColorSecondaryBrush" Color="Transparent" />
+    <!-- driven from SmStrokeSubtleBrush -->
+    <SolidColorBrush x:Key="CardStrokeColorDefaultBrush" Color="Transparent" />
+    <!-- driven from SmStrokeSubtleBrush -->
+    <SolidColorBrush x:Key="CardStrokeColorDefaultSolidBrush" Color="Transparent" />
+    <!-- driven from SmAccentFillBrush -->
+    <SolidColorBrush x:Key="AccentFillColorDefaultBrush" Color="Transparent" />
+    <!-- driven from SmAccentFillHoverBrush -->
+    <SolidColorBrush x:Key="AccentFillColorSecondaryBrush" Color="Transparent" />
+    <!-- driven from SmAccentFillPressedBrush -->
+    <SolidColorBrush x:Key="AccentFillColorTertiaryBrush" Color="Transparent" />
+    <!-- driven from SmAccentOnFillBrush -->
+    <SolidColorBrush x:Key="TextOnAccentFillColorPrimaryBrush" Color="Transparent" />
+    <!-- driven from SmAccentOnFillBrush -->
+    <SolidColorBrush x:Key="TextOnAccentFillColorSecondaryBrush" Color="Transparent" />
+    <!-- driven from SmAccentOnSurfaceBrush -->
+    <SolidColorBrush x:Key="AccentTextFillColorPrimaryBrush" Color="Transparent" />
+    <!-- driven from SmAccentOnSurfaceBrush -->
+    <SolidColorBrush x:Key="AccentTextFillColorSecondaryBrush" Color="Transparent" />
+    <!-- driven from SmAccentOnSurfaceBrush -->
+    <SolidColorBrush x:Key="AccentTextFillColorTertiaryBrush" Color="Transparent" />
+    <!-- driven from SmAccentFillBrush -->
+    <SolidColorBrush x:Key="AccentButtonBackground" Color="Transparent" />
+    <!-- driven from SmAccentFillHoverBrush -->
+    <SolidColorBrush x:Key="AccentButtonBackgroundPointerOver" Color="Transparent" />
+    <!-- driven from SmAccentFillPressedBrush -->
+    <SolidColorBrush x:Key="AccentButtonBackgroundPressed" Color="Transparent" />
+    <!-- driven from SmAccentOnFillBrush -->
+    <SolidColorBrush x:Key="AccentButtonForeground" Color="Transparent" />
+    <!-- driven from SmAccentOnFillBrush -->
+    <SolidColorBrush x:Key="AccentButtonForegroundPointerOver" Color="Transparent" />
+    <!-- driven from SmAccentOnFillBrush -->
+    <SolidColorBrush x:Key="AccentButtonForegroundPressed" Color="Transparent" />
+    <!-- driven from SmSeverityHealthyTextBrush -->
+    <SolidColorBrush x:Key="SystemFillColorSuccessBrush" Color="Transparent" />
+    <!-- driven from SmSeverityWarningTextBrush -->
+    <SolidColorBrush x:Key="SystemFillColorCautionBrush" Color="Transparent" />
+    <!-- driven from SmSeverityCriticalTextBrush -->
+    <SolidColorBrush x:Key="SystemFillColorCriticalBrush" Color="Transparent" />
+    <!-- driven from SmSeverityWatchTextBrush -->
+    <SolidColorBrush x:Key="SystemFillColorAttentionBrush" Color="Transparent" />
+
+</ResourceDictionary>

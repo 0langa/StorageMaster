@@ -17,6 +17,16 @@ public sealed class LargeOldFilesCleanupRule : ICleanupRule
     public string DisplayName => "Large Old Files";
     public CleanupCategory Category => CleanupCategory.LargeOldFiles;
 
+    // Rows read on the first pass, and the ceiling if that pass turns out to have been
+    // cut short. Both bound work; neither bounds correctness on a normal session.
+    internal const int InitialCandidateCount = 1_000;
+    internal const int MaxCandidateCount = 100_000;
+
+    // Ceiling on emitted suggestions. Every match becomes its own list entry, so this
+    // is a UI bound — the previous behaviour capped rows *read* instead, which is what
+    // made the under-reporting invisible.
+    internal const int MaxSuggestions = 1_000;
+
     // Paths we refuse to suggest regardless of size/age — protect the user from accidents.
     private static readonly string[] ProtectedPrefixes =
     [
@@ -35,9 +45,28 @@ public sealed class LargeOldFilesCleanupRule : ICleanupRule
         long thresholdBytes = (long)settings.LargeFileSizeMb * 1024 * 1024;
         var cutoff = DateTime.UtcNow.AddDays(-settings.OldFileAgeDays);
 
-        // Fetch a generous top-N; we filter by age below.
-        var candidates = await _repo.GetLargestFilesAsync(sessionId, topN: 1000, cancellationToken);
+        // The age, identity and protected-prefix filters below run *after* this fetch,
+        // so a fixed top-N silently hid large old files behind large recent ones: lower
+        // the threshold on a media or VM drive and more than InitialCandidateCount files
+        // clear it, and everything past the cut disappears with no indication.
+        // The first fetch stays small because almost every session has far fewer files
+        // above the threshold than that; only when the page comes back full and its
+        // smallest row is still above the threshold can rows have been cut off, and
+        // only then do we pay for the wider one.
+        var candidates = await _repo.GetLargestFilesAsync(
+            sessionId,
+            InitialCandidateCount,
+            cancellationToken);
+        if (candidates.Count >= InitialCandidateCount &&
+            candidates[candidates.Count - 1].SizeBytes >= thresholdBytes)
+        {
+            candidates = await _repo.GetLargestFilesAsync(
+                sessionId,
+                MaxCandidateCount,
+                cancellationToken);
+        }
 
+        var surfaced = 0;
         foreach (var file in candidates)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -76,6 +105,10 @@ public sealed class LargeOldFilesCleanupRule : ICleanupRule
                 },
                 IsSystemPath = false,
             };
+
+            // One suggestion per file: cap what is surfaced, not what is examined.
+            if (++surfaced >= MaxSuggestions)
+                yield break;
         }
     }
 

@@ -1,21 +1,21 @@
-<UserControl
+﻿<UserControl
     x:Class="StorageMaster.UI.Controls.StateView"
     x:Name="Root"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
 
     <Border Style="{StaticResource SectionCardStyle}">
-        <Grid RowDefinitions="Auto,Auto,Auto" RowSpacing="10" MaxWidth="520" HorizontalAlignment="Center">
+        <Grid RowDefinitions="Auto,Auto,Auto" RowSpacing="{StaticResource TightSpacing}" MaxWidth="520" HorizontalAlignment="Center">
             <FontIcon Grid.Row="0"
                       Glyph="{x:Bind IconGlyph, Mode=OneWay}"
                       FontSize="28"
-                      Opacity="0.72"
+                      Foreground="{StaticResource SmTextMutedBrush}"
                       HorizontalAlignment="Center" />
             <TextBlock Grid.Row="1"
                        Text="{x:Bind Title, Mode=OneWay}"
                        Style="{StaticResource SectionHeaderTextStyle}"
                        TextAlignment="Center" />
-            <StackPanel Grid.Row="2" Spacing="12">
+            <StackPanel Grid.Row="2" Spacing="{StaticResource ControlSpacing}">
                 <TextBlock Text="{x:Bind Message, Mode=OneWay}"
                            Style="{StaticResource HelperTextStyle}"
                            TextAlignment="Center" />

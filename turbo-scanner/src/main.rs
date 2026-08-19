@@ -24,6 +24,13 @@
 ///
 /// Descendant access and I/O failures are written to stderr and do not abort
 /// the scan. Fatal root, enumeration setup, and output failures return nonzero.
+/// A file whose attributes cannot be read through an open handle — exclusively
+/// locked or ACL-denied — is still reported from its enumeration metadata with
+/// `volume_serial` and `file_index` null, rather than dropped from the scan.
+///
+/// All per-entry metadata is captured inside jwalk's `process_read_dir`
+/// callback, which runs on the walker threads. The drain loop issues no
+/// syscalls, so `--threads` scales the part of the scan that actually costs.
 use clap::Parser;
 use jwalk::{Parallelism, WalkDirGeneric};
 use serde::Serialize;
@@ -77,6 +84,7 @@ struct FileRecord<'a> {
     is_hidden: bool,
 }
 
+#[derive(Debug)]
 struct CapturedFileMetadata {
     size: u64,
     modified_unix: i64,
@@ -87,6 +95,42 @@ struct CapturedFileMetadata {
     volume_serial: Option<u32>,
     file_index: Option<u64>,
     is_hidden: bool,
+}
+
+/// Per-entry capture, carried from the walker threads to the drain loop through
+/// jwalk's `DirEntry::client_state`.
+///
+/// jwalk parallelises `fs::read_dir` and the `process_read_dir` callback only;
+/// iterating the walker runs on the calling thread. Capturing in the callback
+/// and reading the result here is what lets `--threads` scale the metadata
+/// syscalls, which dominate the scan.
+#[derive(Debug, Default)]
+struct EntryCapture {
+    metadata: Option<CapturedFileMetadata>,
+    /// Emitted by the drain loop, which knows the entry's depth and therefore
+    /// whether the failure is fatal.
+    warning: Option<String>,
+}
+
+impl EntryCapture {
+    fn captured(metadata: CapturedFileMetadata) -> Self {
+        Self {
+            metadata: Some(metadata),
+            warning: None,
+        }
+    }
+
+    fn failed(warning: String) -> Self {
+        Self {
+            metadata: None,
+            warning: Some(warning),
+        }
+    }
+
+    /// True when the walk callback never touched this entry.
+    fn is_unvisited(&self) -> bool {
+        self.metadata.is_none() && self.warning.is_none()
+    }
 }
 
 #[cfg(windows)]
@@ -295,6 +339,99 @@ fn utc_ticks_to_unix_seconds(ticks: i64) -> i64 {
     i64::try_from(seconds).unwrap_or(0)
 }
 
+/// Builds a record from enumeration metadata. `named` always describes the
+/// entry's own name rather than a link target: the raw attributes and the
+/// Hidden bit have to come from the name that was enumerated.
+fn captured_from_metadata(
+    path: &Path,
+    timestamps: &std::fs::Metadata,
+    named: &std::fs::Metadata,
+    size: u64,
+) -> CapturedFileMetadata {
+    let modified = timestamps.modified();
+    let modified_unix = system_time_to_unix_seconds(&modified);
+    let modified_utc_ticks = system_time_to_utc_ticks(modified);
+    let created = timestamps.created();
+    let created_unix = system_time_to_unix_seconds(&created);
+    let created_utc_ticks = system_time_to_utc_ticks(created);
+
+    CapturedFileMetadata {
+        size,
+        modified_unix,
+        created_unix,
+        modified_utc_ticks,
+        created_utc_ticks,
+        attributes: raw_file_attributes(named),
+        volume_serial: None,
+        file_index: None,
+        is_hidden: is_hidden(named, path),
+    }
+}
+
+/// One stat per directory. jwalk's `DirEntry::metadata()` is literally
+/// `fs::symlink_metadata(path)` for every entry that is not a followed link, so
+/// the walk metadata and the named metadata used to be two identical syscalls;
+/// only a followed link can make the two differ.
+fn capture_directory_metadata(path: &Path, follow_link: bool) -> io::Result<CapturedFileMetadata> {
+    let named = std::fs::symlink_metadata(path)?;
+    let followed = if follow_link {
+        std::fs::metadata(path).ok()
+    } else {
+        None
+    };
+
+    Ok(captured_from_metadata(
+        path,
+        followed.as_ref().unwrap_or(&named),
+        &named,
+        0,
+    ))
+}
+
+/// A file whose attributes cannot be read through an open handle — exclusively
+/// locked (pagefile.sys, registry hives) or ACL-denied — still occupies bytes on
+/// disk. Report it from the enumeration metadata, which std backs with a
+/// `FindFirstFileExW` fallback, instead of dropping the record and
+/// under-reporting disk usage. Identity stays null, which the managed consumer
+/// already reads as identity-less and which keeps the file out of every
+/// deletion path.
+fn degraded_file_capture(path: &Path, error: &io::Error) -> EntryCapture {
+    match std::fs::symlink_metadata(path) {
+        Ok(metadata) if !metadata.is_dir() => EntryCapture {
+            metadata: Some(captured_from_metadata(
+                path,
+                &metadata,
+                &metadata,
+                metadata.len(),
+            )),
+            warning: Some(format!(
+                "cannot capture stable file identity '{}': {error}; reporting size and attributes only",
+                path.display()
+            )),
+        },
+        _ => EntryCapture::failed(format!(
+            "cannot capture stable file metadata '{}': {error}",
+            path.display()
+        )),
+    }
+}
+
+/// All per-entry I/O of the scan. Called from `process_read_dir` on the walker
+/// threads; the drain loop only reads what this produced.
+fn capture_entry(path: &Path, is_dir: bool, follow_link: bool) -> EntryCapture {
+    if is_dir {
+        match capture_directory_metadata(path, follow_link) {
+            Ok(metadata) => EntryCapture::captured(metadata),
+            Err(error) => EntryCapture::failed(format!("{} — {error}", path.display())),
+        }
+    } else {
+        match capture_file_metadata(path) {
+            Ok(metadata) => EntryCapture::captured(metadata),
+            Err(error) => degraded_file_capture(path, &error),
+        }
+    }
+}
+
 fn validate_no_follow_root(path: &Path) -> io::Result<()> {
     for ancestor in path.ancestors().collect::<Vec<_>>().into_iter().rev() {
         if ancestor.as_os_str().is_empty() {
@@ -369,26 +506,53 @@ fn scan(args: &Args, out: &mut impl Write) -> io::Result<()> {
     };
 
     let prune_hidden = args.skip_hidden;
+    let follow_links = args.follow_links;
     // jwalk's built-in skip_hidden is dot-name based; attribute-based pruning
     // below matches the managed scanner, so the built-in stays off.
-    let walker = WalkDirGeneric::<((), ())>::new(&args.path)
+    let walker = WalkDirGeneric::<((), EntryCapture)>::new(&args.path)
         .parallelism(parallelism)
         .follow_links(args.follow_links)
         .skip_hidden(false)
-        .process_read_dir(move |_depth, _dir_path, _state, children| {
+        .process_read_dir(move |depth, _dir_path, _state, children| {
+            // Every entry of the walk passes through this callback exactly once,
+            // and this callback is the only part jwalk runs in parallel. All the
+            // per-entry metadata I/O therefore lives here rather than in the
+            // drain loop, which is single-threaded.
+            for child in children.iter_mut() {
+                let Ok(entry) = child else { continue };
+                // Symlinked entries are dropped by the drain loop unless links
+                // are followed, so don't pay for their metadata.
+                let is_symlink = entry.path_is_symlink();
+                if is_symlink && !follow_links {
+                    continue;
+                }
+                let path = entry.path();
+                let is_dir = entry.file_type().is_dir();
+                entry.client_state = capture_entry(&path, is_dir, is_symlink && follow_links);
+            }
+
             if !prune_hidden {
                 return;
             }
+            // jwalk invokes this once with `depth == None` for a synthetic read
+            // whose only child is the scan root itself. Filtering there prunes
+            // the whole walk: real drive roots such as `C:\` carry the Hidden
+            // and System attributes, so `--skip-hidden` scans of a whole drive
+            // silently returned zero files. The scan root is chosen explicitly
+            // by the caller and is always walked.
+            if depth.is_none() {
+                return;
+            }
             // Dropping a hidden directory here prevents descent, so files
-            // inside hidden directories are never reported.
+            // inside hidden directories are never reported. The Hidden bit comes
+            // from the capture above instead of a third stat per child.
             children.retain(|child| match child {
-                Ok(entry) => {
-                    let path = entry.path();
-                    match std::fs::symlink_metadata(&path) {
-                        Ok(meta) => !is_hidden(&meta, &path),
-                        Err(_) => true, // unreadable entries surface as WARN later
-                    }
-                }
+                Ok(entry) => entry
+                    .client_state
+                    .metadata
+                    .as_ref()
+                    // unreadable entries surface as WARN later
+                    .is_none_or(|metadata| !metadata.is_hidden),
                 Err(_) => true, // keep errors so they are reported downstream
             });
         })
@@ -398,7 +562,7 @@ fn scan(args: &Args, out: &mut impl Write) -> io::Result<()> {
         })?;
 
     for entry in walker {
-        let entry = match entry {
+        let mut entry = match entry {
             Ok(e) => e,
             Err(e) => {
                 if e.depth() == 0 {
@@ -409,55 +573,33 @@ fn scan(args: &Args, out: &mut impl Write) -> io::Result<()> {
             }
         };
 
-        let metadata = match entry.metadata() {
-            Ok(m) => m,
-            Err(e) => {
-                if entry.depth() == 0 {
-                    return Err(io::Error::other(format!(
-                        "cannot read scan root metadata: {e}"
-                    )));
-                }
-                eprintln!("WARN: {} — {e}", entry.path().display());
-                continue;
-            }
-        };
-
-        let path_buf = entry.path();
-        let is_dir = metadata.is_dir();
-        if entry.path_is_symlink() && !args.follow_links {
+        let is_symlink = entry.path_is_symlink();
+        if is_symlink && !args.follow_links {
             continue;
         }
 
-        let captured = if is_dir {
-            let modified = metadata.modified();
-            let modified_unix = system_time_to_unix_seconds(&modified);
-            let modified_utc_ticks = system_time_to_utc_ticks(modified);
-            let created = metadata.created();
-            let created_unix = system_time_to_unix_seconds(&created);
-            let created_utc_ticks = system_time_to_utc_ticks(created);
-            let named_metadata = std::fs::symlink_metadata(&path_buf).unwrap_or(metadata);
-            CapturedFileMetadata {
-                size: 0,
-                modified_unix,
-                created_unix,
-                modified_utc_ticks,
-                created_utc_ticks,
-                attributes: raw_file_attributes(&named_metadata),
-                volume_serial: None,
-                file_index: None,
-                is_hidden: is_hidden(&named_metadata, &path_buf),
+        let path_buf = entry.path();
+        // file_type() is copied out of the enumeration result and costs no
+        // syscall, unlike the metadata() call it replaced.
+        let is_dir = entry.file_type().is_dir();
+        let mut capture = std::mem::take(&mut entry.client_state);
+        if capture.is_unvisited() {
+            // Defensive: every entry passes through process_read_dir, so this
+            // only guards against dropping a record if that ever stops holding.
+            capture = capture_entry(&path_buf, is_dir, is_symlink && args.follow_links);
+        }
+
+        if let Some(warning) = capture.warning {
+            if entry.depth() == 0 && capture.metadata.is_none() {
+                return Err(io::Error::other(format!(
+                    "cannot read scan root metadata: {warning}"
+                )));
             }
-        } else {
-            match capture_file_metadata(&path_buf) {
-                Ok(captured) => captured,
-                Err(error) => {
-                    eprintln!(
-                        "WARN: cannot capture stable file metadata '{}': {error}",
-                        path_buf.display()
-                    );
-                    continue;
-                }
-            }
+            eprintln!("WARN: {warning}");
+        }
+
+        let Some(captured) = capture.metadata else {
+            continue;
         };
 
         if !is_dir && captured.size < args.min_size {
@@ -479,9 +621,13 @@ fn scan(args: &Args, out: &mut impl Write) -> io::Result<()> {
             is_hidden: captured.is_hidden,
         };
 
-        let json = serde_json::to_string(&record)
-            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
-        out.write_all(json.as_bytes())?;
+        // Rendered straight into the BufWriter; the intermediate String this
+        // replaced was one heap allocation per record. A writer failure has to
+        // keep its own ErrorKind so a broken stdout pipe stays fatal.
+        serde_json::to_writer(&mut *out, &record).map_err(|error| match error.io_error_kind() {
+            Some(kind) => io::Error::new(kind, error),
+            None => io::Error::new(io::ErrorKind::InvalidData, error),
+        })?;
         out.write_all(b"\n")?;
     }
 
@@ -555,7 +701,7 @@ mod tests {
         let version = Args::try_parse_from(["turbo-scanner", "--version"]).unwrap_err();
 
         assert_eq!(version.kind(), clap::error::ErrorKind::DisplayVersion);
-        assert_eq!(version.to_string().trim(), "turbo-scanner 2.2.1");
+        assert_eq!(version.to_string().trim(), "turbo-scanner 2.3.0");
     }
 
     #[test]
@@ -709,6 +855,42 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
     }
 
+    /// A hidden scan root must still be walked. jwalk hands the root itself to
+    /// `process_read_dir` as a synthetic depth-`None` child, so a naive hidden
+    /// filter prunes the entire tree. Real drive roots such as `C:\` carry the
+    /// Hidden and System attributes, which made `--skip-hidden` scans of a whole
+    /// drive report success with zero files.
+    #[cfg(windows)]
+    #[test]
+    fn skip_hidden_still_walks_a_hidden_scan_root() {
+        let root = std::env::temp_dir().join(format!("turbo_hidden_root_{}", std::process::id()));
+        let child_dir = root.join("child-dir");
+        std::fs::create_dir_all(&child_dir).unwrap();
+        std::fs::write(root.join("visible.txt"), b"v").unwrap();
+        std::fs::write(child_dir.join("nested.txt"), b"n").unwrap();
+        set_hidden(&root);
+
+        let args = Args {
+            path: root.to_string_lossy().into_owned(),
+            threads: 1,
+            min_size: 0,
+            skip_hidden: true,
+            follow_links: false,
+        };
+        let paths = scan_paths(&args);
+
+        assert!(
+            paths.iter().any(|p| p.ends_with("visible.txt")),
+            "a hidden scan root must not prune its own contents: {paths:?}"
+        );
+        assert!(
+            paths.iter().any(|p| p.ends_with("nested.txt")),
+            "descendants of a hidden scan root must still be walked: {paths:?}"
+        );
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
     #[cfg(windows)]
     #[test]
     fn hidden_attribute_is_reported_in_records() {
@@ -745,5 +927,152 @@ mod tests {
         assert_eq!(shy["is_hidden"], true);
 
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    fn build_tree(root: &Path) {
+        for index in 0..4 {
+            let dir = root.join(format!("dir-{index}"));
+            std::fs::create_dir_all(&dir).unwrap();
+            for file in 0..5 {
+                std::fs::write(dir.join(format!("file-{file}.bin")), vec![b'x'; file + 1]).unwrap();
+            }
+        }
+    }
+
+    /// Metadata capture moved onto the walker threads, where it runs
+    /// concurrently and in read_dir order rather than in the drain loop. jwalk
+    /// yields strictly ordered results, so the byte stream must not depend on
+    /// how many threads produced it.
+    #[test]
+    fn parallel_and_serial_walks_emit_identical_records() {
+        let root = std::env::temp_dir().join(format!("turbo_threads_{}", std::process::id()));
+        build_tree(&root);
+
+        let scan_with = |threads| {
+            let args = Args {
+                path: root.to_string_lossy().into_owned(),
+                threads,
+                min_size: 0,
+                skip_hidden: false,
+                follow_links: false,
+            };
+            let mut buffer = Vec::new();
+            scan(&args, &mut buffer).unwrap();
+            String::from_utf8(buffer).unwrap()
+        };
+
+        let serial = scan_with(1);
+        let parallel = scan_with(4);
+
+        assert_eq!(serial.lines().count(), 1 + 4 + 20, "root, dirs and files");
+        assert_eq!(serial, parallel);
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// A file that cannot be opened for attributes is still occupying disk
+    /// space; dropping its record under-reported the scan total.
+    #[test]
+    fn an_unopenable_file_is_reported_without_identity() {
+        let root = std::env::temp_dir().join(format!("turbo_degraded_{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let file = root.join("payload.bin");
+        std::fs::write(&file, b"0123456789").unwrap();
+
+        // 32 == ERROR_SHARING_VIOLATION, what an exclusively locked file returns.
+        let capture = degraded_file_capture(&file, &io::Error::from_raw_os_error(32));
+
+        let metadata = capture
+            .metadata
+            .expect("a file that cannot be opened must still be reported");
+        assert_eq!(metadata.size, 10);
+        assert!(
+            metadata.volume_serial.is_none() && metadata.file_index.is_none(),
+            "identity is reported as unavailable, never invented"
+        );
+        assert!(
+            capture.warning.is_some(),
+            "the degradation must still reach stderr"
+        );
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_vanished_file_is_not_reported() {
+        let missing = std::env::temp_dir().join(format!(
+            "turbo_vanished_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+
+        let capture = degraded_file_capture(&missing, &io::Error::from_raw_os_error(2));
+
+        assert!(capture.metadata.is_none(), "there is nothing to report");
+        assert!(capture.warning.is_some());
+    }
+
+    #[cfg(windows)]
+    fn run_icacls(path: &Path, arguments: &[&str]) -> bool {
+        std::process::Command::new("icacls")
+            .arg(path)
+            .args(arguments)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .map(|status| status.success())
+            .unwrap_or(false)
+    }
+
+    /// End-to-end cover for the degraded capture: a DACL that grants only
+    /// SYSTEM makes the FILE_READ_ATTRIBUTES open fail while enumeration still
+    /// sees the file. That is the same shape as pagefile.sys and the locked
+    /// registry hives, whose records used to vanish from turbo scans and take
+    /// their bytes out of the reported disk usage with them.
+    #[cfg(windows)]
+    #[test]
+    fn files_that_cannot_be_opened_stay_in_the_scan() {
+        let root = std::env::temp_dir().join(format!("turbo_denied_{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let denied = root.join("denied.bin");
+        std::fs::write(&denied, b"0123456789").unwrap();
+        let restricted = run_icacls(&denied, &["/inheritance:r", "/grant:r", "*S-1-5-18:(F)"]);
+        // A process running as SYSTEM, or an environment without icacls, cannot
+        // be locked out of its own file; skip rather than fail there.
+        let denied_to_us = restricted && capture_file_metadata(&denied).is_err();
+
+        let args = Args {
+            path: root.to_string_lossy().into_owned(),
+            threads: 1,
+            min_size: 0,
+            skip_hidden: false,
+            follow_links: false,
+        };
+        let mut buffer = Vec::new();
+        let result = scan(&args, &mut buffer);
+
+        run_icacls(&denied, &["/reset"]);
+        let _ = std::fs::remove_dir_all(&root);
+        result.unwrap();
+        if !denied_to_us {
+            return;
+        }
+
+        let records: Vec<serde_json::Value> = String::from_utf8(buffer)
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect();
+        let record = records
+            .iter()
+            .find(|record| record["path"].as_str().unwrap().ends_with("denied.bin"))
+            .expect("a file that cannot be opened must still be reported");
+
+        assert_eq!(record["size"], 10, "its bytes still count against the disk");
+        assert!(record["volume_serial"].is_null());
+        assert!(record["file_index"].is_null());
     }
 }

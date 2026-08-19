@@ -21,8 +21,8 @@ public sealed class CacheFolderRuleTests
     [Fact]
     public async Task AnalyzeAsync_KnownCacheWithSize_ReturnsSuggestion()
     {
-        var chromeCachePath = Path.Combine(_localAppData, @"Google\Chrome\User Data\Default\Cache");
-        var folder = MakeFolder(chromeCachePath, totalBytes: 500_000_000L);
+        var inetCachePath = Path.Combine(_localAppData, @"Microsoft\Windows\INetCache");
+        var folder = MakeFolder(inetCachePath, totalBytes: 500_000_000L);
 
         _repoMock
             .Setup(r => r.GetLargestFoldersAsync(1, It.IsAny<int>(), It.IsAny<CancellationToken>()))
@@ -35,14 +35,14 @@ public sealed class CacheFolderRuleTests
         suggestions.Should().ContainSingle();
         suggestions[0].Category.Should().Be(CleanupCategory.CacheFolders);
         suggestions[0].Risk.Should().Be(CleanupRisk.Safe);
-        suggestions[0].TargetPaths.Should().Contain(chromeCachePath);
+        suggestions[0].TargetPaths.Should().Contain(inetCachePath);
     }
 
     [Fact]
     public async Task AnalyzeAsync_KnownCacheWithZeroSize_NoSuggestion()
     {
-        var chromeCachePath = Path.Combine(_localAppData, @"Google\Chrome\User Data\Default\Cache");
-        var folder = MakeFolder(chromeCachePath, totalBytes: 0);
+        var inetCachePath = Path.Combine(_localAppData, @"Microsoft\Windows\INetCache");
+        var folder = MakeFolder(inetCachePath, totalBytes: 0);
 
         _repoMock
             .Setup(r => r.GetLargestFoldersAsync(1, It.IsAny<int>(), It.IsAny<CancellationToken>()))
@@ -74,14 +74,14 @@ public sealed class CacheFolderRuleTests
     [Fact]
     public async Task AnalyzeAsync_MultipleKnownCaches_OneSuggestionEach()
     {
-        var chromePath = Path.Combine(_localAppData, @"Google\Chrome\User Data\Default\Cache");
-        var edgePath = Path.Combine(_localAppData, @"Microsoft\Edge\User Data\Default\Cache");
+        var inetCachePath = Path.Combine(_localAppData, @"Microsoft\Windows\INetCache");
+        var npmCachePath = Path.Combine(_localAppData, "npm-cache");
 
         _repoMock
             .Setup(r => r.GetLargestFoldersAsync(1, It.IsAny<int>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync([
-                MakeFolder(chromePath, totalBytes: 200_000_000L),
-                MakeFolder(edgePath,   totalBytes: 150_000_000L),
+                MakeFolder(inetCachePath, totalBytes: 200_000_000L),
+                MakeFolder(npmCachePath,  totalBytes: 150_000_000L),
             ]);
 
         var suggestions = new List<CleanupSuggestion>();
@@ -89,6 +89,29 @@ public sealed class CacheFolderRuleTests
             suggestions.Add(s);
 
         suggestions.Should().HaveCount(2, "one suggestion per matched known cache folder");
+    }
+
+    [Fact]
+    public async Task AnalyzeAsync_ChromiumDefaultProfileCache_IsLeftToTheBrowserCacheRule()
+    {
+        _repoMock
+            .Setup(r => r.GetLargestFoldersAsync(1, It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync([
+                MakeFolder(
+                    Path.Combine(_localAppData, @"Google\Chrome\User Data\Default\Cache"),
+                    totalBytes: 200_000_000L),
+                MakeFolder(
+                    Path.Combine(_localAppData, @"Microsoft\Edge\User Data\Default\Cache"),
+                    totalBytes: 150_000_000L),
+            ]);
+
+        var suggestions = new List<CleanupSuggestion>();
+        await foreach (var s in _rule.AnalyzeAsync(1, _settings))
+            suggestions.Add(s);
+
+        suggestions.Should().BeEmpty(
+            "BrowserCacheCleanupRule already covers every Chrome/Edge profile cache; " +
+            "emitting a second suggestion for the same directory double-counted the savings estimate");
     }
 
     private static FolderEntry MakeFolder(string path, long totalBytes) => new()

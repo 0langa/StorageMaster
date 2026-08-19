@@ -81,6 +81,38 @@ public static class ScanOptionValidator
     public static string NormalizePathForStorage(string path) =>
         NormalizeDirectoryPath(path).ToUpperInvariant();
 
+    /// <summary>
+    /// Returns the parent of an already storage-normalised path, or <c>null</c>
+    /// when the path is a root and has no parent inside the scan.
+    /// <para>
+    /// This is a pure substring operation on purpose. The input has already been
+    /// upper-cased by <see cref="NormalizePathForStorage"/>, and re-normalising
+    /// here would risk disagreeing with the schema v13 SQL backfill, whose
+    /// SQLite <c>upper()</c> is ASCII-only. Keep this method and the
+    /// <c>V13Statements</c> expression behaviourally identical.
+    /// </para>
+    /// </summary>
+    public static string? GetParentOfNormalizedPath(string normalizedPath)
+    {
+        if (string.IsNullOrEmpty(normalizedPath))
+            return null;
+
+        var lastSeparator = normalizedPath.LastIndexOf(Path.DirectorySeparatorChar);
+        if (lastSeparator < 0)
+            return null;
+
+        // Trailing separator means the value is already a root such as "C:\".
+        if (lastSeparator == normalizedPath.Length - 1)
+            return null;
+
+        // Keep the separator for a drive root so "C:\USERS" reports "C:\", not "C:".
+        var parent = lastSeparator == 2 && normalizedPath[1] == ':'
+            ? normalizedPath[..(lastSeparator + 1)]
+            : normalizedPath[..lastSeparator];
+
+        return parent.Length == 0 ? null : parent;
+    }
+
     public static string GetDisplayName(string path)
     {
         var normalized = NormalizeDirectoryPath(path);
@@ -93,26 +125,60 @@ public static class ScanOptionValidator
         if (string.IsNullOrWhiteSpace(candidatePath) || string.IsNullOrWhiteSpace(ancestorPath))
             return false;
 
-        var candidate = NormalizeDirectoryPath(candidatePath);
-        var ancestor = NormalizeDirectoryPath(ancestorPath);
+        return IsNormalizedPathEqualOrUnder(
+            NormalizeDirectoryPath(candidatePath),
+            NormalizeDirectoryPath(ancestorPath));
+    }
 
-        if (string.Equals(candidate, ancestor, StringComparison.OrdinalIgnoreCase))
+    /// <summary>
+    /// Boundary-aware ancestor test for operands that are already the output of
+    /// <see cref="NormalizeDirectoryPath"/>.
+    /// <para>
+    /// Exclusion lists are normalised once by <see cref="NormalizeExcludedPaths"/>,
+    /// so re-running <c>Path.GetFullPath</c> over both operands for every scanned
+    /// record — the scanners' hottest comparison — buys nothing.
+    /// </para>
+    /// </summary>
+    public static bool IsNormalizedPathEqualOrUnder(string normalizedCandidate, string normalizedAncestor)
+    {
+        if (string.IsNullOrEmpty(normalizedCandidate) || string.IsNullOrEmpty(normalizedAncestor))
+            return false;
+
+        if (string.Equals(normalizedCandidate, normalizedAncestor, StringComparison.OrdinalIgnoreCase))
             return true;
 
-        if (!candidate.StartsWith(ancestor, StringComparison.OrdinalIgnoreCase))
+        if (!normalizedCandidate.StartsWith(normalizedAncestor, StringComparison.OrdinalIgnoreCase))
             return false;
 
         // A normalized root already ends with a directory separator, so the
         // successful prefix match above establishes the path boundary.
-        if (Path.EndsInDirectorySeparator(ancestor))
+        if (Path.EndsInDirectorySeparator(normalizedAncestor))
             return true;
 
-        var boundaryIndex = ancestor.Length;
-        return candidate.Length > boundaryIndex &&
-               (candidate[boundaryIndex] == Path.DirectorySeparatorChar ||
-                candidate[boundaryIndex] == Path.AltDirectorySeparatorChar);
+        var boundaryIndex = normalizedAncestor.Length;
+        return normalizedCandidate.Length > boundaryIndex &&
+               (normalizedCandidate[boundaryIndex] == Path.DirectorySeparatorChar ||
+                normalizedCandidate[boundaryIndex] == Path.AltDirectorySeparatorChar);
     }
 
     public static bool IsExcluded(string path, IEnumerable<string> excludedPaths) =>
         excludedPaths.Any(excluded => IsPathEqualOrUnder(path, excluded));
+
+    /// <summary>
+    /// Exclusion test where <paramref name="normalizedExcludedPaths"/> already came from
+    /// <see cref="NormalizeExcludedPaths"/> and <paramref name="normalizedPath"/> from
+    /// <see cref="NormalizeDirectoryPath"/>. Allocation- and syscall-free, for hot loops.
+    /// </summary>
+    public static bool IsNormalizedPathExcluded(
+        string normalizedPath,
+        IReadOnlyList<string> normalizedExcludedPaths)
+    {
+        for (var i = 0; i < normalizedExcludedPaths.Count; i++)
+        {
+            if (IsNormalizedPathEqualOrUnder(normalizedPath, normalizedExcludedPaths[i]))
+                return true;
+        }
+
+        return false;
+    }
 }

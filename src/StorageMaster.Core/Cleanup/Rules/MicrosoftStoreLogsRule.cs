@@ -61,9 +61,11 @@ public sealed class MicrosoftStoreLogsRule : ICleanupRule
                 if (!Directory.Exists(diagDir)) continue;
                 try
                 {
-                    long dirSize = Directory
-                        .EnumerateFiles(diagDir, "*", SearchOption.AllDirectories)
-                        .Sum(f => { try { return new FileInfo(f).Length; } catch { return 0L; } });
+                    // Sizes come from the enumeration itself — the string overload
+                    // would discard them and re-stat every file.
+                    long dirSize = new DirectoryInfo(diagDir)
+                        .EnumerateFiles("*", SearchOption.AllDirectories)
+                        .Sum(file => { try { return file.Length; } catch { return 0L; } });
                     if (dirSize == 0) continue;
                     totalBytes += dirSize;
                     paths.Add(diagDir);

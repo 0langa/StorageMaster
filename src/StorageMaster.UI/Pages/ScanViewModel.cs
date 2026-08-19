@@ -1,4 +1,4 @@
-using CommunityToolkit.Mvvm.ComponentModel;
+﻿using CommunityToolkit.Mvvm.ComponentModel;
 using StorageMaster.Platform.Windows;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.UI.Dispatching;
@@ -46,6 +46,7 @@ public sealed partial class ScanViewModel : ObservableObject
     [ObservableProperty] private string _selectedScanMode = "Standard Scan";
     [ObservableProperty] private string _elapsedTime = "0s";
     [ObservableProperty] private string _scanSpeed = "Calculating";
+    [ObservableProperty] private string _scanFileRate = "Calculating";
     [ObservableProperty] private string _estimatedRemainingTime = "Calculating";
     [ObservableProperty] private string _scanStepText = "Step 1 of 4 · Choose scope";
 
@@ -85,8 +86,10 @@ public sealed partial class ScanViewModel : ObservableObject
     private DateTime _scanStartedUtc;
     private DateTime _lastProgressUtc;
     private long _lastProgressBytes;
+    private long _lastProgressFiles;
     private long _estimatedScanBytes;
     private double _smoothedBytesPerSecond;
+    private double _smoothedFilesPerSecond;
 
     public ScanViewModel(
         IFileScanner scanner,
@@ -228,14 +231,17 @@ public sealed partial class ScanViewModel : ObservableObject
         CurrentFile = rootPath;
         ElapsedTime = "0s";
         ScanSpeed = "Calculating";
+        ScanFileRate = "Calculating";
         EstimatedRemainingTime = "Calculating";
         ScanStepText = "Step 3 of 4 · Run scan";
         _scanStartedUtc = DateTime.UtcNow;
         _lastProgressUtc = _scanStartedUtc;
         _lastProgressBytes = 0;
+        _lastProgressFiles = 0;
         // The drive-usage estimate only bounds the scan when the whole drive is scanned.
         _estimatedScanBytes = IsDriveRoot(rootPath) ? EstimateScanBytes(rootPath) : 0;
         _smoothedBytesPerSecond = 0;
+        _smoothedFilesPerSecond = 0;
 
         try
         {
@@ -356,19 +362,26 @@ public sealed partial class ScanViewModel : ObservableObject
         ErrorCount = p.ErrorCount;
         ElapsedTime = FormatDuration(elapsed);
 
-        var sampleSeconds = Math.Max(0.001, (p.Timestamp - _lastProgressUtc).TotalSeconds);
-        var sampleBytes = p.BytesScanned - _lastProgressBytes;
-        if (sampleBytes > 0)
+        // Rates are recomputed whenever time has advanced, not only when bytes
+        // moved. A directory of many tiny files can add thousands of entries while
+        // barely moving the byte counter, and the old byte-only guard left the
+        // display frozen on a stale value during exactly those stretches.
+        var sampleSeconds = (p.Timestamp - _lastProgressUtc).TotalSeconds;
+        if (sampleSeconds >= 0.05)
         {
-            var currentBytesPerSecond = sampleBytes / sampleSeconds;
-            _smoothedBytesPerSecond = _smoothedBytesPerSecond <= 0
-                ? currentBytesPerSecond
-                : (_smoothedBytesPerSecond * 0.75d) + (currentBytesPerSecond * 0.25d);
-            ScanSpeed = $"{ByteSizeConverter.Format((long)_smoothedBytesPerSecond)}/s";
-        }
+            var sampleBytes = Math.Max(0, p.BytesScanned - _lastProgressBytes);
+            var sampleFiles = Math.Max(0, p.FilesScanned - _lastProgressFiles);
 
-        _lastProgressUtc = p.Timestamp;
-        _lastProgressBytes = p.BytesScanned;
+            _smoothedBytesPerSecond = Smooth(_smoothedBytesPerSecond, sampleBytes / sampleSeconds);
+            _smoothedFilesPerSecond = Smooth(_smoothedFilesPerSecond, sampleFiles / sampleSeconds);
+
+            ScanSpeed = $"{ByteSizeConverter.Format((long)_smoothedBytesPerSecond)}/s";
+            ScanFileRate = FormatFileRate(_smoothedFilesPerSecond);
+
+            _lastProgressUtc = p.Timestamp;
+            _lastProgressBytes = p.BytesScanned;
+            _lastProgressFiles = p.FilesScanned;
+        }
         EstimatedRemainingTime = EstimateRemainingText(p.BytesScanned);
 
         CurrentFile = p.CurrentPath.Length > 80
@@ -430,19 +443,90 @@ public sealed partial class ScanViewModel : ObservableObject
             return;
         }
 
+        var root = Path.GetPathRoot(candidate);
+        if (!string.IsNullOrWhiteSpace(root) && !IsDriveReady(root))
+        {
+            ScanPathError = "Selected drive is not ready.";
+            return;
+        }
+
+        if (ProbeAppDataWritable() is { } probeFailure)
+        {
+            ScanPathError = $"Startup preflight failed: {probeFailure}";
+            return;
+        }
+
+        ScanPathError = string.Empty;
+        ScanStepText = "Step 1 of 4 · Choose scope";
+    }
+
+    /// <summary>How long a readiness answer is trusted before the volume is asked again.</summary>
+    private static readonly TimeSpan DriveReadinessTtl = TimeSpan.FromSeconds(10);
+
+    private static readonly Dictionary<string, (DateTime CheckedUtc, bool IsReady)> DriveReadinessCache =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Answers "is this volume attached?" from a short-lived cache.
+    /// <para>
+    /// <see cref="DriveInfo.IsReady"/> is the expensive half of path validation: on a
+    /// stale mapped drive or a spun-down disk it blocks for seconds, and validation
+    /// runs on the UI thread on every keystroke in the path box. A ten-second answer
+    /// keeps typing responsive while still noticing a drive that was just plugged in
+    /// or pulled out.
+    /// </para>
+    /// </summary>
+    private static bool IsDriveReady(string root)
+    {
+        var now = DateTime.UtcNow;
+        lock (DriveReadinessCache)
+        {
+            if (DriveReadinessCache.TryGetValue(root, out var cached) &&
+                now - cached.CheckedUtc < DriveReadinessTtl)
+            {
+                return cached.IsReady;
+            }
+        }
+
+        bool ready;
         try
         {
-            var root = Path.GetPathRoot(candidate);
-            if (!string.IsNullOrWhiteSpace(root))
-            {
-                var drive = new DriveInfo(root);
-                if (!drive.IsReady)
-                {
-                    ScanPathError = "Selected drive is not ready.";
-                    return;
-                }
-            }
+            ready = new DriveInfo(root).IsReady;
+        }
+        catch
+        {
+            // An unparseable or vanished root is simply not scannable.
+            ready = false;
+        }
 
+        lock (DriveReadinessCache)
+        {
+            DriveReadinessCache[root] = (DateTime.UtcNow, ready);
+        }
+
+        return ready;
+    }
+
+    /// <summary>Set once the write probe has succeeded; failures are never cached.</summary>
+    private static bool _appDataProbePassed;
+
+    /// <summary>
+    /// Checks that this install can write to its own AppData folder, at most once per
+    /// process. Returns null when writable, otherwise the failure message.
+    /// <para>
+    /// The answer describes the install, not the path being validated, so repeating
+    /// the create/write/delete on every keystroke was pure UI-thread disk I/O. Only
+    /// success is remembered: after a failure the user may fix the permission and
+    /// retype, and a cached failure would keep the scan blocked until restart.
+    /// </para>
+    /// </summary>
+    private static string? ProbeAppDataWritable()
+    {
+        if (Volatile.Read(ref _appDataProbePassed))
+            return null;
+
+        try
+        {
             var appDataRoot = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                 "StorageMaster");
@@ -453,12 +537,11 @@ public sealed partial class ScanViewModel : ObservableObject
         }
         catch (Exception ex)
         {
-            ScanPathError = $"Startup preflight failed: {ex.Message}";
-            return;
+            return ex.Message;
         }
 
-        ScanPathError = string.Empty;
-        ScanStepText = "Step 1 of 4 · Choose scope";
+        Volatile.Write(ref _appDataProbePassed, true);
+        return null;
     }
 
     private static string FormatDuration(TimeSpan value)
@@ -490,13 +573,41 @@ public sealed partial class ScanViewModel : ObservableObject
         }
     }
 
+    /// <summary>
+    /// Exponential moving average. The scanner reports every 300 ms and raw
+    /// per-sample rates swing wildly between a folder of large media and a folder
+    /// of source files, so the displayed figure is smoothed rather than raw.
+    /// </summary>
+    private static double Smooth(double previous, double sample) =>
+        previous <= 0 ? sample : (previous * 0.75d) + (sample * 0.25d);
+
+    /// <summary>
+    /// Bytes per second is the wrong meter for trees of small files: throughput is
+    /// bound by file count, so MB/s collapses while the scanner is in fact working
+    /// hard. The file rate is shown alongside it, switching to per-minute when the
+    /// per-second figure would round to zero.
+    /// </summary>
+    private static string FormatFileRate(double filesPerSecond)
+    {
+        if (filesPerSecond <= 0)
+            return "Calculating";
+
+        if (filesPerSecond < 1)
+            return $"{filesPerSecond * 60:N0} files/min";
+
+        return $"{filesPerSecond:N0} files/s";
+    }
+
     private string EstimateRemainingText(long bytesScanned)
     {
         if (_smoothedBytesPerSecond <= 1)
-            return "Waiting for data";
+            return "Estimating…";
 
+        // An estimate is only offered when the scan covers a whole drive, because
+        // that is the only case with a trustworthy total. Extrapolating a subtree
+        // from drive usage produced figures like "10h 33m" that were pure noise.
         if (_estimatedScanBytes <= 0)
-            return "Unknown total";
+            return "No estimate for a subtree";
 
         var remainingBytes = _estimatedScanBytes - bytesScanned;
         if (remainingBytes <= 0)

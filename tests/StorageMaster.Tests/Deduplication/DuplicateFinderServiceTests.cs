@@ -265,12 +265,13 @@ public sealed class DuplicateFinderServiceTests : IDisposable
             It.IsAny<DuplicateCandidate>(), It.IsAny<CancellationToken>()), Times.Never);
         repo.Verify(repository => repository.SaveResultsAsync(
             It.IsAny<long>(),
-            It.Is<IReadOnlyList<DuplicateSignature>>(signatures =>
-                signatures.Count == 1 && signatures[0].SignatureText == "cached"),
+            It.Is<IReadOnlyList<DuplicateSignature>>(signatures => signatures.Count == 0),
             It.IsAny<IReadOnlyList<DuplicateGroup>>(),
             It.IsAny<IReadOnlyList<DuplicateGroupMember>>(),
             It.IsAny<IReadOnlyList<DuplicateError>>(),
-            It.IsAny<CancellationToken>()), Times.Once);
+            It.IsAny<CancellationToken>()), Times.Once,
+            "a reused cache hit is already persisted — re-upserting it would rewrite "
+            + "every unchanged row of the session under the write lock for no change");
     }
 
     public void Dispose()

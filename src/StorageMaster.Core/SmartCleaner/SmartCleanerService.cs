@@ -185,7 +185,7 @@ public sealed class SmartCleanerService : ISmartCleanerService
                 files,
                 snapshots,
                 warnings,
-                snapshot => IsThumbnailTarget(snapshot.Path),
+                snapshot => IsThumbnailTargetUnder(snapshot.Path, thumbnailRoot),
                 ct).ConfigureAwait(false);
             AddGroupIfNotEmpty(
                 SmartCleanSource.ThumbnailCache,
@@ -276,6 +276,11 @@ public sealed class SmartCleanerService : ISmartCleanerService
             {
                 ct.ThrowIfCancellationRequested();
 
+                // The allow-listed roots are fixed for the whole group, so resolve them
+                // once here instead of rebuilding them for every path (see
+                // SmartCleanBoundaryResolver for what that cost on browser caches).
+                var boundaryResolver = SmartCleanBoundaryResolver.Create(group.Source);
+
                 foreach (var path in distinctPaths)
                 {
                     ct.ThrowIfCancellationRequested();
@@ -286,7 +291,7 @@ public sealed class SmartCleanerService : ISmartCleanerService
                         continue;
                     }
 
-                    if (!TryResolveAllowedBoundary(group.Source, path, out var boundaryRoot))
+                    if (!boundaryResolver.TryResolveAllowedBoundary(path, out var boundaryRoot))
                     {
                         RejectPath(path, "Path is outside the selected Smart Cleaner source boundary.");
                         continue;
@@ -514,135 +519,139 @@ public sealed class SmartCleanerService : ISmartCleanerService
     private static Dictionary<string, FileSnapshot> CreateSnapshotMap() =>
         new(StringComparer.OrdinalIgnoreCase);
 
-    private static bool TryResolveAllowedBoundary(
-        SmartCleanSource source,
-        string path,
-        out string boundaryRoot)
+    /// <summary>
+    /// The allow-listed deletion boundaries of one <see cref="SmartCleanSource"/>,
+    /// resolved once per clean operation rather than once per path.
+    ///
+    /// The roots are fixed for the whole run — analysis resolves them exactly once —
+    /// but the per-path check used to rebuild them for every single file. On
+    /// <see cref="SmartCleanSource.BrowserCache"/> that meant re-enumerating every
+    /// Chromium and Firefox profile directory (hundreds of metadata syscalls, tens of
+    /// milliseconds) per deleted file, which dominated the entire clean.
+    ///
+    /// Snapshotting the roots up front is also strictly more conservative than
+    /// resolving per path: a cache directory that appears mid-run is never added to
+    /// the allow-list, and every accepted path still has to pass the per-file
+    /// validated-open lease — which re-checks directory ancestry against the boundary
+    /// returned here — before anything is deleted.
+    /// </summary>
+    private sealed class SmartCleanBoundaryResolver
     {
-        boundaryRoot = string.Empty;
-        if (!TryCanonicalizeAbsolutePath(path, out var canonicalPath) || Directory.Exists(canonicalPath))
-            return false;
+        private readonly IReadOnlyList<ResolvedBoundary> _boundaries;
+        private readonly bool _requireThumbnailName;
 
-        switch (source)
+        private SmartCleanBoundaryResolver(
+            IReadOnlyList<ResolvedBoundary> boundaries,
+            bool requireThumbnailName)
         {
-            case SmartCleanSource.TemporaryFiles:
-                return TryFindContainingRoot(canonicalPath, GetTempRoots(), out boundaryRoot);
-
-            case SmartCleanSource.BrowserCache:
-                foreach (var location in GetBrowserCacheLocations())
-                {
-                    if (!IsStrictDescendant(canonicalPath, location.ScanRoot))
-                        continue;
-
-                    boundaryRoot = location.BoundaryRoot;
-                    return true;
-                }
-                return false;
-
-            case SmartCleanSource.WindowsUpdateCache:
-                return TryResolveKnownFolderBoundary(
-                    canonicalPath,
-                    Environment.SpecialFolder.Windows,
-                    ["SoftwareDistribution", "Download"],
-                    out boundaryRoot);
-
-            case SmartCleanSource.WindowsErrorReporting:
-                return TryFindContainingRoot(canonicalPath, GetWerDirectoryRoots(), out boundaryRoot);
-
-            case SmartCleanSource.DeliveryOptimizationCache:
-                return TryResolveKnownFolderBoundary(
-                    canonicalPath,
-                    Environment.SpecialFolder.Windows,
-                    ["SoftwareDistribution", "DeliveryOptimization"],
-                    out boundaryRoot);
-
-            case SmartCleanSource.ThumbnailCache:
-                if (!IsThumbnailTarget(canonicalPath) ||
-                    !TryGetKnownFolderChild(
-                        Environment.SpecialFolder.LocalApplicationData,
-                        ["Microsoft", "Windows", "Explorer"],
-                        out boundaryRoot))
-                {
-                    boundaryRoot = string.Empty;
-                    return false;
-                }
-                return true;
-
-            case SmartCleanSource.DirectXShaderCache:
-                return TryResolveKnownFolderBoundary(
-                    canonicalPath,
-                    Environment.SpecialFolder.LocalApplicationData,
-                    ["D3DSCache"],
-                    out boundaryRoot);
-
-            default:
-                return false;
-        }
-    }
-
-    private static bool TryResolveKnownFolderBoundary(
-        string path,
-        Environment.SpecialFolder folder,
-        string[] childSegments,
-        out string boundaryRoot)
-    {
-        if (TryGetKnownFolderChild(folder, childSegments, out boundaryRoot) &&
-            IsStrictDescendant(path, boundaryRoot))
-        {
-            return true;
+            _boundaries = boundaries;
+            _requireThumbnailName = requireThumbnailName;
         }
 
-        boundaryRoot = string.Empty;
-        return false;
-    }
-
-    private static bool TryFindContainingRoot(
-        string path,
-        IEnumerable<string> roots,
-        out string boundaryRoot)
-    {
-        foreach (var root in roots)
+        internal static SmartCleanBoundaryResolver Create(SmartCleanSource source) => source switch
         {
-            if (!IsStrictDescendant(path, root))
-                continue;
+            SmartCleanSource.TemporaryFiles => FromRoots(GetTempRoots()),
 
-            boundaryRoot = root;
-            return true;
-        }
+            SmartCleanSource.BrowserCache => FromLocations(GetBrowserCacheLocations()),
 
-        boundaryRoot = string.Empty;
-        return false;
-    }
+            SmartCleanSource.WindowsUpdateCache => FromKnownFolder(
+                Environment.SpecialFolder.Windows,
+                ["SoftwareDistribution", "Download"]),
 
-    private static bool IsThumbnailTarget(string path)
-    {
-        if (!TryGetKnownFolderChild(
+            SmartCleanSource.WindowsErrorReporting => FromRoots(GetWerDirectoryRoots()),
+
+            SmartCleanSource.DeliveryOptimizationCache => FromKnownFolder(
+                Environment.SpecialFolder.Windows,
+                ["SoftwareDistribution", "DeliveryOptimization"]),
+
+            // Thumbnail cleaning only ever targets thumbcache_*.db sitting directly in
+            // the Explorer folder, so that name/parent check stays per path.
+            SmartCleanSource.ThumbnailCache => FromKnownFolder(
                 Environment.SpecialFolder.LocalApplicationData,
                 ["Microsoft", "Windows", "Explorer"],
-                out var root) ||
-            !PathsEqual(Path.GetDirectoryName(path) ?? string.Empty, root))
+                requireThumbnailName: true),
+
+            SmartCleanSource.DirectXShaderCache => FromKnownFolder(
+                Environment.SpecialFolder.LocalApplicationData,
+                ["D3DSCache"]),
+
+            _ => new SmartCleanBoundaryResolver([], requireThumbnailName: false),
+        };
+
+        internal bool TryResolveAllowedBoundary(string path, out string boundaryRoot)
         {
+            boundaryRoot = string.Empty;
+            if (!TryCanonicalizeAbsolutePath(path, out var canonicalPath) || Directory.Exists(canonicalPath))
+                return false;
+
+            foreach (var boundary in _boundaries)
+            {
+                if (!boundary.IsStrictDescendant(canonicalPath))
+                    continue;
+
+                if (_requireThumbnailName && !IsThumbnailTargetUnder(canonicalPath, boundary.ScanRoot))
+                    continue;
+
+                boundaryRoot = boundary.BoundaryRoot;
+                return true;
+            }
+
             return false;
         }
+
+        private static SmartCleanBoundaryResolver FromRoots(IEnumerable<string> roots) =>
+            FromLocations(roots.Select(root => new SmartCleanScanLocation(root, root)));
+
+        private static SmartCleanBoundaryResolver FromKnownFolder(
+            Environment.SpecialFolder folder,
+            string[] segments,
+            bool requireThumbnailName = false) =>
+            TryGetKnownFolderChild(folder, segments, out var root)
+                ? FromLocations([new SmartCleanScanLocation(root, root)], requireThumbnailName)
+                : new SmartCleanBoundaryResolver([], requireThumbnailName);
+
+        private static SmartCleanBoundaryResolver FromLocations(
+            IEnumerable<SmartCleanScanLocation> locations,
+            bool requireThumbnailName = false)
+        {
+            var boundaries = new List<ResolvedBoundary>();
+            foreach (var location in locations)
+            {
+                // A root that cannot be canonicalized can never contain a canonical
+                // path, so dropping it here fails closed exactly as before.
+                if (!TryCanonicalizeAbsolutePath(location.ScanRoot, out var scanRoot))
+                    continue;
+
+                boundaries.Add(new ResolvedBoundary(
+                    location.BoundaryRoot,
+                    scanRoot,
+                    scanRoot.EndsWith(Path.DirectorySeparatorChar)
+                        ? scanRoot
+                        : scanRoot + Path.DirectorySeparatorChar));
+            }
+
+            return new SmartCleanBoundaryResolver(boundaries, requireThumbnailName);
+        }
+
+        private sealed record ResolvedBoundary(
+            string BoundaryRoot,
+            string ScanRoot,
+            string ScanRootPrefix)
+        {
+            internal bool IsStrictDescendant(string canonicalPath) =>
+                !string.Equals(canonicalPath, ScanRoot, StringComparison.OrdinalIgnoreCase) &&
+                canonicalPath.StartsWith(ScanRootPrefix, StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
+    private static bool IsThumbnailTargetUnder(string path, string explorerRoot)
+    {
+        if (!PathsEqual(Path.GetDirectoryName(path) ?? string.Empty, explorerRoot))
+            return false;
 
         var name = Path.GetFileName(path);
         return name.StartsWith("thumbcache_", StringComparison.OrdinalIgnoreCase) &&
                name.EndsWith(".db", StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static bool IsStrictDescendant(string path, string root)
-    {
-        if (!TryCanonicalizeAbsolutePath(path, out var canonicalPath) ||
-            !TryCanonicalizeAbsolutePath(root, out var canonicalRoot) ||
-            PathsEqual(canonicalPath, canonicalRoot))
-        {
-            return false;
-        }
-
-        var prefix = canonicalRoot.EndsWith(Path.DirectorySeparatorChar)
-            ? canonicalRoot
-            : canonicalRoot + Path.DirectorySeparatorChar;
-        return canonicalPath.StartsWith(prefix, StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool PathsEqual(string left, string right) =>

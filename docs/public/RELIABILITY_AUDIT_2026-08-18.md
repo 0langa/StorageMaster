@@ -1,5 +1,7 @@
 # StorageMaster reliability audit — 2026-08-18
 
+> **Dated snapshot.** Findings, evidence, and test counts are as of 2026-08-18, when the schema was at v12. Later schema levels and their behaviour are documented in `ARCHITECTURE.md` and `CODEMAP.md`; this file is deliberately not revised, so it remains a faithful record of that audit.
+
 ## Outcome
 
 This audit found and corrected multiple data-loss, false-success, cancellation, persistence, migration, scheduling, updater, and UI-lifecycle defects. The work materially raises StorageMaster's safety and fault tolerance, but it does not claim literal 100% reliability. Filesystems, shell APIs, hardware, process crashes, and untested Windows configurations still impose limits listed below.

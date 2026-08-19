@@ -1,4 +1,4 @@
-<Page
+﻿<Page
     x:Class="StorageMaster.UI.Pages.DuplicatesPage"
     x:Name="PageRoot"
     AutomationProperties.Name="Duplicates page"
@@ -83,10 +83,7 @@
                      Title="Safety first"
                      Message="Exact matches can be batch-selected. Fuzzy text, image, and video matches require review; quarantine remains preferred when restore metadata exists." />
 
-        <Border
-                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                CornerRadius="10"
-                Padding="16">
+        <Border Style="{StaticResource SectionCardStyle}">
             <Grid RowSpacing="12">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
@@ -103,8 +100,8 @@
                         <TextBlock Text="Start analysis"
                                    Style="{StaticResource BodyStrongTextBlockStyle}" />
                         <TextBlock Text="{x:Bind ViewModel.LatestRunSummary, Mode=OneWay}"
-                                   Style="{StaticResource CaptionTextBlockStyle}"
-                                   Opacity="0.72"
+                                   Style="{StaticResource HelperTextStyle}"
+                                   
                                    TextWrapping="WrapWholeWords" />
 
                         <Grid ColumnSpacing="12" RowSpacing="12">
@@ -151,8 +148,8 @@
                         </Grid>
 
                         <TextBlock Text="{x:Bind ViewModel.ScopeHelpText, Mode=OneWay}"
-                                   Style="{StaticResource CaptionTextBlockStyle}"
-                                   Opacity="0.72"
+                                   Style="{StaticResource HelperTextStyle}"
+                                   
                                    TextWrapping="WrapWholeWords" />
 
                         <Expander Header="Folder scope and file filters">
@@ -181,9 +178,7 @@
                         <TextBlock Text="Match methods"
                                    Style="{StaticResource BodyStrongTextBlockStyle}" />
 
-                        <Border Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}"
-                                CornerRadius="8"
-                                Padding="12">
+                        <Border Style="{StaticResource SubtleCardStyle}">
                             <StackPanel Spacing="10">
                                 <TextBlock Text="Exact match is always on."
                                            FontWeight="SemiBold" />
@@ -193,15 +188,15 @@
                                               IsOn="{x:Bind ViewModel.IncludeImagePHash, Mode=TwoWay}"
                                               IsEnabled="{x:Bind ViewModel.IsImagePHashAvailable, Mode=OneWay}" />
                                 <TextBlock Text="{x:Bind ViewModel.ImageMethodSummary, Mode=OneWay}"
-                                           Style="{StaticResource CaptionTextBlockStyle}"
-                                           Opacity="0.72"
+                                           Style="{StaticResource HelperTextStyle}"
+                                           
                                            TextWrapping="WrapWholeWords" />
                                 <ToggleSwitch Header="Similar videos"
                                               IsOn="{x:Bind ViewModel.IncludeVideoPHash, Mode=TwoWay}"
                                               IsEnabled="{x:Bind ViewModel.IsVideoPHashAvailable, Mode=OneWay}" />
                                 <TextBlock Text="{x:Bind ViewModel.VideoMethodSummary, Mode=OneWay}"
-                                           Style="{StaticResource CaptionTextBlockStyle}"
-                                           Opacity="0.72"
+                                           Style="{StaticResource HelperTextStyle}"
+                                           
                                            TextWrapping="WrapWholeWords" />
                             </StackPanel>
                         </Border>
@@ -219,8 +214,8 @@
                                               IsOn="{x:Bind ViewModel.UseQuarantine, Mode=TwoWay}"
                                               IsEnabled="{x:Bind ViewModel.CanModifyDeletionPlan, Mode=OneWay}" />
                                 <TextBlock Text="{x:Bind ViewModel.DeleteModeSummary, Mode=OneWay}"
-                                           Style="{StaticResource CaptionTextBlockStyle}"
-                                           Opacity="0.72"
+                                           Style="{StaticResource HelperTextStyle}"
+                                           
                                            TextWrapping="WrapWholeWords" />
                             </StackPanel>
                         </Expander>
@@ -239,8 +234,8 @@
                                   Height="22" />
                     <TextBlock Grid.Column="1"
                                Text="{x:Bind ViewModel.StatusText, Mode=OneWay}"
-                               TextWrapping="WrapWholeWords"
-                               Opacity="0.85" />
+                               Style="{StaticResource HelperTextStyle}"
+                               VerticalAlignment="Center" />
                     <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8">
                         <TextBlock Text="{x:Bind ViewModel.ExportStatusText, Mode=OneWay}" />
                         <TextBlock Text="{x:Bind ViewModel.ProgressPhase, Mode=OneWay}" />
@@ -258,43 +253,36 @@
                 <ColumnDefinition Width="*" />
             </Grid.ColumnDefinitions>
 
-            <Border Grid.Column="0"
-                    Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}"
-                    CornerRadius="10"
-                    Padding="14">
-                <StackPanel>
-                    <TextBlock Text="Groups found" Style="{StaticResource BodyStrongTextBlockStyle}" />
-                    <TextBlock Text="{x:Bind ViewModel.TotalGroupCount, Mode=OneWay}" />
+            <!-- Four readouts on one baseline: label above value, same weight. -->
+            <Border Grid.Column="0" Style="{StaticResource MetricCardStyle}">
+                <StackPanel Spacing="2">
+                    <TextBlock Text="Groups found" Style="{StaticResource MetricLabelTextStyle}" />
+                    <TextBlock Text="{x:Bind ViewModel.TotalGroupCount, Mode=OneWay}" Style="{StaticResource MetricTextStyle}" />
                 </StackPanel>
             </Border>
 
-            <Border Grid.Column="1"
-                    Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}"
-                    CornerRadius="10"
-                    Padding="14">
-                <StackPanel>
-                    <TextBlock Text="Safe exact" Style="{StaticResource BodyStrongTextBlockStyle}" />
-                    <TextBlock Text="{x:Bind ViewModel.ExactGroupCount, Mode=OneWay}" />
+            <Border Grid.Column="1" Style="{StaticResource MetricCardStyle}">
+                <StackPanel Spacing="2">
+                    <TextBlock Text="Safe exact" Style="{StaticResource MetricLabelTextStyle}" />
+                    <TextBlock Text="{x:Bind ViewModel.ExactGroupCount, Mode=OneWay}"
+                               Style="{StaticResource MetricTextStyle}"
+                               Foreground="{StaticResource SmSeverityHealthyTextBrush}" />
                 </StackPanel>
             </Border>
 
-            <Border Grid.Column="2"
-                    Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}"
-                    CornerRadius="10"
-                    Padding="14">
-                <StackPanel>
-                    <TextBlock Text="Needs review" Style="{StaticResource BodyStrongTextBlockStyle}" />
-                    <TextBlock Text="{x:Bind ViewModel.ReviewGroupCount, Mode=OneWay}" />
+            <Border Grid.Column="2" Style="{StaticResource MetricCardStyle}">
+                <StackPanel Spacing="2">
+                    <TextBlock Text="Needs review" Style="{StaticResource MetricLabelTextStyle}" />
+                    <TextBlock Text="{x:Bind ViewModel.ReviewGroupCount, Mode=OneWay}"
+                               Style="{StaticResource MetricTextStyle}"
+                               Foreground="{StaticResource SmSeverityWarningTextBrush}" />
                 </StackPanel>
             </Border>
 
-            <Border Grid.Column="3"
-                    Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}"
-                    CornerRadius="10"
-                    Padding="14">
-                <StackPanel>
-                    <TextBlock Text="Reclaimable" Style="{StaticResource BodyStrongTextBlockStyle}" />
-                    <TextBlock Text="{x:Bind ViewModel.ReclaimableText, Mode=OneWay}" />
+            <Border Grid.Column="3" Style="{StaticResource MetricCardStyle}">
+                <StackPanel Spacing="2">
+                    <TextBlock Text="Reclaimable" Style="{StaticResource MetricLabelTextStyle}" />
+                    <TextBlock Text="{x:Bind ViewModel.ReclaimableText, Mode=OneWay}" Style="{StaticResource MetricTextStyle}" />
                 </StackPanel>
             </Border>
         </Grid>
@@ -305,10 +293,7 @@
                 <ColumnDefinition Width="3*" />
             </Grid.ColumnDefinitions>
 
-            <Border Grid.Column="0"
-                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                    CornerRadius="10"
-                    Padding="12">
+            <Border Grid.Column="0" Style="{StaticResource SectionCardStyle}">
                 <Grid RowSpacing="12">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
@@ -388,9 +373,7 @@
                               MaxHeight="520">
                         <ListView.ItemTemplate>
                             <DataTemplate x:DataType="local:DuplicateGroupItem">
-                                <Border Padding="10" Margin="0,0,0,8"
-                                        Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}"
-                                        CornerRadius="8">
+                                <Border Style="{StaticResource SubtleCardStyle}" Margin="0,0,0,8">
                                     <StackPanel Spacing="6">
                                         <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="10">
                                             <TextBlock Grid.Column="0"
@@ -402,8 +385,7 @@
                                                        Text="{x:Bind BadgeText}" />
                                         </Grid>
                                         <TextBlock Text="{x:Bind PathSummary}"
-                                                   TextWrapping="WrapWholeWords"
-                                                   Opacity="0.72" />
+                                                   Style="{StaticResource HelperTextStyle}" />
                                         <Grid ColumnDefinitions="Auto,Auto,Auto" ColumnSpacing="12">
                                             <TextBlock Grid.Column="0" Text="{x:Bind MemberCountText}" />
                                             <TextBlock Grid.Column="1" Text="{x:Bind ReclaimableSummaryText}" />
@@ -424,10 +406,7 @@
                     <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
 
-                <Border Grid.Row="0"
-                        Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                        CornerRadius="10"
-                        Padding="12">
+                <Border Grid.Row="0" Style="{StaticResource SectionCardStyle}">
                     <Grid RowSpacing="12">
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto" />
@@ -445,7 +424,8 @@
                             <StackPanel Grid.Column="0">
                                 <TextBlock Text="{x:Bind ViewModel.SelectedGroup.MethodText, Mode=OneWay}"
                                            Style="{StaticResource BodyStrongTextBlockStyle}" />
-                                <TextBlock Text="{x:Bind ViewModel.SelectedGroup.BadgeText, Mode=OneWay}" Opacity="0.75" />
+                                <TextBlock Text="{x:Bind ViewModel.SelectedGroup.BadgeText, Mode=OneWay}"
+                                           Style="{StaticResource HelperTextStyle}" />
                             </StackPanel>
                             <ComboBox Grid.Column="1"
                                       Header="Keep one file by"
@@ -457,24 +437,28 @@
 
                         <TextBlock Grid.Row="1"
                                    Text="{x:Bind ViewModel.PreviewSummary, Mode=OneWay}"
-                                   Opacity="0.7"
-                                   TextWrapping="WrapWholeWords" />
+                                   Style="{StaticResource HelperTextStyle}" />
 
+                        <!--
+                            ItemsRepeater, not ItemsControl: an ItemsControl never
+                            virtualises, so selecting an exact-duplicate group of a
+                            few hundred identical photos opened and decoded every
+                            one of them at once. A repeater inside this scroller
+                            realises only the previews actually on screen.
+                        -->
                         <ScrollViewer Grid.Row="2"
                                       HorizontalScrollBarVisibility="Auto"
                                       VerticalScrollBarVisibility="Disabled"
                                       MaxHeight="160"
                                       Visibility="{x:Bind ViewModel.HasPreviewItems, Mode=OneWay, Converter={StaticResource BoolVis}}">
-                            <ItemsControl ItemsSource="{x:Bind ViewModel.PreviewItems, Mode=OneWay}">
-                                <ItemsControl.ItemsPanel>
-                                    <ItemsPanelTemplate>
-                                        <StackPanel Orientation="Horizontal" Spacing="8" />
-                                    </ItemsPanelTemplate>
-                                </ItemsControl.ItemsPanel>
-                                <ItemsControl.ItemTemplate>
+                            <ItemsRepeater ItemsSource="{x:Bind ViewModel.PreviewItems, Mode=OneWay}">
+                                <ItemsRepeater.Layout>
+                                    <StackLayout Orientation="Horizontal" Spacing="8" />
+                                </ItemsRepeater.Layout>
+                                <ItemsRepeater.ItemTemplate>
                                     <DataTemplate x:DataType="models:DuplicatePreviewItem">
-                                        <Border Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}"
-                                                CornerRadius="6" Padding="8" MaxWidth="200">
+                                        <Border Style="{StaticResource SubtleCardStyle}"
+                                                Padding="8" Width="180">
                                             <StackPanel Spacing="4">
                                                 <Image Source="{x:Bind PreviewPath, Converter={StaticResource FilePathToImage}}"
                                                        MaxHeight="100" Stretch="Uniform" />
@@ -483,15 +467,14 @@
                                                            TextWrapping="WrapWholeWords"
                                                            MaxLines="2" />
                                                 <TextBlock Text="{x:Bind Subtitle}"
-                                                           Opacity="0.7"
                                                            TextWrapping="WrapWholeWords"
                                                            MaxLines="3"
-                                                           Style="{StaticResource CaptionTextBlockStyle}" />
+                                                           Style="{StaticResource MutedTextStyle}" />
                                             </StackPanel>
                                         </Border>
                                     </DataTemplate>
-                                </ItemsControl.ItemTemplate>
-                            </ItemsControl>
+                                </ItemsRepeater.ItemTemplate>
+                            </ItemsRepeater>
                         </ScrollViewer>
 
                         <ListView Grid.Row="3"
@@ -503,16 +486,23 @@
                                   Visibility="{x:Bind ViewModel.HasSelectedGroup, Mode=OneWay, Converter={StaticResource BoolVis}}">
                             <ListView.ItemTemplate>
                                 <DataTemplate x:DataType="local:DuplicateMemberItem">
-                                    <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto" ColumnSpacing="10">
+                                    <!--
+                                        Fixed value columns, not Auto: with Auto every
+                                        row measured itself and the sizes zig-zagged
+                                        down the list instead of forming a column the
+                                        eye can compare.
+                                    -->
+                                    <Grid ColumnDefinitions="Auto,*,110,110,150" ColumnSpacing="10">
                                         <CheckBox IsChecked="{x:Bind IsSelected, Mode=TwoWay}"
-                                                  IsEnabled="{x:Bind IsKeeper, Converter={StaticResource NotBool}}" />
-                                        <StackPanel Grid.Column="1">
+                                                  IsEnabled="{x:Bind IsKeeper, Converter={StaticResource NotBool}}"
+                                                  VerticalAlignment="Center" />
+                                        <StackPanel Grid.Column="1" VerticalAlignment="Center">
                                             <TextBlock Text="{x:Bind Member.FileName}" FontWeight="SemiBold" />
-                                            <TextBlock Text="{x:Bind Member.FullPath}" Opacity="0.7" TextWrapping="WrapWholeWords" />
+                                            <TextBlock Text="{x:Bind Member.FullPath}" Style="{StaticResource PathTextStyle}" />
                                         </StackPanel>
-                                        <TextBlock Grid.Column="2" Text="{x:Bind StatusText}" VerticalAlignment="Center" />
-                                        <TextBlock Grid.Column="3" Text="{x:Bind SizeText}" VerticalAlignment="Center" />
-                                        <TextBlock Grid.Column="4" Text="{x:Bind ModifiedText}" VerticalAlignment="Center" Opacity="0.7" />
+                                        <TextBlock Grid.Column="2" Text="{x:Bind StatusText}" Style="{StaticResource ColumnHeaderTextStyle}" />
+                                        <TextBlock Grid.Column="3" Text="{x:Bind SizeText}" Style="{StaticResource MetricColumnTextStyle}" />
+                                        <TextBlock Grid.Column="4" Text="{x:Bind ModifiedText}" Style="{StaticResource ColumnHeaderNumericTextStyle}" />
                                     </Grid>
                                 </DataTemplate>
                             </ListView.ItemTemplate>
@@ -524,10 +514,7 @@
                     </Grid>
                 </Border>
 
-                <Border Grid.Row="1"
-                        Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                        CornerRadius="10"
-                        Padding="12">
+                <Border Grid.Row="1" Style="{StaticResource SectionCardStyle}">
                     <Grid RowSpacing="8">
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto" />
@@ -545,7 +532,7 @@
                                 <DataTemplate x:DataType="models:DuplicateError">
                                     <StackPanel Spacing="4">
                                         <TextBlock Text="{x:Bind ErrorType}" FontWeight="SemiBold" />
-                                        <TextBlock Text="{x:Bind Path}" TextWrapping="WrapWholeWords" Opacity="0.72" />
+                                        <TextBlock Text="{x:Bind Path}" Style="{StaticResource HelperTextStyle}" />
                                         <TextBlock Text="{x:Bind Message}" TextWrapping="WrapWholeWords" />
                                     </StackPanel>
                                 </DataTemplate>
@@ -560,17 +547,14 @@
                     </Grid>
                 </Border>
 
-                <Border Grid.Row="2"
-                        Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                        CornerRadius="10"
-                        Padding="12"
+                <Border Grid.Row="2" Style="{StaticResource SectionCardStyle}"
                         Visibility="{x:Bind ViewModel.HasQuarantineItems, Mode=OneWay, Converter={StaticResource BoolVis}}">
                     <StackPanel Spacing="8">
                         <TextBlock Text="All quarantined files — restorable"
                                    Style="{StaticResource BodyStrongTextBlockStyle}" />
                         <TextBlock Text="Includes duplicate-run quarantines and generic cleanup quarantines."
-                                   Style="{StaticResource CaptionTextBlockStyle}"
-                                   Opacity="0.6" />
+                                   Style="{StaticResource MutedTextStyle}"
+                                    />
                         <ListView ItemsSource="{x:Bind ViewModel.QuarantineItems, Mode=OneWay}"
                                   MaxHeight="150"
                                   SelectionMode="None">
@@ -579,15 +563,14 @@
                                     <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8" Padding="0,4">
                                         <StackPanel Grid.Column="0">
                                             <TextBlock Text="{x:Bind OriginalPath}"
-                                                       TextWrapping="WrapWholeWords"
-                                                       Opacity="0.9" />
+                                                       TextWrapping="WrapWholeWords" />
                                             <StackPanel Orientation="Horizontal" Spacing="6">
                                                 <TextBlock Text="{x:Bind QuarantinedUtc}"
-                                                           Style="{StaticResource CaptionTextBlockStyle}"
-                                                           Opacity="0.6" />
+                                                           Style="{StaticResource MutedTextStyle}"
+                                                            />
                                                 <TextBlock Text="{x:Bind local:DuplicatesPage.DescribeQuarantineSource(MemberId)}"
-                                                           Style="{StaticResource CaptionTextBlockStyle}"
-                                                           Opacity="0.6" />
+                                                           Style="{StaticResource MutedTextStyle}"
+                                                            />
                                             </StackPanel>
                                         </StackPanel>
                                         <Button Grid.Column="1"

@@ -10,5 +10,4 @@ public sealed record ScanDeltaSummary
     public IReadOnlyList<ScanDeltaItem> RemovedFiles { get; init; } = [];
 
     public bool HasComparison => PreviousSessionId is > 0;
-    public ScanDeltaItem? BiggestGrowth => GrowingFolders.FirstOrDefault();
 }

@@ -1,7 +1,8 @@
-using FluentAssertions;
+﻿using FluentAssertions;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging.Abstractions;
 using StorageMaster.Storage;
+using StorageMaster.Storage.Schema;
 
 namespace StorageMaster.Tests.Storage;
 
@@ -41,7 +42,7 @@ public sealed class StorageDbContextSchemaValidationTests
             await using var connection = await context.GetConnectionAsync();
             using var versionCmd = connection.CreateCommand();
             versionCmd.CommandText = "SELECT MAX(Version) FROM SchemaVersion;";
-            Convert.ToInt32(await versionCmd.ExecuteScalarAsync()).Should().Be(12,
+            Convert.ToInt32(await versionCmd.ExecuteScalarAsync()).Should().Be(DatabaseSchema.CurrentVersion,
                 "the same context should retry cleanly after the database is repaired");
         }
         finally

@@ -1,4 +1,4 @@
-<Page
+﻿<Page
     x:Class="StorageMaster.UI.Pages.SettingsPage"
     AutomationProperties.Name="Settings page"
     x:Name="PageRoot"
@@ -36,6 +36,30 @@
                               SelectedItem="{x:Bind Theme, Mode=TwoWay}"
                               AutomationProperties.Name="Theme"
                               AutomationProperties.HelpText="Choose Light, Dark, or Default to follow Windows." />
+                </StackPanel>
+
+                <StackPanel Spacing="4">
+                    <TextBlock Text="Accent" Style="{StaticResource CaptionTextBlockStyle}" />
+                    <ComboBox ItemsSource="{x:Bind AccentOptions}"
+                              SelectedItem="{x:Bind Accent, Mode=TwoWay}"
+                              DisplayMemberPath="DisplayName"
+                              AutomationProperties.Name="Accent colour"
+                              AutomationProperties.HelpText="Accent used for emphasis and selection. Every accent is contrast-checked in both themes." />
+                    <TextBlock Text="Applies immediately. Severity colours stay fixed so a warning always reads as a warning."
+                               Style="{StaticResource HelperTextStyle}" />
+                </StackPanel>
+
+                <StackPanel Spacing="4">
+                    <TextBlock Text="Language" Style="{StaticResource CaptionTextBlockStyle}" />
+                    <ComboBox ItemsSource="{x:Bind LanguageOptions, Mode=OneWay}"
+                              SelectedItem="{x:Bind Language, Mode=TwoWay}"
+                              AutomationProperties.Name="Interface language"
+                              AutomationProperties.HelpText="Also pins the text Windows supplies for built-in controls, so the interface is not half translated." />
+                    <InfoBar IsOpen="{x:Bind LanguageRestartPending, Mode=OneWay}"
+                             Severity="Informational"
+                             IsClosable="False"
+                             Title="Restart required"
+                             Message="Windows supplies the text for built-in controls when they are created, so the new language applies after StorageMaster restarts." />
                 </StackPanel>
 
                 <StackPanel Spacing="4">
@@ -312,6 +336,20 @@
                         IsEnabled="{x:Bind CanPurgeHistory, Mode=OneWay}"
                         AutomationProperties.Name="Purge old scan history"
                         AutomationProperties.HelpText="Permanently removes scan sessions older than the retention days." />
+
+                <Border Style="{StaticResource SubtleCardStyle}">
+                    <StackPanel Spacing="8">
+                        <TextBlock Text="Space used by StorageMaster" Style="{StaticResource SectionHeaderTextStyle}" />
+                        <TextBlock Text="{x:Bind DatabaseSizeText, Mode=OneWay}" Style="{StaticResource MetricTextStyle}" />
+                        <TextBlock Text="Scan history, duplicate signatures and drive-health samples, including the write-ahead log. Deleting history frees space inside the file but does not shrink it until the database is compacted."
+                                   Style="{StaticResource HelperTextStyle}" />
+                        <Button Content="Compact database"
+                                Command="{x:Bind CompactDatabaseCommand}"
+                                IsEnabled="{x:Bind CanCompact, Mode=OneWay}"
+                                AutomationProperties.Name="Compact database"
+                                AutomationProperties.HelpText="Rebuilds the database file to release space already freed by deleted scan history. No scan data is removed." />
+                    </StackPanel>
+                </Border>
 
                 <TextBlock Text="Installer uninstall now preserves your database and settings in %LOCALAPPDATA%\StorageMaster by default."
                            Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.7" TextWrapping="Wrap" />
@@ -590,11 +628,16 @@
 
         <!-- Editor overlay -->
         <Grid Visibility="{x:Bind ViewModel.IsEditorOpen, Mode=OneWay, Converter={StaticResource BoolVis}}"
-              Background="{ThemeResource SmokeFillColorDefaultBrush}">
+              Background="{StaticResource SmokeFillColorDefaultBrush}">
+            <!--  The dialog row is star-sized rather than Auto. An Auto row is measured
+                  with infinite height, so the dialog grew to its own content height and
+                  its footer — Reset, Cancel and Save — was arranged below the visible
+                  viewport with no way to reach it. A star row is bounded by the window,
+                  so the footer stays pinned and only the body scrolls.  -->
             <Grid.RowDefinitions>
+                <RowDefinition Height="24" />
                 <RowDefinition Height="*" />
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="*" />
+                <RowDefinition Height="24" />
             </Grid.RowDefinitions>
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
@@ -607,8 +650,7 @@
                     CornerRadius="12"
                     Padding="0"
                     MaxWidth="860"
-                    MaxHeight="780"
-                    VerticalAlignment="Center"
+                    VerticalAlignment="Stretch"
                     HorizontalAlignment="Center">
                 <Grid>
                     <Grid.RowDefinitions>

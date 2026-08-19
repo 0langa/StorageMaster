@@ -1,6 +1,26 @@
-<ResourceDictionary
+﻿<ResourceDictionary
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!--
+        A merged dictionary cannot see its siblings while it is being parsed, so it
+        must merge the palette it references itself. Without this, StaticResource
+        lookups here fail at startup with "Cannot find a Resource with the Name/Key".
+    -->
+    <ResourceDictionary.MergedDictionaries>
+        <ResourceDictionary Source="PaletteBrushes.xaml" />
+    </ResourceDictionary.MergedDictionaries>
+
+
+    <!--
+        Three text weights only: primary for the thing itself, secondary for the
+        sentence that explains it, muted for the label above a number. Secondary
+        and muted are palette colours rather than opacity, because opacity over a
+        card and opacity over the page produced two different greys for the same
+        rank. Primary text deliberately keeps the inherited system foreground:
+        the palette is applied one frame after first paint, and body text must
+        never be able to flash away.
+    -->
 
     <Style x:Key="PageTitleTextStyle" TargetType="TextBlock" BasedOn="{StaticResource TitleLargeTextBlockStyle}">
         <Setter Property="TextWrapping" Value="NoWrap" />
@@ -9,7 +29,7 @@
     </Style>
 
     <Style x:Key="PageSubtitleTextStyle" TargetType="TextBlock" BasedOn="{StaticResource BodyTextBlockStyle}">
-        <Setter Property="Opacity" Value="{StaticResource SecondaryTextOpacity}" />
+        <Setter Property="Foreground" Value="{StaticResource SmTextSecondaryBrush}" />
         <Setter Property="TextWrapping" Value="WrapWholeWords" />
     </Style>
 
@@ -18,16 +38,65 @@
     </Style>
 
     <Style x:Key="HelperTextStyle" TargetType="TextBlock" BasedOn="{StaticResource CaptionTextBlockStyle}">
-        <Setter Property="Opacity" Value="{StaticResource SecondaryTextOpacity}" />
+        <Setter Property="Foreground" Value="{StaticResource SmTextSecondaryBrush}" />
         <Setter Property="TextWrapping" Value="WrapWholeWords" />
     </Style>
 
     <Style x:Key="MutedTextStyle" TargetType="TextBlock" BasedOn="{StaticResource CaptionTextBlockStyle}">
-        <Setter Property="Opacity" Value="{StaticResource MutedTextOpacity}" />
+        <Setter Property="Foreground" Value="{StaticResource SmTextMutedBrush}" />
         <Setter Property="TextWrapping" Value="WrapWholeWords" />
+    </Style>
+
+    <!--
+        Readout pair. A storage app is read as a table even when it is not drawn
+        as one: the eye compares the third number down a column against the one
+        above it. So every measured value uses the same size, the same weight and
+        the same right edge, and every caption above one uses the same muted
+        label. Mixing FontWeight="SemiBold" into an ad-hoc TextBlock is what made
+        the earlier columns impossible to scan.
+    -->
+    <Style x:Key="MetricLabelTextStyle" TargetType="TextBlock" BasedOn="{StaticResource CaptionTextBlockStyle}">
+        <Setter Property="Foreground" Value="{StaticResource SmTextMutedBrush}" />
+        <Setter Property="TextWrapping" Value="NoWrap" />
+        <Setter Property="TextTrimming" Value="CharacterEllipsis" />
     </Style>
 
     <Style x:Key="MetricTextStyle" TargetType="TextBlock" BasedOn="{StaticResource TitleTextBlockStyle}">
         <Setter Property="TextWrapping" Value="NoWrap" />
+        <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+    </Style>
+
+    <!-- A measured value inline in a row, rather than the headline of a tile. -->
+    <Style x:Key="MetricValueTextStyle" TargetType="TextBlock" BasedOn="{StaticResource BodyTextBlockStyle}">
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="TextWrapping" Value="NoWrap" />
+        <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+    </Style>
+
+    <!-- The same value where it sits in a right-aligned column of values. -->
+    <Style x:Key="MetricColumnTextStyle" TargetType="TextBlock" BasedOn="{StaticResource MetricValueTextStyle}">
+        <Setter Property="TextAlignment" Value="Right" />
+        <Setter Property="HorizontalAlignment" Value="Right" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+
+    <!-- Column heading over a right-aligned column of values. -->
+    <Style x:Key="ColumnHeaderTextStyle" TargetType="TextBlock" BasedOn="{StaticResource CaptionTextBlockStyle}">
+        <Setter Property="Foreground" Value="{StaticResource SmTextMutedBrush}" />
+        <Setter Property="TextWrapping" Value="NoWrap" />
+        <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+
+    <Style x:Key="ColumnHeaderNumericTextStyle" TargetType="TextBlock" BasedOn="{StaticResource ColumnHeaderTextStyle}">
+        <Setter Property="TextAlignment" Value="Right" />
+        <Setter Property="HorizontalAlignment" Value="Right" />
+    </Style>
+
+    <!-- A file system path: the tail matters more than the head, so it trims. -->
+    <Style x:Key="PathTextStyle" TargetType="TextBlock" BasedOn="{StaticResource CaptionTextBlockStyle}">
+        <Setter Property="Foreground" Value="{StaticResource SmTextMutedBrush}" />
+        <Setter Property="TextWrapping" Value="NoWrap" />
+        <Setter Property="TextTrimming" Value="CharacterEllipsis" />
     </Style>
 </ResourceDictionary>

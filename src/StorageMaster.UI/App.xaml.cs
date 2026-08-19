@@ -1,8 +1,9 @@
-using Microsoft.Extensions.DependencyInjection;
+﻿using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.UI.Xaml;
 using StorageMaster.Core.Interfaces;
 using StorageMaster.Core.Models;
+using StorageMaster.Platform.Windows;
 
 namespace StorageMaster.UI;
 
@@ -33,15 +34,63 @@ public partial class App : Application
         TaskScheduler.UnobservedTaskException += OnUnobservedTaskException;
 
         Services ??= ServiceBootstrapper.BuildServices();
+
+        // The language override is read by the resource system when a control is
+        // created, so it has to be set before any content exists. Settings are read
+        // synchronously here for that reason; the file is tiny and this runs once.
+        ApplyStartupLanguage();
+
         InitializeComponent();
     }
 
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
+        // Brush resources must exist before any page loads: an unresolved
+        // StaticResource is a load-time failure, not a fallback.
+        var theme = Services.GetRequiredService<Infrastructure.ThemeService>();
+        theme.EnsureResources();
+
+        // Seed the palette with its defaults before any window exists. The persisted
+        // preference is applied moments later, but without this seed every palette
+        // brush is transparent for the first frame — which is invisible on a surface
+        // and very visible on text.
+        theme.Apply(ThemePreference.Default, accentId: null);
+
         _window = Services.GetRequiredService<MainWindow>();
+        if (_window.Content is FrameworkElement themeRoot)
+            theme.Attach(themeRoot);
+
         _window.Activate();
         _ = ApplyRequestedThemeAsync();
+        _ = ReconcileAbandonedScansAsync();
         _ = RunStartupUpdateCheckAsync();
+    }
+
+    /// <summary>
+    /// Marks scan sessions abandoned by a previous process as interrupted. Without
+    /// this they stay Running forever, look identical to a scan in progress, and
+    /// their data is never reclaimable.
+    /// </summary>
+    private static async Task ReconcileAbandonedScansAsync()
+    {
+        try
+        {
+            var recovered = await Services
+                .GetRequiredService<ScanSessionRecoveryService>()
+                .ReconcileAsync()
+                .ConfigureAwait(false);
+
+            if (recovered > 0)
+            {
+                Services.GetRequiredService<ILogger<App>>().LogInformation(
+                    "Marked {Count} abandoned scan session(s) as interrupted.", recovered);
+            }
+        }
+        catch (Exception ex)
+        {
+            Services.GetRequiredService<ILogger<App>>()
+                .LogWarning(ex, "Startup reconciliation of abandoned scans failed.");
+        }
     }
 
     internal static void SetServices(IServiceProvider services) => Services = services;
@@ -79,25 +128,50 @@ public partial class App : Application
     {
         try
         {
-            if (_window?.Content is not FrameworkElement root)
+            if (_window?.Content is not FrameworkElement)
                 return;
 
-            var settings = await Services
-                .GetRequiredService<ISettingsRepository>()
-                .LoadAsync()
+            // ThemeService owns both the element theme and the palette, so they can
+            // never drift apart.
+            await Services
+                .GetRequiredService<Infrastructure.ThemeService>()
+                .ApplyFromSettingsAsync()
                 .ConfigureAwait(true);
-
-            root.RequestedTheme = settings.Theme switch
-            {
-                ThemePreference.Light => ElementTheme.Light,
-                ThemePreference.Dark => ElementTheme.Dark,
-                _ => ElementTheme.Default,
-            };
         }
         catch (Exception ex)
         {
             Services.GetRequiredService<ILogger<App>>()
                 .LogDebug(ex, "Failed to apply requested theme");
+        }
+    }
+
+    /// <summary>
+    /// Applies the persisted interface language before any UI is constructed.
+    /// <para>
+    /// Failure here is deliberately silent: an unreadable settings file must not
+    /// stop the app from starting, and the fallback — letting Windows choose — is
+    /// exactly what <see cref="UiLanguage.System"/> means anyway.
+    /// </para>
+    /// </summary>
+    private static void ApplyStartupLanguage()
+    {
+        try
+        {
+            // Task.Run, then block. Blocking directly on LoadAsync deadlocks: the
+            // repository hops to the thread pool and its continuation marshals back
+            // to this thread, which is the one waiting. Running the whole chain
+            // inside Task.Run gives it no SynchronizationContext to return to, so
+            // the continuation completes on the pool and this wait always finishes.
+            var settings = Task.Run(() =>
+                    Services.GetRequiredService<ISettingsRepository>().LoadAsync())
+                .GetAwaiter()
+                .GetResult();
+
+            Infrastructure.LanguageService.Apply(settings.Language);
+        }
+        catch (Exception)
+        {
+            Infrastructure.LanguageService.Apply(UiLanguage.System);
         }
     }
 

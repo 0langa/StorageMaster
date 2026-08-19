@@ -39,17 +39,41 @@ public sealed partial class SeverityBadge : UserControl
             badge.ApplyState();
     }
 
+    /// <summary>
+    /// Paints both halves of the badge's contrast pair from the same severity step.
+    /// <para>
+    /// The filled version set only the background and let the label inherit the theme
+    /// foreground, so one half of the pair moved with the theme and the other did not:
+    /// the same chip was readable in dark and failed AA in light. The chip is outlined
+    /// instead — ring and label take the severity <em>text</em> colour, which
+    /// <c>PaletteUsageContrastTests</c> proves is readable on every surface the app
+    /// paints, in both themes — while the dot keeps the fill colour so the state is
+    /// still scannable without reading the word.
+    /// </para>
+    /// <para>
+    /// The brushes are looked up rather than copied: <c>ThemeService</c> mutates the
+    /// live brush objects in place, so a badge that holds the resource follows an
+    /// accent or theme change without being reloaded.
+    /// </para>
+    /// </summary>
     private void ApplyState()
     {
         Bindings.Update();
-        var brushKey = Status switch
+        var (fillKey, textKey) = Status switch
         {
-            DriveHealthStatus.Healthy => "SeverityHealthyBrush",
-            DriveHealthStatus.Warning => "SeverityWarningBrush",
-            DriveHealthStatus.Critical => "SeverityCriticalBrush",
-            DriveHealthStatus.Unsupported => "SeverityUnknownBrush",
-            _ => "SeverityUnknownBrush",
+            DriveHealthStatus.Healthy => ("SeverityHealthyBrush", "SeverityHealthyTextBrush"),
+            DriveHealthStatus.Warning => ("SeverityWarningBrush", "SeverityWarningTextBrush"),
+            DriveHealthStatus.Critical => ("SeverityCriticalBrush", "SeverityCriticalTextBrush"),
+            DriveHealthStatus.Unsupported => ("SeverityUnknownBrush", "SeverityUnknownTextBrush"),
+            _ => ("SeverityUnknownBrush", "SeverityUnknownTextBrush"),
         };
-        BadgeBorder.Background = Application.Current.Resources[brushKey] as Brush;
+
+        var textBrush = FindBrush(textKey);
+        BadgeBorder.BorderBrush = textBrush;
+        BadgeTextBlock.Foreground = textBrush;
+        BadgeDot.Fill = FindBrush(fillKey);
     }
+
+    private static Brush? FindBrush(string key) =>
+        Application.Current.Resources.TryGetValue(key, out var resource) ? resource as Brush : null;
 }

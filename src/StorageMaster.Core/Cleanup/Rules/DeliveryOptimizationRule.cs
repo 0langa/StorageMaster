@@ -41,9 +41,11 @@ public sealed class DeliveryOptimizationRule : ICleanupRule
             if (!Directory.Exists(dir)) continue;
             try
             {
-                long size = Directory
-                    .EnumerateFiles(dir, "*", SearchOption.AllDirectories)
-                    .Sum(f => { try { return new FileInfo(f).Length; } catch { return 0L; } });
+                // Sizes come from the enumeration itself — the string overload would
+                // discard them and re-stat every file.
+                long size = new DirectoryInfo(dir)
+                    .EnumerateFiles("*", SearchOption.AllDirectories)
+                    .Sum(file => { try { return file.Length; } catch { return 0L; } });
                 if (size == 0) continue;
                 totalBytes += size;
                 if (!paths.Contains(dir, StringComparer.OrdinalIgnoreCase))

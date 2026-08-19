@@ -1,22 +1,27 @@
-<UserControl
+﻿<UserControl
     x:Class="StorageMaster.UI.Controls.RadialGauge"
     x:Name="Root"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
 
+    <!--
+        The gauge track is the sunken surface so the arc reads as a value drawn
+        into the panel rather than a control floating on it.
+    -->
     <Grid Width="{x:Bind GaugeSize, Mode=OneWay}" Height="{x:Bind GaugeSize, Mode=OneWay}">
         <ProgressRing IsActive="False"
                       Value="{x:Bind Value, Mode=OneWay}"
                       Maximum="100"
+                      Background="{StaticResource SmSurfaceSunkenBrush}"
                       Width="{x:Bind GaugeSize, Mode=OneWay}"
-                      Height="{x:Bind GaugeSize, Mode=OneWay}" />
+                      Height="{x:Bind GaugeSize, Mode=OneWay}"
+                      AutomationProperties.Name="{x:Bind AutomationText, Mode=OneWay}" />
         <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="0">
             <TextBlock Text="{x:Bind ValueText, Mode=OneWay}"
                        Style="{StaticResource BodyStrongTextBlockStyle}"
                        TextAlignment="Center" />
             <TextBlock Text="{x:Bind Label, Mode=OneWay}"
-                       Style="{StaticResource CaptionTextBlockStyle}"
-                       Opacity="0.68"
+                       Style="{StaticResource MetricLabelTextStyle}"
                        TextAlignment="Center" />
         </StackPanel>
     </Grid>

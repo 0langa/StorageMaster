@@ -11,6 +11,8 @@ StorageMaster's visual regression suite is intentionally desktop-gated. The app 
 - Empty states: no scan, no duplicates, no quarantine records.
 - Error states: inaccessible file, missing FFmpeg, corrupt media, partial delete failure.
 - Themes: light and dark when enabled by the host.
+- Accents: at least the default (`aurora`) and one other, on a page that uses accent for state (Dashboard gauges, Drive Health severity), to confirm the live brush swap repaints without a restart.
+- Display scale: every page at 200 %, which is where a star-sized panel starved to zero height or an unbounded list stops virtualizing.
 
 ## Current automated behavior
 
@@ -20,15 +22,16 @@ The repository contains a skipped xUnit readiness test that records the required
 
 An interactive Windows session (unlocked desktop) is mandatory; a locked session captures only the lock screen.
 
-1. Build: `dotnet build StorageMaster.sln -c Release` and `cargo build --release` in `turbo-scanner/`; copy `turbo-scanner\target\release\turbo-scanner.exe` next to `src\StorageMaster.UI\bin\x64\Release\net8.0-windows10.0.19041.0\StorageMaster.UI.exe`.
-2. Launch that `StorageMaster.UI.exe` (the repo build, not the installed app).
-3. Walk the scenario list above using the `demo\` fixture pack: scan `demo\` (progress + populated results), run duplicate analysis on `demo\03-duplicates` (group list, keeper, preview), quarantine a demo duplicate and restore it (quarantine states + "All quarantined files" section), open each deletion confirmation variant and cancel, visit pages with a fresh state for empty states, and repeat key pages in light and dark theme.
-4. Store captures under `tests\visual-baselines\<date>\` as `<scenario>--<theme>.png`, with a `README.md` recording Windows version/build, display scale, theme, and StorageMaster version.
+1. Build: `dotnet build src/StorageMaster.UI/StorageMaster.UI.csproj -c Release -p:Platform=x64` and `cargo build --release` in `turbo-scanner/`; copy `turbo-scanner\target\release\turbo-scanner.exe` next to `src\StorageMaster.UI\bin\x64\Release\net8.0-windows10.0.19041.0\StorageMaster.UI.exe`. A solution build does **not** refresh that exe — the solution maps the UI project's `Any CPU` configuration to `x86` — so build the csproj with the platform named.
+2. Check the exe's modification time before launching it. A stale binary makes every subsequent observation meaningless, and it looks exactly like a real bug.
+3. Launch that `StorageMaster.UI.exe` (the repo build, not the installed app).
+4. Walk the scenario list above using the `demo\` fixture pack: scan `demo\` (progress + populated results), run duplicate analysis on `demo\03-duplicates` (group list, keeper, preview), quarantine a demo duplicate and restore it (quarantine states + "All quarantined files" section), open each deletion confirmation variant and cancel, visit pages with a fresh state for empty states, and repeat key pages in light and dark theme.
+5. Store captures under `tests\visual-baselines\<date>\` as `<scenario>--<theme>.png`, with a `README.md` recording Windows version/build, display scale, theme, accent, and StorageMaster version.
 
 Only quarantine/restore demo-pack files during capture — never real user data.
 
 ## Baseline rules
 
 - Baselines must be committed only when generated from deterministic fixture data.
-- Baselines must include the Windows version, display scale, app theme, and StorageMaster version.
+- Baselines must include the Windows version, display scale, app theme, selected accent, and StorageMaster version.
 - A pixel diff is not enough by itself; failures must include the screenshot pair and the state name.

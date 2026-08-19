@@ -1,7 +1,8 @@
-using FluentAssertions;
+﻿using FluentAssertions;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging.Abstractions;
 using StorageMaster.Storage;
+using StorageMaster.Storage.Schema;
 
 namespace StorageMaster.Tests.Storage;
 
@@ -21,7 +22,7 @@ public sealed class SchemaV11MigrationTests : IAsyncDisposable
         using (var versionCommand = connection.CreateCommand())
         {
             versionCommand.CommandText = "SELECT MAX(Version) FROM SchemaVersion;";
-            Convert.ToInt32(await versionCommand.ExecuteScalarAsync()).Should().Be(12);
+            Convert.ToInt32(await versionCommand.ExecuteScalarAsync()).Should().Be(DatabaseSchema.CurrentVersion);
         }
 
         using (var command = connection.CreateCommand())
@@ -95,6 +96,33 @@ public sealed class SchemaV11MigrationTests : IAsyncDisposable
 
             CREATE TABLE FileEntries (
                 Id INTEGER PRIMARY KEY AUTOINCREMENT
+            );
+
+            CREATE TABLE IF NOT EXISTS DuplicateRuns (
+                Id INTEGER PRIMARY KEY AUTOINCREMENT,
+                SessionId INTEGER NOT NULL REFERENCES ScanSessions(Id) ON DELETE CASCADE,
+                StartedUtc TEXT NOT NULL,
+                Status TEXT NOT NULL DEFAULT 'Completed',
+                ConfigJson TEXT NOT NULL DEFAULT '{}'
+            );
+            CREATE TABLE IF NOT EXISTS DuplicateGroups (
+                Id INTEGER PRIMARY KEY AUTOINCREMENT,
+                RunId INTEGER NOT NULL REFERENCES DuplicateRuns(Id) ON DELETE CASCADE,
+                RepresentativeFileEntryId INTEGER NOT NULL REFERENCES FileEntries(Id) ON DELETE CASCADE
+            );
+            CREATE TABLE IF NOT EXISTS DuplicateGroupMembers (
+                Id INTEGER PRIMARY KEY AUTOINCREMENT,
+                GroupId INTEGER NOT NULL REFERENCES DuplicateGroups(Id) ON DELETE CASCADE,
+                FileEntryId INTEGER NOT NULL REFERENCES FileEntries(Id) ON DELETE CASCADE
+            );
+            CREATE TABLE IF NOT EXISTS DuplicateErrors (
+                Id INTEGER PRIMARY KEY AUTOINCREMENT,
+                RunId INTEGER NOT NULL REFERENCES DuplicateRuns(Id) ON DELETE CASCADE,
+                FileEntryId INTEGER REFERENCES FileEntries(Id) ON DELETE CASCADE
+            );
+            CREATE TABLE IF NOT EXISTS DuplicateSignatures (
+                Id INTEGER PRIMARY KEY AUTOINCREMENT,
+                FileEntryId INTEGER NOT NULL REFERENCES FileEntries(Id) ON DELETE CASCADE
             );
 
             CREATE TABLE FolderEntries (

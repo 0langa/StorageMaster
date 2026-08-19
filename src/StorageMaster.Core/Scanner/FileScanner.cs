@@ -1,4 +1,5 @@
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
+using System.IO.Enumeration;
 using System.Runtime.CompilerServices;
 using System.Security;
 using System.Threading.Channels;
@@ -31,18 +32,21 @@ public sealed class FileScanner : IFileScanner
     private readonly IScanRepository _repo;
     private readonly IScanErrorRepository? _errorRepo;
     private readonly IFileIdentityProvider _identityProvider;
+    private readonly IDirectoryFileIdentityProvider? _directoryIdentityProvider;
     private readonly ILogger<FileScanner> _logger;
 
     public FileScanner(
         IScanRepository repo,
         ILogger<FileScanner> logger,
         IFileIdentityProvider identityProvider,
-        IScanErrorRepository? errorRepo = null)
+        IScanErrorRepository? errorRepo = null,
+        IDirectoryFileIdentityProvider? directoryIdentityProvider = null)
     {
         _repo = repo;
         _logger = logger;
         _identityProvider = identityProvider;
         _errorRepo = errorRepo;
+        _directoryIdentityProvider = directoryIdentityProvider;
     }
 
     public async Task<ScanSession> ScanAsync(
@@ -273,15 +277,27 @@ public sealed class FileScanner : IFileScanner
                 var dir = queue.Dequeue();
 
                 // In deep scan mode, skip the excluded-path list so everything is reachable.
-                if (!options.DeepScan && IsExcluded(dir, options))
-                    continue;
+                // The list is already normalised, so the directory is normalised once
+                // here and reused for the resolved-target check below, instead of both
+                // operands being re-normalised once per exclusion per check.
+                string? normalizedDir = null;
+                if (!options.DeepScan && options.ExcludedPaths.Count > 0)
+                {
+                    normalizedDir = ScanOptionValidator.NormalizeDirectoryPath(dir);
+                    if (ScanOptionValidator.IsNormalizedPathExcluded(normalizedDir, options.ExcludedPaths))
+                        continue;
+                }
 
                 if (!TryGetTraversalIdentity(dir, options.FollowSymlinks, out var identity))
                     continue;
 
                 // Apply exclusions to the resolved target too. Otherwise a junction
                 // alias could bypass a protected/excluded physical directory.
-                if (!options.DeepScan && IsExcluded(identity, options))
+                // `identity` is already normalised and equals normalizedDir unless a
+                // link was resolved, so the plain-directory case needs no second pass.
+                if (normalizedDir is not null &&
+                    !string.Equals(identity, normalizedDir, StringComparison.OrdinalIgnoreCase) &&
+                    ScanOptionValidator.IsNormalizedPathExcluded(identity, options.ExcludedPaths))
                     continue;
 
                 // Lexical paths are insufficient when following links: a junction
@@ -336,17 +352,21 @@ public sealed class FileScanner : IFileScanner
         {
             // Revalidate immediately before enumeration. A directory can be
             // replaced by a junction after the producer first inspected it.
-            if (!TryGetTraversalIdentity(dir, options.FollowSymlinks, out _))
+            // The revalidation already read the attributes, so the folder record
+            // takes its reparse-point flag from here instead of re-statting.
+            if (!TryGetTraversalIdentity(dir, options.FollowSymlinks, out _, out var isReparsePoint))
                 continue;
 
-            await ProcessDirectoryAsync(dir, options, state, ct).ConfigureAwait(false);
+            await ProcessDirectoryAsync(dir, options, state, isReparsePoint, ct).ConfigureAwait(false);
 
             // Flush when the buffer is large enough to amortise SQLite overhead.
+            // Opportunistic: a consumer that finds a flush already in progress goes
+            // straight back to enumerating instead of queueing behind the write.
             if (state.FileBuffer.Count >= options.DbBatchSize)
-                await FlushFileBufferAsync(state, ct).ConfigureAwait(false);
+                await TryFlushFileBufferAsync(state, ct).ConfigureAwait(false);
 
             if (state.FolderBuffer.Count >= Math.Max(1, options.DbBatchSize / 5))
-                await FlushFolderBufferAsync(state, ct).ConfigureAwait(false);
+                await TryFlushFolderBufferAsync(state, ct).ConfigureAwait(false);
         }
     }
 
@@ -354,6 +374,7 @@ public sealed class FileScanner : IFileScanner
         string dir,
         ScanOptions options,
         ScanState state,
+        bool isReparsePoint,
         CancellationToken ct)
     {
         long directBytes = 0;
@@ -372,48 +393,98 @@ public sealed class FileScanner : IFileScanner
 
         try
         {
-            // Enumerate files directly inside this directory.
-            foreach (var filePath in Directory.EnumerateFiles(dir, "*", fileEnumOptions))
+            // One directory handle yields identity for every child, replacing a
+            // per-file open. Null means the bulk read was unavailable or partial,
+            // in which case each file falls back to the per-file provider so
+            // identity is never silently lost.
+            var batchedIdentities = _directoryIdentityProvider is null
+                ? null
+                : await _directoryIdentityProvider
+                    .TryGetDirectoryIdentitiesAsync(dir, ct)
+                    .ConfigureAwait(false);
+
+            // FileSystemEnumerable exposes size, attributes and timestamps straight
+            // from the enumeration buffer, so no second stat per file is needed.
+            // It is the same underlying enumeration Directory.EnumerateFiles uses,
+            // driven by the same EnumerationOptions, so filtering is unchanged.
+            var enumerable = new FileSystemEnumerable<EnumeratedFile>(
+                dir,
+                static (ref FileSystemEntry entry) => new EnumeratedFile(
+                    entry.ToFullPath(),
+                    entry.FileName.ToString(),
+                    entry.Length,
+                    entry.CreationTimeUtc.UtcDateTime,
+                    entry.LastWriteTimeUtc.UtcDateTime,
+                    entry.LastAccessTimeUtc.UtcDateTime,
+                    entry.Attributes),
+                fileEnumOptions)
             {
+                // Subdirectories are counted here rather than by a second full
+                // directory read. AttributesToSkip and "."/".." are applied by the
+                // enumerator before this predicate runs, so the count matches what
+                // Directory.GetDirectories(dir, "*", fileEnumOptions) returned —
+                // without re-reading the directory or allocating a string[].
+                ShouldIncludePredicate = (ref FileSystemEntry entry) =>
+                {
+                    if (!entry.IsDirectory)
+                        return true;
+
+                    subDirCount++;
+                    return false;
+                },
+            };
+
+            foreach (var file in enumerable)
+            {
+                // Cancellation must land inside the loop: a package cache or mail
+                // store can hold hundreds of thousands of entries, and checking
+                // only between directories left Cancel unresponsive for the whole
+                // enumeration.
+                ct.ThrowIfCancellationRequested();
+
                 try
                 {
-                    // Capture identity before path-based metadata. If another
-                    // process replaces the file after this handle closes, the
-                    // persisted old identity makes later deletion fail closed.
-                    var identity = await _identityProvider
-                        .GetIdentityAsync(filePath, ct)
-                        .ConfigureAwait(false);
-                    var info = new FileInfo(filePath);
-                    if (!info.Exists) continue;
+                    // Identity is captured before the entry is persisted. If another
+                    // process replaces the file afterwards, the stored identity makes
+                    // a later deletion fail closed.
+                    FileIdentity? identity = null;
+                    if (batchedIdentities is null ||
+                        !batchedIdentities.TryGetValue(file.FileName, out identity))
+                    {
+                        identity = await _identityProvider
+                            .GetIdentityAsync(file.FullPath, ct)
+                            .ConfigureAwait(false);
+                    }
 
+                    var extension = Path.GetExtension(file.FileName);
                     var entry = new FileEntry
                     {
                         Id = 0, // assigned by DB
                         SessionId = state.SessionId,
-                        FullPath = filePath,
-                        FileName = info.Name,
-                        Extension = info.Extension,
-                        SizeBytes = info.Length,
-                        CreatedUtc = info.CreationTimeUtc,
-                        ModifiedUtc = info.LastWriteTimeUtc,
-                        AccessedUtc = info.LastAccessTimeUtc,
-                        Attributes = info.Attributes,
-                        Category = FileTypeCategorizor.Categorize(info.Extension),
+                        FullPath = file.FullPath,
+                        FileName = file.FileName,
+                        Extension = extension,
+                        SizeBytes = file.Length,
+                        CreatedUtc = file.CreatedUtc,
+                        ModifiedUtc = file.ModifiedUtc,
+                        AccessedUtc = file.AccessedUtc,
+                        Attributes = file.Attributes,
+                        Category = FileTypeCategorizor.Categorize(extension),
                         Identity = identity,
-                        IsReparsePoint = info.Attributes.HasFlag(FileAttributes.ReparsePoint),
+                        IsReparsePoint = file.Attributes.HasFlag(FileAttributes.ReparsePoint),
                     };
 
                     state.FileBuffer.Enqueue(entry);
-                    directBytes += info.Length;
+                    directBytes += file.Length;
                     fileCount++;
 
-                    Interlocked.Add(ref state._totalBytes, info.Length);
+                    Interlocked.Add(ref state._totalBytes, file.Length);
                     Interlocked.Increment(ref state._fileCount);
-                    state.LastScannedPath = filePath;
+                    state.LastScannedPath = file.FullPath;
                 }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
                 {
-                    _logger.LogDebug("Skip file {Path}: {Msg}", filePath, ex.Message);
+                    _logger.LogDebug("Skip file {Path}: {Msg}", file.FullPath, ex.Message);
                 }
             }
         }
@@ -453,10 +524,9 @@ public sealed class FileScanner : IFileScanner
             });
         }
 
-        // Count immediate subdirectories for the folder record (best-effort).
-        try { subDirCount = Directory.GetDirectories(dir, "*", fileEnumOptions).Length; }
-        catch { /* best-effort */ }
-
+        // subDirCount was accumulated by the enumeration above (best-effort: it is
+        // partial when the enumeration failed part-way, exactly as the former
+        // separate GetDirectories call was when it threw).
         var folderEntry = new FolderEntry
         {
             Id = 0,
@@ -467,7 +537,7 @@ public sealed class FileScanner : IFileScanner
             TotalSizeBytes = directBytes, // ancestor propagation done post-scan
             FileCount = fileCount,
             SubFolderCount = subDirCount,
-            IsReparsePoint = IsReparsePoint(dir),
+            IsReparsePoint = isReparsePoint,
             WasAccessDenied = accessDenied,
         };
 
@@ -482,25 +552,71 @@ public sealed class FileScanner : IFileScanner
     // removed only after the repository confirms the write, so cancellation or
     // a transient database failure cannot silently discard a drained batch.
 
+    /// <summary>
+    /// Threshold-triggered flush from an enumerating consumer. If another consumer
+    /// already holds the lock it will drain the whole queue anyway — the batch is a
+    /// snapshot of the entire ConcurrentQueue, not a fixed slice — so the others
+    /// return immediately and keep enumerating instead of all MaxParallelism tasks
+    /// stalling on the same SQLite transaction and its fsync. Whatever they queued
+    /// meanwhile is picked up by a later flush, and the terminal flush in ScanAsync
+    /// (and in FinalizePartialScanAsync) always waits, so nothing is left behind.
+    /// </summary>
+    private async Task TryFlushFileBufferAsync(ScanState state, CancellationToken ct)
+    {
+        if (!await state.FileFlushLock.WaitAsync(0, ct).ConfigureAwait(false))
+            return;
+
+        try
+        {
+            await DrainFileBufferAsync(state, ct).ConfigureAwait(false);
+        }
+        finally
+        {
+            state.FileFlushLock.Release();
+        }
+    }
+
     private async Task FlushFileBufferAsync(ScanState state, CancellationToken ct)
     {
         await state.FileFlushLock.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            var batch = state.FileBuffer.ToArray();
-            if (batch.Length == 0)
-                return;
-
-            await _repo.InsertFileEntriesAsync(batch, ct).ConfigureAwait(false);
-
-            for (var i = 0; i < batch.Length; i++)
-                state.FileBuffer.TryDequeue(out _);
-
-            state.RecordPersistedFiles(batch);
+            await DrainFileBufferAsync(state, ct).ConfigureAwait(false);
         }
         finally
         {
             state.FileFlushLock.Release();
+        }
+    }
+
+    /// <summary>Caller must hold <see cref="ScanState.FileFlushLock"/>.</summary>
+    private async Task DrainFileBufferAsync(ScanState state, CancellationToken ct)
+    {
+        var batch = state.FileBuffer.ToArray();
+        if (batch.Length == 0)
+            return;
+
+        await _repo.InsertFileEntriesAsync(batch, ct).ConfigureAwait(false);
+
+        for (var i = 0; i < batch.Length; i++)
+            state.FileBuffer.TryDequeue(out _);
+
+        state.RecordPersistedFiles(batch);
+    }
+
+    /// <summary>Folder-buffer counterpart of <see cref="TryFlushFileBufferAsync"/>.</summary>
+    private async Task TryFlushFolderBufferAsync(ScanState state, CancellationToken ct)
+    {
+        if (!await state.FolderFlushLock.WaitAsync(0, ct).ConfigureAwait(false))
+            return;
+
+        try
+        {
+            await DrainFolderBufferAsync(state, ct).ConfigureAwait(false);
+        }
+        finally
+        {
+            state.FolderFlushLock.Release();
         }
     }
 
@@ -509,21 +625,27 @@ public sealed class FileScanner : IFileScanner
         await state.FolderFlushLock.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            var batch = state.FolderBuffer.ToArray();
-            if (batch.Length == 0)
-                return;
-
-            await _repo.UpsertFolderEntriesAsync(batch, ct).ConfigureAwait(false);
-
-            for (var i = 0; i < batch.Length; i++)
-                state.FolderBuffer.TryDequeue(out _);
-
-            state.RecordPersistedFolders(batch.Length);
+            await DrainFolderBufferAsync(state, ct).ConfigureAwait(false);
         }
         finally
         {
             state.FolderFlushLock.Release();
         }
+    }
+
+    /// <summary>Caller must hold <see cref="ScanState.FolderFlushLock"/>.</summary>
+    private async Task DrainFolderBufferAsync(ScanState state, CancellationToken ct)
+    {
+        var batch = state.FolderBuffer.ToArray();
+        if (batch.Length == 0)
+            return;
+
+        await _repo.UpsertFolderEntriesAsync(batch, ct).ConfigureAwait(false);
+
+        for (var i = 0; i < batch.Length; i++)
+            state.FolderBuffer.TryDequeue(out _);
+
+        state.RecordPersistedFolders(batch.Length);
     }
 
     private async Task FlushErrorBufferAsync(ScanState state, CancellationToken ct)
@@ -641,9 +763,22 @@ public sealed class FileScanner : IFileScanner
         catch { return false; }
     }
 
-    private bool TryGetTraversalIdentity(string path, bool followSymlinks, out string identity)
+    private bool TryGetTraversalIdentity(string path, bool followSymlinks, out string identity) =>
+        TryGetTraversalIdentity(path, followSymlinks, out identity, out _);
+
+    /// <param name="isReparsePoint">
+    /// Whether <paramref name="path"/> itself is a reparse point. Returned so callers
+    /// do not have to stat the directory a second time to learn what this method
+    /// already read.
+    /// </param>
+    private bool TryGetTraversalIdentity(
+        string path,
+        bool followSymlinks,
+        out string identity,
+        out bool isReparsePoint)
     {
         identity = string.Empty;
+        isReparsePoint = false;
 
         try
         {
@@ -654,6 +789,7 @@ public sealed class FileScanner : IFileScanner
                 return true;
             }
 
+            isReparsePoint = true;
             if (!followSymlinks)
                 return false;
 
@@ -676,9 +812,6 @@ public sealed class FileScanner : IFileScanner
             return false;
         }
     }
-
-    private static bool IsExcluded(string path, ScanOptions options) =>
-        ScanOptionValidator.IsExcluded(path, options.ExcludedPaths);
 
     // ── Inner state container ──────────────────────────────────────────────
 
@@ -749,3 +882,18 @@ public sealed class FileScanner : IFileScanner
         }
     }
 }
+
+/// <summary>
+/// File metadata taken directly from the directory enumeration buffer.
+/// Reading these values from <see cref="FileSystemEntry"/> avoids a second stat
+/// per file, which is the difference between throughput scaling with bytes and
+/// throughput scaling with file count.
+/// </summary>
+internal readonly record struct EnumeratedFile(
+    string FullPath,
+    string FileName,
+    long Length,
+    DateTime CreatedUtc,
+    DateTime ModifiedUtc,
+    DateTime AccessedUtc,
+    FileAttributes Attributes);

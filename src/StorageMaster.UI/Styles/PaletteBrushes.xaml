@@ -1,0 +1,53 @@
+﻿<ResourceDictionary
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!--
+        The application palette, declared as real brush objects whose Color is
+        assigned at runtime by ThemeService.
+
+        They must be declared here, in XAML, merged before any dictionary that uses
+        them. A ThemeResource inside a Style Setter is resolved while the merged
+        dictionary is parsed — not lazily when the style is applied — so brushes
+        created later in code do not exist yet and startup fails outright with
+        "Cannot find a Resource with the Name/Key". Creating them in code was enough
+        for pages, which load after OnLaunched, but not for App-level styles.
+
+        Placeholder colours are never seen: ThemeService seeds the real palette
+        before the first window is created.
+    -->
+    <SolidColorBrush x:Key="SmSurfaceBaseBrush" Color="Transparent" />
+    <SolidColorBrush x:Key="SmSurfaceRaisedBrush" Color="Transparent" />
+    <SolidColorBrush x:Key="SmSurfaceOverlayBrush" Color="Transparent" />
+    <SolidColorBrush x:Key="SmSurfaceSunkenBrush" Color="Transparent" />
+    <SolidColorBrush x:Key="SmStrokeSubtleBrush" Color="Transparent" />
+    <SolidColorBrush x:Key="SmStrokeStrongBrush" Color="Transparent" />
+    <SolidColorBrush x:Key="SmTextPrimaryBrush" Color="Transparent" />
+    <SolidColorBrush x:Key="SmTextSecondaryBrush" Color="Transparent" />
+    <SolidColorBrush x:Key="SmTextMutedBrush" Color="Transparent" />
+    <SolidColorBrush x:Key="SmAccentFillBrush" Color="Transparent" />
+    <SolidColorBrush x:Key="SmAccentFillHoverBrush" Color="Transparent" />
+    <SolidColorBrush x:Key="SmAccentFillPressedBrush" Color="Transparent" />
+    <SolidColorBrush x:Key="SmAccentOnFillBrush" Color="Transparent" />
+    <SolidColorBrush x:Key="SmAccentOnSurfaceBrush" Color="Transparent" />
+    <SolidColorBrush x:Key="SmSeverityHealthyBrush" Color="Transparent" />
+    <SolidColorBrush x:Key="SmSeverityHealthyTextBrush" Color="Transparent" />
+    <SolidColorBrush x:Key="SmSeverityWatchBrush" Color="Transparent" />
+    <SolidColorBrush x:Key="SmSeverityWatchTextBrush" Color="Transparent" />
+    <SolidColorBrush x:Key="SmSeverityWarningBrush" Color="Transparent" />
+    <SolidColorBrush x:Key="SmSeverityWarningTextBrush" Color="Transparent" />
+    <SolidColorBrush x:Key="SmSeverityCriticalBrush" Color="Transparent" />
+    <SolidColorBrush x:Key="SmSeverityCriticalTextBrush" Color="Transparent" />
+    <SolidColorBrush x:Key="SmSeverityUnknownBrush" Color="Transparent" />
+    <SolidColorBrush x:Key="SmSeverityUnknownTextBrush" Color="Transparent" />
+
+    <SolidColorBrush x:Key="SmCategorical0Brush" Color="Transparent" />
+    <SolidColorBrush x:Key="SmCategorical1Brush" Color="Transparent" />
+    <SolidColorBrush x:Key="SmCategorical2Brush" Color="Transparent" />
+    <SolidColorBrush x:Key="SmCategorical3Brush" Color="Transparent" />
+    <SolidColorBrush x:Key="SmCategorical4Brush" Color="Transparent" />
+    <SolidColorBrush x:Key="SmCategorical5Brush" Color="Transparent" />
+    <SolidColorBrush x:Key="SmCategorical6Brush" Color="Transparent" />
+    <SolidColorBrush x:Key="SmCategorical7Brush" Color="Transparent" />
+
+</ResourceDictionary>

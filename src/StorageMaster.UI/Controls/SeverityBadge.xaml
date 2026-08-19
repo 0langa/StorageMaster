@@ -4,12 +4,29 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
 
+    <!--
+        An outlined chip, not a filled one.
+
+        The filled version set only the background from the severity ramp and let
+        the label inherit the theme foreground, so half of the contrast pair moved
+        with the theme and half did not: near-black on green failed AA in light,
+        and near-white on amber was far worse in dark. Outlining instead means the
+        label uses the severity *text* colour, which ThemeContrastTests proves is
+        readable on every surface in both themes, and the ring plus dot still make
+        the state scannable at a glance.
+    -->
     <Border x:Name="BadgeBorder"
+            Background="Transparent"
+            BorderThickness="1"
             Padding="{StaticResource ChipPadding}"
             CornerRadius="{StaticResource ChipCornerRadius}">
-        <TextBlock x:Name="BadgeTextBlock"
-                   Text="{x:Bind DisplayText, Mode=OneWay}"
-                   Style="{StaticResource CaptionTextBlockStyle}"
-                   FontWeight="SemiBold" />
+        <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+            <Ellipse x:Name="BadgeDot" Width="8" Height="8" VerticalAlignment="Center" />
+            <TextBlock x:Name="BadgeTextBlock"
+                       Text="{x:Bind DisplayText, Mode=OneWay}"
+                       Style="{StaticResource CaptionTextBlockStyle}"
+                       FontWeight="SemiBold"
+                       TextWrapping="NoWrap" />
+        </StackPanel>
     </Border>
 </UserControl>

@@ -1,4 +1,4 @@
-using Microsoft.Data.Sqlite;
+﻿using Microsoft.Data.Sqlite;
 using StorageMaster.Core.Interfaces;
 using StorageMaster.Core.Models;
 
@@ -17,11 +17,11 @@ public sealed class ScanErrorRepository : IScanErrorRepository
     {
         if (errors.Count == 0) return;
 
-        await _db.WriteLock.WaitAsync(ct);
+        await _db.WriteLock.WaitAsync(ct).ConfigureAwait(false);
         try
         {
             await using var conn = await _db.GetConnectionAsync(ct);
-            using var tx = await conn.BeginTransactionAsync(ct);
+            using var tx = await conn.BeginTransactionAsync(ct).ConfigureAwait(false);
             using var cmd = conn.CreateCommand();
             cmd.Transaction = (SqliteTransaction)tx;
             cmd.CommandText = """
@@ -42,10 +42,10 @@ public sealed class ScanErrorRepository : IScanErrorRepository
                 pType.Value = e.ErrorType;
                 pMsg.Value = e.Message;
                 pAt.Value = e.OccurredAt.ToString("O");
-                await cmd.ExecuteNonQueryAsync(ct);
+                await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
             }
 
-            await tx.CommitAsync(ct);
+            await tx.CommitAsync(ct).ConfigureAwait(false);
         }
         finally
         {
@@ -57,7 +57,7 @@ public sealed class ScanErrorRepository : IScanErrorRepository
         long sessionId,
         CancellationToken ct = default)
     {
-        return await GetErrorsPageForSessionAsync(sessionId, 0, int.MaxValue, ct);
+        return await GetErrorsPageForSessionAsync(sessionId, 0, int.MaxValue, ct).ConfigureAwait(false);
     }
 
     public async Task<IReadOnlyList<ScanError>> GetErrorsPageForSessionAsync(
@@ -78,9 +78,9 @@ public sealed class ScanErrorRepository : IScanErrorRepository
         cmd.Parameters.AddWithValue("$sid", sessionId);
         cmd.Parameters.AddWithValue("$limit", limit);
         cmd.Parameters.AddWithValue("$offset", offset);
-        using var reader = await cmd.ExecuteReaderAsync(ct);
+        using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
         var list = new List<ScanError>();
-        while (await reader.ReadAsync(ct))
+        while (await reader.ReadAsync(ct).ConfigureAwait(false))
         {
             list.Add(new ScanError
             {
@@ -105,6 +105,6 @@ public sealed class ScanErrorRepository : IScanErrorRepository
             WHERE SessionId = $sid;
             """;
         cmd.Parameters.AddWithValue("$sid", sessionId);
-        return Convert.ToInt64(await cmd.ExecuteScalarAsync(ct));
+        return Convert.ToInt64(await cmd.ExecuteScalarAsync(ct).ConfigureAwait(false));
     }
 }

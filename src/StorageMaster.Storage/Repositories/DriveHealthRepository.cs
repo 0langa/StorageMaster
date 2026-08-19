@@ -1,4 +1,4 @@
-using Microsoft.Data.Sqlite;
+﻿using Microsoft.Data.Sqlite;
 using StorageMaster.Core.Interfaces;
 using StorageMaster.Core.Models;
 
@@ -6,16 +6,22 @@ namespace StorageMaster.Storage.Repositories;
 
 public sealed class DriveHealthRepository(StorageDbContext db) : IDriveHealthRepository
 {
+    /// <summary>
+    /// Snapshots kept per drive. Matches the ceiling <see cref="GetHistoryAsync"/>
+    /// clamps its limit to, so retention never discards a row the app could show.
+    /// </summary>
+    internal const int MaxSnapshotsPerDrive = 1000;
+
     public async Task SaveSnapshotsAsync(IReadOnlyList<DriveHealthSnapshot> snapshots, CancellationToken ct = default)
     {
         if (snapshots.Count == 0)
             return;
 
-        await db.WriteLock.WaitAsync(ct);
+        await db.WriteLock.WaitAsync(ct).ConfigureAwait(false);
         try
         {
             await using var conn = await db.GetConnectionAsync(ct);
-            using var tx = await conn.BeginTransactionAsync(ct);
+            using var tx = await conn.BeginTransactionAsync(ct).ConfigureAwait(false);
             using var cmd = conn.CreateCommand();
             cmd.Transaction = (SqliteTransaction)tx;
             cmd.CommandText = """
@@ -63,10 +69,43 @@ public sealed class DriveHealthRepository(StorageDbContext db) : IDriveHealthRep
                 temperature.Value = (object?)snapshot.TemperatureCelsius ?? DBNull.Value;
                 wear.Value = (object?)snapshot.WearPercent ?? DBNull.Value;
                 captured.Value = snapshot.CapturedUtc.ToString("O");
-                await cmd.ExecuteNonQueryAsync(ct);
+                await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
             }
 
-            await tx.CommitAsync(ct);
+            // Nothing else prunes this table: every dashboard refresh, Drive Health page
+            // load and CLI health run appends a row per drive, DeleteSessionAsync cannot
+            // reach it (no session foreign key), and purging scan history leaves it
+            // untouched, so the file grew for the lifetime of the install. Trimming here
+            // keeps the write in the transaction that created the rows.
+            using var pruneCmd = conn.CreateCommand();
+            pruneCmd.Transaction = (SqliteTransaction)tx;
+            pruneCmd.CommandText = """
+                DELETE FROM DriveHealthSnapshots
+                WHERE Id IN (
+                    SELECT Id
+                    FROM DriveHealthSnapshots
+                    WHERE DriveName = $drive
+                    ORDER BY CapturedUtc DESC, Id DESC
+                    LIMIT -1 OFFSET $keep
+                );
+                """;
+            var pruneDrive = pruneCmd.Parameters.Add("$drive", SqliteType.Text);
+            pruneCmd.Parameters.AddWithValue("$keep", MaxSnapshotsPerDrive);
+
+            // Ordinal, because DriveName is compared with BINARY collation in SQL:
+            // a case-insensitive grouping here would leave one spelling unpruned.
+            var drives = snapshots
+                .Select(static snapshot => snapshot.DriveName)
+                .Distinct(StringComparer.Ordinal);
+
+            foreach (var driveName in drives)
+            {
+                ct.ThrowIfCancellationRequested();
+                pruneDrive.Value = driveName;
+                await pruneCmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+            }
+
+            await tx.CommitAsync(ct).ConfigureAwait(false);
         }
         finally
         {
@@ -90,9 +129,9 @@ public sealed class DriveHealthRepository(StorageDbContext db) : IDriveHealthRep
              AND latest.CapturedUtc = d.CapturedUtc
             ORDER BY d.DriveName;
             """;
-        using var reader = await cmd.ExecuteReaderAsync(ct);
+        using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
         var results = new List<DriveHealthSnapshot>();
-        while (await reader.ReadAsync(ct))
+        while (await reader.ReadAsync(ct).ConfigureAwait(false))
             results.Add(ReadSnapshot(reader));
         return results;
     }
@@ -112,10 +151,10 @@ public sealed class DriveHealthRepository(StorageDbContext db) : IDriveHealthRep
             LIMIT $limit;
             """;
         cmd.Parameters.AddWithValue("$drive", driveName);
-        cmd.Parameters.AddWithValue("$limit", Math.Clamp(limit, 1, 1000));
-        using var reader = await cmd.ExecuteReaderAsync(ct);
+        cmd.Parameters.AddWithValue("$limit", Math.Clamp(limit, 1, MaxSnapshotsPerDrive));
+        using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
         var results = new List<DriveHealthSnapshot>();
-        while (await reader.ReadAsync(ct))
+        while (await reader.ReadAsync(ct).ConfigureAwait(false))
             results.Add(ReadSnapshot(reader));
         return results;
     }

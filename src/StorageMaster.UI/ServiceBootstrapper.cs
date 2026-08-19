@@ -1,4 +1,4 @@
-using System.Net.Http.Headers;
+﻿using System.Net.Http.Headers;
 using System.Reflection;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -20,15 +20,39 @@ namespace StorageMaster.UI;
 
 internal static class ServiceBootstrapper
 {
+    /// <summary>
+    /// Directory holding the database, logs and quarantine.
+    /// <para>
+    /// Defaults to <c>%LOCALAPPDATA%\StorageMaster</c>. Setting
+    /// <c>STORAGEMASTER_DATA_DIR</c> redirects everything to another folder, which
+    /// is what a development or test build should use.
+    /// </para>
+    /// <para>
+    /// This exists because schema migrations are one-way. Running an in-progress
+    /// build against the real database upgrades it past what the released version
+    /// understands, and the released version then refuses to open it — correctly,
+    /// but the user is left with an app that cannot start. An override makes the
+    /// safe choice available instead of relying on remembering to be careful.
+    /// </para>
+    /// </summary>
+    public static string ResolveDataDirectory()
+    {
+        var overridden = Environment.GetEnvironmentVariable("STORAGEMASTER_DATA_DIR");
+        if (!string.IsNullOrWhiteSpace(overridden))
+            return Path.GetFullPath(overridden.Trim());
+
+        return Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "StorageMaster");
+    }
+
     public static IServiceProvider BuildServices()
     {
         var services = new ServiceCollection();
 
         services.AddLogging(b => b.AddDebug().SetMinimumLevel(LogLevel.Debug));
 
-        var dbPath = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "StorageMaster", "storagemaster.db");
+        var dbPath = Path.Combine(ResolveDataDirectory(), "storagemaster.db");
         services.AddSingleton(sp =>
             new StorageDbContext(dbPath, sp.GetRequiredService<ILogger<StorageDbContext>>()));
 
@@ -78,12 +102,17 @@ internal static class ServiceBootstrapper
         services.AddSingleton<IAdminService, AdminService>();
         services.AddSingleton<IInstalledProgramProvider, InstalledProgramProvider>();
         services.AddSingleton<IFileIdentityProvider, FileIdentityProvider>();
+        services.AddSingleton<IDirectoryFileIdentityProvider, DirectoryFileIdentityProvider>();
+        services.AddSingleton<ScanSessionRecoveryService>();
+        services.AddSingleton<Infrastructure.ThemeService>();
+        services.AddSingleton<IDatabaseMaintenance>(sp => sp.GetRequiredService<StorageDbContext>());
 
         services.AddSingleton<FileScanner>(sp => new FileScanner(
             sp.GetRequiredService<IScanRepository>(),
             sp.GetRequiredService<ILogger<FileScanner>>(),
             sp.GetRequiredService<IFileIdentityProvider>(),
-            sp.GetRequiredService<IScanErrorRepository>()));
+            sp.GetRequiredService<IScanErrorRepository>(),
+            sp.GetRequiredService<IDirectoryFileIdentityProvider>()));
         services.AddSingleton<TurboFileScanner>(sp => new TurboFileScanner(
             sp.GetRequiredService<IScanRepository>(),
             sp.GetRequiredService<ILogger<TurboFileScanner>>(),

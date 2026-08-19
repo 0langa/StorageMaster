@@ -16,7 +16,7 @@ namespace StorageMaster.Core.Deduplication;
 ///   4.  Compute missing/stale signatures (parallel, bounded concurrency).
 ///       - ExactSha256: applies partial-hash pre-filter before full hash.
 ///       - All: before/after snapshot comparison to detect file changes during hash.
-///   5.  Upsert signatures into DB.
+///   5.  Upsert newly computed signatures into DB (reused cache hits are already there).
 ///   6.  Call strategy.BuildMatches() to cluster into duplicate groups.
 ///   7.  Apply keeper policy; persist groups + members.
 ///
@@ -68,7 +68,11 @@ public sealed class DuplicateFinderService(
         }
 
         var run = await repository.CreateRunAsync(options, ct);
-        var allSignatures = new ConcurrentBag<DuplicateSignature>();
+        // Freshly computed signatures only. Reused cache hits are already stored
+        // — writing them back would re-upsert every unchanged row of the session
+        // inside the write lock for no change, so only their count is carried.
+        var freshSignatures = new ConcurrentBag<DuplicateSignature>();
+        var reusedSignatureCount = new int[] { 0 };
         var allErrors = new ConcurrentBag<DuplicateError>();
         var allGroupPairs = new List<(DuplicateGroup Group, List<DuplicateGroupMember> Members)>();
         var nextOrdinal = new long[] { 1L };  // boxed to avoid ref-in-async restriction
@@ -84,7 +88,7 @@ public sealed class DuplicateFinderService(
 
                 await RunStrategyPhaseAsync(
                     run, options, strategy, progress,
-                    allSignatures, allErrors, allGroupPairs,
+                    freshSignatures, reusedSignatureCount, allErrors, allGroupPairs,
                     nextOrdinal, ct);
             }
 
@@ -93,7 +97,7 @@ public sealed class DuplicateFinderService(
 
             await repository.SaveResultsAsync(
                 run.Id,
-                [.. allSignatures],
+                [.. freshSignatures],
                 groupRecords,
                 memberRecords,
                 [.. allErrors],
@@ -102,7 +106,7 @@ public sealed class DuplicateFinderService(
             await repository.CompleteRunAsync(
                 run.Id,
                 DuplicateRunStatus.Completed,
-                allSignatures.Count,
+                freshSignatures.Count + reusedSignatureCount[0],
                 groupRecords.Count,
                 groupRecords.Sum(static g => g.TotalBytes),
                 groupRecords.Sum(static g => g.ReclaimableBytes),
@@ -138,7 +142,8 @@ public sealed class DuplicateFinderService(
         DuplicateScanOptions options,
         IDuplicateDetectionStrategy strategy,
         IProgress<DuplicateDetectionProgress>? progress,
-        ConcurrentBag<DuplicateSignature> allSignatures,
+        ConcurrentBag<DuplicateSignature> freshSignatures,
+        int[] reusedSignatureCount,   // [0] = cache hits reused across all phases
         ConcurrentBag<DuplicateError> allErrors,
         List<(DuplicateGroup, List<DuplicateGroupMember>)> allGroupPairs,
         long[] nextOrdinal,   // [0] = next group ordinal
@@ -160,15 +165,29 @@ public sealed class DuplicateFinderService(
         var sigsByKey = new ConcurrentDictionary<string, ConcurrentBag<DuplicateCandidate>>(StringComparer.Ordinal);
         var groupsFound = new int[] { 0 };  // boxed counter — passed to async helpers
 
-        foreach (var c in candidates)
+        var reusable = await SelectReusableCacheHitsAsync(
+            run, options, strategy, progress,
+            candidates, cacheMap, groupsFound, allErrors, perDriveSemaphores, ct);
+
+        // Sizes already covered by a reusable cached signature. The pre-filter
+        // buckets only the candidates it is about to hash, so a candidate whose
+        // same-size partners all came from the cache would otherwise look like a
+        // singleton bucket and be dropped without ever being hashed.
+        var cachedSizes = new HashSet<long>();
+
+        for (var i = 0; i < candidates.Count; i++)
         {
-            if (cacheMap.TryGetValue(c.File.Id, out var cached_sig) &&
-                await IsCacheValidAsync(cached_sig, c.File, strategy.AlgorithmVersion, ct))
+            var c = candidates[i];
+            if (reusable[i] is { } cachedSignature)
             {
-                // Reuse cached signature
-                allSignatures.Add(cached_sig);
-                if (cached_sig.SignatureText is not null)
-                    sigsByKey.GetOrAdd(cached_sig.SignatureText, static _ => []).Add(c);
+                // Reuse cached signature — already persisted, so it is counted but
+                // not handed back to SaveResultsAsync.
+                reusedSignatureCount[0]++;
+                if (cachedSignature.SignatureText is not null)
+                {
+                    sigsByKey.GetOrAdd(cachedSignature.SignatureText, static _ => []).Add(c);
+                    cachedSizes.Add(c.File.SizeBytes);
+                }
             }
             else
             {
@@ -183,15 +202,15 @@ public sealed class DuplicateFinderService(
             {
                 await RunWithPartialHashPreFilterAsync(
                     run, options, strategy, progress,
-                    needsSig, allSignatures, allErrors,
+                    needsSig, cachedSizes, freshSignatures, allErrors,
                     sigsByKey, groupsFound, perDriveSemaphores, ct);
             }
             else
             {
                 await ComputeSignaturesAsync(
                     run, options, strategy, progress,
-                    needsSig, needsSig.Count, allSignatures, allErrors,
-                    sigsByKey, groupsFound, perDriveSemaphores, ct);
+                    needsSig, needsSig.Count, freshSignatures, allErrors,
+                    sigsByKey, groupsFound, new int[] { 0 }, perDriveSemaphores, ct);
             }
         }
 
@@ -214,6 +233,88 @@ public sealed class DuplicateFinderService(
             run.Id, strategy.Method, candidates.Count, groupsFound[0], allErrors.Count);
     }
 
+    // ── Cached-signature reuse ────────────────────────────────────────────────
+
+    /// <summary>
+    /// Decides, per candidate, whether its cached signature can be reused.
+    ///
+    /// The cheap comparisons (status, algorithm version, recorded size/mtime) run
+    /// inline; only the survivors pay for a live snapshot, and those snapshots go
+    /// through the same per-drive gate as hashing instead of running one at a time
+    /// on the caller's thread — on a re-run this pass is otherwise the entire
+    /// visible wait before any progress appears. Results are indexed by candidate
+    /// position so the cached/uncached partition stays deterministic.
+    /// </summary>
+    private async Task<DuplicateSignature?[]> SelectReusableCacheHitsAsync(
+        DuplicateRun run,
+        DuplicateScanOptions options,
+        IDuplicateDetectionStrategy strategy,
+        IProgress<DuplicateDetectionProgress>? progress,
+        IReadOnlyList<DuplicateCandidate> candidates,
+        IReadOnlyDictionary<long, DuplicateSignature> cacheMap,
+        int[] groupsFound,
+        ConcurrentBag<DuplicateError> allErrors,
+        ConcurrentDictionary<string, SemaphoreSlim> perDriveSemaphores,
+        CancellationToken ct)
+    {
+        var reusable = new DuplicateSignature?[candidates.Count];
+        var needsLiveCheck = new List<int>();
+
+        for (var i = 0; i < candidates.Count; i++)
+        {
+            if (cacheMap.TryGetValue(candidates[i].File.Id, out var cachedSignature) &&
+                IsCacheValid(cachedSignature, candidates[i].File, strategy.AlgorithmVersion))
+            {
+                reusable[i] = cachedSignature;
+                if (snapshotProvider is not null)
+                    needsLiveCheck.Add(i);
+            }
+        }
+
+        if (needsLiveCheck.Count == 0)
+            return reusable;
+
+        var processed = 0;
+        await Parallel.ForEachAsync(needsLiveCheck, new ParallelOptions
+        {
+            CancellationToken = ct,
+            MaxDegreeOfParallelism = Math.Max(1, options.MaxConcurrency),
+        }, async (index, token) =>
+        {
+            var c = candidates[index];
+            var driveGate = perDriveSemaphores.GetOrAdd(
+                GetDriveKey(c.File.FullPath),
+                _ => new SemaphoreSlim(Math.Max(1, options.PerDriveConcurrency)));
+            await driveGate.WaitAsync(token);
+            try
+            {
+                // Each index is touched by exactly one iteration, so no interlocking.
+                if (!await MatchesLiveFileAsync(reusable[index]!, c.File, token))
+                    reusable[index] = null;
+            }
+            finally
+            {
+                driveGate.Release();
+            }
+
+            var cur = Interlocked.Increment(ref processed);
+            progress?.Report(new DuplicateDetectionProgress
+            {
+                RunId = run.Id,
+                Phase = "Validating cached signatures",
+                Method = strategy.Method,
+                Processed = cur,
+                Total = Math.Max(needsLiveCheck.Count, 1),
+                CurrentPath = c.File.FullPath,
+                GroupsFound = groupsFound[0],
+                Errors = allErrors.Count,
+                CanCancel = true,
+            });
+        });
+
+        return reusable;
+    }
+
     // ── Partial-hash pre-filter (ExactSha256) ─────────────────────────────────
 
     private async Task RunWithPartialHashPreFilterAsync(
@@ -222,7 +323,8 @@ public sealed class DuplicateFinderService(
         IDuplicateDetectionStrategy strategy,
         IProgress<DuplicateDetectionProgress>? progress,
         IReadOnlyList<DuplicateCandidate> candidates,
-        ConcurrentBag<DuplicateSignature> allSignatures,
+        IReadOnlySet<long> cachedSizes,   // sizes already served from the signature cache
+        ConcurrentBag<DuplicateSignature> freshSignatures,
         ConcurrentBag<DuplicateError> allErrors,
         ConcurrentDictionary<string, ConcurrentBag<DuplicateCandidate>> sigsByKey,
         int[] groupsFound,   // [0] = count
@@ -231,14 +333,17 @@ public sealed class DuplicateFinderService(
     {
         // Group candidates by size — the SQL already filters to multi-occurrence
         // sizes, but we bucket in memory here to drive partial-hash clustering.
+        // A bucket of one is still real work when a same-size partner was served
+        // from the cache: that partner is not in this list, so dropping singletons
+        // outright would lose the pair with no signature and no error to explain it.
         var bySizeGroups = candidates
             .GroupBy(static c => c.File.SizeBytes)
-            .Where(static g => g.Count() > 1)
+            .Where(g => g.Count() > 1 || cachedSizes.Contains(g.Key))
             .ToList();
 
         // Validate existence + current size before any I/O
         var totalToHash = 0;
-        var validBySizeGroups = new List<(long Size, List<DuplicateCandidate> Valid)>();
+        var validBySizeGroups = new List<(List<DuplicateCandidate> Valid, bool HasCachedPartner)>();
         foreach (var sizeGroup in bySizeGroups)
         {
             var valid = new List<DuplicateCandidate>(sizeGroup.Count());
@@ -248,9 +353,11 @@ public sealed class DuplicateFinderService(
                 if (!info.Exists || info.Length != c.File.SizeBytes) continue;
                 valid.Add(c);
             }
-            if (valid.Count > 1)
+
+            var hasCachedPartner = cachedSizes.Contains(sizeGroup.Key);
+            if (valid.Count > 1 || (valid.Count == 1 && hasCachedPartner))
             {
-                validBySizeGroups.Add((sizeGroup.Key, valid));
+                validBySizeGroups.Add((valid, hasCachedPartner));
                 totalToHash += valid.Count;
             }
         }
@@ -258,10 +365,26 @@ public sealed class DuplicateFinderService(
         if (totalToHash == 0) return;
 
         var processed = 0;
+        // Hoisted out of ComputeSignaturesAsync: that method runs once per cluster,
+        // so a method-local counter restarted at 1 for every pair and the reported
+        // full-hash progress oscillated instead of advancing.
+        var fullHashProcessed = new int[] { 0 };
 
-        foreach (var (_, validCandidates) in validBySizeGroups)
+        foreach (var (validCandidates, hasCachedPartner) in validBySizeGroups)
         {
             ct.ThrowIfCancellationRequested();
+
+            if (hasCachedPartner)
+            {
+                // A cached signature carries only the full hash, so a partial-hash
+                // cluster cannot rule any of these out — every member needs its full
+                // hash anyway and the pre-filter read would be pure waste.
+                await ComputeSignaturesAsync(
+                    run, options, strategy, progress,
+                    validCandidates, totalToHash, freshSignatures, allErrors,
+                    sigsByKey, groupsFound, fullHashProcessed, perDriveSemaphores, ct);
+                continue;
+            }
 
             // Partial hash — cluster, then full-hash only clusters with > 1 member
             var partialGroups = new ConcurrentDictionary<string, ConcurrentBag<DuplicateCandidate>>(StringComparer.Ordinal);
@@ -316,8 +439,8 @@ public sealed class DuplicateFinderService(
             {
                 await ComputeSignaturesAsync(
                     run, options, strategy, progress,
-                    cluster.ToList(), totalToHash, allSignatures, allErrors,
-                    sigsByKey, groupsFound, perDriveSemaphores, ct);
+                    cluster.ToList(), totalToHash, freshSignatures, allErrors,
+                    sigsByKey, groupsFound, fullHashProcessed, perDriveSemaphores, ct);
             }
         }
     }
@@ -331,14 +454,14 @@ public sealed class DuplicateFinderService(
         IProgress<DuplicateDetectionProgress>? progress,
         IReadOnlyList<DuplicateCandidate> candidates,
         int phaseTotal,
-        ConcurrentBag<DuplicateSignature> allSignatures,
+        ConcurrentBag<DuplicateSignature> freshSignatures,
         ConcurrentBag<DuplicateError> allErrors,
         ConcurrentDictionary<string, ConcurrentBag<DuplicateCandidate>> sigsByKey,
         int[] groupsFound,
+        int[] processed,   // [0] = phase-scoped counter, shared across clusters
         ConcurrentDictionary<string, SemaphoreSlim> perDriveSemaphores,
         CancellationToken ct)
     {
-        var processed = 0;
         await Parallel.ForEachAsync(candidates, new ParallelOptions
         {
             CancellationToken = ct,
@@ -355,7 +478,7 @@ public sealed class DuplicateFinderService(
             try
             {
                 var sig = await strategy.ComputeSignatureAsync(c, token);
-                allSignatures.Add(sig);
+                freshSignatures.Add(sig);
 
                 if (sig.Status == "Ready" && sig.SignatureText is not null)
                     sigsByKey.GetOrAdd(sig.SignatureText, static _ => []).Add(c);
@@ -368,7 +491,7 @@ public sealed class DuplicateFinderService(
                     driveGate.Release();
             }
 
-            var cur = Interlocked.Increment(ref processed);
+            var cur = Interlocked.Increment(ref processed[0]);
             progress?.Report(new DuplicateDetectionProgress
             {
                 RunId = run.Id,
@@ -446,15 +569,16 @@ public sealed class DuplicateFinderService(
         cached.SourceSizeBytes == current.SizeBytes &&
         cached.SourceModifiedUtc == current.ModifiedUtc;
 
-    private async ValueTask<bool> IsCacheValidAsync(
+    /// <summary>
+    /// Second half of cache validation: the live file must still be the exact file
+    /// the cached signature was computed from. Split from <see cref="IsCacheValid"/>
+    /// so the cheap comparisons can gate the snapshot syscall.
+    /// </summary>
+    private async ValueTask<bool> MatchesLiveFileAsync(
         DuplicateSignature cached,
         FileEntry current,
-        int currentAlgorithmVersion,
         CancellationToken ct)
     {
-        if (!IsCacheValid(cached, current, currentAlgorithmVersion))
-            return false;
-
         if (snapshotProvider is null)
             return true;
 

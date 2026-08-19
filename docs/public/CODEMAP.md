@@ -1,8 +1,10 @@
 # StorageMaster — Codemap
 
+<!-- schema-version: 15 -->
+
 > **Version:** 2.2.1 | **Current-state review:** 2026-08-18
 > High-level source map for major files, types, methods, and database tables. Source remains authoritative for exhaustive membership.
-> **Current-state note:** current source uses schema v12, independent SQLite connection leases, exact UTC timestamp reads, persisted scan-time file identity, managed/Turbo persistence hardening, dedicated duplicate deletion/recovery, fail-closed path/snapshot checks, and strengthened release gates. See `RELIABILITY_AUDIT_2026-08-18.md` for current evidence and limits.
+> **Current-state note:** current source uses schema v15, independent SQLite connection leases, exact UTC timestamp reads, persisted scan-time file identity, indexed folder parent/child lookups, scan-session ownership with startup recovery, managed/Turbo persistence hardening, dedicated duplicate deletion/recovery, fail-closed path/snapshot checks, and strengthened release gates. `DatabaseSchema.CurrentVersion` is authoritative for the schema number. See `RELIABILITY_AUDIT_2026-08-18.md` for evidence and limits as of that dated audit (which describes the schema at v12).
 
 ---
 
@@ -13,6 +15,7 @@
   - [Models](#models)
   - [Interfaces](#interfaces)
   - [Scanner](#scanner)
+  - [Theming](#theming)
   - [Cleanup](#cleanup)
   - [SmartCleaner](#smartcleaner)
 - [StorageMaster.Platform.Windows](#storagemasterplatformwindows)
@@ -112,16 +115,18 @@ Root object for a scan run, including running/cancelled/failed states.
 | `Id` | `long` | DB primary key |
 | `RootPath` | `string` | Scanned root (e.g. `C:\`) |
 | `StartedUtc` | `DateTime` | When scan began |
-| `CompletedUtc` | `DateTime?` | Null while Running |
-| `Status` | `ScanStatus` | Running / Completed / Cancelled / Failed |
+| `CompletedUtc` | `DateTime?` | Null while Running; stamped when recovery marks a session Interrupted |
+| `Status` | `ScanStatus` | Running / Completed / Cancelled / Failed / Interrupted |
 | `TotalSizeBytes` | `long` | Sum of all file sizes |
 | `TotalFiles` | `long` | Total files found |
 | `TotalFolders` | `long` | Total folders scanned |
 | `AccessDeniedCount` | `long` | Paths that threw UnauthorizedAccess |
-| `ErrorMessage` | `string?` | Set on Failed status |
+| `ErrorMessage` | `string?` | Set on Failed status, and on Interrupted to explain the partial result |
+| `OwnerProcessId` | `int?` | Process that started the scan (schema v14). NULL on rows written before v14 |
+| `OwnerProcessStartedUtc` | `DateTime?` | Start time of the owning process; needed because Windows recycles process ids |
 | `Duration` | `TimeSpan?` (computed) | CompletedUtc - StartedUtc |
 
-**Enum `ScanStatus`:** `Running`, `Completed`, `Cancelled`, `Failed`
+**Enum `ScanStatus`:** `Running`, `Completed`, `Cancelled`, `Failed`, `Interrupted`
 
 ---
 
@@ -199,16 +204,16 @@ One actionable cleanup recommendation. Produced by `ICleanupRule`.
 
 Outcome of executing one `CleanupSuggestion`.
 
-| Member | Type |
-|--------|------|
-| `SuggestionId` | `Guid` |
-| `Status` | `CleanupResultStatus` |
-| `BytesFreed` | `long` | Legacy/logical outcome field; Recycle Bin/quarantine normally report zero reclaimed bytes |
-| `ExecutedUtc` | `DateTime` |
-| `WasDryRun` | `bool` |
-| `FailedPaths` | `IReadOnlyList<string>` |
-| `ErrorMessage` | `string?` |
-| `QuarantinedPaths` | `IReadOnlyList<QuarantineMove>` |
+| Member | Type | Notes |
+|--------|------|-------|
+| `SuggestionId` | `Guid` | |
+| `Status` | `CleanupResultStatus` | |
+| `BytesFreed` | `long` | Legacy/logical outcome field; Recycle Bin and quarantine moves normally report zero reclaimed bytes |
+| `ExecutedUtc` | `DateTime` | |
+| `WasDryRun` | `bool` | |
+| `FailedPaths` | `IReadOnlyList<string>` | |
+| `ErrorMessage` | `string?` | |
+| `QuarantinedPaths` | `IReadOnlyList<QuarantineMove>` | |
 
 **Enum `CleanupResultStatus`:** `Success`, `PartialSuccess`, `Failed`, `Skipped`
 
@@ -230,6 +235,10 @@ Persisted user preferences. Serialized as JSON to SQLite.
 | `SkipSystemFolders` | `true` | Skip Windows dirs unless DeepScan |
 | `ExcludedPaths` | `[]` | Custom path exclusions |
 | `UseTurboScanner` | `false` | Use Rust-backed scanner |
+| `Theme` | `Default` | `ThemePreference`: follow Windows, Light, or Dark |
+| `AccentId` | `"aurora"` | Selected accent, resolved through `ThemeCatalog.ResolveAccent`. Stored as a string so a retired accent degrades to the default instead of failing to deserialize |
+| `Language` | `System` | `UiLanguage`: `System` / `English` / `German`; pins the text WinUI supplies for built-in controls |
+| `ScanHistoryRetentionDays` | `365` | Scan-history retention window |
 | `CleanRecycleBin` | `true` | Enable RecycleBin rule |
 | `CleanTempFiles` | `true` | Enable TempFiles rule |
 | `CleanDownloadedInstallers` | `true` | Enable DownloadedInstallers rule |
@@ -475,6 +484,26 @@ Algorithm: sort paths descending by length (deepest first), then for each path a
 
 ---
 
+#### `ScanSessionRecovery` — `Scanner/ScanSessionRecovery.cs`
+
+Static class holding the pure liveness decision for sessions left `Running` by a process that never finished. Kept free of process APIs so the rules are unit testable; `Platform.Windows/ScanSessionRecoveryService.cs` supplies the observed process list and writes the results, and `App.xaml.cs` runs it once at startup.
+
+| Member | Behaviour |
+|--------|-----------|
+| `FindAbandoned(sessions, liveProcesses, currentProcessId)` | Returns the `Running` sessions no live StorageMaster process claims. NULL ownership (pre-v14 rows) counts as unowned; the caller's own sessions are never condemned; a matching id whose start time drifts past `StartTimeTolerance` is treated as a recycled id |
+| `ToInterrupted(session, nowUtc)` | Terminal form: `Status = Interrupted`, `CompletedUtc` stamped, explanatory `ErrorMessage`, partial totals preserved |
+| `StartTimeTolerance` | 2 seconds — process start times as observed and as recorded need not agree exactly |
+
+---
+
+### Theming
+
+#### `ThemeCatalog` — `Theming/ThemeCatalog.cs`
+
+Static class holding the entire shipped palette as plain data: `Dark` / `Light` neutral ramps, `DarkSeverity` / `LightSeverity`, and the `Accents` list (`aurora` — the default — plus `ember`, `verdant`, `violet`), each with a dark and a light ramp. Living in Core rather than in XAML means every accent is contrast-checkable by a unit test, and adding one is a data change. `ResolveAccent(accentId)` falls back to `DefaultAccentId` for an unknown or retired id, which is why `AppSettings.AccentId` is persisted as a string.
+
+---
+
 ### Cleanup
 
 #### `CleanupEngine` — `Cleanup/CleanupEngine.cs`
@@ -575,6 +604,8 @@ Contract-v3 JSONL record shape:
 
 The exact UTC tick and nullable Windows identity fields are authoritative for current hosts; Unix-second fields remain for compatibility.
 
+The host tolerates an older binary: `is_hidden` is deserialized as `bool?`, so a pre-v2 record that omits it falls back to a per-file attribute check instead of failing the scan. With a v2-or-later binary and `--skip-hidden`, hidden directories are pruned during native enumeration, which matches the managed scanner's `EnumerationOptions.AttributesToSkip` semantics and needs no extra syscall.
+
 ---
 
 #### `AdminService` — `AdminService.cs`
@@ -629,6 +660,12 @@ Implements `IRecycleBinInfoProvider`. Calls `Shell32Interop.SHQueryRecycleBin(nu
 
 ---
 
+#### `ScanSessionRecoveryService` — `ScanSessionRecoveryService.cs`
+
+Runs once at startup. Reads the 200 most recent sessions, hands them plus the live StorageMaster processes to `ScanSessionRecovery.FindAbandoned`, and writes each result back through `IScanRepository.UpdateSessionAsync` as `Interrupted`. Only processes with the same process name are considered live owners, so an unrelated program that inherited a recycled id cannot pin a dead session. A process whose start time cannot be read is treated as not live — the worst case is a live scan marked interrupted, which loses no data because partial totals are kept. Any failure is logged and swallowed: startup never fails because history could not be tidied.
+
+---
+
 ## StorageMaster.Storage
 
 **Target:** `net8.0`
@@ -650,7 +687,20 @@ Singleton context managing one serialized initialization/migration sequence, poo
 
 #### `DatabaseSchema` — `Schema/DatabaseSchema.cs`
 
-Internal static class. `CurrentVersion = 12`. Later migrations add duplicate recovery, generic quarantine restore, quarantine foreign-key repair, normalized unique folder identity with conservative case-variant collapse, and nullable scan-time file identity.
+Internal static class. `CurrentVersion = 15`; each level is a `V<N>Statements` array applied and stamped in one transaction, and a shipped level is never edited.
+
+| Level | Adds |
+|-------|------|
+| v8 | `DuplicateOperationJournal` |
+| v9 | Nullable `QuarantinedFiles.MemberId` so generic-cleanup quarantines get restore records |
+| v10 | Quarantine member FK becomes `ON DELETE SET NULL` so restore records outlive duplicate rows |
+| v11 | Unique normalized folder identity, collapsing case variants conservatively |
+| v12 | Nullable scan-time volume/file identity on `FileEntries` |
+| v13 | `FolderEntries.ParentNormalizedPath` + `(SessionId, ParentNormalizedPath, TotalSizeBytes DESC)` index |
+| v14 | `ScanSessions.OwnerProcessId` / `OwnerProcessStartedUtc` |
+| v15 | Indexes on the `FileEntries(Id)` cascade referrers, plus `DuplicateErrors(RunId, FileEntryId)` |
+
+Path casing is never computed in SQL: SQLite's `upper()` is ASCII-only while the application uses `ToUpperInvariant`. v13's backfill therefore splits the parent off the already-normalized column instead of re-normalizing.
 
 ---
 
@@ -702,7 +752,9 @@ v2 UI primitives now live in `src/StorageMaster.UI/Styles/*.xaml` and `src/Stora
 | `static Services` | `IServiceProvider` built in constructor |
 | `ServiceBootstrapper.BuildServices()` | Registers repositories/platform services, both scanners, 16 active cleanup rules, one singleton `ScanViewModel`, and transient page ViewModels |
 | `StartWithDeepScan` | Set from `--deep-scan` command-line argument |
-| `OnLaunched` | Resolves `MainWindow`, calls `Activate()` |
+| `ApplyStartupLanguage()` | Reads the persisted `Language` synchronously in the constructor and applies it through `LanguageService`. The override must be set before any content exists, because the resource system reads it when a control is created |
+| `OnLaunched` | `ThemeService.EnsureResources()` first — an unresolved `StaticResource` is a load-time failure, not a fallback — then resolves and activates `MainWindow`, attaches the theme root, and starts theme application, abandoned-scan reconciliation, and the startup update check |
+| `ReconcileAbandonedScansAsync()` | Runs `ScanSessionRecoveryService`; failures are logged, never fatal |
 | `OnUnhandledException` + `OnCurrentDomainUnhandledException` + `OnUnobservedTaskException` | Log to `%LOCALAPPDATA%\StorageMaster\logs\startup-errors.log` |
 
 ---
@@ -729,6 +781,18 @@ bool NavigateTo(Type pageType, object? parameter)  // no-op if already on page
 bool CanGoBack
 void GoBack()
 ```
+
+---
+
+#### `ThemeService` — `Infrastructure/ThemeService.cs`
+
+Applies `ThemeCatalog` to the live visual tree. Creates the brushes once under the `Sm` resource-key prefix (so they cannot collide with WinUI's own theme resources, which still drive control chrome) and then mutates each `SolidColorBrush.Color` in place. Elements resolve a `StaticResource` once at load and never look again, but they keep the brush reference — so an accent or light/dark change is visible immediately, without a page reload or a restart. Adding an accent to the catalogue requires no change here or in any XAML.
+
+---
+
+#### `LanguageService` — `Infrastructure/LanguageService.cs`
+
+Sets `ApplicationLanguages.PrimaryLanguageOverride` from `AppSettings.Language`. This exists because WinUI supplies its own text for built-in controls — a `ToggleSwitch` renders "On"/"Off", dialogs their buttons — and that text follows the Windows display language, not the app's strings; on a German Windows install the result was an English app with German switches. Tags are an explicit allow-list (`en-US`, `de-DE`) so the set cannot silently widen to untranslated languages, and `UiLanguage.System` clears the override. The override is process-wide and read at control creation, so it is applied during startup and a change requires a restart to take full effect — `CurrentDisplayTag` reports what the resource system actually resolved rather than what was requested. A failure to apply never blocks startup.
 
 ---
 
@@ -932,16 +996,16 @@ The suite count changes as regression guards are added. Run the documented Relea
 | Table | Primary Key | Foreign Keys | Purpose |
 |-------|-------------|--------------|---------|
 | `SchemaVersion` | — | — | Migration tracking |
-| `ScanSessions` | `Id` (AUTOINCREMENT) | — | One row per scan run |
+| `ScanSessions` | `Id` (AUTOINCREMENT) | — | One row per scan run; also records the owning process (v14) |
 | `FileEntries` | `Id` (AUTOINCREMENT) | `SessionId → ScanSessions(Id)` CASCADE | One row per file |
-| `FolderEntries` | `Id` (AUTOINCREMENT) | `SessionId → ScanSessions(Id)` CASCADE | One row per directory |
+| `FolderEntries` | `Id` (AUTOINCREMENT) | `SessionId → ScanSessions(Id)` CASCADE | One row per directory; `ParentNormalizedPath` (v13) stores the parent instead of deriving it per query |
 | `ScanErrors` | `Id` (AUTOINCREMENT) | `SessionId → ScanSessions(Id)` CASCADE | Per-path scan errors |
 | `CleanupLog` | `Id` (AUTOINCREMENT) | — | Append-only deletion audit |
 | `Settings` | `Key` (TEXT) | — | JSON key-value store |
 | `DuplicateRuns`, `DuplicateSignatures`, `DuplicateGroups`, `DuplicateGroupMembers`, `DuplicateErrors` | integer IDs | scan/run/file relationships | Duplicate analysis, cached signatures, groups, members, and errors |
 | `QuarantinedFiles` | `Id` (AUTOINCREMENT) | nullable `MemberId → DuplicateGroupMembers(Id)` SET NULL | Duplicate and generic quarantine/restore records retained if a duplicate member is removed |
 | `DuplicateOperationJournal` | `Id` (AUTOINCREMENT), `OperationId` (unique) | Run/group/member/quarantine IDs where available | Crash-recovery journal for duplicate cleanup and restore intent/outcome |
-| `DriveHealthSnapshots` | `Id` (AUTOINCREMENT) | — | Latest/history Windows drive-health telemetry |
+| `DriveHealthSnapshots` | `Id` (AUTOINCREMENT) | — | Latest/history readings from the local Windows storage-health APIs |
 
 ### Indexes
 
@@ -950,11 +1014,21 @@ The suite count changes as regression guards are added. Run the documented Relea
 | `IX_FileEntries_Session_Size` | FileEntries | `(SessionId, SizeBytes DESC)` | Top-N largest files |
 | `IX_FileEntries_Extension` | FileEntries | `(SessionId, Extension)` | Category breakdown |
 | `IX_FolderEntries_Session_Size` | FolderEntries | `(SessionId, TotalSizeBytes DESC)` | Top-N largest folders |
+| `IX_FolderEntries_Session_Parent_Size` | FolderEntries | `(SessionId, ParentNormalizedPath, TotalSizeBytes DESC)` | Folder tree, drill-down, child counts (v13) |
+| `IX_DuplicateGroupMembers_FileEntryId` | DuplicateGroupMembers | `(FileEntryId)` | `FileEntries` cascade delete (v15) |
+| `IX_DuplicateGroups_RepresentativeFileEntryId` | DuplicateGroups | `(RepresentativeFileEntryId)` | `FileEntries` cascade delete (v15) |
+| `IX_DuplicateErrors_FileEntryId` | DuplicateErrors | `(FileEntryId)` | `FileEntries` cascade delete (v15) |
+| `IX_DuplicateSignatures_FileEntryId` | DuplicateSignatures | `(FileEntryId)` | `FileEntries` cascade delete (v15) |
+| `IX_DuplicateErrors_Run_File` | DuplicateErrors | `(RunId, FileEntryId)` | Errored-only duplicate filter (v15) |
+
+`DatabaseSchema.cs` defines further duplicate, quarantine, journal, health, and path indexes; the table above covers the scan-query and cascade paths.
 
 ### Unique constraints
 
 - `FolderEntries(SessionId, NormalizedFullPath)` — schema v11 enforces one normalized folder identity per scan session
 - `FileEntries(SessionId, NormalizedFullPath)` — migration v6 protects one normalized path per scan session
+- `DuplicateSignatures(FileEntryId, Method, Algorithm)` — one cached signature per file per method
+- `DuplicateOperationJournal(OperationId)` — one journal record per operation
 
 ---
 

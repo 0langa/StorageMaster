@@ -24,6 +24,11 @@ public static class ScheduledCleanupPolicy
     private const string FingerprintPolicyMarker =
         "StorageMaster.ScheduledCleanup/v2|method=RecycleBin|risk=Safe,Low|clear-entire-downloads=false";
 
+    /// <summary>
+    /// Exact rules used when a scheduled cleanup job leaves RulesCsv blank.
+    /// Reachable through <see cref="GetEffectiveRules"/>, which is the only
+    /// supported way to resolve a job's rule set.
+    /// </summary>
     private static readonly IReadOnlyList<string> Defaults = Array.AsReadOnly(
     [
         "TempFiles",
@@ -34,9 +39,6 @@ public static class ScheduledCleanupPolicy
         "WindowsErrorReporting",
         "DownloadedInstallers",
     ]);
-
-    /// <summary>Exact rules used when a scheduled cleanup job leaves RulesCsv blank.</summary>
-    public static IReadOnlyList<string> DefaultRuleTokens => Defaults;
 
     /// <summary>
     /// Expands blank rules to the exact safe default set and canonicalizes

@@ -21,12 +21,15 @@ public sealed class CacheFolderCleanupRule : ICleanupRule
     // Note: do NOT add %LocalAppData%\Temp here — TempFilesCleanupRule already
     // covers it at the individual-file level. Adding the folder here would cause
     // "file not found" failures on the temp-file suggestion when both are selected.
+    // For the same reason the Chromium "…\User Data\Default\Cache" folders are absent:
+    // BrowserCacheCleanupRule already yields the cache of every Chrome and Edge
+    // profile, so listing the Default profile here as well produced two auto-selected
+    // suggestions for one directory and double-counted it in the estimated savings
+    // shown before the user confirms.
     private static readonly (string Path, string Name, CleanupRisk Risk)[] KnownCaches =
     [
         (@"Microsoft\Windows\INetCache",            "IE / Edge Internet Cache",      CleanupRisk.Safe),
         (@"Microsoft\Windows\WebCache",             "Windows Web Cache",             CleanupRisk.Low),
-        (@"Google\Chrome\User Data\Default\Cache",  "Google Chrome Cache",           CleanupRisk.Safe),
-        (@"Microsoft\Edge\User Data\Default\Cache", "Microsoft Edge Cache",          CleanupRisk.Safe),
         (@"Mozilla\Firefox\Profiles",               "Firefox Profiles Cache",        CleanupRisk.Low),
         (@"npm-cache",                              "npm Cache",                     CleanupRisk.Safe),
         (@"pip\Cache",                              "pip Cache",                     CleanupRisk.Safe),

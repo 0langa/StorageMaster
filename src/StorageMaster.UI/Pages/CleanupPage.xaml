@@ -1,4 +1,4 @@
-<Page
+﻿<Page
     x:Class="StorageMaster.UI.Pages.CleanupPage"
     AutomationProperties.Name="Cleanup page"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
@@ -20,8 +20,22 @@
     <ScrollViewer Padding="{StaticResource PagePaddingWide}">
         <StackPanel Spacing="{StaticResource SectionSpacing}" MaxWidth="{StaticResource PageMaxWidth}" HorizontalAlignment="Center">
 
+            <!--
+                Analyse is the page's primary action and sits in the header.
+                Executing a cleanup stays a separate, explicitly enabled command
+                further down, next to the dry-run checkbox and the selected total,
+                so the destructive step is never the first button in reach.
+            -->
             <controls:PageHeader Title="Cleanup"
-                                 Subtitle="Preview recoverable cleanup candidates before any destructive operation." />
+                                 Subtitle="Preview recoverable cleanup candidates before any destructive operation.">
+                <controls:PageHeader.ActionContent>
+                    <Button Content="Analyse for cleanup opportunities"
+                            Style="{StaticResource AccentButtonStyle}"
+                            MinHeight="36"
+                            Command="{x:Bind ViewModel.AnalyseCommand}"
+                            IsEnabled="{x:Bind ViewModel.CanAnalyse, Mode=OneWay}" />
+                </controls:PageHeader.ActionContent>
+            </controls:PageHeader>
 
             <InfoBar IsOpen="True"
                      Severity="Informational"
@@ -29,14 +43,11 @@
                      Message="Analysis is read-only. Execution keeps Recycle Bin as the recommended path and dry-run can preview the exact selected categories." />
 
             <!-- ── Session selector ────────────────────────────────────────── -->
-            <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                    CornerRadius="8" Padding="20">
-                <StackPanel Spacing="12">
-                    <TextBlock Text="Select scan session" Style="{StaticResource BodyStrongTextBlockStyle}" />
+            <Border Style="{StaticResource SectionCardStyle}">
+                <StackPanel Spacing="{StaticResource ControlSpacing}">
+                    <TextBlock Text="Select scan session" Style="{StaticResource SectionHeaderTextStyle}" />
                     <TextBlock Text="Cleanup uses a completed scan so recommendations stay explainable and reversible by default."
-                               Style="{StaticResource CaptionTextBlockStyle}"
-                               Opacity="0.72"
-                               TextWrapping="Wrap" />
+                               Style="{StaticResource HelperTextStyle}" />
                     <ComboBox ItemsSource="{x:Bind ViewModel.RecentSessions}"
                               SelectedItem="{x:Bind ViewModel.SelectedSession, Mode=TwoWay}"
                               IsEnabled="{x:Bind ViewModel.CanChangeAnalysisScope, Mode=OneWay}"
@@ -51,22 +62,15 @@
                             </DataTemplate>
                         </ComboBox.ItemTemplate>
                     </ComboBox>
-                    <Button Content="Analyse for Cleanup Opportunities"
-                            Style="{StaticResource AccentButtonStyle}"
-                            Command="{x:Bind ViewModel.AnalyseCommand}"
-                            IsEnabled="{x:Bind ViewModel.CanAnalyse, Mode=OneWay}" />
                 </StackPanel>
             </Border>
 
             <!-- ── Cleanup Options (grouped, expandable categories) ────────── -->
-            <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                    CornerRadius="8" Padding="20">
-                <StackPanel Spacing="14">
-                    <TextBlock Text="Cleanup Options" Style="{StaticResource BodyStrongTextBlockStyle}" />
+            <Border Style="{StaticResource SectionCardStyle}">
+                <StackPanel Spacing="{StaticResource CardSpacing}">
+                    <TextBlock Text="Cleanup options" Style="{StaticResource SectionHeaderTextStyle}" />
                     <TextBlock Text="Leave risky categories off unless you understand the side effects. Dry run stays available before any deletion."
-                               Style="{StaticResource CaptionTextBlockStyle}"
-                               Opacity="0.72"
-                               TextWrapping="Wrap" />
+                               Style="{StaticResource HelperTextStyle}" />
 
                     <!-- Deletion mode row -->
                     <Grid ColumnDefinitions="*,*" ColumnSpacing="20">
@@ -80,15 +84,17 @@
                                       IsOn="{x:Bind ViewModel.ClearEntireDownloads, Mode=TwoWay}" />
                     </Grid>
 
-                    <TextBlock Text="Categories to include:" Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.7" />
+                    <TextBlock Text="Categories to include" Style="{StaticResource MetricLabelTextStyle}" />
 
                     <!-- ── Grouped category list ──────────────────────────── -->
                     <ItemsControl ItemsSource="{x:Bind ViewModel.CategoryGroups}"
                                   IsEnabled="{x:Bind ViewModel.CanChangeAnalysisScope, Mode=OneWay}">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate x:DataType="local:CleanupCategoryGroup">
-                                <Border Background="{ThemeResource ControlFillColorDefaultBrush}"
-                                        CornerRadius="6" Margin="0,3" Padding="0">
+                                <Border Background="{StaticResource SmSurfaceSunkenBrush}"
+                                        BorderBrush="{StaticResource SmStrokeSubtleBrush}"
+                                        BorderThickness="1"
+                                        CornerRadius="{StaticResource TileCornerRadius}" Margin="0,3" Padding="0">
                                     <StackPanel>
 
                                         <!-- Group header row -->
@@ -115,7 +121,7 @@
                                                            FontFamily="Segoe MDL2 Assets"
                                                            FontSize="14"
                                                            VerticalAlignment="Center"
-                                                           Opacity="0.75" />
+                                                           Foreground="{StaticResource SmTextSecondaryBrush}" />
                                                 <TextBlock Text="{x:Bind GroupName}"
                                                            FontWeight="SemiBold"
                                                            VerticalAlignment="Center" />
@@ -135,8 +141,10 @@
                                                       Visibility="{x:Bind IsExpanded, Mode=OneWay, Converter={StaticResource BoolVis}}">
                                             <ItemsControl.ItemTemplate>
                                                 <DataTemplate x:DataType="local:CleanupCategoryOption">
-                                                    <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                                                            CornerRadius="6" Padding="12,10" Margin="0,3">
+                                                    <Border Background="{StaticResource SmSurfaceRaisedBrush}"
+                                                            BorderBrush="{StaticResource SmStrokeSubtleBrush}"
+                                                            BorderThickness="1"
+                                                            CornerRadius="{StaticResource ButtonCornerRadius}" Padding="12,10" Margin="0,3">
                                                         <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
                                                             <ToggleSwitch Grid.Column="0"
                                                                           IsOn="{x:Bind IsEnabled, Mode=TwoWay}"
@@ -146,8 +154,7 @@
                                                             <StackPanel Grid.Column="1" VerticalAlignment="Center">
                                                                 <TextBlock Text="{x:Bind DisplayName}" FontWeight="SemiBold" />
                                                                 <TextBlock Text="{x:Bind Description}"
-                                                                           Style="{StaticResource CaptionTextBlockStyle}"
-                                                                           Opacity="0.65" TextWrapping="Wrap" />
+                                                                           Style="{StaticResource HelperTextStyle}" />
                                                             </StackPanel>
                                                         </Grid>
                                                     </Border>
@@ -184,7 +191,7 @@
 
             <!-- Status message -->
             <TextBlock Text="{x:Bind ViewModel.StatusMessage, Mode=OneWay}"
-                       Style="{StaticResource BodyTextBlockStyle}" Opacity="0.8"
+                       Style="{StaticResource PageSubtitleTextStyle}"
                        Visibility="{x:Bind ViewModel.IsExecuting, Mode=OneWay, Converter={StaticResource InvBoolVis}}"/>
 
             <!-- Analysis loading spinner -->
@@ -193,10 +200,9 @@
                           Width="36" Height="36" HorizontalAlignment="Left" />
 
             <!-- Execution progress -->
-            <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                    CornerRadius="8" Padding="20"
+            <Border Style="{StaticResource SectionCardStyle}"
                     Visibility="{x:Bind ViewModel.IsExecuting, Mode=OneWay, Converter={StaticResource BoolVis}}">
-                <StackPanel Spacing="10">
+                <StackPanel Spacing="{StaticResource ControlSpacing}">
                     <TextBlock Text="{x:Bind ViewModel.CleanupProgressText, Mode=OneWay}"
                                Style="{StaticResource BodyStrongTextBlockStyle}" />
                     <ProgressBar Value="{x:Bind ViewModel.CleanupProgressValue, Mode=OneWay}"
@@ -208,10 +214,20 @@
             <StackPanel Visibility="{x:Bind ViewModel.HasResults, Mode=OneWay, Converter={StaticResource BoolVis}}"
                         Spacing="12">
 
-                <TextBlock Text="Suggestions" Style="{StaticResource SubtitleTextBlockStyle}" />
+                <TextBlock Text="Suggestions" Style="{StaticResource SectionHeaderTextStyle}" />
 
+                <!--  A ListView measured with infinite height has an infinite viewport,
+                      so ItemsStackPanel culls nothing and realises every row. The page
+                      root is a ScrollViewer, which supplies exactly that infinite
+                      height. One rule alone can emit a thousand suggestions, so the
+                      list is bounded here to keep virtualisation working, matching
+                      what DuplicatesPage already does.  -->
                 <ListView ItemsSource="{x:Bind ViewModel.Suggestions}"
                           SelectionMode="None"
+                          MinHeight="{StaticResource ListMinHeight}"
+                          MaxHeight="{StaticResource ListMaxHeightTall}"
+                          ScrollViewer.VerticalScrollBarVisibility="Auto"
+                          ScrollViewer.VerticalScrollMode="Enabled"
                           IsEnabled="{x:Bind ViewModel.CanChangeAnalysisScope, Mode=OneWay}">
                     <ListView.ItemContainerStyle>
                         <Style TargetType="ListViewItem">
@@ -221,8 +237,7 @@
                     </ListView.ItemContainerStyle>
                     <ListView.ItemTemplate>
                         <DataTemplate x:DataType="local:SuggestionItem">
-                            <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                                    CornerRadius="8" Padding="16,12">
+                            <Border Style="{StaticResource ListRowCardStyle}">
                                 <Grid RowSpacing="8" ColumnSpacing="12">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="Auto"/>
@@ -234,40 +249,39 @@
                                         <RowDefinition Height="Auto"/>
                                         <RowDefinition Height="Auto"/>
                                     </Grid.RowDefinitions>
+                                    <!-- Compiled binding: the template already declares
+                                         x:DataType, so the reflection binding cost a
+                                         BindingExpression per row for no benefit. -->
                                     <CheckBox Grid.Column="0" Grid.RowSpan="2"
-                                              IsChecked="{Binding IsSelected, Mode=TwoWay}"
+                                              IsChecked="{x:Bind IsSelected, Mode=TwoWay}"
                                               VerticalAlignment="Top" Margin="0,2,0,0"/>
                                     <StackPanel Grid.Column="1" Grid.Row="0">
                                         <TextBlock Text="{x:Bind Suggestion.Title}" FontWeight="SemiBold"
                                                    TextWrapping="Wrap"/>
                                         <TextBlock Text="{x:Bind Suggestion.Description}"
-                                                   Style="{StaticResource CaptionTextBlockStyle}"
-                                                   Opacity="0.7" TextWrapping="Wrap" MaxLines="2"/>
+                                                   Style="{StaticResource HelperTextStyle}"
+                                                   MaxLines="2"/>
                                     </StackPanel>
                                     <TextBlock Grid.Column="2" Grid.Row="0" Text="{x:Bind SizeDisplay}"
+                                               Style="{StaticResource MetricValueTextStyle}"
                                                HorizontalAlignment="Right" VerticalAlignment="Top"
-                                               FontWeight="SemiBold"/>
+                                               MinWidth="90" TextAlignment="Right"/>
                                     <StackPanel Grid.Column="1" Grid.Row="1" Orientation="Horizontal" Spacing="12">
                                         <TextBlock Text="{x:Bind CategoryDisplay}"
-                                                   Style="{StaticResource CaptionTextBlockStyle}"/>
-                                        <Border CornerRadius="4" Padding="6,2">
-                                        <TextBlock Text="{x:Bind RiskDisplay}"
-                                                   Style="{StaticResource CaptionTextBlockStyle}"
-                                                   HorizontalAlignment="Center"/>
+                                                   Style="{StaticResource MutedTextStyle}"/>
+                                        <Border Style="{StaticResource StatusChipStyle}">
+                                            <TextBlock Text="{x:Bind RiskDisplay}"
+                                                       Style="{StaticResource StatusChipTextStyle}"/>
                                         </Border>
                                         <TextBlock Text="{x:Bind ConfidenceDisplay}"
-                                                   Style="{StaticResource CaptionTextBlockStyle}"
-                                                   Opacity="0.72" />
+                                                   Style="{StaticResource MutedTextStyle}" />
                                         <TextBlock Text="{x:Bind PolicyDisplay}"
-                                                   Style="{StaticResource CaptionTextBlockStyle}"
-                                                   Opacity="0.72" />
+                                                   Style="{StaticResource MutedTextStyle}" />
                                     </StackPanel>
                                     <TextBlock Grid.Column="1"
                                                Grid.Row="2"
                                                Text="{x:Bind Suggestion.SafetyNotes}"
-                                               Style="{StaticResource CaptionTextBlockStyle}"
-                                               Opacity="0.72"
-                                               TextWrapping="Wrap" />
+                                               Style="{StaticResource HelperTextStyle}" />
                                 </Grid>
                             </Border>
                         </DataTemplate>
@@ -275,14 +289,14 @@
                 </ListView>
 
                 <!-- Execute bar -->
-                <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                        CornerRadius="8" Padding="16,12">
-                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-                        <StackPanel Grid.Column="0" Spacing="8">
-                            <TextBlock VerticalAlignment="Center">
-                                <Run Text="Selected: "/>
-                                <Run Text="{x:Bind ViewModel.TotalSelectedSize, Mode=OneWay}" FontWeight="SemiBold"/>
-                            </TextBlock>
+                <Border Style="{StaticResource SectionCardStyle}" Padding="{StaticResource CardPaddingCompact}">
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="{StaticResource ControlSpacing}">
+                        <StackPanel Grid.Column="0" Spacing="{StaticResource TightSpacing}">
+                            <StackPanel Spacing="2">
+                                <TextBlock Text="Selected" Style="{StaticResource MetricLabelTextStyle}"/>
+                                <TextBlock Text="{x:Bind ViewModel.TotalSelectedSize, Mode=OneWay}"
+                                           Style="{StaticResource MetricTextStyle}"/>
+                            </StackPanel>
                             <CheckBox Content="Dry run (preview only)"
                                       IsEnabled="{x:Bind ViewModel.CanChangeAnalysisScope, Mode=OneWay}"
                                       IsChecked="{x:Bind ViewModel.IsDryRun, Mode=TwoWay}" />
@@ -290,6 +304,8 @@
                         <Button Grid.Column="1"
                                 Content="Clean Up Selected…"
                                 Style="{StaticResource AccentButtonStyle}"
+                                MinHeight="36"
+                                VerticalAlignment="Center"
                                 IsEnabled="{x:Bind ViewModel.CanExecuteCleanup, Mode=OneWay}"
                                 Click="ExecuteButton_Click"/>
                     </Grid>

@@ -10,6 +10,34 @@ No unreleased changes.
 
 ---
 
+## [2.5.0] — 2026-08-19 — Off-screen screen capture
+
+### Added
+
+- `--capture-screens <dir>` renders every page to a PNG with the window parked
+  off-screen, so the interface can be reviewed without owning the desktop. Takes
+  `--language`, `--theme`, `--pages` and `--settle`; see
+  docs/public/VISUAL_REGRESSION.md.
+
+  Reviewing by screenshot needs the foreground window and a session nobody else
+  is using, and that failed three times during the localization work — an
+  installer opened over the app, then the Windows text-input host kept taking
+  focus and blocking clicks. This makes reviewing a matter of reading files.
+
+### Fixed
+
+Found by the harness on its first run, on pages that had never been reviewed:
+
+- `ScanStatus` rendered as "Completed" in the Scan Workspace subtitle.
+- `FileTypeCategory` rendered as "Unknown", "SourceCode" and "Executable" in the
+  Results type column and both composition breakdowns — fourteen categories, in
+  the two places a user reads them most.
+- The Spanish settings tiles clipped their summary line.
+- The Spanish duplicates summary read "Conservar Más reciente", a capital
+  mid-phrase where German already used a colon.
+
+---
+
 ## [2.4.1] — 2026-08-19 — Follow Windows by default
 
 ### Fixed

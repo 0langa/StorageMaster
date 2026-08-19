@@ -3,7 +3,6 @@ using System.Numerics;
 using System.Text.Json;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
-using SixLabors.ImageSharp.Processing;
 using StorageMaster.Core.Interfaces;
 using StorageMaster.Core.Models;
 using StorageMaster.Core.Safety;
@@ -79,7 +78,7 @@ public sealed class VideoPHashStrategy : IDuplicateDetectionStrategy
 
     public DuplicateMethod Method => DuplicateMethod.VideoPHash;
     public string Algorithm => "VIDEO-PHASH-FRAMES";
-    public int AlgorithmVersion => 1;
+    public int AlgorithmVersion => 2; // v2: frames extracted pre-scaled (hash values shift)
     public bool SupportsAutoSelection => false;
     public double DefaultConfidence => 0.0d;   // computed per-pair
     public string DisplayName => "Video perceptual hash";
@@ -230,38 +229,44 @@ public sealed class VideoPHashStrategy : IDuplicateDetectionStrategy
     public IEnumerable<DuplicateStrategyMatch> BuildMatches(
         IReadOnlyDictionary<string, IReadOnlyList<DuplicateCandidate>> signatureGroups)
     {
-        // Flatten: (fingerprint, candidate)
-        var items = signatureGroups
-            .SelectMany(kv =>
-            {
-                var fps = ParseFingerprint(kv.Key);
-                return kv.Value.Select(c => (Fingerprint: fps, Candidate: c));
-            })
+        // Cluster over distinct fingerprints, not individual videos: identical
+        // fingerprints score identically against every possible seed, so they are
+        // always assigned together. Fingerprints that parsed to nothing score 0
+        // against everything including themselves and can never form a group, so
+        // they are dropped before the pairwise scan rather than inside it.
+        var buckets = signatureGroups
+            .Where(static kv => kv.Value.Count > 0)
+            .Select(kv => (Fingerprint: ParseFingerprint(kv.Key), Candidates: kv.Value))
+            .Where(static b => b.Fingerprint.Length > 0)
             .ToList();
 
-        if (items.Count < 2) yield break;
+        if (buckets.Sum(static b => b.Candidates.Count) < 2) yield break;
 
-        var assigned = new bool[items.Count];
+        var assigned = new bool[buckets.Count];
 
-        for (var i = 0; i < items.Count; i++)
+        for (var i = 0; i < buckets.Count; i++)
         {
             if (assigned[i]) continue;
 
-            var group = new List<DuplicateCandidate> { items[i].Candidate };
+            var seed = buckets[i].Fingerprint;
+            var group = new List<DuplicateCandidate>(buckets[i].Candidates);
             assigned[i] = true;
-            var totalSim = 0d;
-            var groupCount = 0;
+            // The seed's own same-fingerprint siblings are perfect (1.0) matches;
+            // count them so the averaged confidence matches per-video clustering.
+            var totalSim = (double)(group.Count - 1);
+            var groupCount = group.Count - 1;
 
-            for (var j = i + 1; j < items.Count; j++)
+            for (var j = i + 1; j < buckets.Count; j++)
             {
                 if (assigned[j]) continue;
-                var sim = FingerprintSimilarity(items[i].Fingerprint, items[j].Fingerprint);
+                var sim = FingerprintSimilarity(seed, buckets[j].Fingerprint);
                 if (sim >= MinMatchingFrameFraction)
                 {
-                    group.Add(items[j].Candidate);
+                    var matched = buckets[j].Candidates;
+                    group.AddRange(matched);
                     assigned[j] = true;
-                    totalSim += sim;
-                    groupCount++;
+                    totalSim += sim * matched.Count;
+                    groupCount += matched.Count;
                 }
             }
 
@@ -323,8 +328,11 @@ public sealed class VideoPHashStrategy : IDuplicateDetectionStrategy
         psi.ArgumentList.Add(videoPath);
         psi.ArgumentList.Add("-frames:v");
         psi.ArgumentList.Add("1");
-        psi.ArgumentList.Add("-q:v");
-        psi.ArgumentList.Add("2");
+        // The hash only ever sees a 32×32 surface, so scale in ffmpeg rather than
+        // PNG-encoding a 4K frame to disk and immediately throwing it away. Same
+        // stretch-to-square semantics the ImageSharp resize applied afterwards.
+        psi.ArgumentList.Add("-vf");
+        psi.ArgumentList.Add("scale=32:32");
         psi.ArgumentList.Add(outPath);
         psi.ArgumentList.Add("-y");
 
@@ -345,59 +353,9 @@ public sealed class VideoPHashStrategy : IDuplicateDetectionStrategy
     private static ulong ComputeFrameHash(string framePath)
     {
         using var img = Image.Load<L8>(framePath);
-        img.Mutate(x => x.Resize(32, 32));
-
-        var pixels = new float[32 * 32];
-        for (var y = 0; y < 32; y++)
-            for (var x = 0; x < 32; x++)
-                pixels[y * 32 + x] = img[x, y].PackedValue / 255f;
-
-        var dct = ComputeDct2D(pixels, 32);
-        var coeffs = new double[64];
-        for (var ky = 0; ky < 8; ky++)
-            for (var kx = 0; kx < 8; kx++)
-                coeffs[ky * 8 + kx] = dct[ky * 32 + kx];
-
-        var sum = 0d;
-        for (var i = 1; i < 64; i++) sum += coeffs[i];
-        var avg = sum / 63d;
-
-        var hash = 0UL;
-        for (var i = 0; i < 64; i++)
-            if (coeffs[i] >= avg)
-                hash |= 1UL << i;
-
-        return hash;
-    }
-
-    private static double[] ComputeDct2D(float[] input, int n)
-    {
-        var temp = new double[n * n];
-        var output = new double[n * n];
-        for (var row = 0; row < n; row++)
-        {
-            for (var k = 0; k < n; k++)
-            {
-                var s = 0d;
-                for (var t = 0; t < n; t++)
-                    s += input[row * n + t] * Math.Cos(Math.PI * k * (2 * t + 1) / (2d * n));
-                temp[row * n + k] = s;
-            }
-        }
-        var col = new double[n];
-        var colOut = new double[n];
-        for (var c = 0; c < n; c++)
-        {
-            for (var row = 0; row < n; row++) col[row] = temp[row * n + c];
-            for (var k = 0; k < n; k++)
-            {
-                var s = 0d;
-                for (var t = 0; t < n; t++) s += col[t] * Math.Cos(Math.PI * k * (2 * t + 1) / (2d * n));
-                colOut[k] = s;
-            }
-            for (var row = 0; row < n; row++) output[row * n + c] = colOut[row];
-        }
-        return output;
+        // Shared with the image strategy — this file used to carry a verbatim copy
+        // of the DCT, which is exactly how the two hashes would drift apart.
+        return ImagePHashStrategy.ComputeHashFromImage(img);
     }
 
     // ── Fingerprint comparison ────────────────────────────────────────────────
@@ -421,15 +379,17 @@ public sealed class VideoPHashStrategy : IDuplicateDetectionStrategy
         return (double)matches / count;
     }
 
-    private static DuplicateSignature ErrorSig(DuplicateCandidate c, string type, string msg) =>
+    // Instance method so the stamped algorithm identity can never drift from the
+    // properties above when the version is bumped.
+    private DuplicateSignature ErrorSig(DuplicateCandidate c, string type, string msg) =>
         new()
         {
             Id = 0,
             SessionId = c.File.SessionId,
             FileEntryId = c.File.Id,
-            Method = DuplicateMethod.VideoPHash,
-            Algorithm = "VIDEO-PHASH-FRAMES",
-            AlgorithmVersion = 1,
+            Method = Method,
+            Algorithm = Algorithm,
+            AlgorithmVersion = AlgorithmVersion,
             ComputedUtc = DateTime.UtcNow,
             Status = "Error",
             ErrorMessage = msg,

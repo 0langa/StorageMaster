@@ -1,6 +1,7 @@
 using System.Numerics;
 using System.Text.Json;
 using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.Formats;
 using SixLabors.ImageSharp.Metadata.Profiles.Exif;
 using SixLabors.ImageSharp.PixelFormats;
 using SixLabors.ImageSharp.Processing;
@@ -33,6 +34,23 @@ public sealed class ImagePHashStrategy : IDuplicateDetectionStrategy
     private const int DctSize = 32;
     private const int HashBits = 8;   // top-left 8×8 block of DCT
 
+    /// <summary>
+    /// Decode-time size hint. Everything past this is thrown away by the 32×32
+    /// resize, and for JPEG the decoder serves it straight from the scaled IDCT
+    /// instead of materialising the full-resolution surface. 256 rather than 64
+    /// because the hint is aspect-preserving (ResizeMode.Max): a panorama at a
+    /// 64-px box would arrive with fewer than 32 usable rows.
+    /// </summary>
+    private const int DecodeTargetSize = 256;
+
+    /// <summary>
+    /// cos(π·k·(2t+1) / 2·DctSize) for k &lt; <see cref="HashBits"/>, t &lt; <see cref="DctSize"/>.
+    /// Only the top-left 8×8 block of the DCT is ever read, so the higher
+    /// frequencies never needed computing; tabulating the rest removes 65 536
+    /// Math.Cos calls per image without changing a single coefficient.
+    /// </summary>
+    private static readonly double[] CosTable = BuildCosTable();
+
     public static readonly IReadOnlySet<string> SupportedExtensions =
         new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
@@ -64,7 +82,7 @@ public sealed class ImagePHashStrategy : IDuplicateDetectionStrategy
 
     public DuplicateMethod Method => DuplicateMethod.ImagePHash;
     public string Algorithm => "IMAGE-PHASH-DCT64";
-    public int AlgorithmVersion => 1;
+    public int AlgorithmVersion => 2; // v2: decode-scaled input (hash values shift)
     public bool SupportsAutoSelection => false;
     public double DefaultConfidence => 0.0d;   // computed per-pair
     public string DisplayName => "Image perceptual hash";
@@ -164,43 +182,48 @@ public sealed class ImagePHashStrategy : IDuplicateDetectionStrategy
     public IEnumerable<DuplicateStrategyMatch> BuildMatches(
         IReadOnlyDictionary<string, IReadOnlyList<DuplicateCandidate>> signatureGroups)
     {
-        // Flatten to (hash, candidate) pairs — each candidate has exactly one hash.
-        var items = signatureGroups
-            .SelectMany(kv =>
-            {
-                var hash = ParseHash(kv.Key);
-                return kv.Value.Select(c => (Hash: hash, Candidate: c));
-            })
+        // Cluster over distinct hashes, not individual images. Images sharing a
+        // hash are the same distance from every possible seed, so they always land
+        // in the same group — collapsing them first keeps the output identical and
+        // takes exact duplicates (the bulk of a real photo library) out of the
+        // pairwise scan entirely.
+        var buckets = signatureGroups
+            .Where(static kv => kv.Value.Count > 0)
+            .Select(kv => (Hash: ParseHash(kv.Key), Candidates: kv.Value))
             .ToList();
 
-        if (items.Count < 2) yield break;
+        if (buckets.Sum(static b => b.Candidates.Count) < 2) yield break;
 
-        var assigned = new bool[items.Count];
+        var assigned = new bool[buckets.Count];
         // Resolved once per clustering pass — the settings snapshot must not be
         // consulted inside the O(n²) comparison loop.
         var threshold = ResolveHammingThreshold();
 
-        for (var i = 0; i < items.Count; i++)
+        for (var i = 0; i < buckets.Count; i++)
         {
             if (assigned[i]) continue;
 
-            var group = new List<(int Index, DuplicateCandidate Candidate)> { (i, items[i].Candidate) };
+            var seedHash = buckets[i].Hash;
+            var group = new List<DuplicateCandidate>(buckets[i].Candidates);
             assigned[i] = true;
             var totalDist = 0;
-            var comparisons = 0;
+            // The seed's own same-hash siblings are zero-distance matches; count
+            // them so the confidence average stays what per-image clustering gave.
+            var comparisons = group.Count - 1;
 
-            for (var j = i + 1; j < items.Count; j++)
+            for (var j = i + 1; j < buckets.Count; j++)
             {
                 if (assigned[j]) continue;
 
-                // Compare against the seed (items[i]) — single-linkage
-                var dist = HammingDistance(items[i].Hash, items[j].Hash);
+                // Compare against the seed — single-linkage
+                var dist = HammingDistance(seedHash, buckets[j].Hash);
                 if (dist <= threshold)
                 {
-                    group.Add((j, items[j].Candidate));
+                    var matched = buckets[j].Candidates;
+                    group.AddRange(matched);
                     assigned[j] = true;
-                    totalDist += dist;
-                    comparisons++;
+                    totalDist += dist * matched.Count;
+                    comparisons += matched.Count;
                 }
             }
 
@@ -210,7 +233,7 @@ public sealed class ImagePHashStrategy : IDuplicateDetectionStrategy
             var confidence = Math.Clamp(1d - avgDist / 64d, 0.5d, 1.0d);
 
             yield return new DuplicateStrategyMatch(
-                group.Select(static g => g.Candidate).ToList(),
+                group,
                 confidence,
                 $"Perceptual image match (Hamming ≤ {threshold})");
         }
@@ -221,18 +244,50 @@ public sealed class ImagePHashStrategy : IDuplicateDetectionStrategy
     private static (ulong Hash, int Width, int Height, ushort Orientation)
         ComputePHash(string path)
     {
-        using var img = Image.Load<L8>(path);
+        // One handle for both the header read and the decode; ReadWrite|Delete
+        // sharing matches the other hashing strategies so a file open elsewhere
+        // does not turn into a spurious PHashError.
+        using var stream = new FileStream(
+            path,
+            FileMode.Open, FileAccess.Read,
+            FileShare.ReadWrite | FileShare.Delete,
+            bufferSize: 64 * 1024,
+            FileOptions.SequentialScan);
+
+        // Header first: the decode below is deliberately scaled down, so the true
+        // pixel dimensions have to come from the metadata rather than from the
+        // decoded surface.
+        var info = Image.Identify(stream);
+        stream.Position = 0;
+
+        ushort orientation = 1;
+        if (info.Metadata.ExifProfile?.TryGetValue(ExifTag.Orientation, out var orientTag) == true)
+            orientation = orientTag?.Value ?? 1;
+
+        using var img = Image.Load<L8>(
+            new DecoderOptions { TargetSize = new Size(DecodeTargetSize, DecodeTargetSize) },
+            stream);
 
         // Correct EXIF orientation before hashing so that the same photo
         // stored in different orientations gets the same hash.
-        ushort orientation = 1;
-        if (img.Metadata.ExifProfile?.TryGetValue(ExifTag.Orientation, out var orientTag) == true)
-            orientation = orientTag?.Value ?? 1;
         img.Mutate(x => x.AutoOrient());
 
-        var width = img.Width;
-        var height = img.Height;
+        // Orientations 5-8 transpose the image, so the reported dimensions follow
+        // AutoOrient the way they did when this read them off the decoded image.
+        var transposed = orientation is >= 5 and <= 8;
+        var width = transposed ? info.Height : info.Width;
+        var height = transposed ? info.Width : info.Height;
 
+        return (ComputeHashFromImage(img), width, height, orientation);
+    }
+
+    /// <summary>
+    /// pHash of an already-decoded, orientation-corrected grayscale surface.
+    /// Shared with <see cref="VideoPHashStrategy"/> so the frame hash and the
+    /// image hash cannot drift apart.
+    /// </summary>
+    internal static ulong ComputeHashFromImage(Image<L8> img)
+    {
         img.Mutate(x => x.Resize(DctSize, DctSize));
 
         // Build float grayscale matrix
@@ -241,13 +296,8 @@ public sealed class ImagePHashStrategy : IDuplicateDetectionStrategy
             for (var x = 0; x < DctSize; x++)
                 pixels[y * DctSize + x] = img[x, y].PackedValue / 255f;
 
-        var dct = ComputeDct2D(pixels, DctSize);
-
-        // Extract top-left HashBits×HashBits block
-        var coeffs = new double[HashBits * HashBits];
-        for (var ky = 0; ky < HashBits; ky++)
-            for (var kx = 0; kx < HashBits; kx++)
-                coeffs[ky * HashBits + kx] = dct[ky * DctSize + kx];
+        // Top-left HashBits×HashBits block of the 2-D DCT
+        var coeffs = ComputeTopLeftDct(pixels);
 
         // Mean excluding DC [0,0] at index 0
         var sum = 0d;
@@ -260,52 +310,56 @@ public sealed class ImagePHashStrategy : IDuplicateDetectionStrategy
             if (coeffs[i] >= avg)
                 hash |= 1UL << i;
 
-        return (hash, width, height, orientation);
+        return hash;
     }
 
-    private static double[] ComputeDct2D(float[] input, int n)
+    /// <summary>
+    /// Separable DCT-II truncated to the coefficients the hash actually reads.
+    /// Both passes stop at <see cref="HashBits"/> frequencies because the column
+    /// pass only ever consumes the first <see cref="HashBits"/> columns of the row
+    /// pass — the discarded three quarters were pure waste. Summation order is
+    /// unchanged, so coefficients are bit-identical to the untruncated form.
+    /// </summary>
+    private static double[] ComputeTopLeftDct(float[] input)
     {
-        var temp = new double[n * n];
-        var output = new double[n * n];
-
-        // Row-wise DCT-II
-        for (var row = 0; row < n; row++)
-            Dct1D(input, row * n, n, temp, row * n);
-
-        // Column-wise DCT-II
-        var col = new double[n];
-        var colOut = new double[n];
-        for (var c = 0; c < n; c++)
+        // Row pass: [row, kx] for kx < HashBits.
+        var temp = new double[DctSize * HashBits];
+        for (var row = 0; row < DctSize; row++)
         {
-            for (var row = 0; row < n; row++)
-                col[row] = temp[row * n + c];
-            Dct1D(col, colOut, n);
-            for (var row = 0; row < n; row++)
-                output[row * n + c] = colOut[row];
+            var rowOffset = row * DctSize;
+            for (var kx = 0; kx < HashBits; kx++)
+            {
+                var cosOffset = kx * DctSize;
+                var s = 0d;
+                for (var t = 0; t < DctSize; t++)
+                    s += input[rowOffset + t] * CosTable[cosOffset + t];
+                temp[(row * HashBits) + kx] = s;
+            }
         }
-        return output;
+
+        // Column pass: [ky, kx] for ky < HashBits.
+        var coeffs = new double[HashBits * HashBits];
+        for (var kx = 0; kx < HashBits; kx++)
+        {
+            for (var ky = 0; ky < HashBits; ky++)
+            {
+                var cosOffset = ky * DctSize;
+                var s = 0d;
+                for (var t = 0; t < DctSize; t++)
+                    s += temp[(t * HashBits) + kx] * CosTable[cosOffset + t];
+                coeffs[(ky * HashBits) + kx] = s;
+            }
+        }
+        return coeffs;
     }
 
-    private static void Dct1D(float[] src, int srcOffset, int n, double[] dst, int dstOffset)
+    private static double[] BuildCosTable()
     {
-        for (var k = 0; k < n; k++)
-        {
-            var s = 0d;
-            for (var t = 0; t < n; t++)
-                s += src[srcOffset + t] * Math.Cos(Math.PI * k * (2 * t + 1) / (2d * n));
-            dst[dstOffset + k] = s;
-        }
-    }
-
-    private static void Dct1D(double[] src, double[] dst, int n)
-    {
-        for (var k = 0; k < n; k++)
-        {
-            var s = 0d;
-            for (var t = 0; t < n; t++)
-                s += src[t] * Math.Cos(Math.PI * k * (2 * t + 1) / (2d * n));
-            dst[k] = s;
-        }
+        var table = new double[HashBits * DctSize];
+        for (var k = 0; k < HashBits; k++)
+            for (var t = 0; t < DctSize; t++)
+                table[(k * DctSize) + t] = Math.Cos(Math.PI * k * ((2 * t) + 1) / (2d * DctSize));
+        return table;
     }
 
     private static int HammingDistance(ulong a, ulong b) =>
@@ -314,15 +368,17 @@ public sealed class ImagePHashStrategy : IDuplicateDetectionStrategy
     private static ulong ParseHash(string? hex) =>
         ulong.TryParse(hex, System.Globalization.NumberStyles.HexNumber, null, out var v) ? v : 0UL;
 
-    private static DuplicateSignature ErrorSig(DuplicateCandidate c, string type, string msg) =>
+    // Instance method so the stamped algorithm identity can never drift from the
+    // properties above when the version is bumped.
+    private DuplicateSignature ErrorSig(DuplicateCandidate c, string type, string msg) =>
         new()
         {
             Id = 0,
             SessionId = c.File.SessionId,
             FileEntryId = c.File.Id,
-            Method = DuplicateMethod.ImagePHash,
-            Algorithm = "IMAGE-PHASH-DCT64",
-            AlgorithmVersion = 1,
+            Method = Method,
+            Algorithm = Algorithm,
+            AlgorithmVersion = AlgorithmVersion,
             ComputedUtc = DateTime.UtcNow,
             Status = "Error",
             ErrorMessage = msg,

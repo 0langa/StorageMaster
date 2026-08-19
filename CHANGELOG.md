@@ -10,6 +10,59 @@ No unreleased changes.
 
 ---
 
+## [2.4.0] — 2026-08-19 — German and Spanish
+
+StorageMaster now speaks German and Spanish as well as English. Around a thousand
+strings, translated against the terminology Windows itself uses rather than
+invented per screen.
+
+### Added
+
+- **Full German (de-DE) and Spanish (es-ES) interface.** Every page, dialog,
+  confirmation, empty state, status line and screen-reader description. German
+  uses the formal register throughout, matching Windows and Microsoft's German
+  style guide; Spanish is es-ES with the inverted opening punctuation.
+- **Terminology taken from Windows.** The glossary in `docs/public/LOCALIZATION.md`
+  is not a set of translation preferences — it was read out of the German MUI
+  resources on a German install, with the resource ids cited. StorageMaster says
+  Papierkorb, Laufwerk, Freier Speicherplatz and Größe auf Datenträger because
+  that is what File Explorer says next to it.
+- **Language picker gains Spanish.** Language names stay in their own language in
+  every locale, as Windows does, so a user can find theirs without being able to
+  read the one on screen.
+
+### Changed
+
+- Logs, the diagnostics export, CLI output and exception text stay English by
+  policy. They are read by whoever is debugging rather than by the user, and
+  stable output matters more than locale.
+- Settings drop-downs show words instead of enum identifiers. "Run safe cleanup"
+  replaces "CleanupExecuteSafe", "Whole session" replaces "WholeSession". These
+  were never authored English strings — they were identifiers leaking through.
+
+### Fixed
+
+- Toggle switches read "On"/"Off" in every language, and drive-health badges read
+  "Healthy" beside German text.
+- Drive-health messages were written as English literals in the platform layer
+  despite being read by the user on a drive card.
+- The storage-health explanation on the Dashboard sat in the health gauge's 132px
+  column and was cut off — in English too, at "low-space…". It spans the card now.
+- The navigation pane's status line was clipped rather than wrapped, and the
+  settings tiles cut off their summary when a description wrapped to a third line.
+
+### Notes for contributors
+
+- Strings are authored as `.resw` but resolved by `LocalizationCatalog`, not MRT.
+  Building `resources.pri` needs a task assembly that ships only with Visual
+  Studio, so `dotnet build` and CI cannot produce one. `x:Uid` is therefore
+  unavailable; XAML uses `{i18n:Loc Key=...}`.
+- `LocalizationTests`, `LocalizationScopeTests` and `EnumDisplayTests` enforce key
+  parity, placeholder parity, register, safety wording, the English-only surfaces,
+  and that every enum bound to a drop-down has a display string.
+
+---
+
 ## [2.3.1] — 2026-08-19 — Visual Verification Pass
 
 The 2.3.0 interface work was never seen rendered before release. Looking at it

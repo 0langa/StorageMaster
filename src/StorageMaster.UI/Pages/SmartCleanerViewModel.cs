@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -209,14 +210,20 @@ public sealed partial class SmartCleanerViewModel : ObservableObject
         try
         {
             var totalBytes = selected.Sum(static group => group.EstimatedBytes);
+
+            // Formatted here rather than handed to Loc.Format as a number: that
+            // composes with the invariant culture, so a raw int reached a German
+            // confirmation as "1284" where every other count in the app reads
+            // "1.284". Matches how DuplicatesViewModel builds its confirmation.
+            var groupCount = selected.Count.ToString("N0", CultureInfo.CurrentCulture);
             var confirmationText = UseRecycleBin
                 ? Loc.Format(
                     "Safety_Smart_Confirm_RecycleBin_Message",
-                    selected.Count,
+                    groupCount,
                     ByteSizeConverter.Format(totalBytes))
                 : Loc.Format(
                     "Safety_Smart_Confirm_Permanent_Message",
-                    selected.Count,
+                    groupCount,
                     ByteSizeConverter.Format(totalBytes));
             var confirmed = await _dialogs.ConfirmAsync(
                 Loc.Get("Safety_Smart_Confirm_Title"),

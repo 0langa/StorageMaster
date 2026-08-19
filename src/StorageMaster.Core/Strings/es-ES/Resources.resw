@@ -2447,7 +2447,7 @@ El espacio en disco solo se recupera después de vaciar la Papelera de reciclaje
     <comment>[status] Value of the "ETA" readout once every expected byte has been read and the scan is writing its results.</comment>
   </data>
   <data name="Scan_Eta_NoSubtreeEstimate" xml:space="preserve">
-    <value>Sin estimación para una carpeta</value>
+    <value>Sin estimación</value>
     <comment>[status] Value of the "ETA" readout when only part of a drive is being scanned. The app refuses to guess a finish time because it does not know how big that folder is. "Subtree" means a folder rather than a whole drive.</comment>
   </data>
   <data name="Scan_Failed_Title" xml:space="preserve">

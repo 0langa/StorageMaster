@@ -35,6 +35,18 @@ public sealed partial class ScanViewModel : ObservableObject
     [ObservableProperty] private string _currentFile = string.Empty;
     [ObservableProperty] private long _filesScanned;
     [ObservableProperty] private long _foldersScanned;
+
+    /// <summary>
+    /// The counters as the user's culture writes them.
+    /// <para>
+    /// Bound instead of the raw numbers, which rendered "3758" in a tile directly
+    /// under a line reading "3.758 Dateien" — the same count, formatted two ways,
+    /// on the same card.
+    /// </para>
+    /// </summary>
+    public string FilesScannedText => FilesScanned.ToString("N0", CultureInfo.CurrentCulture);
+
+    public string FoldersScannedText => FoldersScanned.ToString("N0", CultureInfo.CurrentCulture);
     [ObservableProperty] private string _bytesScanned = "0 B";
     [ObservableProperty] private int _errorCount;
     [ObservableProperty] private double _progressValue;
@@ -81,6 +93,10 @@ public sealed partial class ScanViewModel : ObservableObject
     };
 
     partial void OnDeepScanChanged(bool value) => OnPropertyChanged(nameof(NeedsElevation));
+
+    partial void OnFilesScannedChanged(long value) => OnPropertyChanged(nameof(FilesScannedText));
+
+    partial void OnFoldersScannedChanged(long value) => OnPropertyChanged(nameof(FoldersScannedText));
     partial void OnSelectedScanModeChanged(string value) => OnPropertyChanged(nameof(SelectedScanModeDisplay));
     partial void OnSelectedPathChanged(string value) => ValidateSelectedPath(value);
     partial void OnIsInitializingChanged(bool value)
@@ -502,8 +518,12 @@ public sealed partial class ScanViewModel : ObservableObject
         // moved. A directory of many tiny files can add thousands of entries while
         // barely moving the byte counter, and the old byte-only guard left the
         // display frozen on a stale value during exactly those stretches.
+        // Rates stay "calculating" for the first second. The scanner reports in
+        // batches, so the first sample can carry gigabytes gathered before the clock
+        // had meaningfully advanced — which displayed as a steady 32 GB/s and read
+        // as a broken readout rather than a warm-up artefact.
         var sampleSeconds = (p.Timestamp - _lastProgressUtc).TotalSeconds;
-        if (sampleSeconds >= 0.05)
+        if (elapsed.TotalSeconds >= 1.0 && sampleSeconds >= 0.05)
         {
             var sampleBytes = Math.Max(0, p.BytesScanned - _lastProgressBytes);
             var sampleFiles = Math.Max(0, p.FilesScanned - _lastProgressFiles);

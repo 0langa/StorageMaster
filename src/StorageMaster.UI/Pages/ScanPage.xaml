@@ -74,11 +74,11 @@
                           Margin="0,4,0,0">
                         <StackPanel Grid.Column="0" Spacing="2">
                             <TextBlock Text="{i18n:Loc Key=Scan_Metric_Files}" Style="{StaticResource MetricLabelTextStyle}" />
-                            <TextBlock Text="{x:Bind ViewModel.FilesScanned, Mode=OneWay}" Style="{StaticResource MetricValueTextStyle}" />
+                            <TextBlock Text="{x:Bind ViewModel.FilesScannedText, Mode=OneWay}" Style="{StaticResource MetricValueTextStyle}" />
                         </StackPanel>
                         <StackPanel Grid.Column="1" Spacing="2">
                             <TextBlock Text="{i18n:Loc Key=Scan_Metric_Folders}" Style="{StaticResource MetricLabelTextStyle}" />
-                            <TextBlock Text="{x:Bind ViewModel.FoldersScanned, Mode=OneWay}" Style="{StaticResource MetricValueTextStyle}" />
+                            <TextBlock Text="{x:Bind ViewModel.FoldersScannedText, Mode=OneWay}" Style="{StaticResource MetricValueTextStyle}" />
                         </StackPanel>
                         <StackPanel Grid.Column="2" Spacing="2">
                             <TextBlock Text="{i18n:Loc Key=Scan_Metric_Size}" Style="{StaticResource MetricLabelTextStyle}" />

@@ -55,10 +55,38 @@ cannot be confused.
 Point `STORAGEMASTER_DATA_DIR` at a copy of a populated database to capture pages
 with real content; against an empty profile every page shows its empty state.
 
-What it cannot reach: it renders the XAML tree, not the desktop. Tray
-notifications, native file pickers, `ContentDialog` overlays that need a click to
-open, and Windows dialogs still require an interactive session and the procedure
-below.
+### Scenarios beyond an idle page
+
+`--scenarios` reaches the states a plain page capture cannot, because they only
+exist while something is happening:
+
+```bash
+StorageMaster.UI.exe --capture-screens shots --language de-DE     --scenarios dialogs,accents,progress --scan-path "C:\Program Files"
+```
+
+| Scenario | What it captures | How |
+|---|---|---|
+| `dialogs` | Every safety confirmation | Rebuilt from the same resource keys the real call sites use, then rendered. The dialog itself is rendered, not the window — a `ContentDialog` lives in the popup layer, so rendering the window gives the page with no dialog on it. |
+| `accents` | Dashboard and Drive Health per accent | Applies each accent in place, which is what the app does when a user picks one, so it also proves the live swap repaints. The starting accent is restored afterwards. |
+| `progress` | A scan running, and the same scan complete | Starts a real scan and waits for it to actually be running. |
+
+The dialogs are declared in `ScenarioCatalogue`, because a real confirmation only
+appears while someone is deleting something and a capture run must never be the
+thing that starts a deletion. `SafetyDialogCoverageTests` fails if a confirmation
+exists in a view model but not in that list, so a new one cannot go unreviewed.
+
+`progress` needs a target big enough to still be scanning when the capture is
+taken, and one that is not excluded by the scan scope — `C:\Windows` finishes
+instantly with nothing because system folders are skipped by default. When no
+running state can be captured the run says so and writes no file, rather than
+writing a "running" capture of a finished page.
+
+What it still cannot reach: it renders the XAML tree, not the desktop. Tray
+notifications, native file pickers and Windows dialogs need an interactive
+session and the procedure below. **Error states** — inaccessible file, missing
+FFmpeg, corrupt media, partial delete failure — are not yet scriptable either:
+each needs a fixture that fails in a specific way, which is the next piece of
+work on this harness.
 
 ## Current automated behavior
 

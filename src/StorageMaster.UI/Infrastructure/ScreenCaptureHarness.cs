@@ -26,6 +26,15 @@ public sealed class ScreenCaptureOptions
     public IReadOnlyList<string> Pages { get; init; } = [];
 
     /// <summary>
+    /// States beyond an idle page: <c>dialogs</c>, <c>accents</c>, <c>progress</c>.
+    /// Empty captures pages only.
+    /// </summary>
+    public IReadOnlyList<string> Scenarios { get; init; } = [];
+
+    /// <summary>Folder the <c>progress</c> scenario scans. Defaults to the demo pack.</summary>
+    public string? ScanPath { get; init; }
+
+    /// <summary>
     /// Logical size of the capture window.
     /// <para>
     /// This is what reproduces a display-scale problem. Scaling does not change
@@ -69,6 +78,8 @@ public sealed class ScreenCaptureOptions
             Language = Value("--language"),
             Theme = Value("--theme"),
             Pages = Value("--pages")?.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries) ?? [],
+            Scenarios = Value("--scenarios")?.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries) ?? [],
+            ScanPath = Value("--scan-path"),
             Width = int.TryParse(Value("--width"), out var width) ? width : null,
             Height = int.TryParse(Value("--height"), out var height) ? height : null,
             SettleMilliseconds = int.TryParse(settle, out var parsed) ? parsed : 2000,
@@ -151,6 +162,9 @@ public static class ScreenCaptureHarness
         }
 
         Console.WriteLine($"{captured}/{routes.Length} page(s) captured into {options.OutputDirectory}");
+
+        if (options.Scenarios.Count > 0)
+            await ScenarioCapture.RunAsync(window, options, language, theme, size);
     }
 
     /// <summary>
@@ -163,7 +177,7 @@ public static class ScreenCaptureHarness
     /// correct by construction rather than by timing.
     /// </para>
     /// </summary>
-    private static async Task<bool> NavigateAndWaitAsync(MainWindow window, Type pageType)
+    internal static async Task<bool> NavigateAndWaitAsync(MainWindow window, Type pageType)
     {
         var frame = window.CaptureFrame;
 
@@ -221,7 +235,7 @@ public static class ScreenCaptureHarness
     /// announces.
     /// </para>
     /// </summary>
-    private static async Task SettleAsync(MainWindow window, int milliseconds)
+    internal static async Task SettleAsync(MainWindow window, int milliseconds)
     {
         var completion = new TaskCompletionSource();
 
@@ -238,7 +252,12 @@ public static class ScreenCaptureHarness
         await Task.Delay(milliseconds);
     }
 
-    private static async Task CaptureAsync(UIElement element, string path)
+    /// <summary>
+    /// Renders one element to a PNG. Public so the scenario capture can point it at
+    /// a dialog, which lives in the popup layer rather than under the window content
+    /// and so is not reached by rendering the window.
+    /// </summary>
+    internal static async Task CaptureAsync(UIElement element, string path)
     {
         var bitmap = new RenderTargetBitmap();
         await bitmap.RenderAsync(element);

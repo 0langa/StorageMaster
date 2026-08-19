@@ -35,6 +35,10 @@
              Link="UI\Infrastructure\ILocalDiagnosticsService.cs" />
     <Compile Include="..\..\src\StorageMaster.UI\Infrastructure\ScheduledTaskService.cs"
              Link="UI\Infrastructure\ScheduledTaskService.cs" />
+    <!-- The scenario catalogue is a plain list with no WinUI dependency, so the
+         coverage test can check it against the real call sites. -->
+    <Compile Include="..\..\src\StorageMaster.UI\Infrastructure\ScenarioCatalogue.cs"
+             Link="UI\Infrastructure\ScenarioCatalogue.cs" />
   </ItemGroup>
 
 </Project>

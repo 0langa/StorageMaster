@@ -10,6 +10,41 @@ No unreleased changes.
 
 ---
 
+## [2.6.0] — 2026-08-19 — Deep scans in the app
+
+### Added
+
+- **A deep scan now runs in the app.** It still needs administrator rights, and the
+  window still does not have them: the scan happens in a short-lived elevated
+  worker that reports back over a one-way channel, so progress, counters and the
+  result appear where you are looking instead of behind a console window. The
+  previous behaviour launched a detached CLI process and showed nothing until you
+  refreshed by hand.
+- **Optional "always run as administrator"** for anyone who deep-scans routinely.
+  Off by default, and described honestly: running a file manager as administrator
+  all the time means every bug in it is an administrator bug. Declining the prompt
+  starts the app normally rather than not at all.
+
+### Fixed
+
+- The file and folder tiles during a scan showed "3758" directly under a line
+  reading "3.758 Dateien" — the same count, formatted two ways, on one card.
+- Scan speed could read "32,29 GB/s". The scanner reports in batches, so the first
+  sample carries gigabytes gathered before the clock has meaningfully advanced.
+  Rates now stay "calculating" for a second rather than reporting a warm-up burst.
+- The remaining-time tile clipped its German text.
+- The Smart Cleaner confirmation showed an unformatted count — "1284" where the
+  rest of the app reads "1.284".
+
+### Internal
+
+- The screen-capture harness reaches confirmation dialogs, accent variants and a
+  running scan (`--scenarios dialogs,accents,progress`). Every defect above was
+  found by it, in states that previously required a person clicking through the app
+  in each language. See `docs/public/VISUAL_REGRESSION.md`.
+
+---
+
 ## [2.5.2] — 2026-08-19 — A hidden tab on the Results page
 
 ### Fixed

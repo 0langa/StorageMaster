@@ -1,5 +1,6 @@
 ﻿using System.Globalization;
 using System.Text.RegularExpressions;
+using System.Xml.Linq;
 using FluentAssertions;
 using StorageMaster.Core.Localization;
 
@@ -21,13 +22,36 @@ public sealed class LocalizationTests
     private static readonly string[] TargetLanguages = ["de-DE", "es-ES"];
 
     /// <summary>
-    /// Keys whose value is legitimately identical to English — product names,
-    /// file formats, and terms the glossary keeps untranslated on purpose.
+    /// Keys whose value is legitimately identical to English, per language.
+    /// <para>
+    /// Kept per language rather than as one shared list because the exemptions
+    /// genuinely differ: German writes "Videos", Spanish writes "Vídeos". A shared
+    /// list would quietly stop checking Spanish for a reason that only applies to
+    /// German.
+    /// </para>
     /// </summary>
-    private static readonly HashSet<string> IdenticalByDesign = new(StringComparer.Ordinal)
-    {
-        "Nav_Dashboard",
-    };
+    private static readonly IReadOnlyDictionary<string, HashSet<string>> IdenticalByDesign =
+        new Dictionary<string, HashSet<string>>(StringComparer.Ordinal)
+        {
+            ["de-DE"] = new(StringComparer.Ordinal)
+            {
+                "Nav_Dashboard",                            // used as-is in German Windows
+                "Duplicates_Category_Audio",                // "Audio" is the German word
+                "Duplicates_Category_Videos",               // as is "Videos"
+                "SpaceMap_Legend_Videos",
+                "Safety_Cleanup_Report_Column_Status",      // "Status" is the German word
+                "Settings_About_VersionLabel",              // "Version " is the German word
+                "Workspace_Tab_Delta",                      // technical term, kept in German
+                "Duplicates_CustomExtensions_Placeholder",  // a list of file extensions
+            },
+            ["es-ES"] = new(StringComparer.Ordinal)
+            {
+                "Nav_Dashboard",
+                "Duplicates_Category_Audio",                // "Audio" is the Spanish word
+                "Health_Metric_Total",                      // as is "Total"
+                "Duplicates_CustomExtensions_Placeholder",  // a list of file extensions
+            },
+        };
 
     [Fact]
     public void EveryLanguageDefinesTheSameKeys()
@@ -86,7 +110,7 @@ public sealed class LocalizationTests
             var target = ReadResources(language);
 
             var untranslated = source
-                .Where(pair => !IdenticalByDesign.Contains(pair.Key))
+                .Where(pair => !IdenticalByDesign[language].Contains(pair.Key))
                 .Where(pair => target.TryGetValue(pair.Key, out var t)
                                && string.Equals(t, pair.Value, StringComparison.Ordinal)
                                && pair.Value.Any(char.IsLetter)
@@ -119,27 +143,47 @@ public sealed class LocalizationTests
     }
 
     /// <summary>
-    /// German and Spanish run materially longer than English, and short strings
-    /// expand proportionally far more than long ones — "Cancel" to "Abbrechen" is
-    /// +50 %, while a full sentence lands nearer +30 %. A flat ratio therefore
-    /// flags correct translations of short labels, so the allowance is tiered the
-    /// way localization guidance actually describes expansion.
+    /// Catches a sentence written where a label belongs.
     /// <para>
-    /// This is a smell test for a sentence written where a label belongs, not a
-    /// layout check. Only reading the running app catches real overflow.
+    /// What counts as too long depends entirely on where the string sits. A button
+    /// that grew by half is a layout bug; a status sentence that grew by half is
+    /// just German. The extraction pass recorded what each string is — its
+    /// <c>[kind]</c> — precisely so this check can tell those apart instead of
+    /// applying one ratio to both and flagging correct translations.
+    /// </para>
+    /// <para>
+    /// It is still only a smell test. Real overflow is found by reading the running
+    /// app, which is why docs/public/LOCALIZATION.md requires that before a
+    /// language ships.
     /// </para>
     /// </summary>
     [Fact]
     public void TranslationsAreNotWildlyLongerThanTheirSource()
     {
-        static double AllowedGrowth(int sourceLength) => sourceLength switch
+        // Kinds that sit in a control sized by its English text. Several of these
+        // render with TextTrimming rather than wrapping, so growth is silently lost
+        // rather than visibly wrong.
+        var tightKinds = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "button", "label", "header", "title", "placeholder", "tooltip",
+        };
+
+        // Short strings expand proportionally far more than long ones: "Cancel" to
+        // "Abbrechen" is +50 %, a full sentence lands nearer +30 %.
+        static double TightAllowance(int sourceLength) => sourceLength switch
         {
             < 20 => 3.0,
             < 40 => 2.2,
             _ => 1.8,
         };
 
+        // Prose is allowed to be prose. German passive constructions and Spanish
+        // impersonal forms are simply longer, and forcing them under a label's
+        // ratio would mean rewriting correct translations into terse ones.
+        const double ProseAllowance = 2.5;
+
         var source = ReadResources(SourceLanguage);
+        var kinds = ReadKinds();
 
         foreach (var language in TargetLanguages)
         {
@@ -147,21 +191,32 @@ public sealed class LocalizationTests
 
             var overlong = source
                 .Where(pair => pair.Value.Length >= 8)
-                // Safety wording is exempt. The glossary forbids making a translated
-                // warning shorter or friendlier than its English original, and correct
-                // German safety phrasing is genuinely long — Windows itself says
-                // "Dieser Vorgang kann nicht rückgängig gemacht werden." for
-                // "This cannot be undone." Trimming it to satisfy a ratio would be
-                // exactly the wrong trade.
+                // Safety wording is exempt entirely. The glossary forbids making a
+                // translated warning shorter or friendlier than its English
+                // original, and correct German safety phrasing is genuinely long —
+                // Windows itself says "Dieser Vorgang kann nicht rückgängig gemacht
+                // werden." for "This cannot be undone." Trimming that to satisfy a
+                // ratio would be exactly the wrong trade.
                 .Where(pair => !pair.Key.StartsWith("Safety_", StringComparison.Ordinal))
-                .Where(pair => target.TryGetValue(pair.Key, out var t)
-                               && t.Length > pair.Value.Length * AllowedGrowth(pair.Value.Length))
-                .Select(pair => $"{pair.Key} ({pair.Value.Length} -> {target[pair.Key].Length})")
+                .Where(pair => !string.Equals(Kind(kinds, pair.Key), "safety", StringComparison.Ordinal))
+                .Where(pair =>
+                {
+                    if (!target.TryGetValue(pair.Key, out var translated))
+                        return false;
+
+                    var allowance = tightKinds.Contains(Kind(kinds, pair.Key))
+                        ? TightAllowance(pair.Value.Length)
+                        : ProseAllowance;
+
+                    return translated.Length > pair.Value.Length * allowance;
+                })
+                .Select(pair => $"{pair.Key} [{Kind(kinds, pair.Key)}] ({pair.Value.Length} -> {target[pair.Key].Length})")
                 .ToArray();
 
             overlong.Should().BeEmpty(
-                "{0} has string(s) far longer than their English source, which usually means a "
-                + "sentence was written where a label was intended: {1}",
+                "{0} has string(s) far longer than their English source. For a label or a "
+                + "button that means it will be trimmed on screen; for prose it usually means "
+                + "the translator added something the English does not say: {1}",
                 language, string.Join(", ", overlong.Take(6)));
         }
     }
@@ -222,8 +277,53 @@ public sealed class LocalizationTests
             "permanent deletion must never mention the Recycle Bin");
 
         spanish["Safety_PermanentDelete"].Should().Contain("definitivamente");
-        spanish["Safety_MoveToRecycleBin"].Should().Contain("papelera");
-        spanish["Safety_PermanentDelete"].Should().NotContain("papelera");
+        // Case-insensitively: Spanish Windows capitalises "Papelera de reciclaje"
+        // as a proper noun, and the assertion is about the concept, not the casing.
+        spanish["Safety_MoveToRecycleBin"].Should().ContainEquivalentOf("papelera");
+        spanish["Safety_PermanentDelete"].Should().NotContainEquivalentOf("papelera");
+    }
+
+    /// <summary>
+    /// The <c>[kind]</c> each English string was tagged with during extraction —
+    /// button, label, status, description and so on.
+    /// <para>
+    /// This is authoring metadata rather than shipped content, so it is read from
+    /// the resource file rather than through the catalogue, which exposes only
+    /// values.
+    /// </para>
+    /// </summary>
+    private static IReadOnlyDictionary<string, string> ReadKinds()
+    {
+        var root = XDocument.Load(EnglishResourcePath()).Root!;
+
+        return root.Elements("data")
+            .Where(e => e.Attribute("name") is not null)
+            .Select(e => (
+                Key: e.Attribute("name")!.Value,
+                Match: Regex.Match(e.Element("comment")?.Value ?? string.Empty, @"^\[([a-z-]+)\]")))
+            .Where(pair => pair.Match.Success)
+            .ToDictionary(pair => pair.Key, pair => pair.Match.Groups[1].Value, StringComparer.Ordinal);
+    }
+
+    private static string Kind(IReadOnlyDictionary<string, string> kinds, string key)
+        => kinds.TryGetValue(key, out var kind) ? kind : "status";
+
+    private static string EnglishResourcePath()
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+
+        while (directory is not null)
+        {
+            var candidate = Path.Combine(
+                directory.FullName, "src", "StorageMaster.Core", "Strings", SourceLanguage, "Resources.resw");
+
+            if (File.Exists(candidate))
+                return candidate;
+
+            directory = directory.Parent;
+        }
+
+        throw new InvalidOperationException("Could not locate the English resource file.");
     }
 
     /// <summary>

@@ -1,6 +1,22 @@
 ﻿<ResourceDictionary
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:i18n="using:StorageMaster.UI.Infrastructure"
+    xmlns:converters="using:StorageMaster.UI.Converters">
+
+    <converters:EnumDisplayConverter x:Key="EnumDisplay" />
+
+    <!--
+        Drop-downs bind straight to Enum.GetValues, so without this they render the
+        identifier — "WholeSession", "CleanupExecuteSafe" — in every language.
+        Defined here rather than per page so a new enum drop-down anywhere gets it
+        by asking for one resource.
+
+        Classic Binding rather than x:Bind: the bound item is the enum value itself.
+    -->
+    <DataTemplate x:Key="EnumItemTemplate">
+        <TextBlock Text="{Binding Converter={StaticResource EnumDisplay}}" />
+    </DataTemplate>
 
     <!-- One control height across every toolbar, so a filter row reads as a row. -->
     <Style x:Key="FilterComboBoxStyle" TargetType="ComboBox">
@@ -25,12 +41,11 @@
         and nothing changes. Setting the content explicitly is what actually works.
 
         This is an implicit style, so it reaches every ToggleSwitch without each
-        page opting in. When real translations ship, these two strings become
-        resource lookups like any other.
+        page opting in.
     -->
     <Style TargetType="ToggleSwitch">
-        <Setter Property="OnContent" Value="On" />
-        <Setter Property="OffContent" Value="Off" />
+        <Setter Property="OnContent" Value="{i18n:Loc Key=Common_On}" />
+        <Setter Property="OffContent" Value="{i18n:Loc Key=Common_Off}" />
     </Style>
 
 </ResourceDictionary>

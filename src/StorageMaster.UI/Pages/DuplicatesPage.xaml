@@ -139,11 +139,13 @@
                         <ComboBox Grid.Row="1" Grid.Column="0"
                                   Header="{i18n:Loc Key=Duplicates_Scope_Header}"
                                   ItemsSource="{x:Bind ViewModel.ScopeModeOptions, Mode=OneWay}"
+                                  ItemTemplate="{StaticResource EnumItemTemplate}"
                                   SelectedItem="{x:Bind ViewModel.SelectedScopeMode, Mode=TwoWay}" />
 
                         <ComboBox Grid.Row="1" Grid.Column="1"
                                   Header="{i18n:Loc Key=Duplicates_KeeperPolicy_Header}"
                                   ItemsSource="{x:Bind ViewModel.KeeperPolicyOptions, Mode=OneWay}"
+                                  ItemTemplate="{StaticResource EnumItemTemplate}"
                                   SelectedItem="{x:Bind ViewModel.KeeperPolicy, Mode=TwoWay}"
                                   IsEnabled="{x:Bind ViewModel.CanModifyDeletionPlan, Mode=OneWay}" />
                         </Grid>
@@ -181,7 +183,10 @@
 
                         <Border Style="{StaticResource SubtleCardStyle}">
                             <StackPanel Spacing="10">
+                                <!-- Wraps: the card is sized for the English
+                                     sentence and German runs past it. -->
                                 <TextBlock Text="{i18n:Loc Key=Duplicates_ExactAlwaysOn}"
+                                           TextWrapping="Wrap"
                                            FontWeight="SemiBold" />
                                 <ToggleSwitch Header="{i18n:Loc Key=Duplicates_Method_TextDocuments_Header}"
                                               IsOn="{x:Bind ViewModel.IncludeNormalizedText, Mode=TwoWay}" />
@@ -339,6 +344,7 @@
                                 <ComboBox Grid.Column="0"
                                           Header="{i18n:Loc Key=Duplicates_Sort_Header}"
                                           ItemsSource="{x:Bind ViewModel.GroupSortOptions, Mode=OneWay}"
+                                  ItemTemplate="{StaticResource EnumItemTemplate}"
                                           SelectedItem="{x:Bind ViewModel.GroupSortBy, Mode=TwoWay}" />
                                 <NumberBox Grid.Column="1"
                                            Header="{i18n:Loc Key=Duplicates_MinConfidence_Header}"
@@ -432,6 +438,7 @@
                                       Header="{i18n:Loc Key=Duplicates_KeeperPolicy_Header}"
                                       Margin="8,0,0,0"
                                       ItemsSource="{x:Bind ViewModel.KeeperPolicyOptions, Mode=OneWay}"
+                                  ItemTemplate="{StaticResource EnumItemTemplate}"
                                       SelectedItem="{x:Bind ViewModel.KeeperPolicy, Mode=TwoWay}"
                                       IsEnabled="{x:Bind ViewModel.CanModifyDeletionPlan, Mode=OneWay}" />
                         </Grid>

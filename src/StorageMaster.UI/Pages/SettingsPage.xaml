@@ -16,14 +16,6 @@
         <converters:BoolToVisibilityConverter x:Key="BoolVis" />
         <converters:BoolToVisibilityConverter x:Key="InvBoolVis" Invert="True" />
         <converters:BoolNegationConverter     x:Key="NotBool" />
-        <converters:EnumDisplayConverter      x:Key="EnumDisplay" />
-
-        <!-- Drop-downs bind straight to Enum.GetValues, so without this they render
-             the identifier rather than a word. Classic Binding, not x:Bind: the
-             item is the enum value itself. -->
-        <DataTemplate x:Key="EnumItemTemplate">
-            <TextBlock Text="{Binding Converter={StaticResource EnumDisplay}}" />
-        </DataTemplate>
 
         <local:SettingsCategoryTemplateSelector x:Key="CategorySelector"
             GeneralTemplate="{StaticResource GeneralTemplate}"

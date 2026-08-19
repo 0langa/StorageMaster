@@ -3,13 +3,21 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using StorageMaster.Core.Localization;
 using StorageMaster.Core.Models;
+using StorageMaster.UI.Converters;
 
 namespace StorageMaster.UI.Controls;
 
 public sealed partial class SeverityBadge : UserControl
 {
     public static readonly DependencyProperty TextProperty =
-        DependencyProperty.Register(nameof(Text), typeof(string), typeof(SeverityBadge), new PropertyMetadata(Loc.Get("Control_Severity_Unknown"), OnStateChanged));
+        DependencyProperty.Register(
+            nameof(Text),
+            typeof(string),
+            typeof(SeverityBadge),
+            // Empty by default so an unset Text falls through to the status name.
+            // A non-empty default meant the fallback never ran and every badge read
+            // "Unknown" regardless of the drive's actual state.
+            new PropertyMetadata(string.Empty, OnStateChanged));
 
     public static readonly DependencyProperty StatusProperty =
         DependencyProperty.Register(nameof(Status), typeof(DriveHealthStatus), typeof(SeverityBadge), new PropertyMetadata(DriveHealthStatus.Unknown, OnStateChanged));
@@ -32,7 +40,20 @@ public sealed partial class SeverityBadge : UserControl
         set => SetValue(StatusProperty, value);
     }
 
-    public string DisplayText => string.IsNullOrWhiteSpace(Text) ? Status.ToString() : Text;
+    /// <summary>
+    /// The badge caption. Falls back to the severity's own name, taken from the
+    /// catalogue: the drive cards do not set Text, and <c>Status.ToString()</c>
+    /// would render "Healthy" beside German text.
+    /// <para>
+    /// Applied in <see cref="ApplyState"/> rather than bound. It is a plain CLR
+    /// property with no change notification, so an <c>x:Bind</c> to it read once at
+    /// load and then never again — the badge kept its initial caption while its
+    /// colour tracked the real status.
+    /// </para>
+    /// </summary>
+    public string DisplayText => string.IsNullOrWhiteSpace(Text)
+        ? Loc.Get(EnumDisplayConverter.KeyFor(Status))
+        : Text;
 
     private static void OnStateChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
     {
@@ -59,7 +80,8 @@ public sealed partial class SeverityBadge : UserControl
     /// </summary>
     private void ApplyState()
     {
-        Bindings.Update();
+        BadgeTextBlock.Text = DisplayText;
+
         var (fillKey, textKey) = Status switch
         {
             DriveHealthStatus.Healthy => ("SeverityHealthyBrush", "SeverityHealthyTextBrush"),

@@ -82,12 +82,6 @@ public sealed class LocalizationScopeTests
 
         foreach (var file in SourceFiles("*.xaml"))
         {
-            // Styles and templates carry text that belongs to a control's own
-            // chrome rather than to a screen; those files are covered by the page
-            // that uses them.
-            if (file.Contains($"{Path.DirectorySeparatorChar}Styles{Path.DirectorySeparatorChar}", StringComparison.Ordinal))
-                continue;
-
             var lines = File.ReadAllLines(file);
 
             for (var i = 0; i < lines.Length; i++)
@@ -186,6 +180,8 @@ public sealed class LocalizationScopeTests
         {
             Path.Combine(RepositoryRoot, "src", "StorageMaster.UI"),
             Path.Combine(RepositoryRoot, "src", "StorageMaster.Core"),
+            // Drive-health messages are written here and read on a drive card.
+            Path.Combine(RepositoryRoot, "src", "StorageMaster.Platform.Windows"),
         };
 
         foreach (var root in roots)

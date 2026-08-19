@@ -22,8 +22,8 @@
             CornerRadius="{StaticResource ChipCornerRadius}">
         <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
             <Ellipse x:Name="BadgeDot" Width="8" Height="8" VerticalAlignment="Center" />
+            <!-- Text is assigned in ApplyState; see DisplayText for why. -->
             <TextBlock x:Name="BadgeTextBlock"
-                       Text="{x:Bind DisplayText, Mode=OneWay}"
                        Style="{StaticResource CaptionTextBlockStyle}"
                        FontWeight="SemiBold"
                        TextWrapping="NoWrap" />

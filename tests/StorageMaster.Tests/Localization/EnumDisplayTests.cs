@@ -33,6 +33,12 @@ public sealed class EnumDisplayTests
         typeof(KeeperPolicy),
         typeof(ScheduledJobKind),
         typeof(ScheduledJobFrequency),
+        typeof(DuplicateGroupSortBy),
+        typeof(DuplicateScopeMode),
+
+        // Not a drop-down: the drive-health badge falls back to this enum for its
+        // caption, which is the same leak by a different route.
+        typeof(DriveHealthStatus),
     ];
 
     [Theory]

@@ -57,7 +57,6 @@
                                                        TextTrimming="CharacterEllipsis" />
                                         </StackPanel>
                                         <controls:SeverityBadge Grid.Column="1"
-                                                                Text="{Binding Status}"
                                                                 Status="{Binding Status}"
                                                                 VerticalAlignment="Top" />
                                     </Grid>

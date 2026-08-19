@@ -23,7 +23,13 @@
     -->
     <Style x:Key="GlobalStatusTextStyle" TargetType="TextBlock" BasedOn="{StaticResource CaptionTextBlockStyle}">
         <Setter Property="Foreground" Value="{StaticResource SmTextSecondaryBrush}" />
+        <!--
+            Two lines, then ellipsis. The pane is a fixed width, and German runs
+            long enough that a single no-wrap line cut "Überprüfung starten, um
+            Daten für den Überblick zu sammeln." off mid-word.
+        -->
         <Setter Property="TextTrimming" Value="CharacterEllipsis" />
-        <Setter Property="TextWrapping" Value="NoWrap" />
+        <Setter Property="TextWrapping" Value="Wrap" />
+        <Setter Property="MaxLines" Value="2" />
     </Style>
 </ResourceDictionary>

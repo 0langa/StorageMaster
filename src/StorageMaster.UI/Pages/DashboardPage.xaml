@@ -34,7 +34,14 @@
             </controls:PageHeader>
 
             <Border Style="{StaticResource HeroCardStyle}">
-                <Grid ColumnDefinitions="2*,*,Auto" ColumnSpacing="24">
+                <!--
+                    The score's explanation spans the whole card rather than sitting
+                    in the gauge's 132px column. It never fitted there — English was
+                    already being cut off at "low-space…" — and no translation was
+                    going to make a 100-character sentence fit a column sized for a
+                    two-word label.
+                -->
+                <Grid ColumnDefinitions="2*,*,Auto" RowDefinitions="Auto,Auto" ColumnSpacing="24" RowSpacing="12">
                     <StackPanel Grid.Column="0" Spacing="{StaticResource TightSpacing}">
                         <TextBlock Text="{x:Bind ViewModel.HeroTitle, Mode=OneWay}" Style="{StaticResource TitleTextBlockStyle}" />
                         <TextBlock Text="{x:Bind ViewModel.HeroSubtitle, Mode=OneWay}" Style="{StaticResource PageSubtitleTextStyle}" />
@@ -53,11 +60,12 @@
                                                Label="{x:Bind ViewModel.ReadinessLabel, Mode=OneWay}"
                                                GaugeSize="108"
                                                HorizontalAlignment="Center" />
-                        <TextBlock Text="{x:Bind ViewModel.ReadinessDescription, Mode=OneWay}"
-                                   Style="{StaticResource HelperTextStyle}"
-                                   MaxLines="3"
-                                   TextAlignment="Center" />
                     </StackPanel>
+
+                    <TextBlock Grid.Row="1" Grid.ColumnSpan="3"
+                               Text="{x:Bind ViewModel.ReadinessDescription, Mode=OneWay}"
+                               Style="{StaticResource HelperTextStyle}"
+                               TextWrapping="Wrap" />
                 </Grid>
             </Border>
 
@@ -97,7 +105,6 @@
                                                 </TextBlock>
                                             </StackPanel>
                                             <controls:SeverityBadge Grid.Column="2"
-                                                                    Text="{Binding Status}"
                                                                     Status="{Binding Status}"
                                                                     VerticalAlignment="Center" />
                                         </Grid>

@@ -8,6 +8,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using StorageMaster.Core.Interfaces;
 using StorageMaster.Core.Localization;
+using StorageMaster.UI.Converters;
 using StorageMaster.Core.Models;
 using StorageMaster.Core.Theming;
 using StorageMaster.Core.Scheduling;
@@ -1194,7 +1195,7 @@ public sealed partial class SettingsViewModel : ObservableObject
             switch (c.Category)
             {
                 case SettingsCategory.General:
-                    c.StatusSummary = $"{Theme}";
+                    c.StatusSummary = Loc.Get(EnumDisplayConverter.KeyFor(Theme));
                     c.HasWarning = false;
                     break;
                 case SettingsCategory.Scanning:
@@ -1209,7 +1210,10 @@ public sealed partial class SettingsViewModel : ObservableObject
                     c.WarningText = Loc.Get("Safety_Warning_PermanentDeletionRisky");
                     break;
                 case SettingsCategory.Duplicates:
-                    c.StatusSummary = Loc.Format("Settings_Summary_Duplicates", DuplicateKeeperPolicy, DuplicateMinimumSizeMb);
+                    c.StatusSummary = Loc.Format(
+                        "Settings_Summary_Duplicates",
+                        Loc.Get(EnumDisplayConverter.KeyFor(DuplicateKeeperPolicy)),
+                        DuplicateMinimumSizeMb);
                     c.HasWarning = false;
                     break;
                 case SettingsCategory.ResultsHistory:

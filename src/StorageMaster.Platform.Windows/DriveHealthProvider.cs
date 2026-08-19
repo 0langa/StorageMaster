@@ -1,3 +1,4 @@
+using StorageMaster.Core.Localization;
 using System.Management;
 using Microsoft.Extensions.Logging;
 using StorageMaster.Core.Interfaces;
@@ -102,8 +103,8 @@ public sealed class DriveHealthProvider(
                                     Status = status,
                                     Source = "Win32_DiskDrive",
                                     Message = status == DriveHealthStatus.Healthy
-                                        ? "Windows reports the physical disk status as OK."
-                                        : $"Windows reports disk status '{win32Status}'. Review the drive before deleting data.",
+                                        ? Loc.Get("Health_Message_WindowsReportsOk")
+                                        : Loc.Format("Health_Message_WindowsReportsStatus", win32Status),
                                     Model = model,
                                     SerialNumber = serial,
                                     MediaType = mediaType,
@@ -182,12 +183,15 @@ public sealed class DriveHealthProvider(
         _ => DriveHealthStatus.Unknown,
     };
 
+    // These are read by the user on a drive card, so they come from the catalogue
+    // rather than being written here. The status text in the fallback is whatever
+    // Windows reported and is passed through untranslated on purpose.
     private static string BuildStorageMessage(DriveHealthStatus status, string statusText) => status switch
     {
-        DriveHealthStatus.Healthy => "Windows Storage reports the physical disk as healthy.",
-        DriveHealthStatus.Warning => "Windows Storage reports a warning for this disk. Back up important data and inspect the drive.",
-        DriveHealthStatus.Critical => "Windows Storage reports this disk as unhealthy. Back up important data before cleanup or dedupe work.",
-        _ => $"Windows Storage health status is {statusText}.",
+        DriveHealthStatus.Healthy => Loc.Get("Health_Message_StorageHealthy"),
+        DriveHealthStatus.Warning => Loc.Get("Health_Message_StorageWarning"),
+        DriveHealthStatus.Critical => Loc.Get("Health_Message_StorageCritical"),
+        _ => Loc.Format("Health_Message_StorageUnknown", statusText),
     };
 
     private static string MapMediaType(int? mediaType) => mediaType switch

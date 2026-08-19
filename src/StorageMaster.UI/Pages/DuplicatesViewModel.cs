@@ -11,13 +11,6 @@ using StorageMaster.UI.Infrastructure;
 
 namespace StorageMaster.UI.Pages;
 
-public enum DuplicateScopeMode
-{
-    WholeSession,
-    IncludedFolders,
-    ExcludedFolders,
-}
-
 public sealed record DuplicateCategoryOption(
     string Label,
     IReadOnlyList<FileTypeCategory> Categories,

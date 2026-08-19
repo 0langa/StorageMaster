@@ -369,6 +369,14 @@
   <data name="Common_Healthy" xml:space="preserve">
     <value>Fehlerfrei</value>
   </data>
+  <data name="Common_Off" xml:space="preserve">
+    <value>Aus</value>
+    <comment>[label] ToggleSwitch caption when the switch is off.</comment>
+  </data>
+  <data name="Common_On" xml:space="preserve">
+    <value>Ein</value>
+    <comment>[label] ToggleSwitch caption when the switch is on. Windows uses this beside every switch.</comment>
+  </data>
   <data name="Common_Refresh" xml:space="preserve">
     <value>Aktualisieren</value>
   </data>
@@ -488,7 +496,7 @@
     <comment>[empty-state] Shown in the Dashboard hero card in place of the last-scan summary when the app has never recorded a scan.</comment>
   </data>
   <data name="Dashboard_Readiness_Description" xml:space="preserve">
-    <value>Zustandswert des Speichers: {0}/100, ermittelt aus Aktualität der Überprüfung, Schwellenwert für wenig Speicherplatz und Warnungen zum Laufwerkszustand.</value>
+    <value>Speicher-Zustandswert: {0}/100 aus Aktualität der Überprüfung, Schwellenwert für wenig Speicherplatz und Laufwerkswarnungen.</value>
     <comment>[description] Text under the Dashboard readiness gauge once the score is known. {0} is the score as a formatted whole number, always out of 100.</comment>
   </data>
   <data name="Dashboard_Readiness_Description_Default" xml:space="preserve">
@@ -1047,6 +1055,58 @@
     <value>Duplikate entfernen</value>
     <comment>[title] Main title in the header bar at the top of the Duplicates page (titled "Deduplicate"), where the user reviews groups of duplicate files found in a completed scan and deletes the copies. It is a verb/activity name, not a plural noun: the page is where the user removes duplicate files. Sits beside Duplicates_Subtitle in a single-line header, so keep it short.</comment>
   </data>
+  <data name="Enum_DriveHealthStatus_Critical" xml:space="preserve">
+    <value>Kritisch</value>
+    <comment>[label] Drive health badge caption for a failing drive.</comment>
+  </data>
+  <data name="Enum_DriveHealthStatus_Healthy" xml:space="preserve">
+    <value>Fehlerfrei</value>
+    <comment>[label] Drive health badge caption for a drive with no reported problem.</comment>
+  </data>
+  <data name="Enum_DriveHealthStatus_Unknown" xml:space="preserve">
+    <value>Unbekannt</value>
+    <comment>[label] Drive health badge caption when the drive reports nothing usable.</comment>
+  </data>
+  <data name="Enum_DriveHealthStatus_Unsupported" xml:space="preserve">
+    <value>Nicht unterstützt</value>
+    <comment>[label] Drive health badge caption when the drive cannot report health at all.</comment>
+  </data>
+  <data name="Enum_DriveHealthStatus_Warning" xml:space="preserve">
+    <value>Warnung</value>
+    <comment>[label] Drive health badge caption for a drive reporting a warning.</comment>
+  </data>
+  <data name="Enum_DuplicateGroupSortBy_ConfidenceDesc" xml:space="preserve">
+    <value>Höchste Übereinstimmung</value>
+    <comment>[label] Duplicate group sort order: most certain matches first.</comment>
+  </data>
+  <data name="Enum_DuplicateGroupSortBy_LatestModifiedDesc" xml:space="preserve">
+    <value>Zuletzt geändert</value>
+    <comment>[label] Duplicate group sort order: most recently changed first.</comment>
+  </data>
+  <data name="Enum_DuplicateGroupSortBy_MemberCountDesc" xml:space="preserve">
+    <value>Meiste Kopien</value>
+    <comment>[label] Duplicate group sort order: largest groups first.</comment>
+  </data>
+  <data name="Enum_DuplicateGroupSortBy_Method" xml:space="preserve">
+    <value>Erkennungsmethode</value>
+    <comment>[label] Duplicate group sort order: grouped by detection method.</comment>
+  </data>
+  <data name="Enum_DuplicateGroupSortBy_ReclaimableBytesDesc" xml:space="preserve">
+    <value>Größte Ersparnis zuerst</value>
+    <comment>[label] Duplicate group sort order: most reclaimable space first.</comment>
+  </data>
+  <data name="Enum_DuplicateScopeMode_ExcludedFolders" xml:space="preserve">
+    <value>Ohne diese Ordner</value>
+    <comment>[label] Duplicate scope drop-down: search everything except the folders listed.</comment>
+  </data>
+  <data name="Enum_DuplicateScopeMode_IncludedFolders" xml:space="preserve">
+    <value>Nur diese Ordner</value>
+    <comment>[label] Duplicate scope drop-down: search only the folders listed.</comment>
+  </data>
+  <data name="Enum_DuplicateScopeMode_WholeSession" xml:space="preserve">
+    <value>Gesamte Sitzung</value>
+    <comment>[label] Duplicate scope drop-down: search the entire completed scan.</comment>
+  </data>
   <data name="Enum_KeeperPolicy_LongestPath" xml:space="preserve">
     <value>Längster Pfad</value>
     <comment>[label] Drop-down entry: keep the copy with the longest folder path.</comment>
@@ -1134,6 +1194,30 @@
   <data name="Health_Error_RefreshFailed" xml:space="preserve">
     <value>Der Laufwerkszustand konnte nicht aktualisiert werden: {0}</value>
     <comment>[status] Status line shown as the Drive Health page subtitle when re-reading the drive telemetry failed. {0} is the technical error text from Windows and stays English.</comment>
+  </data>
+  <data name="Health_Message_StorageCritical" xml:space="preserve">
+    <value>Windows Storage meldet diesen Datenträger als fehlerhaft. Sichern Sie wichtige Daten, bevor Sie bereinigen oder Duplikate entfernen.</value>
+    <comment>[status] Drive card message from the Windows Storage health API for a failing disk.</comment>
+  </data>
+  <data name="Health_Message_StorageHealthy" xml:space="preserve">
+    <value>Windows Storage meldet den Datenträger als fehlerfrei.</value>
+    <comment>[status] Drive card message from the Windows Storage health API.</comment>
+  </data>
+  <data name="Health_Message_StorageUnknown" xml:space="preserve">
+    <value>Der Windows Storage-Zustand lautet {0}.</value>
+    <comment>[status] Drive card message when the Storage health API returns an unrecognised state. {0} is the raw status word and is not translated.</comment>
+  </data>
+  <data name="Health_Message_StorageWarning" xml:space="preserve">
+    <value>Windows Storage meldet eine Warnung für diesen Datenträger. Sichern Sie wichtige Daten und prüfen Sie das Laufwerk.</value>
+    <comment>[status] Drive card message from the Windows Storage health API.</comment>
+  </data>
+  <data name="Health_Message_WindowsReportsOk" xml:space="preserve">
+    <value>Windows meldet den Status des Datenträgers als fehlerfrei.</value>
+    <comment>[status] Drive card message when Windows reports the physical disk as OK.</comment>
+  </data>
+  <data name="Health_Message_WindowsReportsStatus" xml:space="preserve">
+    <value>Windows meldet den Datenträgerstatus '{0}'. Prüfen Sie das Laufwerk, bevor Sie Daten löschen.</value>
+    <comment>[status] Drive card message when Windows reports a status other than OK. {0} is the raw status word from Windows and is not translated.</comment>
   </data>
   <data name="Health_Metric_Captured" xml:space="preserve">
     <value>Erfasst am</value>

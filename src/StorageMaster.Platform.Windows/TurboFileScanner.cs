@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Globalization;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -132,9 +133,11 @@ public sealed class TurboFileScanner : IFileScanner
         var fileBuffer = new List<FileEntry>(500);
         var folderBuffer = new List<FolderEntry>(100);
         var seenFolders = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var parentSizes = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
-        var parentFileCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        var parentSubFolderCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
+        // One entry per parent rather than three parallel dictionaries: the
+        // consumer touches this for every record, and three hashes plus three
+        // probes per file is pure overhead on the pipeline's only reader.
+        var parentMetrics = new Dictionary<string, ParentFolderMetrics>(StringComparer.OrdinalIgnoreCase);
         var folderMetricsPersisted = false;
 
         var processStarted = false;
@@ -165,42 +168,82 @@ public sealed class TurboFileScanner : IFileScanner
             persistedFolderCount += batch.LongLength;
         }
 
-        async Task PersistFolderMetricsOnceAsync(CancellationToken ct)
+        // The final metrics pass used to build one array over every folder in the
+        // scan and write it in a single lock-holding transaction, with the UI
+        // showing nothing at all while it ran. Write it in DbBatchSize chunks and
+        // report between them so a large scan does not look frozen at the end.
+        async Task PersistFolderMetricsOnceAsync(CancellationToken ct, bool reportProgress)
         {
             if (folderMetricsPersisted)
                 return;
 
-            var metrics = seenFolders
-                .Select(path =>
+            var batch = new List<FolderEntry>(options.DbBatchSize);
+            var written = 0;
+            foreach (var path in seenFolders)
+            {
+                var metrics = parentMetrics.GetValueOrDefault(path);
+                batch.Add(new FolderEntry
                 {
-                    var directSize = parentSizes.GetValueOrDefault(path);
-                    return new FolderEntry
-                    {
-                        Id = 0,
-                        SessionId = session.Id,
-                        FullPath = path,
-                        FolderName = ScanOptionValidator.GetDisplayName(path),
-                        DirectSizeBytes = directSize,
-                        TotalSizeBytes = directSize,
-                        FileCount = parentFileCounts.GetValueOrDefault(path),
-                        SubFolderCount = parentSubFolderCounts.GetValueOrDefault(path),
-                        IsReparsePoint = false,
-                        WasAccessDenied = false,
-                    };
-                })
-                .ToArray();
+                    Id = 0,
+                    SessionId = session.Id,
+                    FullPath = path,
+                    FolderName = ScanOptionValidator.GetDisplayName(path),
+                    DirectSizeBytes = metrics.DirectSizeBytes,
+                    TotalSizeBytes = metrics.DirectSizeBytes,
+                    FileCount = metrics.FileCount,
+                    SubFolderCount = metrics.SubFolderCount,
+                    IsReparsePoint = false,
+                    WasAccessDenied = false,
+                });
 
-            if (metrics.Length > 0)
-                await _repo.UpsertFolderEntriesAsync(metrics, ct).ConfigureAwait(false);
+                if (batch.Count < options.DbBatchSize)
+                    continue;
+
+                // Hand over a snapshot, not the reusable buffer — same convention
+                // as the streaming flushes above.
+                await _repo.UpsertFolderEntriesAsync(batch.ToArray(), ct).ConfigureAwait(false);
+                written += batch.Count;
+                batch.Clear();
+
+                if (reportProgress)
+                    ReportFinalizing(
+                        $"Finalizing: writing folder metrics… ({written:N0}/{seenFolders.Count:N0})");
+            }
+
+            if (batch.Count > 0)
+                await _repo.UpsertFolderEntriesAsync(batch.ToArray(), ct).ConfigureAwait(false);
 
             folderMetricsPersisted = true;
         }
 
-        async Task FlushPersistedStateAsync(CancellationToken ct)
+        void ReportFinalizing(string status) =>
+            progress.Report(new ScanProgress
+            {
+                CurrentPath = status,
+                FilesScanned = fileCount,
+                FoldersScanned = folderCount,
+                BytesScanned = totalBytes,
+                ErrorCount = CurrentErrorCount(),
+                IsComplete = false,
+            });
+
+        int CurrentErrorCount()
         {
+            lock (stderrErrors)
+                return stderrErrors.Count;
+        }
+
+        async Task FlushPersistedStateAsync(CancellationToken ct, bool reportProgress = false)
+        {
+            // Announce before the work, not after it: this is seconds of database
+            // writes on a large scan, and the UI otherwise shows the last scanned
+            // path the whole time and looks frozen.
+            if (reportProgress)
+                ReportFinalizing("Finalizing: writing scan results…");
+
             await FlushFileBufferAsync(ct).ConfigureAwait(false);
             await FlushFolderBufferAsync(ct).ConfigureAwait(false);
-            await PersistFolderMetricsOnceAsync(ct).ConfigureAwait(false);
+            await PersistFolderMetricsOnceAsync(ct, reportProgress).ConfigureAwait(false);
         }
 
         async Task UpdateFolderTotalsAsync(CancellationToken ct)
@@ -210,10 +253,25 @@ public sealed class TurboFileScanner : IFileScanner
             await _repo.UpdateFolderTotalsAsync(session.Id, totals, ct).ConfigureAwait(false);
         }
 
-        static void Increment(Dictionary<string, int> counts, string path)
+        // Single hash + single probe per record. Declared as local functions so the
+        // `ref` into the dictionary's storage never has to live inside the async
+        // consumer body.
+        static void AddFileToParent(
+            Dictionary<string, ParentFolderMetrics> metrics,
+            string parentDir,
+            long sizeBytes)
         {
-            var current = counts.GetValueOrDefault(path);
-            counts[path] = current == int.MaxValue ? int.MaxValue : current + 1;
+            ref var entry = ref CollectionsMarshal.GetValueRefOrAddDefault(metrics, parentDir, out _);
+            entry.DirectSizeBytes += sizeBytes;
+            entry.FileCount = entry.FileCount == int.MaxValue ? int.MaxValue : entry.FileCount + 1;
+        }
+
+        static void AddSubFolderToParent(
+            Dictionary<string, ParentFolderMetrics> metrics,
+            string parentDir)
+        {
+            ref var entry = ref CollectionsMarshal.GetValueRefOrAddDefault(metrics, parentDir, out _);
+            entry.SubFolderCount = entry.SubFolderCount == int.MaxValue ? int.MaxValue : entry.SubFolderCount + 1;
         }
 
         try
@@ -341,7 +399,7 @@ public sealed class TurboFileScanner : IFileScanner
 
                             var parentDir = Path.GetDirectoryName(rec.Path);
                             if (parentDir is not null)
-                                Increment(parentSubFolderCounts, parentDir);
+                                AddSubFolderToParent(parentMetrics, parentDir);
 
                             if (folderBuffer.Count >= 100)
                                 await FlushFolderBufferAsync(abort.Token).ConfigureAwait(false);
@@ -375,10 +433,7 @@ public sealed class TurboFileScanner : IFileScanner
 
                             var parentDir = Path.GetDirectoryName(rec.Path);
                             if (parentDir is not null)
-                            {
-                                parentSizes[parentDir] = parentSizes.GetValueOrDefault(parentDir) + (long)rec.Size;
-                                Increment(parentFileCounts, parentDir);
-                            }
+                                AddFileToParent(parentMetrics, parentDir, (long)rec.Size);
 
                             if (fileBuffer.Count >= 500)
                                 await FlushFileBufferAsync(abort.Token).ConfigureAwait(false);
@@ -394,7 +449,11 @@ public sealed class TurboFileScanner : IFileScanner
                                 FilesScanned = fileCount,
                                 FoldersScanned = folderCount,
                                 BytesScanned = totalBytes,
-                                ErrorCount = 0,
+                                // Live count, not a hard-coded 0: stderr errors are
+                                // accumulating throughout the scan, and reporting 0
+                                // until the very last report made the turbo backend
+                                // look error-free on drives full of denied paths.
+                                ErrorCount = CurrentErrorCount(),
                                 IsComplete = false,
                             });
                         }
@@ -423,7 +482,7 @@ public sealed class TurboFileScanner : IFileScanner
             // Folder identity rows are streamed as zero-value placeholders.
             // Persist their final direct metrics exactly once before any
             // terminal session state is written.
-            await FlushPersistedStateAsync(cancellationToken).ConfigureAwait(false);
+            await FlushPersistedStateAsync(cancellationToken, reportProgress: true).ConfigureAwait(false);
 
             if (process.ExitCode != 0)
             {
@@ -450,7 +509,7 @@ public sealed class TurboFileScanner : IFileScanner
                 FilesScanned = fileCount,
                 FoldersScanned = folderCount,
                 BytesScanned = totalBytes,
-                ErrorCount = 0,
+                ErrorCount = CurrentErrorCount(),
                 IsComplete = false,
             });
 
@@ -482,7 +541,7 @@ public sealed class TurboFileScanner : IFileScanner
                 FilesScanned = fileCount,
                 FoldersScanned = folderCount,
                 BytesScanned = totalBytes,
-                ErrorCount = stderrErrors.Count,
+                ErrorCount = CurrentErrorCount(),
                 IsComplete = true,
             });
 
@@ -670,15 +729,22 @@ public sealed class TurboFileScanner : IFileScanner
     /// <summary>
     /// Checks whether <paramref name="path"/> starts with any of the sorted
     /// exclusion prefixes. Called on the producer hot-loop — kept allocation-free.
+    /// <para>
+    /// <paramref name="sortedExclusions"/> was normalised once by
+    /// <c>NormalizeAndValidate</c>, so the candidate is normalised at most once per
+    /// record instead of once per exclusion, and the exclusions are never
+    /// re-normalised. With the two default exclusions this drops four
+    /// <c>GetFullPathNameW</c> calls per record to one.
+    /// </para>
     /// </summary>
     private static bool IsExcluded(string path, string[] sortedExclusions)
     {
-        foreach (var ex in sortedExclusions)
-        {
-            if (ScanOptionValidator.IsPathEqualOrUnder(path, ex))
-                return true;
-        }
-        return false;
+        if (sortedExclusions.Length == 0 || string.IsNullOrWhiteSpace(path))
+            return false;
+
+        return ScanOptionValidator.IsNormalizedPathExcluded(
+            ScanOptionValidator.NormalizeDirectoryPath(path),
+            sortedExclusions);
     }
 
     /// <summary>
@@ -768,6 +834,19 @@ public sealed class TurboFileScanner : IFileScanner
                 guards[index].Dispose();
             throw;
         }
+    }
+
+    /// <summary>
+    /// Direct metrics accumulated for one parent folder while the native records
+    /// stream in. A mutable struct held in a dictionary and updated in place through
+    /// <c>CollectionsMarshal.GetValueRefOrAddDefault</c>, so a record costs one hash
+    /// and one probe instead of three.
+    /// </summary>
+    private struct ParentFolderMetrics
+    {
+        public long DirectSizeBytes;
+        public int FileCount;
+        public int SubFolderCount;
     }
 
     private sealed class TurboRecord

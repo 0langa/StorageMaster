@@ -1,6 +1,7 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.IO.Enumeration;
 using System.Runtime.CompilerServices;
-using System.Runtime.ExceptionServices;
 using System.Runtime.InteropServices;
 using System.Security;
 using Microsoft.Extensions.Logging;
@@ -17,9 +18,17 @@ namespace StorageMaster.Platform.Windows;
 ///     entire list is sent to the Recycle Bin in ONE IFileOperation call.
 ///     This is orders-of-magnitude faster than calling the API once per file
 ///     (the shell updates the Recycle Bin index once, not N times).
+///   • Snapshot-guarded requests take that same batch path. Validation is
+///     split from execution: every path in a chunk has its ExpectedSnapshot
+///     re-checked BEFORE any path in that chunk is submitted, so batching
+///     changes how verified deletions are handed to the shell, never whether
+///     they are verified. Chunking keeps the check→submit window short.
 ///   • On batch failure (partial error) the batch falls back to per-file mode
-///     so individual error messages are captured.
+///     so individual error messages are captured — and the per-file path
+///     re-validates each snapshot again before deleting.
 ///   • Permanent deletion uses parallel File.Delete / Directory.Delete.
+///   • All IFileOperation work runs on ONE long-lived STA apartment thread
+///     rather than a freshly created STA thread per call.
 ///
 /// Error handling:
 ///   • IFileOperation is called with FOF_NOERRORUI | FOF_NOCONFIRMATION so the
@@ -37,9 +46,20 @@ public sealed class FileDeleter : IFileDeleter
 
     private const int MaxConcurrency = 8; // raised from 4; permanent deletes are lightweight
 
+    // Verified requests are submitted to the shell in bounded chunks. One shell
+    // transaction per 512 paths keeps ~all of the batching win over per-file
+    // recycling while bounding both the snapshot-check→submit window and the
+    // size of a single IFileOperation.
+    private const int RecycleBatchSize = 512;
+
+    /// <param name="VerifiedSize">
+    /// Size read from the file handle during snapshot re-validation. Present only
+    /// for snapshot-guarded requests; it lets the batch path skip a second stat.
+    /// </param>
     private readonly record struct ValidatedDeletionRequest(
         DeletionRequest Request,
-        string RequestedPath);
+        string RequestedPath,
+        long? VerifiedSize = null);
 
     public FileDeleter(
         ILogger<FileDeleter> logger,
@@ -66,29 +86,10 @@ public sealed class FileDeleter : IFileDeleter
         }
         request = normalizedRequest;
 
-        if (!request.DryRun && request.ExpectedSnapshot is not null)
-        {
-            if (_snapshotProvider is null)
-            {
-                return new DeletionOutcome(
-                    requestedPath,
-                    false,
-                    0,
-                    "Snapshot-guarded deletion is unavailable; refusing to delete.");
-            }
-
-            var currentSnapshot = await _snapshotProvider
-                .TakeSnapshotAsync(request.Path, cancellationToken)
-                .ConfigureAwait(false);
-            if (currentSnapshot is null || !request.ExpectedSnapshot.IsIdenticalTo(currentSnapshot))
-            {
-                return new DeletionOutcome(
-                    requestedPath,
-                    false,
-                    0,
-                    "File changed or was replaced after validation; refusing to delete.");
-            }
-        }
+        var (snapshotRejection, verifiedSize) = await VerifyExpectedSnapshotAsync(
+            request, requestedPath, cancellationToken).ConfigureAwait(false);
+        if (snapshotRejection is not null)
+            return snapshotRejection;
 
         if (request.DryRun)
         {
@@ -114,7 +115,9 @@ public sealed class FileDeleter : IFileDeleter
 
         try
         {
-            long size = EstimateSize(request.Path, cancellationToken);
+            // Snapshot re-validation already read the length off the open handle;
+            // only unguarded requests still have to pay for a traversal here.
+            long size = verifiedSize ?? EstimateSize(request.Path, cancellationToken);
 
             if (request.Method == DeletionMethod.Quarantine)
                 return await QuarantineAsync(request, requestedPath, size, cancellationToken);
@@ -162,22 +165,94 @@ public sealed class FileDeleter : IFileDeleter
 
         // ── Fast path: batch all RecycleBin real deletions in one shell call ──
         // This is the common cleanup case and is dramatically faster than N calls.
+        //
+        // Snapshot-guarded requests are deliberately eligible. Every production
+        // caller sets ExpectedSnapshot, so excluding them left this path dead and
+        // pushed real cleanups onto one STA thread + one IFileOperation per file.
+        // The guard is not skipped: validation is simply hoisted ahead of
+        // execution, chunk by chunk, below.
         bool allRecycleBin = validRequests.All(r => !r.Request.DryRun
                                                              && r.Request.Method == DeletionMethod.RecycleBin
-                                                             && r.Request.ExpectedSnapshot is null
                                                              && r.Request.Path != "::RecycleBin::"
                                                              && r.Request.Path != "::DnsFlush::");
         // Quarantine is per-file; falls through to normal path
         if (allRecycleBin && validRequests.Count > 1)
         {
-            await foreach (var o in BatchRecycleBinAsync(validRequests, cancellationToken))
-                yield return o;
+            for (var start = 0; start < validRequests.Count; start += RecycleBatchSize)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                var end = Math.Min(start + RecycleBatchSize, validRequests.Count);
+                var verified = new List<ValidatedDeletionRequest>(end - start);
+                for (var i = start; i < end; i++)
+                {
+                    var candidate = validRequests[i];
+                    var (rejection, verifiedSize) = await VerifyExpectedSnapshotAsync(
+                        candidate.Request, candidate.RequestedPath, cancellationToken).ConfigureAwait(false);
+                    if (rejection is not null)
+                    {
+                        yield return rejection;
+                        continue;
+                    }
+
+                    verified.Add(candidate with { VerifiedSize = verifiedSize });
+                }
+
+                if (verified.Count == 0)
+                    continue;
+
+                await foreach (var o in BatchRecycleBinAsync(verified, cancellationToken))
+                    yield return o;
+            }
+
             yield break;
         }
 
         // ── Normal path: parallel per-file ───────────────────────────────────
         await foreach (var o in ParallelDeleteAsync(validRequests, cancellationToken))
             yield return o;
+    }
+
+    /// <summary>
+    /// Re-checks a request's <c>ExpectedSnapshot</c> against the live file.
+    /// Returns the refusal outcome when the file no longer matches, otherwise
+    /// <c>null</c> plus the size read during the check.
+    /// <para>
+    /// This is the whole snapshot guarantee, so it runs for every guarded request
+    /// on every path into the deleter — the batch path calls it before submitting
+    /// anything, and the per-file path calls it again on the fallback route.
+    /// </para>
+    /// </summary>
+    private async ValueTask<(DeletionOutcome? Rejection, long? VerifiedSize)> VerifyExpectedSnapshotAsync(
+        DeletionRequest request,
+        string requestedPath,
+        CancellationToken cancellationToken)
+    {
+        if (request.DryRun || request.ExpectedSnapshot is null)
+            return (null, null);
+
+        if (_snapshotProvider is null)
+        {
+            return (new DeletionOutcome(
+                requestedPath,
+                false,
+                0,
+                "Snapshot-guarded deletion is unavailable; refusing to delete."), null);
+        }
+
+        var currentSnapshot = await _snapshotProvider
+            .TakeSnapshotAsync(request.Path, cancellationToken)
+            .ConfigureAwait(false);
+        if (currentSnapshot is null || !request.ExpectedSnapshot.IsIdenticalTo(currentSnapshot))
+        {
+            return (new DeletionOutcome(
+                requestedPath,
+                false,
+                0,
+                "File changed or was replaced after validation; refusing to delete."), null);
+        }
+
+        return (null, currentSnapshot.SizeBytes);
     }
 
     // ── Batch Recycle Bin (fast path) ───────────────────────────────────────
@@ -189,11 +264,21 @@ public sealed class FileDeleter : IFileDeleter
         await Task.Yield();
         cancellationToken.ThrowIfCancellationRequested();
 
-        // Measure sizes before deletion (best-effort, parallel for speed)
-        var sizes = await Task.Run(() =>
-            requests.AsParallel().AsOrdered()
-                    .Select(r => EstimateSize(r.Request.Path, cancellationToken))
-                    .ToList(), cancellationToken);
+        // Measure sizes before deletion (best-effort, parallel for speed).
+        // Guarded requests already carry the length their snapshot re-check read,
+        // so the common cleanup batch needs no traversal at all here.
+        List<long> sizes;
+        if (requests.All(static r => r.VerifiedSize.HasValue))
+        {
+            sizes = requests.Select(static r => r.VerifiedSize!.Value).ToList();
+        }
+        else
+        {
+            sizes = await Task.Run(() =>
+                requests.AsParallel().AsOrdered()
+                        .Select(r => r.VerifiedSize ?? EstimateSize(r.Request.Path, cancellationToken))
+                        .ToList(), cancellationToken);
+        }
 
         var paths = requests.Select(r => r.Request.Path).ToList();
         bool batchSucceeded = false;
@@ -287,34 +372,73 @@ public sealed class FileDeleter : IFileDeleter
     /// </summary>
     private static void RecyclePathsViaIFileOperation(IReadOnlyList<string> paths)
     {
+        // Already on an STA (including the shared apartment's own pump thread,
+        // which keeps a re-entrant call from deadlocking on itself).
         if (Thread.CurrentThread.GetApartmentState() == ApartmentState.STA)
         {
             RecyclePathsViaIFileOperationCore(paths);
             return;
         }
 
-        Exception? failure = null;
-        var thread = new Thread(() =>
-        {
-            try
-            {
-                RecyclePathsViaIFileOperationCore(paths);
-            }
-            catch (Exception ex)
-            {
-                failure = ex;
-            }
-        })
-        {
-            Name = "StorageMaster.RecycleBinSta",
-            IsBackground = true,
-        };
-        thread.SetApartmentState(ApartmentState.STA);
-        thread.Start();
-        thread.Join();
+        SharedStaApartment.Value.Invoke(() => RecyclePathsViaIFileOperationCore(paths));
+    }
 
-        if (failure is not null)
-            ExceptionDispatchInfo.Capture(failure).Throw();
+    private static readonly Lazy<StaApartment> SharedStaApartment =
+        new(static () => new StaApartment(), LazyThreadSafetyMode.ExecutionAndPublication);
+
+    /// <summary>
+    /// One long-lived STA thread that serialises all IFileOperation work.
+    ///
+    /// IFileOperation must be created and driven from an STA. Creating a thread
+    /// and initialising a fresh apartment per call cost more than the shell
+    /// operation itself on the per-file deletion path, so the apartment is
+    /// created once and reused. It is a background thread, so it never keeps the
+    /// process alive.
+    /// </summary>
+    private sealed class StaApartment
+    {
+        private readonly BlockingCollection<Action> _work = new();
+
+        internal StaApartment()
+        {
+            var thread = new Thread(Pump)
+            {
+                Name = "StorageMaster.RecycleBinSta",
+                IsBackground = true,
+            };
+            thread.SetApartmentState(ApartmentState.STA);
+            thread.Start();
+        }
+
+        private void Pump()
+        {
+            foreach (var item in _work.GetConsumingEnumerable())
+                item();
+        }
+
+        internal void Invoke(Action action)
+        {
+            // A TaskCompletionSource rather than a disposable wait handle: the
+            // pump signals completion from a different thread, and disposing a
+            // handle the instant it is set races with the setter.
+            var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            _work.Add(() =>
+            {
+                try
+                {
+                    action();
+                    completion.SetResult();
+                }
+                catch (Exception ex)
+                {
+                    completion.SetException(ex);
+                }
+            });
+
+            // Rethrows the original exception with its stack preserved, matching
+            // the ExceptionDispatchInfo behaviour of the former per-call thread.
+            completion.Task.GetAwaiter().GetResult();
+        }
     }
 
     private static void RecyclePathsViaIFileOperationCore(IReadOnlyList<string> paths)
@@ -684,6 +808,20 @@ public sealed class FileDeleter : IFileDeleter
         }
     }
 
+    /// <summary>File metadata taken directly from the directory enumeration buffer.</summary>
+    private readonly record struct EstimatedFile(long Length, FileAttributes Attributes);
+
+    // Mirrors the options Directory.EnumerateFiles(path) uses, so which entries
+    // the estimate sees is unchanged: nothing skipped by attribute, and access
+    // failures surface rather than being silently swallowed mid-tree.
+    private static readonly EnumerationOptions EstimateEnumerationOptions = new()
+    {
+        MatchType = MatchType.Win32,
+        AttributesToSkip = FileAttributes.None,
+        IgnoreInaccessible = false,
+        RecurseSubdirectories = false,
+    };
+
     internal static long EstimateSize(string path, CancellationToken cancellationToken = default)
     {
         const int maxEntries = 100_000;
@@ -710,10 +848,20 @@ public sealed class FileDeleter : IFileDeleter
                 if (IsReparsePoint(dir))
                     continue;
 
-                IEnumerable<string> files;
+                // Length and attributes come straight out of the enumeration
+                // buffer, so neither the size nor the reparse-point test costs a
+                // stat per entry the way FileInfo.Length + File.GetAttributes did.
+                IEnumerable<EstimatedFile> files;
                 try
                 {
-                    files = Directory.EnumerateFiles(dir);
+                    files = new FileSystemEnumerable<EstimatedFile>(
+                        dir,
+                        static (ref FileSystemEntry entry) =>
+                            new EstimatedFile(entry.Length, entry.Attributes),
+                        EstimateEnumerationOptions)
+                    {
+                        ShouldIncludePredicate = static (ref FileSystemEntry entry) => !entry.IsDirectory,
+                    };
                 }
                 catch
                 {
@@ -725,10 +873,9 @@ public sealed class FileDeleter : IFileDeleter
                     cancellationToken.ThrowIfCancellationRequested();
                     if (visited++ >= maxEntries)
                         return total;
-                    if (IsReparsePoint(file))
+                    if ((file.Attributes & FileAttributes.ReparsePoint) != 0)
                         continue;
-                    try { total += new FileInfo(file).Length; }
-                    catch { /* best-effort */ }
+                    total += file.Length;
                 }
 
                 IEnumerable<string> dirs;

@@ -15,17 +15,23 @@ namespace StorageMaster.Platform.Windows;
 /// </summary>
 public sealed class FileSnapshotProvider : IFileSnapshotProvider
 {
-    public async ValueTask<FileSnapshot?> TakeSnapshotAsync(
+    public ValueTask<FileSnapshot?> TakeSnapshotAsync(
         string path,
         CancellationToken ct = default)
     {
-        await Task.Yield();
+        // Deliberately synchronous. The work is one handle open plus one metadata
+        // call; the former `await Task.Yield()` forced a thread-pool continuation
+        // for every file hashed, guarded-deleted and analysed, buying nothing.
         ct.ThrowIfCancellationRequested();
+        return ValueTask.FromResult(ReadSnapshot(path));
+    }
 
+    private static FileSnapshot? ReadSnapshot(string path)
+    {
         try
         {
-            if (!File.Exists(path)) return null;
-
+            // No File.Exists pre-check: a missing file, a directory, or a denied
+            // path all fail the open below and land in the same catch.
             using var stream = new FileStream(
                 path,
                 FileMode.Open,
@@ -50,7 +56,7 @@ public sealed class FileSnapshotProvider : IFileSnapshotProvider
         }
         catch
         {
-            // File disappeared or access denied between the exists check and open.
+            // File is gone, is a directory, or access was denied.
             return null;
         }
     }

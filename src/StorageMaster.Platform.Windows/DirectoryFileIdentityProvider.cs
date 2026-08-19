@@ -32,6 +32,19 @@ public sealed class DirectoryFileIdentityProvider : IDirectoryFileIdentityProvid
     private const int ErrorNoMoreFiles = 18;
     private const int ErrorMoreData = 234;
 
+    // Field offsets inside FILE_ID_BOTH_DIR_INFO, resolved once instead of once
+    // per directory entry. They are taken from the marshaller's own layout of the
+    // declaration below rather than hand-derived, so the padding rules stay in
+    // one place.
+    private static readonly int NextEntryOffsetOffset = OffsetOf(nameof(FILE_ID_BOTH_DIR_INFO.NextEntryOffset));
+    private static readonly int FileAttributesOffset = OffsetOf(nameof(FILE_ID_BOTH_DIR_INFO.FileAttributes));
+    private static readonly int FileNameLengthOffset = OffsetOf(nameof(FILE_ID_BOTH_DIR_INFO.FileNameLength));
+    private static readonly int FileIdOffset = OffsetOf(nameof(FILE_ID_BOTH_DIR_INFO.FileId));
+    private static readonly int FileNameOffset = OffsetOf(nameof(FILE_ID_BOTH_DIR_INFO.FileName));
+
+    private static int OffsetOf(string fieldName) =>
+        Marshal.OffsetOf<FILE_ID_BOTH_DIR_INFO>(fieldName).ToInt32();
+
     public Task<IReadOnlyDictionary<string, FileIdentity>?> TryGetDirectoryIdentitiesAsync(
         string directoryPath,
         CancellationToken ct = default)
@@ -92,30 +105,37 @@ public sealed class DirectoryFileIdentityProvider : IDirectoryFileIdentityProvid
                 var offset = 0;
                 while (true)
                 {
-                    var entry = (FILE_ID_BOTH_DIR_INFO)Marshal.PtrToStructure(
-                        buffer + offset, typeof(FILE_ID_BOTH_DIR_INFO))!;
+                    // Only four of the entry's fields are ever used, so they are read
+                    // directly out of the buffer. Marshal.PtrToStructure marshalled
+                    // the whole record per entry — a reflection-driven copy that also
+                    // allocated a throwaway ShortName string for every file — and
+                    // Marshal.OffsetOf recomputed the FileName offset every time.
+                    var fileAttributes = (uint)Marshal.ReadInt32(buffer, offset + FileAttributesOffset);
+                    var fileNameLength = (uint)Marshal.ReadInt32(buffer, offset + FileNameLengthOffset);
+                    var nextEntryOffset = (uint)Marshal.ReadInt32(buffer, offset + NextEntryOffsetOffset);
 
-                    // FileName is a variable-length inline array; FileNameLength
-                    // is in bytes and the struct declares only its first char.
-                    var nameOffset = offset + Marshal.OffsetOf<FILE_ID_BOTH_DIR_INFO>(
-                        nameof(FILE_ID_BOTH_DIR_INFO.FileName)).ToInt32();
-                    var name = Marshal.PtrToStringUni(
-                        buffer + nameOffset,
-                        (int)(entry.FileNameLength / sizeof(char)));
-
-                    if (!string.IsNullOrEmpty(name) && name != "." && name != "..")
+                    // Directories are captured by their own pass; the scanner
+                    // only asks for file identity here.
+                    const uint fileAttributeDirectory = 0x10;
+                    if ((fileAttributes & fileAttributeDirectory) == 0)
                     {
-                        // Directories are captured by their own pass; the scanner
-                        // only asks for file identity here.
-                        const uint fileAttributeDirectory = 0x10;
-                        if ((entry.FileAttributes & fileAttributeDirectory) == 0)
-                            identities[name] = new FileIdentity(volumeSerial, (ulong)entry.FileId);
+                        // FileName is a variable-length inline array; FileNameLength
+                        // is in bytes and the struct declares only its first char.
+                        var name = Marshal.PtrToStringUni(
+                            buffer + offset + FileNameOffset,
+                            (int)(fileNameLength / sizeof(char)));
+
+                        if (!string.IsNullOrEmpty(name) && name != "." && name != "..")
+                        {
+                            var fileId = Marshal.ReadInt64(buffer, offset + FileIdOffset);
+                            identities[name] = new FileIdentity(volumeSerial, (ulong)fileId);
+                        }
                     }
 
-                    if (entry.NextEntryOffset == 0)
+                    if (nextEntryOffset == 0)
                         break;
 
-                    offset += (int)entry.NextEntryOffset;
+                    offset += (int)nextEntryOffset;
                 }
             }
         }
@@ -177,6 +197,12 @@ public sealed class DirectoryFileIdentityProvider : IDirectoryFileIdentityProvid
         public uint FileIndexLow;
     }
 
+    /// <summary>
+    /// Layout reference for FILE_ID_BOTH_DIR_INFO. No instance is ever marshalled —
+    /// the type exists so <see cref="Marshal.OffsetOf{T}(string)"/> can compute the
+    /// field offsets once. Every field must stay declared (ShortName included):
+    /// removing one would shift the offsets of everything after it.
+    /// </summary>
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
     private struct FILE_ID_BOTH_DIR_INFO
     {

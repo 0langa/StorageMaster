@@ -125,26 +125,60 @@ public static class ScanOptionValidator
         if (string.IsNullOrWhiteSpace(candidatePath) || string.IsNullOrWhiteSpace(ancestorPath))
             return false;
 
-        var candidate = NormalizeDirectoryPath(candidatePath);
-        var ancestor = NormalizeDirectoryPath(ancestorPath);
+        return IsNormalizedPathEqualOrUnder(
+            NormalizeDirectoryPath(candidatePath),
+            NormalizeDirectoryPath(ancestorPath));
+    }
 
-        if (string.Equals(candidate, ancestor, StringComparison.OrdinalIgnoreCase))
+    /// <summary>
+    /// Boundary-aware ancestor test for operands that are already the output of
+    /// <see cref="NormalizeDirectoryPath"/>.
+    /// <para>
+    /// Exclusion lists are normalised once by <see cref="NormalizeExcludedPaths"/>,
+    /// so re-running <c>Path.GetFullPath</c> over both operands for every scanned
+    /// record — the scanners' hottest comparison — buys nothing.
+    /// </para>
+    /// </summary>
+    public static bool IsNormalizedPathEqualOrUnder(string normalizedCandidate, string normalizedAncestor)
+    {
+        if (string.IsNullOrEmpty(normalizedCandidate) || string.IsNullOrEmpty(normalizedAncestor))
+            return false;
+
+        if (string.Equals(normalizedCandidate, normalizedAncestor, StringComparison.OrdinalIgnoreCase))
             return true;
 
-        if (!candidate.StartsWith(ancestor, StringComparison.OrdinalIgnoreCase))
+        if (!normalizedCandidate.StartsWith(normalizedAncestor, StringComparison.OrdinalIgnoreCase))
             return false;
 
         // A normalized root already ends with a directory separator, so the
         // successful prefix match above establishes the path boundary.
-        if (Path.EndsInDirectorySeparator(ancestor))
+        if (Path.EndsInDirectorySeparator(normalizedAncestor))
             return true;
 
-        var boundaryIndex = ancestor.Length;
-        return candidate.Length > boundaryIndex &&
-               (candidate[boundaryIndex] == Path.DirectorySeparatorChar ||
-                candidate[boundaryIndex] == Path.AltDirectorySeparatorChar);
+        var boundaryIndex = normalizedAncestor.Length;
+        return normalizedCandidate.Length > boundaryIndex &&
+               (normalizedCandidate[boundaryIndex] == Path.DirectorySeparatorChar ||
+                normalizedCandidate[boundaryIndex] == Path.AltDirectorySeparatorChar);
     }
 
     public static bool IsExcluded(string path, IEnumerable<string> excludedPaths) =>
         excludedPaths.Any(excluded => IsPathEqualOrUnder(path, excluded));
+
+    /// <summary>
+    /// Exclusion test where <paramref name="normalizedExcludedPaths"/> already came from
+    /// <see cref="NormalizeExcludedPaths"/> and <paramref name="normalizedPath"/> from
+    /// <see cref="NormalizeDirectoryPath"/>. Allocation- and syscall-free, for hot loops.
+    /// </summary>
+    public static bool IsNormalizedPathExcluded(
+        string normalizedPath,
+        IReadOnlyList<string> normalizedExcludedPaths)
+    {
+        for (var i = 0; i < normalizedExcludedPaths.Count; i++)
+        {
+            if (IsNormalizedPathEqualOrUnder(normalizedPath, normalizedExcludedPaths[i]))
+                return true;
+        }
+
+        return false;
+    }
 }

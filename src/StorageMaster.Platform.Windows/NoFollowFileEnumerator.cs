@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.IO.Enumeration;
 using System.Runtime.InteropServices;
 using System.Security;
 using Microsoft.Win32.SafeHandles;
@@ -59,6 +60,21 @@ public sealed class NoFollowFileEnumerator : INoFollowFileEnumerator
 
         ct.ThrowIfCancellationRequested();
 
+        // The walk is one long run of synchronous filesystem work — guard opens,
+        // directory reads and snapshot captures never hit real async I/O — so hop
+        // to the thread pool once, here, and stay there. A UI-thread caller would
+        // otherwise be blocked for the whole analysis. (The per-file thread-pool
+        // hop the snapshot provider used to force is not a substitute: it bought
+        // responsiveness with a scheduling round trip for every single file.)
+        return await Task.Run(
+            () => EnumerateChainAsync(scanRoot, directories, ct), ct).ConfigureAwait(false);
+    }
+
+    private async Task<NoFollowFileEnumerationResult> EnumerateChainAsync(
+        string scanRoot,
+        IReadOnlyList<string> directories,
+        CancellationToken ct)
+    {
         var files = new List<FileSnapshot>();
         var errors = new List<NoFollowFileEnumerationError>();
         var guards = new List<DirectoryReadTraversalGuard>(directories.Count);
@@ -235,10 +251,22 @@ public sealed class NoFollowFileEnumerator : INoFollowFileEnumerator
         if (guard.IsReparsePoint)
             return;
 
-        string[] entries;
+        // Names and attributes both come out of the enumeration buffer. The former
+        // File.GetAttributes per entry was a second filesystem call for data the
+        // directory read already returned — over a browser cache or Temp tree that
+        // is one extra syscall per file before any work begins.
+        List<ChildEntry> entries;
         try
         {
-            entries = Directory.GetFileSystemEntries(directory);
+            entries = [];
+            foreach (var child in new FileSystemEnumerable<ChildEntry>(
+                         directory,
+                         static (ref FileSystemEntry entry) =>
+                             new ChildEntry(entry.ToFullPath(), entry.Attributes),
+                         ChildEnumerationOptions))
+            {
+                entries.Add(child);
+            }
         }
         catch (Exception ex) when (IsPathFailure(ex))
         {
@@ -253,34 +281,20 @@ public sealed class NoFollowFileEnumerator : INoFollowFileEnumerator
         {
             ct.ThrowIfCancellationRequested();
 
-            FileAttributes attributes;
-            try
-            {
-                attributes = File.GetAttributes(entry);
-            }
-            catch (Exception ex) when (IsPathFailure(ex))
-            {
-                errors.Add(CreatePathError(
-                    entry,
-                    ex,
-                    NoFollowFileEnumerationErrorKind.InspectionFailed));
-                continue;
-            }
-
             // This check is only an early skip/type hint. A child directory or file is
             // opened no-follow again immediately before use, closing the swap window.
-            if ((attributes & FileAttributes.ReparsePoint) != 0)
+            if ((entry.Attributes & FileAttributes.ReparsePoint) != 0)
                 continue;
 
-            if ((attributes & FileAttributes.Directory) != 0)
+            if ((entry.Attributes & FileAttributes.Directory) != 0)
             {
                 // Intentionally await while the caller's guard scope remains active. Every
                 // ancestor guard therefore stays held throughout child traversal.
-                await EnumerateDirectoryAsync(entry, files, errors, ct).ConfigureAwait(false);
+                await EnumerateDirectoryAsync(entry.FullPath, files, errors, ct).ConfigureAwait(false);
                 continue;
             }
 
-            var capture = await CaptureRegularFileAsync(entry, ct).ConfigureAwait(false);
+            var capture = await CaptureRegularFileAsync(entry.FullPath, ct).ConfigureAwait(false);
             if (capture.Failure == SnapshotCaptureFailure.ReparsePoint)
                 continue;
 
@@ -291,11 +305,25 @@ public sealed class NoFollowFileEnumerator : INoFollowFileEnumerator
             }
 
             errors.Add(new NoFollowFileEnumerationError(
-                entry,
+                entry.FullPath,
                 ToPublicErrorKind(capture.Failure),
                 capture.Message));
         }
     }
+
+    /// <summary>One directory child, with the attributes the enumeration already read.</summary>
+    private readonly record struct ChildEntry(string FullPath, FileAttributes Attributes);
+
+    // Mirrors the options Directory.GetFileSystemEntries(path) uses, so the set of
+    // entries considered is unchanged: nothing skipped by attribute (hidden and
+    // system caches must stay visible) and access failures still surface.
+    private static readonly EnumerationOptions ChildEnumerationOptions = new()
+    {
+        MatchType = MatchType.Win32,
+        AttributesToSkip = FileAttributes.None,
+        IgnoreInaccessible = false,
+        RecurseSubdirectories = false,
+    };
 
     /// <summary>
     /// Holds a no-follow file handle with no delete/write sharing while the normal snapshot

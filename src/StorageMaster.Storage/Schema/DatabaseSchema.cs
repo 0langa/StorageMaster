@@ -1,4 +1,4 @@
-namespace StorageMaster.Storage.Schema;
+﻿namespace StorageMaster.Storage.Schema;
 
 /// <summary>
 /// Single source of truth for the SQLite schema.
@@ -7,7 +7,7 @@ namespace StorageMaster.Storage.Schema;
 /// </summary>
 internal static class DatabaseSchema
 {
-    internal const int CurrentVersion = 13;
+    internal const int CurrentVersion = 14;
 
     /// <summary>SQL executed once at version 1 creation.</summary>
     internal static readonly string[] V1Statements =
@@ -514,5 +514,28 @@ internal static class DatabaseSchema
         );
         """,
         "CREATE INDEX IF NOT EXISTS IX_FolderEntries_Session_Parent_Size ON FolderEntries (SessionId, ParentNormalizedPath, TotalSizeBytes DESC);",
+    ];
+
+    /// <summary>
+    /// V14: record which process owns a Running session so an abandoned scan can be
+    /// told apart from a live one.
+    /// <para>
+    /// Nothing previously reconciled sessions left Running by a crash or a kill, so
+    /// they accumulated forever and were indistinguishable from a scan in progress.
+    /// Marking every Running session dead at startup would be wrong: a headless CLI
+    /// scan can legitimately be running while the UI starts. Recording the owning
+    /// process id together with its start time makes the check exact — the id alone
+    /// is not enough, because Windows recycles process ids and an unrelated new
+    /// process would otherwise keep a dead scan looking alive forever.
+    /// </para>
+    /// <para>
+    /// Existing Running rows get NULL and are therefore treated as unowned, which is
+    /// correct: they predate ownership tracking and no live process claims them.
+    /// </para>
+    /// </summary>
+    internal static readonly string[] V14Statements =
+    [
+        "ALTER TABLE ScanSessions ADD COLUMN OwnerProcessId INTEGER;",
+        "ALTER TABLE ScanSessions ADD COLUMN OwnerProcessStartedUtc TEXT;",
     ];
 }

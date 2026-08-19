@@ -1,4 +1,4 @@
-<Page
+﻿<Page
     x:Class="StorageMaster.UI.Pages.ScanPage"
     AutomationProperties.Name="Scan page"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
@@ -76,8 +76,14 @@
                             <TextBlock Text="{x:Bind ViewModel.ElapsedTime, Mode=OneWay}" Style="{StaticResource BodyStrongTextBlockStyle}" />
                         </StackPanel>
                         <StackPanel Grid.Row="1" Grid.Column="2">
+                            <TextBlock Text="File rate" Style="{StaticResource MutedTextStyle}" />
+                            <TextBlock Text="{x:Bind ViewModel.ScanFileRate, Mode=OneWay}" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                        </StackPanel>
+                        <StackPanel Grid.Row="1" Grid.Column="3">
                             <TextBlock Text="ETA" Style="{StaticResource MutedTextStyle}" />
-                            <TextBlock Text="{x:Bind ViewModel.EstimatedRemainingTime, Mode=OneWay}" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                            <TextBlock Text="{x:Bind ViewModel.EstimatedRemainingTime, Mode=OneWay}"
+                                       Style="{StaticResource BodyStrongTextBlockStyle}"
+                                       TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" />
                         </StackPanel>
                     </Grid>
                 </StackPanel>

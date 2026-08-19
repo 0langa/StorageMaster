@@ -1,7 +1,8 @@
-using FluentAssertions;
+﻿using FluentAssertions;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging.Abstractions;
 using StorageMaster.Storage;
+using StorageMaster.Storage.Schema;
 
 namespace StorageMaster.Tests.Storage;
 
@@ -25,7 +26,7 @@ public sealed class SchemaV13MigrationTests : IAsyncDisposable
         using (var versionCommand = connection.CreateCommand())
         {
             versionCommand.CommandText = "SELECT MAX(Version) FROM SchemaVersion;";
-            Convert.ToInt32(await versionCommand.ExecuteScalarAsync()).Should().Be(13);
+            Convert.ToInt32(await versionCommand.ExecuteScalarAsync()).Should().Be(DatabaseSchema.CurrentVersion);
         }
 
         var parents = await ReadParentsAsync(connection);

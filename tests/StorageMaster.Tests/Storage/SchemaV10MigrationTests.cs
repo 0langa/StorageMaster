@@ -48,7 +48,7 @@ public sealed class SchemaV10MigrationTests : IAsyncDisposable
         using (var versionCmd = conn.CreateCommand())
         {
             versionCmd.CommandText = "SELECT MAX(Version) FROM SchemaVersion;";
-            Convert.ToInt32(await versionCmd.ExecuteScalarAsync()).Should().Be(13);
+            Convert.ToInt32(await versionCmd.ExecuteScalarAsync()).Should().Be(DatabaseSchema.CurrentVersion);
         }
 
         using (var fkCmd = conn.CreateCommand())

@@ -3,6 +3,7 @@ using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging.Abstractions;
 using StorageMaster.Core.Models;
 using StorageMaster.Storage;
+using StorageMaster.Storage.Schema;
 using StorageMaster.Storage.Repositories;
 
 namespace StorageMaster.Tests.Storage;
@@ -98,7 +99,7 @@ public sealed class ScanRepositoryTests : IAsyncDisposable
     }
 
     [Fact]
-    public async Task SchemaVersion_IsCurrentV13()
+    public async Task SchemaVersion_MatchesTheDeclaredCurrentVersion()
     {
         await using var conn = await _ctx.GetConnectionAsync();
         using var cmd = conn.CreateCommand();
@@ -106,7 +107,7 @@ public sealed class ScanRepositoryTests : IAsyncDisposable
 
         var version = Convert.ToInt32(await cmd.ExecuteScalarAsync());
 
-        version.Should().Be(13);
+        version.Should().Be(DatabaseSchema.CurrentVersion);
     }
 
     [Fact]

@@ -1,4 +1,4 @@
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging;
 using StorageMaster.Storage.Schema;
@@ -204,6 +204,9 @@ public sealed class StorageDbContext : IAsyncDisposable
 
         if (current < 13)
             await ApplyMigrationAsync(conn, transaction, DatabaseSchema.V13Statements, 13, ct);
+
+        if (current < 14)
+            await ApplyMigrationAsync(conn, transaction, DatabaseSchema.V14Statements, 14, ct);
 
         await transaction.CommitAsync(ct);
     }

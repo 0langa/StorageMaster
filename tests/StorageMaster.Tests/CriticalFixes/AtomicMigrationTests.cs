@@ -3,6 +3,7 @@ using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using StorageMaster.Storage;
+using StorageMaster.Storage.Schema;
 
 namespace StorageMaster.Tests.CriticalFixes;
 
@@ -31,12 +32,12 @@ public sealed class AtomicMigrationTests : IAsyncDisposable
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "SELECT MAX(Version) FROM SchemaVersion;";
         var version = Convert.ToInt32(await cmd.ExecuteScalarAsync());
-        version.Should().Be(13, "all migrations should stamp their versions");
+        version.Should().Be(DatabaseSchema.CurrentVersion, "all migrations should stamp their versions");
 
         // Verify there are exactly 12 version rows (one per migration).
         cmd.CommandText = "SELECT COUNT(*) FROM SchemaVersion;";
         var count = Convert.ToInt32(await cmd.ExecuteScalarAsync());
-        count.Should().Be(13, "each migration level stamps its own row");
+        count.Should().Be(DatabaseSchema.CurrentVersion, "each migration level stamps its own row");
 
         cmd.CommandText = "SELECT COUNT(*) FROM pragma_table_info('CleanupLog') WHERE name = 'AuditDataJson';";
         var auditColumnCount = Convert.ToInt32(await cmd.ExecuteScalarAsync());
@@ -77,7 +78,7 @@ public sealed class AtomicMigrationTests : IAsyncDisposable
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "SELECT COUNT(*) FROM SchemaVersion;";
         var count = Convert.ToInt32(await cmd.ExecuteScalarAsync());
-        count.Should().Be(13, "migrations must not re-run on second open");
+        count.Should().Be(DatabaseSchema.CurrentVersion, "migrations must not re-run on second open");
     }
 
     [Fact]
@@ -104,7 +105,8 @@ public sealed class AtomicMigrationTests : IAsyncDisposable
 
         using (var downgradeCommand = competingConnection.CreateCommand())
         {
-            downgradeCommand.CommandText = "DELETE FROM SchemaVersion WHERE Version = 13;";
+            downgradeCommand.CommandText =
+                $"DELETE FROM SchemaVersion WHERE Version = {DatabaseSchema.CurrentVersion};";
             (await downgradeCommand.ExecuteNonQueryAsync()).Should().Be(1);
         }
 
@@ -123,7 +125,7 @@ public sealed class AtomicMigrationTests : IAsyncDisposable
         {
             stampCommand.Transaction = competingTransaction;
             stampCommand.CommandText =
-                "INSERT INTO SchemaVersion (Version, AppliedUtc) VALUES (13, $appliedUtc);";
+                $"INSERT INTO SchemaVersion (Version, AppliedUtc) VALUES ({DatabaseSchema.CurrentVersion}, $appliedUtc);";
             stampCommand.Parameters.AddWithValue("$appliedUtc", DateTime.UtcNow.ToString("O"));
             await stampCommand.ExecuteNonQueryAsync();
         }
@@ -132,7 +134,8 @@ public sealed class AtomicMigrationTests : IAsyncDisposable
         await using var initializedConnection =
             await initialization.WaitAsync(TimeSpan.FromSeconds(5));
         using var countCommand = initializedConnection.CreateCommand();
-        countCommand.CommandText = "SELECT COUNT(*) FROM SchemaVersion WHERE Version = 13;";
+        countCommand.CommandText =
+            $"SELECT COUNT(*) FROM SchemaVersion WHERE Version = {DatabaseSchema.CurrentVersion};";
         Convert.ToInt32(await countCommand.ExecuteScalarAsync()).Should().Be(1,
             "a waiter must re-read the version after acquiring SQLite's writer reservation");
     }

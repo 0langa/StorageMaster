@@ -211,6 +211,10 @@ public sealed class ThemeService(ISettingsRepository settings)
         ["SystemFillColorCautionBrush"] = "SmSeverityWarningTextBrush",
         ["SystemFillColorCriticalBrush"] = "SmSeverityCriticalTextBrush",
         ["SystemFillColorAttentionBrush"] = "SmSeverityWatchTextBrush",
+        ["NavigationViewDefaultPaneBackground"] = "SmSurfaceSunkenBrush",
+        ["NavigationViewExpandedPaneBackground"] = "SmSurfaceSunkenBrush",
+        ["NavigationViewContentBackground"] = "SmSurfaceBaseBrush",
+        ["SolidBackgroundFillColorBaseBrush"] = "SmSurfaceBaseBrush",
     };
 
     private static void ApplyBridgedSystemKeys()
@@ -235,12 +239,42 @@ public sealed class ThemeService(ISettingsRepository settings)
         SetKey(name + "Brush", color);
     }
 
+    /// <summary>
+    /// Assigns a colour to every instance of a palette brush.
+    /// <para>
+    /// There is deliberately more than one. A merged dictionary cannot see its
+    /// siblings while it is parsed, so each style dictionary that references the
+    /// palette merges <c>PaletteBrushes.xaml</c> itself — and merging the same
+    /// source in several places produces a separate brush object per merge, not a
+    /// shared one. Colouring only the copy reachable from
+    /// <c>Application.Current.Resources</c> left every card and gauge painted with
+    /// a still-transparent brush while the accent, resolved elsewhere, looked
+    /// correct.
+    /// </para>
+    /// <para>
+    /// Walking the whole dictionary tree is cheap — it runs on a theme or accent
+    /// change, over a few dozen dictionaries — and it keeps the fix independent of
+    /// how many places end up merging the palette.
+    /// </para>
+    /// </summary>
     private static void SetKey(string resourceKey, Rgb color)
     {
-        if (Application.Current.Resources.TryGetValue(resourceKey, out var existing)
-            && existing is SolidColorBrush brush)
+        var value = Color.FromArgb(0xFF, color.R, color.G, color.B);
+        ApplyToDictionary(Application.Current.Resources, resourceKey, value);
+    }
+
+    private static void ApplyToDictionary(ResourceDictionary dictionary, string resourceKey, Color value)
+    {
+        if (dictionary.TryGetValue(resourceKey, out var existing) && existing is SolidColorBrush brush)
+            brush.Color = value;
+
+        foreach (var merged in dictionary.MergedDictionaries)
+            ApplyToDictionary(merged, resourceKey, value);
+
+        foreach (var themed in dictionary.ThemeDictionaries.Values)
         {
-            brush.Color = Color.FromArgb(0xFF, color.R, color.G, color.B);
+            if (themed is ResourceDictionary themedDictionary)
+                ApplyToDictionary(themedDictionary, resourceKey, value);
         }
     }
 

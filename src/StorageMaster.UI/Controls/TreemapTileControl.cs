@@ -1,4 +1,4 @@
-using Microsoft.UI;
+﻿using Microsoft.UI;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
@@ -7,6 +7,7 @@ using StorageMaster.Core.Models;
 using StorageMaster.Core.SpaceMap;
 using StorageMaster.Core.Theming;
 using StorageMaster.UI.Converters;
+using Windows.UI;
 
 namespace StorageMaster.UI.Controls;
 
@@ -65,7 +66,12 @@ public sealed class TreemapTileControl : Button
         if (LayoutNode is null)
             return;
 
-        var fill = FillBrushFor(LayoutNode.Node);
+        // Categorical colours are tuned for small marks — legend swatches, thin
+        // bars — where they need to be told apart at a glance. A treemap block is
+        // hundreds of times that area, and at full strength it reads as a neon slab
+        // that overpowers the panel it sits in. Blending toward the chart well keeps
+        // the hue identifiable while letting size, not saturation, carry the signal.
+        var fill = MuteForLargeArea(FillBrushFor(LayoutNode.Node));
         var label = LabelBrushFor(fill);
 
         Width = Math.Max(0, LayoutNode.Width - 3);
@@ -178,6 +184,44 @@ public sealed class TreemapTileControl : Button
     /// near-black or white by the fill's relative luminance is the rule
     /// <c>PaletteUsageContrastTests</c> mirrors against the catalogue.
     /// </summary>
+    /// <summary>
+    /// Blends a categorical colour toward the chart well so it can fill a large
+    /// area without dominating. The legend keeps the unblended colour, so the two
+    /// still read as the same hue.
+    /// </summary>
+    private static Brush MuteForLargeArea(Brush fill)
+    {
+        if (fill is not SolidColorBrush solid)
+            return fill;
+
+        var well = ResolveWellColor();
+        const double categoryWeight = 0.55;
+
+        static byte Mix(byte category, byte well, double weight) =>
+            (byte)Math.Clamp((category * weight) + (well * (1 - weight)), 0, 255);
+
+        return new SolidColorBrush(Color.FromArgb(
+            0xFF,
+            Mix(solid.Color.R, well.R, categoryWeight),
+            Mix(solid.Color.G, well.G, categoryWeight),
+            Mix(solid.Color.B, well.B, categoryWeight)));
+    }
+
+    /// <summary>
+    /// The surface a treemap sits on. Read from the live palette so blending
+    /// follows the selected theme instead of assuming dark.
+    /// </summary>
+    private static Color ResolveWellColor()
+    {
+        if (Application.Current.Resources.TryGetValue("SmSurfaceSunkenBrush", out var value)
+            && value is SolidColorBrush well)
+        {
+            return well.Color;
+        }
+
+        return Colors.Black;
+    }
+
     internal static Brush LabelBrushFor(Brush? fill)
     {
         if (fill is not SolidColorBrush solid)

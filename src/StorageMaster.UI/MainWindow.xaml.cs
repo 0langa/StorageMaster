@@ -1,4 +1,4 @@
-using System.Runtime.InteropServices;
+﻿using System.Runtime.InteropServices;
 using H.NotifyIcon;
 using H.NotifyIcon.Core;
 using Microsoft.UI.Composition.SystemBackdrops;
@@ -77,17 +77,21 @@ public sealed partial class MainWindow : Window
         Activated += OnWindowActivated;
     }
 
-    private void TryApplyMicaBackdrop()
-    {
-        try
-        {
-            SystemBackdrop = new MicaBackdrop { Kind = MicaKind.BaseAlt };
-        }
-        catch
-        {
-            SystemBackdrop = null;
-        }
-    }
+    /// <summary>
+    /// Deliberately leaves the system backdrop unset.
+    /// <para>
+    /// Mica tints the window with the desktop wallpaper, which is exactly wrong for
+    /// this app: the palette defines a controlled deep-neutral ground so that size
+    /// bars, gauges and severity colours read as signal against it. With Mica on, a
+    /// colourful wallpaper washed the shell in its own hue and the surfaces no
+    /// longer stepped cleanly from base to raised.
+    /// </para>
+    /// <para>
+    /// The window is painted by the palette instead, so it looks the same on every
+    /// machine.
+    /// </para>
+    /// </summary>
+    private void TryApplyMicaBackdrop() => SystemBackdrop = null;
 
     // ── Win32 icon helpers ────────────────────────────────────────────────────
 

@@ -79,4 +79,14 @@
     <!-- driven from SmSeverityWatchTextBrush -->
     <SolidColorBrush x:Key="SystemFillColorAttentionBrush" Color="Transparent" />
 
+    <!-- Shell chrome: the pane is a sunken well, the content area the page ground. -->
+    <!-- driven from SmSurfaceSunkenBrush -->
+    <SolidColorBrush x:Key="NavigationViewDefaultPaneBackground" Color="Transparent" />
+    <!-- driven from SmSurfaceSunkenBrush -->
+    <SolidColorBrush x:Key="NavigationViewExpandedPaneBackground" Color="Transparent" />
+    <!-- driven from SmSurfaceBaseBrush -->
+    <SolidColorBrush x:Key="NavigationViewContentBackground" Color="Transparent" />
+    <!-- driven from SmSurfaceBaseBrush -->
+    <SolidColorBrush x:Key="SolidBackgroundFillColorBaseBrush" Color="Transparent" />
+
 </ResourceDictionary>

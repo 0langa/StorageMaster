@@ -504,7 +504,7 @@
     <comment>[description] Text under the Dashboard readiness gauge before the score has been computed, explaining what the score is made of.</comment>
   </data>
   <data name="Dashboard_Readiness_Label" xml:space="preserve">
-    <value>puntuación de estado</value>
+    <value>Puntuación</value>
     <comment>[label] Caption printed inside the circular gauge on the Dashboard that shows a 0-100 storage readiness figure. Lower case in English because it sits under a large number.</comment>
   </data>
   <data name="Dashboard_Recommendation_FirstScan" xml:space="preserve">

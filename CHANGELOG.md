@@ -10,6 +10,23 @@ No unreleased changes.
 
 ---
 
+## [2.5.2] — 2026-08-19 — A hidden tab on the Results page
+
+### Fixed
+
+- The fifth Results tab was unreachable in Spanish. Pivot headers ship at title
+  size, which spends an enormous amount of width on a tab strip: five tabs fitted
+  in English and German, four in Spanish. Pivot reveals its scroll chevrons only
+  on hover, so at rest the last tab did not look scrolled off — it looked absent,
+  and a Spanish user had no way to discover "Árbol de carpetas" existed.
+
+  The header type is smaller now, which fits every language with room to spare and
+  reads more like a tab strip than a row of headings. The alternative — shortening
+  correct translations to fit an oversized control — would have been the wrong
+  trade.
+
+---
+
 ## [2.5.1] — 2026-08-19 — Capture at a real window size
 
 ### Added

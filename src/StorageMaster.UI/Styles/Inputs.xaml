@@ -32,6 +32,24 @@
         <Setter Property="MinHeight" Value="36" />
     </Style>
     <!--
+        Pivot headers ship at title size, which spends an enormous amount of width
+        on a tab strip. Five tabs fit in English and German and only four in
+        Spanish, and Pivot reveals its scroll chevrons only on hover — so at rest
+        the fifth tab does not look scrolled-off, it looks absent. A Spanish user
+        had no way to discover "Estructura de carpetas" existed.
+
+        Shrinking the header type fixes every language at once, which is the right
+        trade: the alternative was shortening correct translations to fit a control
+        that was simply oversized.
+    -->
+    <Style TargetType="PivotHeaderItem">
+        <Setter Property="FontSize" Value="16" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="Padding" Value="12,0,12,0" />
+        <Setter Property="MinWidth" Value="0" />
+    </Style>
+
+    <!--
         WinUI supplies a ToggleSwitch's On/Off text from the Windows display
         language, not from the app's resources. On a German install that rendered
         "Ein"/"Aus" beside English labels throughout an English app.

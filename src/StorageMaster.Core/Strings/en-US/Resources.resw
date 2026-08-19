@@ -1,51 +1,51 @@
 <?xml version="1.0" encoding="utf-8"?>
-<root xmlns:msdata="urn:schemas-microsoft-com:xml-msdata" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
-  <xsd:schema id="root">
-    <xsd:import namespace="http://www.w3.org/XML/1998/namespace" />
-    <xsd:element name="root" msdata:IsDataSet="true">
-      <xsd:complexType>
-        <xsd:choice maxOccurs="unbounded">
-          <xsd:element name="metadata">
-            <xsd:complexType>
-              <xsd:sequence>
-                <xsd:element name="value" type="xsd:string" minOccurs="0" />
-              </xsd:sequence>
-              <xsd:attribute name="name" use="required" type="xsd:string" />
-              <xsd:attribute name="type" type="xsd:string" />
-              <xsd:attribute name="mimetype" type="xsd:string" />
-              <xsd:attribute ref="xml:space" />
-            </xsd:complexType>
-          </xsd:element>
-          <xsd:element name="assembly">
-            <xsd:complexType>
-              <xsd:attribute name="alias" type="xsd:string" />
-              <xsd:attribute name="name" type="xsd:string" />
-            </xsd:complexType>
-          </xsd:element>
-          <xsd:element name="data">
-            <xsd:complexType>
-              <xsd:sequence>
-                <xsd:element name="value" type="xsd:string" minOccurs="0" msdata:Ordinal="1" />
-                <xsd:element name="comment" type="xsd:string" minOccurs="0" msdata:Ordinal="2" />
-              </xsd:sequence>
-              <xsd:attribute name="name" type="xsd:string" use="required" msdata:Ordinal="1" />
-              <xsd:attribute name="type" type="xsd:string" msdata:Ordinal="3" />
-              <xsd:attribute name="mimetype" type="xsd:string" msdata:Ordinal="4" />
-              <xsd:attribute ref="xml:space" />
-            </xsd:complexType>
-          </xsd:element>
-          <xsd:element name="resheader">
-            <xsd:complexType>
-              <xsd:sequence>
-                <xsd:element name="value" type="xsd:string" minOccurs="0" msdata:Ordinal="1" />
-              </xsd:sequence>
-              <xsd:attribute name="name" type="xsd:string" use="required" />
-            </xsd:complexType>
-          </xsd:element>
-        </xsd:choice>
-      </xsd:complexType>
-    </xsd:element>
-  </xsd:schema>
+<root xmlns:ns1="urn:schemas-microsoft-com:xml-msdata" xmlns:xs="http://www.w3.org/2001/XMLSchema">
+  <xs:schema id="root">
+    <xs:import namespace="http://www.w3.org/XML/1998/namespace" />
+    <xs:element name="root" ns1:IsDataSet="true">
+      <xs:complexType>
+        <xs:choice maxOccurs="unbounded">
+          <xs:element name="metadata">
+            <xs:complexType>
+              <xs:sequence>
+                <xs:element name="value" type="xsd:string" minOccurs="0" />
+              </xs:sequence>
+              <xs:attribute name="name" use="required" type="xsd:string" />
+              <xs:attribute name="type" type="xsd:string" />
+              <xs:attribute name="mimetype" type="xsd:string" />
+              <xs:attribute ref="xml:space" />
+            </xs:complexType>
+          </xs:element>
+          <xs:element name="assembly">
+            <xs:complexType>
+              <xs:attribute name="alias" type="xsd:string" />
+              <xs:attribute name="name" type="xsd:string" />
+            </xs:complexType>
+          </xs:element>
+          <xs:element name="data">
+            <xs:complexType>
+              <xs:sequence>
+                <xs:element name="value" type="xsd:string" minOccurs="0" ns1:Ordinal="1" />
+                <xs:element name="comment" type="xsd:string" minOccurs="0" ns1:Ordinal="2" />
+              </xs:sequence>
+              <xs:attribute name="name" type="xsd:string" use="required" ns1:Ordinal="1" />
+              <xs:attribute name="type" type="xsd:string" ns1:Ordinal="3" />
+              <xs:attribute name="mimetype" type="xsd:string" ns1:Ordinal="4" />
+              <xs:attribute ref="xml:space" />
+            </xs:complexType>
+          </xs:element>
+          <xs:element name="resheader">
+            <xs:complexType>
+              <xs:sequence>
+                <xs:element name="value" type="xsd:string" minOccurs="0" ns1:Ordinal="1" />
+              </xs:sequence>
+              <xs:attribute name="name" type="xsd:string" use="required" />
+            </xs:complexType>
+          </xs:element>
+        </xs:choice>
+      </xs:complexType>
+    </xs:element>
+  </xs:schema>
   <resheader name="resmimetype">
     <value>text/microsoft-resx</value>
   </resheader>
@@ -1046,6 +1046,86 @@
   <data name="Duplicates_Title" xml:space="preserve">
     <value>Deduplicate</value>
     <comment>[title] Main title in the header bar at the top of the Duplicates page (titled "Deduplicate"), where the user reviews groups of duplicate files found in a completed scan and deletes the copies. It is a verb/activity name, not a plural noun: the page is where the user removes duplicate files. Sits beside Duplicates_Subtitle in a single-line header, so keep it short.</comment>
+  </data>
+  <data name="Enum_KeeperPolicy_LongestPath" xml:space="preserve">
+    <value>Longest path</value>
+    <comment>[label] Drop-down entry: keep the copy with the longest folder path.</comment>
+  </data>
+  <data name="Enum_KeeperPolicy_Newest" xml:space="preserve">
+    <value>Newest</value>
+    <comment>[label] Drop-down entry choosing which file in a duplicate group is kept.</comment>
+  </data>
+  <data name="Enum_KeeperPolicy_Oldest" xml:space="preserve">
+    <value>Oldest</value>
+    <comment>[label] Drop-down entry choosing which file in a duplicate group is kept.</comment>
+  </data>
+  <data name="Enum_KeeperPolicy_ShortestPath" xml:space="preserve">
+    <value>Shortest path</value>
+    <comment>[label] Drop-down entry: keep the copy with the shortest folder path.</comment>
+  </data>
+  <data name="Enum_ScheduledJobFrequency_Daily" xml:space="preserve">
+    <value>Daily</value>
+    <comment>[label] Scheduled job frequency drop-down entry.</comment>
+  </data>
+  <data name="Enum_ScheduledJobFrequency_Weekly" xml:space="preserve">
+    <value>Weekly</value>
+    <comment>[label] Scheduled job frequency drop-down entry.</comment>
+  </data>
+  <data name="Enum_ScheduledJobKind_CleanupAnalyze" xml:space="preserve">
+    <value>Analyse cleanup</value>
+    <comment>[label] Scheduled job type drop-down entry: analyse only, delete nothing.</comment>
+  </data>
+  <data name="Enum_ScheduledJobKind_CleanupExecuteSafe" xml:space="preserve">
+    <value>Run safe cleanup</value>
+    <comment>[safety] Scheduled job type drop-down entry: runs a cleanup unattended, restricted to rules marked safe.</comment>
+  </data>
+  <data name="Enum_ScheduledJobKind_Scan" xml:space="preserve">
+    <value>Scan</value>
+    <comment>[label] Scheduled job type drop-down entry.</comment>
+  </data>
+  <data name="Enum_ScheduledJobKind_ScanAndReport" xml:space="preserve">
+    <value>Scan and report</value>
+    <comment>[label] Scheduled job type drop-down entry.</comment>
+  </data>
+  <data name="Enum_ThemePreference_Dark" xml:space="preserve">
+    <value>Dark</value>
+    <comment>[label] Theme drop-down entry.</comment>
+  </data>
+  <data name="Enum_ThemePreference_Default" xml:space="preserve">
+    <value>Use system setting</value>
+    <comment>[label] Theme drop-down entry: follow the Windows app theme.</comment>
+  </data>
+  <data name="Enum_ThemePreference_Light" xml:space="preserve">
+    <value>Light</value>
+    <comment>[label] Theme drop-down entry.</comment>
+  </data>
+  <data name="Enum_UiDensity_Comfortable" xml:space="preserve">
+    <value>Comfortable</value>
+    <comment>[label] Interface density drop-down entry: most generous spacing.</comment>
+  </data>
+  <data name="Enum_UiDensity_Compact" xml:space="preserve">
+    <value>Compact</value>
+    <comment>[label] Interface density drop-down entry: tightest spacing.</comment>
+  </data>
+  <data name="Enum_UiDensity_Default" xml:space="preserve">
+    <value>Default</value>
+    <comment>[label] Interface density drop-down entry.</comment>
+  </data>
+  <data name="Enum_UiLanguage_English" xml:space="preserve">
+    <value>English</value>
+    <comment>[label] Language drop-down entry. Language names stay in their own language in every locale, as Windows does, so a user can find their language without being able to read the current one.</comment>
+  </data>
+  <data name="Enum_UiLanguage_German" xml:space="preserve">
+    <value>Deutsch</value>
+    <comment>[label] Language drop-down entry. Stays 'Deutsch' in every locale — see Enum_UiLanguage_English.</comment>
+  </data>
+  <data name="Enum_UiLanguage_Spanish" xml:space="preserve">
+    <value>Español</value>
+    <comment>[label] Language drop-down entry. Stays 'Español' in every locale — see Enum_UiLanguage_English.</comment>
+  </data>
+  <data name="Enum_UiLanguage_System" xml:space="preserve">
+    <value>Use system setting</value>
+    <comment>[label] Language drop-down entry: follow the Windows display language.</comment>
   </data>
   <data name="Health_Error_LoadFailed" xml:space="preserve">
     <value>Drive health failed to load: {0}</value>

@@ -16,6 +16,14 @@
         <converters:BoolToVisibilityConverter x:Key="BoolVis" />
         <converters:BoolToVisibilityConverter x:Key="InvBoolVis" Invert="True" />
         <converters:BoolNegationConverter     x:Key="NotBool" />
+        <converters:EnumDisplayConverter      x:Key="EnumDisplay" />
+
+        <!-- Drop-downs bind straight to Enum.GetValues, so without this they render
+             the identifier rather than a word. Classic Binding, not x:Bind: the
+             item is the enum value itself. -->
+        <DataTemplate x:Key="EnumItemTemplate">
+            <TextBlock Text="{Binding Converter={StaticResource EnumDisplay}}" />
+        </DataTemplate>
 
         <local:SettingsCategoryTemplateSelector x:Key="CategorySelector"
             GeneralTemplate="{StaticResource GeneralTemplate}"
@@ -34,6 +42,7 @@
                 <StackPanel Spacing="4">
                     <TextBlock Text="{i18n:Loc Key=Settings_Theme_Label}" Style="{StaticResource CaptionTextBlockStyle}" />
                     <ComboBox ItemsSource="{x:Bind ThemeOptions, Mode=OneWay}"
+                              ItemTemplate="{StaticResource EnumItemTemplate}"
                               SelectedItem="{x:Bind Theme, Mode=TwoWay}"
                               AutomationProperties.Name="{i18n:Loc Key=Settings_Theme_Label}"
                               AutomationProperties.HelpText="{i18n:Loc Key=Settings_Theme_AutomationHelp}" />
@@ -53,6 +62,7 @@
                 <StackPanel Spacing="4">
                     <TextBlock Text="{i18n:Loc Key=Settings_Language_Label}" Style="{StaticResource CaptionTextBlockStyle}" />
                     <ComboBox ItemsSource="{x:Bind LanguageOptions, Mode=OneWay}"
+                              ItemTemplate="{StaticResource EnumItemTemplate}"
                               SelectedItem="{x:Bind Language, Mode=TwoWay}"
                               AutomationProperties.Name="{i18n:Loc Key=Settings_Language_AutomationName}"
                               AutomationProperties.HelpText="{i18n:Loc Key=Settings_Language_AutomationHelp}" />
@@ -66,6 +76,7 @@
                 <StackPanel Spacing="4">
                     <TextBlock Text="{i18n:Loc Key=Settings_UiDensity_Label}" Style="{StaticResource CaptionTextBlockStyle}" />
                     <ComboBox ItemsSource="{x:Bind UiDensityOptions, Mode=OneWay}"
+                              ItemTemplate="{StaticResource EnumItemTemplate}"
                               SelectedItem="{x:Bind UiDensity, Mode=TwoWay}"
                               AutomationProperties.Name="{i18n:Loc Key=Settings_UiDensity_Label}"
                               AutomationProperties.HelpText="{i18n:Loc Key=Settings_UiDensity_AutomationHelp}" />
@@ -240,6 +251,7 @@
                     <ComboBox Grid.Column="1"
                               Header="{i18n:Loc Key=Settings_KeeperPolicy_Header}"
                               ItemsSource="{x:Bind KeeperPolicyOptions, Mode=OneWay}"
+                              ItemTemplate="{StaticResource EnumItemTemplate}"
                               SelectedItem="{x:Bind DuplicateKeeperPolicy, Mode=TwoWay}"
                               AutomationProperties.Name="{i18n:Loc Key=Settings_KeeperPolicy_Header}"
                               AutomationProperties.HelpText="{i18n:Loc Key=Settings_KeeperPolicy_AutomationHelp}" />
@@ -403,14 +415,17 @@
                     <ComboBox Grid.Column="0"
                               Header="{i18n:Loc Key=Settings_ScheduledJob_Action_Header}"
                               ItemsSource="{x:Bind ScheduledJobKindOptions, Mode=OneWay}"
+                              ItemTemplate="{StaticResource EnumItemTemplate}"
                               SelectedItem="{x:Bind ScheduledJobKind, Mode=TwoWay}" />
                     <ComboBox Grid.Column="1"
                               Header="{i18n:Loc Key=Settings_ScheduledJob_Frequency_Header}"
                               ItemsSource="{x:Bind ScheduledJobFrequencyOptions, Mode=OneWay}"
+                              ItemTemplate="{StaticResource EnumItemTemplate}"
                               SelectedItem="{x:Bind ScheduledJobFrequency, Mode=TwoWay}" />
                     <ComboBox Grid.Column="2"
                               Header="{i18n:Loc Key=Settings_ScheduledJob_WeeklyDay_Header}"
                               ItemsSource="{x:Bind ScheduledJobDayOptions, Mode=OneWay}"
+                              ItemTemplate="{StaticResource EnumItemTemplate}"
                               SelectedItem="{x:Bind ScheduledJobDay, Mode=TwoWay}" />
                 </Grid>
 

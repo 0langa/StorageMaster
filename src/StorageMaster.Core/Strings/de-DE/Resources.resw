@@ -1047,6 +1047,86 @@
     <value>Duplikate entfernen</value>
     <comment>[title] Main title in the header bar at the top of the Duplicates page (titled "Deduplicate"), where the user reviews groups of duplicate files found in a completed scan and deletes the copies. It is a verb/activity name, not a plural noun: the page is where the user removes duplicate files. Sits beside Duplicates_Subtitle in a single-line header, so keep it short.</comment>
   </data>
+  <data name="Enum_KeeperPolicy_LongestPath" xml:space="preserve">
+    <value>Längster Pfad</value>
+    <comment>[label] Drop-down entry: keep the copy with the longest folder path.</comment>
+  </data>
+  <data name="Enum_KeeperPolicy_Newest" xml:space="preserve">
+    <value>Neueste</value>
+    <comment>[label] Drop-down entry choosing which file in a duplicate group is kept.</comment>
+  </data>
+  <data name="Enum_KeeperPolicy_Oldest" xml:space="preserve">
+    <value>Älteste</value>
+    <comment>[label] Drop-down entry choosing which file in a duplicate group is kept.</comment>
+  </data>
+  <data name="Enum_KeeperPolicy_ShortestPath" xml:space="preserve">
+    <value>Kürzester Pfad</value>
+    <comment>[label] Drop-down entry: keep the copy with the shortest folder path.</comment>
+  </data>
+  <data name="Enum_ScheduledJobFrequency_Daily" xml:space="preserve">
+    <value>Täglich</value>
+    <comment>[label] Scheduled job frequency drop-down entry.</comment>
+  </data>
+  <data name="Enum_ScheduledJobFrequency_Weekly" xml:space="preserve">
+    <value>Wöchentlich</value>
+    <comment>[label] Scheduled job frequency drop-down entry.</comment>
+  </data>
+  <data name="Enum_ScheduledJobKind_CleanupAnalyze" xml:space="preserve">
+    <value>Bereinigung analysieren</value>
+    <comment>[label] Scheduled job type drop-down entry: analyse only, delete nothing.</comment>
+  </data>
+  <data name="Enum_ScheduledJobKind_CleanupExecuteSafe" xml:space="preserve">
+    <value>Sichere Bereinigung ausführen</value>
+    <comment>[safety] Scheduled job type drop-down entry: runs a cleanup unattended, restricted to rules marked safe.</comment>
+  </data>
+  <data name="Enum_ScheduledJobKind_Scan" xml:space="preserve">
+    <value>Überprüfung</value>
+    <comment>[label] Scheduled job type drop-down entry.</comment>
+  </data>
+  <data name="Enum_ScheduledJobKind_ScanAndReport" xml:space="preserve">
+    <value>Überprüfung und Bericht</value>
+    <comment>[label] Scheduled job type drop-down entry.</comment>
+  </data>
+  <data name="Enum_ThemePreference_Dark" xml:space="preserve">
+    <value>Dunkel</value>
+    <comment>[label] Theme drop-down entry.</comment>
+  </data>
+  <data name="Enum_ThemePreference_Default" xml:space="preserve">
+    <value>Systemeinstellung verwenden</value>
+    <comment>[label] Theme drop-down entry: follow the Windows app theme.</comment>
+  </data>
+  <data name="Enum_ThemePreference_Light" xml:space="preserve">
+    <value>Hell</value>
+    <comment>[label] Theme drop-down entry.</comment>
+  </data>
+  <data name="Enum_UiDensity_Comfortable" xml:space="preserve">
+    <value>Geräumig</value>
+    <comment>[label] Interface density drop-down entry: most generous spacing.</comment>
+  </data>
+  <data name="Enum_UiDensity_Compact" xml:space="preserve">
+    <value>Kompakt</value>
+    <comment>[label] Interface density drop-down entry: tightest spacing.</comment>
+  </data>
+  <data name="Enum_UiDensity_Default" xml:space="preserve">
+    <value>Standard</value>
+    <comment>[label] Interface density drop-down entry.</comment>
+  </data>
+  <data name="Enum_UiLanguage_English" xml:space="preserve">
+    <value>English</value>
+    <comment>[label] Language drop-down entry. Language names stay in their own language in every locale, as Windows does, so a user can find their language without being able to read the current one.</comment>
+  </data>
+  <data name="Enum_UiLanguage_German" xml:space="preserve">
+    <value>Deutsch</value>
+    <comment>[label] Language drop-down entry. Stays 'Deutsch' in every locale — see Enum_UiLanguage_English.</comment>
+  </data>
+  <data name="Enum_UiLanguage_Spanish" xml:space="preserve">
+    <value>Español</value>
+    <comment>[label] Language drop-down entry. Stays 'Español' in every locale — see Enum_UiLanguage_English.</comment>
+  </data>
+  <data name="Enum_UiLanguage_System" xml:space="preserve">
+    <value>Systemeinstellung verwenden</value>
+    <comment>[label] Language drop-down entry: follow the Windows display language.</comment>
+  </data>
   <data name="Health_Error_LoadFailed" xml:space="preserve">
     <value>Der Laufwerkszustand konnte nicht geladen werden: {0}</value>
     <comment>[status] Status line shown as the Drive Health page subtitle when the page could not load its stored readings on opening. {0} is the technical error text and stays English.</comment>

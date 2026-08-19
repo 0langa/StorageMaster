@@ -202,6 +202,9 @@ public sealed class StorageDbContext : IAsyncDisposable
         if (current < 12)
             await ApplyMigrationAsync(conn, transaction, DatabaseSchema.V12Statements, 12, ct);
 
+        if (current < 13)
+            await ApplyMigrationAsync(conn, transaction, DatabaseSchema.V13Statements, 13, ct);
+
         await transaction.CommitAsync(ct);
     }
 

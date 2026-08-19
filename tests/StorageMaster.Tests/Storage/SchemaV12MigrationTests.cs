@@ -1,4 +1,4 @@
-using FluentAssertions;
+﻿using FluentAssertions;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging.Abstractions;
 using StorageMaster.Storage;
@@ -22,7 +22,7 @@ public sealed class SchemaV12MigrationTests : IAsyncDisposable
         using (var versionCommand = connection.CreateCommand())
         {
             versionCommand.CommandText = "SELECT MAX(Version) FROM SchemaVersion;";
-            Convert.ToInt32(await versionCommand.ExecuteScalarAsync()).Should().Be(12);
+            Convert.ToInt32(await versionCommand.ExecuteScalarAsync()).Should().Be(13);
         }
 
         using (var columnCommand = connection.CreateCommand())
@@ -66,6 +66,21 @@ public sealed class SchemaV12MigrationTests : IAsyncDisposable
             );
             INSERT INTO ScanSessions (Id, RootPath, StartedUtc, Status)
             VALUES (1, 'C:\', '2026-01-01T00:00:00Z', 'Completed');
+
+            CREATE TABLE FolderEntries (
+                Id INTEGER PRIMARY KEY AUTOINCREMENT,
+                SessionId INTEGER NOT NULL REFERENCES ScanSessions(Id) ON DELETE CASCADE,
+                FullPath TEXT NOT NULL,
+                FolderName TEXT NOT NULL,
+                DirectSizeBytes INTEGER NOT NULL DEFAULT 0,
+                TotalSizeBytes INTEGER NOT NULL DEFAULT 0,
+                FileCount INTEGER NOT NULL DEFAULT 0,
+                SubFolderCount INTEGER NOT NULL DEFAULT 0,
+                IsReparsePoint INTEGER NOT NULL DEFAULT 0,
+                WasAccessDenied INTEGER NOT NULL DEFAULT 0,
+                NormalizedFullPath TEXT NOT NULL,
+                UNIQUE (SessionId, NormalizedFullPath)
+            );
 
             CREATE TABLE FileEntries (
                 Id INTEGER PRIMARY KEY AUTOINCREMENT,

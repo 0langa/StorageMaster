@@ -1,4 +1,4 @@
-using FluentAssertions;
+﻿using FluentAssertions;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging.Abstractions;
 using StorageMaster.Storage;
@@ -21,7 +21,7 @@ public sealed class SchemaV11MigrationTests : IAsyncDisposable
         using (var versionCommand = connection.CreateCommand())
         {
             versionCommand.CommandText = "SELECT MAX(Version) FROM SchemaVersion;";
-            Convert.ToInt32(await versionCommand.ExecuteScalarAsync()).Should().Be(12);
+            Convert.ToInt32(await versionCommand.ExecuteScalarAsync()).Should().Be(13);
         }
 
         using (var command = connection.CreateCommand())

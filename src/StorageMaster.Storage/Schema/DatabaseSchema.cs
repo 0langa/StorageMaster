@@ -7,7 +7,7 @@ namespace StorageMaster.Storage.Schema;
 /// </summary>
 internal static class DatabaseSchema
 {
-    internal const int CurrentVersion = 12;
+    internal const int CurrentVersion = 13;
 
     /// <summary>SQL executed once at version 1 creation.</summary>
     internal static readonly string[] V1Statements =
@@ -470,5 +470,49 @@ internal static class DatabaseSchema
     [
         "ALTER TABLE FileEntries ADD COLUMN IdentityVolumeSerial TEXT;",
         "ALTER TABLE FileEntries ADD COLUMN IdentityFileIndex TEXT;",
+    ];
+
+    /// <summary>
+    /// V13: materialise each folder's parent so tree and drill-down queries become
+    /// indexed equality lookups.
+    /// <para>
+    /// Before this level, every parent/child query derived the relationship inside
+    /// the predicate — either <c>parent.FullPath = substr(child.FullPath, ...)</c>
+    /// or <c>substr(NormalizedFullPath, 1, n) = prefix</c>. Neither form can use an
+    /// index: the only index over <c>FullPath</c> is <c>COLLATE NOCASE</c> and the
+    /// predicates compare with the default BINARY collation, and applying
+    /// <c>substr()</c> to a column defeats indexing outright. SQLite fell back to
+    /// constraining on <c>SessionId</c> alone, so a folder tree over a 213k-folder
+    /// session cost roughly 4.5e10 row visits.
+    /// </para>
+    /// <para>
+    /// The backfill derives the parent by pure substring on the already-normalised
+    /// path. It must never recompute the normalisation itself: SQLite's
+    /// <c>upper()</c> is ASCII-only while <see cref="ScanOptionValidator"/> uses
+    /// <c>ToUpperInvariant</c>, so any SQL-side casing would disagree on paths
+    /// containing non-ASCII characters.
+    /// </para>
+    /// <para>
+    /// <c>rtrim(p, replace(p, '\', ''))</c> strips the trailing path segment:
+    /// the second argument is the set of every character in the path except the
+    /// separator, so trimming from the right stops exactly at the final separator.
+    /// A path that is its own trim result is a root and gets NULL.
+    /// </para>
+    /// </summary>
+    internal static readonly string[] V13Statements =
+    [
+        "ALTER TABLE FolderEntries ADD COLUMN ParentNormalizedPath TEXT;",
+        """
+        UPDATE FolderEntries
+        SET ParentNormalizedPath = (
+            SELECT CASE
+                       WHEN trimmed = NormalizedFullPath OR length(trimmed) = 0 THEN NULL
+                       WHEN length(trimmed) = 3 AND substr(trimmed, 2, 2) = ':\' THEN trimmed
+                       ELSE substr(trimmed, 1, length(trimmed) - 1)
+                   END
+            FROM (SELECT rtrim(NormalizedFullPath, replace(NormalizedFullPath, '\', '')) AS trimmed)
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS IX_FolderEntries_Session_Parent_Size ON FolderEntries (SessionId, ParentNormalizedPath, TotalSizeBytes DESC);",
     ];
 }

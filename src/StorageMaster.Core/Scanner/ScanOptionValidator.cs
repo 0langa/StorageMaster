@@ -81,6 +81,38 @@ public static class ScanOptionValidator
     public static string NormalizePathForStorage(string path) =>
         NormalizeDirectoryPath(path).ToUpperInvariant();
 
+    /// <summary>
+    /// Returns the parent of an already storage-normalised path, or <c>null</c>
+    /// when the path is a root and has no parent inside the scan.
+    /// <para>
+    /// This is a pure substring operation on purpose. The input has already been
+    /// upper-cased by <see cref="NormalizePathForStorage"/>, and re-normalising
+    /// here would risk disagreeing with the schema v13 SQL backfill, whose
+    /// SQLite <c>upper()</c> is ASCII-only. Keep this method and the
+    /// <c>V13Statements</c> expression behaviourally identical.
+    /// </para>
+    /// </summary>
+    public static string? GetParentOfNormalizedPath(string normalizedPath)
+    {
+        if (string.IsNullOrEmpty(normalizedPath))
+            return null;
+
+        var lastSeparator = normalizedPath.LastIndexOf(Path.DirectorySeparatorChar);
+        if (lastSeparator < 0)
+            return null;
+
+        // Trailing separator means the value is already a root such as "C:\".
+        if (lastSeparator == normalizedPath.Length - 1)
+            return null;
+
+        // Keep the separator for a drive root so "C:\USERS" reports "C:\", not "C:".
+        var parent = lastSeparator == 2 && normalizedPath[1] == ':'
+            ? normalizedPath[..(lastSeparator + 1)]
+            : normalizedPath[..lastSeparator];
+
+        return parent.Length == 0 ? null : parent;
+    }
+
     public static string GetDisplayName(string path)
     {
         var normalized = NormalizeDirectoryPath(path);

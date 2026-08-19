@@ -1,4 +1,4 @@
-using FluentAssertions;
+﻿using FluentAssertions;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -31,12 +31,12 @@ public sealed class AtomicMigrationTests : IAsyncDisposable
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "SELECT MAX(Version) FROM SchemaVersion;";
         var version = Convert.ToInt32(await cmd.ExecuteScalarAsync());
-        version.Should().Be(12, "all migrations should stamp their versions");
+        version.Should().Be(13, "all migrations should stamp their versions");
 
         // Verify there are exactly 12 version rows (one per migration).
         cmd.CommandText = "SELECT COUNT(*) FROM SchemaVersion;";
         var count = Convert.ToInt32(await cmd.ExecuteScalarAsync());
-        count.Should().Be(12, "each migration level stamps its own row");
+        count.Should().Be(13, "each migration level stamps its own row");
 
         cmd.CommandText = "SELECT COUNT(*) FROM pragma_table_info('CleanupLog') WHERE name = 'AuditDataJson';";
         var auditColumnCount = Convert.ToInt32(await cmd.ExecuteScalarAsync());
@@ -77,14 +77,14 @@ public sealed class AtomicMigrationTests : IAsyncDisposable
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "SELECT COUNT(*) FROM SchemaVersion;";
         var count = Convert.ToInt32(await cmd.ExecuteScalarAsync());
-        count.Should().Be(12, "migrations must not re-run on second open");
+        count.Should().Be(13, "migrations must not re-run on second open");
     }
 
     [Fact]
     public async Task Migration_RechecksVersionAfterWaitingForCompetingSqliteWriter()
     {
-        // Start from a valid v12 database, then make its committed version look
-        // like v11. The schema itself intentionally remains v12 so a competing
+        // Start from a valid v13 database, then make its committed version look
+        // like v12. The schema itself intentionally remains v13 so a competing
         // migrator only needs to stamp the version to model finishing first.
         _ctx = new StorageDbContext(_dbPath, NullLogger<StorageDbContext>.Instance);
         await using (var initialConnection = await _ctx.GetConnectionAsync())
@@ -104,7 +104,7 @@ public sealed class AtomicMigrationTests : IAsyncDisposable
 
         using (var downgradeCommand = competingConnection.CreateCommand())
         {
-            downgradeCommand.CommandText = "DELETE FROM SchemaVersion WHERE Version = 12;";
+            downgradeCommand.CommandText = "DELETE FROM SchemaVersion WHERE Version = 13;";
             (await downgradeCommand.ExecuteNonQueryAsync()).Should().Be(1);
         }
 
@@ -123,7 +123,7 @@ public sealed class AtomicMigrationTests : IAsyncDisposable
         {
             stampCommand.Transaction = competingTransaction;
             stampCommand.CommandText =
-                "INSERT INTO SchemaVersion (Version, AppliedUtc) VALUES (12, $appliedUtc);";
+                "INSERT INTO SchemaVersion (Version, AppliedUtc) VALUES (13, $appliedUtc);";
             stampCommand.Parameters.AddWithValue("$appliedUtc", DateTime.UtcNow.ToString("O"));
             await stampCommand.ExecuteNonQueryAsync();
         }
@@ -132,7 +132,7 @@ public sealed class AtomicMigrationTests : IAsyncDisposable
         await using var initializedConnection =
             await initialization.WaitAsync(TimeSpan.FromSeconds(5));
         using var countCommand = initializedConnection.CreateCommand();
-        countCommand.CommandText = "SELECT COUNT(*) FROM SchemaVersion WHERE Version = 12;";
+        countCommand.CommandText = "SELECT COUNT(*) FROM SchemaVersion WHERE Version = 13;";
         Convert.ToInt32(await countCommand.ExecuteScalarAsync()).Should().Be(1,
             "a waiter must re-read the version after acquiring SQLite's writer reservation");
     }

@@ -1,4 +1,4 @@
-using FluentAssertions;
+﻿using FluentAssertions;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging.Abstractions;
 using StorageMaster.Core.Models;
@@ -98,7 +98,7 @@ public sealed class ScanRepositoryTests : IAsyncDisposable
     }
 
     [Fact]
-    public async Task SchemaVersion_IsCurrentV12()
+    public async Task SchemaVersion_IsCurrentV13()
     {
         await using var conn = await _ctx.GetConnectionAsync();
         using var cmd = conn.CreateCommand();
@@ -106,7 +106,7 @@ public sealed class ScanRepositoryTests : IAsyncDisposable
 
         var version = Convert.ToInt32(await cmd.ExecuteScalarAsync());
 
-        version.Should().Be(12);
+        version.Should().Be(13);
     }
 
     [Fact]

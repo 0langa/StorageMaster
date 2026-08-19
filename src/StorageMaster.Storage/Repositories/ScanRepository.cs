@@ -209,11 +209,11 @@ public sealed class ScanRepository : IScanRepository
                 INSERT INTO FolderEntries
                     (SessionId, FullPath, FolderName, DirectSizeBytes, TotalSizeBytes,
                      FileCount, SubFolderCount, IsReparsePoint, WasAccessDenied,
-                     NormalizedFullPath)
+                     NormalizedFullPath, ParentNormalizedPath)
                 VALUES
                     ($sid, $path, $name, $direct, $total,
                      $files, $subs, $reparse, $denied,
-                     $normalized)
+                     $normalized, $parent)
                 ON CONFLICT(SessionId, NormalizedFullPath) DO UPDATE SET
                     DirectSizeBytes = CASE
                         WHEN FolderEntries.FullPath = excluded.FullPath
@@ -241,7 +241,8 @@ public sealed class ScanRepository : IScanRepository
                     END,
                     IsReparsePoint  = FolderEntries.IsReparsePoint OR excluded.IsReparsePoint,
                     WasAccessDenied = FolderEntries.WasAccessDenied OR excluded.WasAccessDenied,
-                    NormalizedFullPath = excluded.NormalizedFullPath;
+                    NormalizedFullPath = excluded.NormalizedFullPath,
+                    ParentNormalizedPath = excluded.ParentNormalizedPath;
                 """;
 
             var pSid = cmd.Parameters.Add("$sid", SqliteType.Integer);
@@ -254,9 +255,11 @@ public sealed class ScanRepository : IScanRepository
             var pReparse = cmd.Parameters.Add("$reparse", SqliteType.Integer);
             var pDenied = cmd.Parameters.Add("$denied", SqliteType.Integer);
             var pNormalized = cmd.Parameters.Add("$normalized", SqliteType.Text);
+            var pParent = cmd.Parameters.Add("$parent", SqliteType.Text);
 
             foreach (var e in entries)
             {
+                var normalized = NormalizeForStorage(e.FullPath);
                 pSid.Value = e.SessionId;
                 pPath.Value = e.FullPath;
                 pName.Value = e.FolderName;
@@ -266,7 +269,9 @@ public sealed class ScanRepository : IScanRepository
                 pSubs.Value = e.SubFolderCount;
                 pReparse.Value = e.IsReparsePoint ? 1 : 0;
                 pDenied.Value = e.WasAccessDenied ? 1 : 0;
-                pNormalized.Value = NormalizeForStorage(e.FullPath);
+                pNormalized.Value = normalized;
+                pParent.Value = (object?)ScanOptionValidator.GetParentOfNormalizedPath(normalized)
+                    ?? DBNull.Value;
                 await cmd.ExecuteNonQueryAsync(ct);
             }
 
@@ -537,25 +542,30 @@ public sealed class ScanRepository : IScanRepository
     {
         await using var conn = await _db.GetConnectionAsync(ct);
         using var cmd = conn.CreateCommand();
+        // A root is a folder whose parent is not itself part of this session.
+        // Matching on the materialised ParentNormalizedPath keeps the correlated
+        // lookup on the (SessionId, NormalizedFullPath) unique index. The former
+        // `parent.FullPath = substr(f.FullPath, ...)` form could not use any index,
+        // because the only FullPath index is COLLATE NOCASE while the comparison
+        // used BINARY, so SQLite scanned every folder row for every folder row.
         cmd.CommandText = """
             SELECT f.*
             FROM FolderEntries f
             WHERE f.SessionId = $sid
               AND (
-                    f.FullPath = (SELECT RootPath FROM ScanSessions WHERE Id = $sid)
+                    f.NormalizedFullPath = $rootNorm
+                    OR f.ParentNormalizedPath IS NULL
                     OR NOT EXISTS (
                         SELECT 1
                         FROM FolderEntries parent
                         WHERE parent.SessionId = f.SessionId
-                          AND parent.FullPath = substr(
-                              f.FullPath,
-                              1,
-                              length(f.FullPath) - length(f.FolderName) - 1)
+                          AND parent.NormalizedFullPath = f.ParentNormalizedPath
                     )
                   )
             ORDER BY f.TotalSizeBytes DESC, f.FullPath ASC;
             """;
         cmd.Parameters.AddWithValue("$sid", sessionId);
+        cmd.Parameters.AddWithValue("$rootNorm", NormalizeForStorage(await GetSessionRootPathAsync(conn, sessionId, ct)));
         using var reader = await cmd.ExecuteReaderAsync(ct);
         var list = new List<FolderEntry>();
         while (await reader.ReadAsync(ct))
@@ -568,22 +578,21 @@ public sealed class ScanRepository : IScanRepository
         string parentPath,
         CancellationToken ct = default)
     {
-        var prefix = ChildPrefix(parentPath);
         await using var conn = await _db.GetConnectionAsync(ct);
         using var cmd = conn.CreateCommand();
+        // Direct children are an indexed equality on the materialised parent.
+        // The previous prefix form applied substr() to the column, which defeats
+        // indexing entirely and made every Space Map drill-down scan the whole
+        // session.
         cmd.CommandText = """
             SELECT *
             FROM FolderEntries
             WHERE SessionId = $sid
-              AND substr(NormalizedFullPath, 1, length($prefixNorm)) = $prefixNorm
-              AND NormalizedFullPath <> $parentNorm
-              AND instr(substr(FullPath, length($prefix) + 1), '\') = 0
+              AND ParentNormalizedPath = $parentNorm
             ORDER BY TotalSizeBytes DESC, FullPath ASC;
             """;
         cmd.Parameters.AddWithValue("$sid", sessionId);
         cmd.Parameters.AddWithValue("$parentNorm", NormalizeForStorage(parentPath));
-        cmd.Parameters.AddWithValue("$prefixNorm", NormalizeForStorage(prefix));
-        cmd.Parameters.AddWithValue("$prefix", prefix);
         using var reader = await cmd.ExecuteReaderAsync(ct);
         var list = new List<FolderEntry>();
         while (await reader.ReadAsync(ct))
@@ -596,30 +605,28 @@ public sealed class ScanRepository : IScanRepository
         string parentPath,
         CancellationToken ct = default)
     {
-        var prefix = ChildPrefix(parentPath);
         await using var conn = await _db.GetConnectionAsync(ct);
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
             SELECT COUNT(*)
             FROM FolderEntries
             WHERE SessionId = $sid
-              AND substr(NormalizedFullPath, 1, length($prefixNorm)) = $prefixNorm
-              AND NormalizedFullPath <> $parentNorm
-              AND instr(substr(FullPath, length($prefix) + 1), '\') = 0;
+              AND ParentNormalizedPath = $parentNorm;
             """;
         cmd.Parameters.AddWithValue("$sid", sessionId);
         cmd.Parameters.AddWithValue("$parentNorm", NormalizeForStorage(parentPath));
-        cmd.Parameters.AddWithValue("$prefixNorm", NormalizeForStorage(prefix));
-        cmd.Parameters.AddWithValue("$prefix", prefix);
         return Convert.ToInt32(await cmd.ExecuteScalarAsync(ct));
     }
 
-    private static string ChildPrefix(string folderPath)
+    private static async Task<string> GetSessionRootPathAsync(
+        SqliteConnection conn,
+        long sessionId,
+        CancellationToken ct)
     {
-        var normalized = NormalizeDirectoryPath(folderPath);
-        return normalized.EndsWith(Path.DirectorySeparatorChar)
-            ? normalized
-            : normalized + Path.DirectorySeparatorChar;
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT RootPath FROM ScanSessions WHERE Id = $sid;";
+        cmd.Parameters.AddWithValue("$sid", sessionId);
+        return await cmd.ExecuteScalarAsync(ct) as string ?? string.Empty;
     }
 
     private static string NormalizeDirectoryPath(string path)
@@ -641,42 +648,82 @@ public sealed class ScanRepository : IScanRepository
     {
         if (pathToTotal.Count == 0) return;
 
-        await using var conn = await _db.GetConnectionAsync(ct);
-        const int batchSize = 500;
-        var pairs = pathToTotal.ToList();
-
-        for (int offset = 0; offset < pairs.Count; offset += batchSize)
+        // Previously this ran one UPDATE per folder, matched on FullPath, across
+        // many small transactions. FullPath equality cannot use an index — the
+        // only one covering it is COLLATE NOCASE while the predicate compares
+        // BINARY — so each statement scanned every folder row in the session. A
+        // 213k-folder scan therefore cost on the order of 4.5e10 row visits and
+        // took over twenty minutes.
+        //
+        // Now the totals land in a temporary table and one UPDATE ... FROM joins
+        // on NormalizedFullPath, which is covered by a unique BINARY index. The
+        // whole finalisation is a single transaction holding the write lock once.
+        await _db.WriteLock.WaitAsync(ct);
+        try
         {
-            var batch = pairs.Skip(offset).Take(batchSize).ToList();
+            await using var conn = await _db.GetConnectionAsync(ct);
+            using var tx = await conn.BeginTransactionAsync(ct);
 
-            await _db.WriteLock.WaitAsync(ct);
-            try
+            using (var create = conn.CreateCommand())
             {
-                using var tx = await conn.BeginTransactionAsync(ct);
-                using var cmd = conn.CreateCommand();
-                cmd.Transaction = (SqliteTransaction)tx;
-                cmd.CommandText = """
-                    UPDATE FolderEntries
-                    SET TotalSizeBytes = $total
-                    WHERE SessionId = $sid AND FullPath = $path;
+                create.Transaction = (SqliteTransaction)tx;
+                create.CommandText = """
+                    CREATE TEMP TABLE IF NOT EXISTS FolderTotalStaging (
+                        NormalizedFullPath TEXT PRIMARY KEY,
+                        TotalSizeBytes     INTEGER NOT NULL
+                    );
+                    DELETE FROM FolderTotalStaging;
                     """;
-                var pTotal = cmd.Parameters.Add("$total", SqliteType.Integer);
-                var pSid = cmd.Parameters.Add("$sid", SqliteType.Integer);
-                var pPath = cmd.Parameters.Add("$path", SqliteType.Text);
-                pSid.Value = sessionId;
+                await create.ExecuteNonQueryAsync(ct);
+            }
 
-                foreach (var (path, total) in batch)
-                {
-                    pPath.Value = path;
-                    pTotal.Value = total;
-                    await cmd.ExecuteNonQueryAsync(ct);
-                }
-                await tx.CommitAsync(ct);
-            }
-            finally
+            using (var insert = conn.CreateCommand())
             {
-                _db.WriteLock.Release();
+                insert.Transaction = (SqliteTransaction)tx;
+                insert.CommandText = """
+                    INSERT INTO FolderTotalStaging (NormalizedFullPath, TotalSizeBytes)
+                    VALUES ($path, $total)
+                    ON CONFLICT(NormalizedFullPath) DO UPDATE SET
+                        TotalSizeBytes = excluded.TotalSizeBytes;
+                    """;
+                var pPath = insert.Parameters.Add("$path", SqliteType.Text);
+                var pTotal = insert.Parameters.Add("$total", SqliteType.Integer);
+
+                foreach (var (path, total) in pathToTotal)
+                {
+                    ct.ThrowIfCancellationRequested();
+                    pPath.Value = NormalizeForStorage(path);
+                    pTotal.Value = total;
+                    await insert.ExecuteNonQueryAsync(ct);
+                }
             }
+
+            using (var apply = conn.CreateCommand())
+            {
+                apply.Transaction = (SqliteTransaction)tx;
+                apply.CommandText = """
+                    UPDATE FolderEntries
+                    SET TotalSizeBytes = staging.TotalSizeBytes
+                    FROM FolderTotalStaging AS staging
+                    WHERE FolderEntries.SessionId = $sid
+                      AND FolderEntries.NormalizedFullPath = staging.NormalizedFullPath;
+                    """;
+                apply.Parameters.AddWithValue("$sid", sessionId);
+                await apply.ExecuteNonQueryAsync(ct);
+            }
+
+            using (var drop = conn.CreateCommand())
+            {
+                drop.Transaction = (SqliteTransaction)tx;
+                drop.CommandText = "DROP TABLE IF EXISTS FolderTotalStaging;";
+                await drop.ExecuteNonQueryAsync(ct);
+            }
+
+            await tx.CommitAsync(ct);
+        }
+        finally
+        {
+            _db.WriteLock.Release();
         }
     }
 

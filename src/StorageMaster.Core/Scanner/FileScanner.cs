@@ -1,4 +1,5 @@
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
+using System.IO.Enumeration;
 using System.Runtime.CompilerServices;
 using System.Security;
 using System.Threading.Channels;
@@ -31,18 +32,21 @@ public sealed class FileScanner : IFileScanner
     private readonly IScanRepository _repo;
     private readonly IScanErrorRepository? _errorRepo;
     private readonly IFileIdentityProvider _identityProvider;
+    private readonly IDirectoryFileIdentityProvider? _directoryIdentityProvider;
     private readonly ILogger<FileScanner> _logger;
 
     public FileScanner(
         IScanRepository repo,
         ILogger<FileScanner> logger,
         IFileIdentityProvider identityProvider,
-        IScanErrorRepository? errorRepo = null)
+        IScanErrorRepository? errorRepo = null,
+        IDirectoryFileIdentityProvider? directoryIdentityProvider = null)
     {
         _repo = repo;
         _logger = logger;
         _identityProvider = identityProvider;
         _errorRepo = errorRepo;
+        _directoryIdentityProvider = directoryIdentityProvider;
     }
 
     public async Task<ScanSession> ScanAsync(
@@ -372,48 +376,80 @@ public sealed class FileScanner : IFileScanner
 
         try
         {
-            // Enumerate files directly inside this directory.
-            foreach (var filePath in Directory.EnumerateFiles(dir, "*", fileEnumOptions))
+            // One directory handle yields identity for every child, replacing a
+            // per-file open. Null means the bulk read was unavailable or partial,
+            // in which case each file falls back to the per-file provider so
+            // identity is never silently lost.
+            var batchedIdentities = _directoryIdentityProvider is null
+                ? null
+                : await _directoryIdentityProvider
+                    .TryGetDirectoryIdentitiesAsync(dir, ct)
+                    .ConfigureAwait(false);
+
+            // FileSystemEnumerable exposes size, attributes and timestamps straight
+            // from the enumeration buffer, so no second stat per file is needed.
+            // It is the same underlying enumeration Directory.EnumerateFiles uses,
+            // driven by the same EnumerationOptions, so filtering is unchanged.
+            var enumerable = new FileSystemEnumerable<EnumeratedFile>(
+                dir,
+                static (ref FileSystemEntry entry) => new EnumeratedFile(
+                    entry.ToFullPath(),
+                    entry.FileName.ToString(),
+                    entry.Length,
+                    entry.CreationTimeUtc.UtcDateTime,
+                    entry.LastWriteTimeUtc.UtcDateTime,
+                    entry.LastAccessTimeUtc.UtcDateTime,
+                    entry.Attributes),
+                fileEnumOptions)
+            {
+                ShouldIncludePredicate = static (ref FileSystemEntry entry) => !entry.IsDirectory,
+            };
+
+            foreach (var file in enumerable)
             {
                 try
                 {
-                    // Capture identity before path-based metadata. If another
-                    // process replaces the file after this handle closes, the
-                    // persisted old identity makes later deletion fail closed.
-                    var identity = await _identityProvider
-                        .GetIdentityAsync(filePath, ct)
-                        .ConfigureAwait(false);
-                    var info = new FileInfo(filePath);
-                    if (!info.Exists) continue;
+                    // Identity is captured before the entry is persisted. If another
+                    // process replaces the file afterwards, the stored identity makes
+                    // a later deletion fail closed.
+                    FileIdentity? identity = null;
+                    if (batchedIdentities is null ||
+                        !batchedIdentities.TryGetValue(file.FileName, out identity))
+                    {
+                        identity = await _identityProvider
+                            .GetIdentityAsync(file.FullPath, ct)
+                            .ConfigureAwait(false);
+                    }
 
+                    var extension = Path.GetExtension(file.FileName);
                     var entry = new FileEntry
                     {
                         Id = 0, // assigned by DB
                         SessionId = state.SessionId,
-                        FullPath = filePath,
-                        FileName = info.Name,
-                        Extension = info.Extension,
-                        SizeBytes = info.Length,
-                        CreatedUtc = info.CreationTimeUtc,
-                        ModifiedUtc = info.LastWriteTimeUtc,
-                        AccessedUtc = info.LastAccessTimeUtc,
-                        Attributes = info.Attributes,
-                        Category = FileTypeCategorizor.Categorize(info.Extension),
+                        FullPath = file.FullPath,
+                        FileName = file.FileName,
+                        Extension = extension,
+                        SizeBytes = file.Length,
+                        CreatedUtc = file.CreatedUtc,
+                        ModifiedUtc = file.ModifiedUtc,
+                        AccessedUtc = file.AccessedUtc,
+                        Attributes = file.Attributes,
+                        Category = FileTypeCategorizor.Categorize(extension),
                         Identity = identity,
-                        IsReparsePoint = info.Attributes.HasFlag(FileAttributes.ReparsePoint),
+                        IsReparsePoint = file.Attributes.HasFlag(FileAttributes.ReparsePoint),
                     };
 
                     state.FileBuffer.Enqueue(entry);
-                    directBytes += info.Length;
+                    directBytes += file.Length;
                     fileCount++;
 
-                    Interlocked.Add(ref state._totalBytes, info.Length);
+                    Interlocked.Add(ref state._totalBytes, file.Length);
                     Interlocked.Increment(ref state._fileCount);
-                    state.LastScannedPath = filePath;
+                    state.LastScannedPath = file.FullPath;
                 }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
                 {
-                    _logger.LogDebug("Skip file {Path}: {Msg}", filePath, ex.Message);
+                    _logger.LogDebug("Skip file {Path}: {Msg}", file.FullPath, ex.Message);
                 }
             }
         }
@@ -749,3 +785,18 @@ public sealed class FileScanner : IFileScanner
         }
     }
 }
+
+/// <summary>
+/// File metadata taken directly from the directory enumeration buffer.
+/// Reading these values from <see cref="FileSystemEntry"/> avoids a second stat
+/// per file, which is the difference between throughput scaling with bytes and
+/// throughput scaling with file count.
+/// </summary>
+internal readonly record struct EnumeratedFile(
+    string FullPath,
+    string FileName,
+    long Length,
+    DateTime CreatedUtc,
+    DateTime ModifiedUtc,
+    DateTime AccessedUtc,
+    FileAttributes Attributes);

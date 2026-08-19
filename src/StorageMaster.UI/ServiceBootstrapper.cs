@@ -1,4 +1,4 @@
-using System.Net.Http.Headers;
+﻿using System.Net.Http.Headers;
 using System.Reflection;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -78,12 +78,14 @@ internal static class ServiceBootstrapper
         services.AddSingleton<IAdminService, AdminService>();
         services.AddSingleton<IInstalledProgramProvider, InstalledProgramProvider>();
         services.AddSingleton<IFileIdentityProvider, FileIdentityProvider>();
+        services.AddSingleton<IDirectoryFileIdentityProvider, DirectoryFileIdentityProvider>();
 
         services.AddSingleton<FileScanner>(sp => new FileScanner(
             sp.GetRequiredService<IScanRepository>(),
             sp.GetRequiredService<ILogger<FileScanner>>(),
             sp.GetRequiredService<IFileIdentityProvider>(),
-            sp.GetRequiredService<IScanErrorRepository>()));
+            sp.GetRequiredService<IScanErrorRepository>(),
+            sp.GetRequiredService<IDirectoryFileIdentityProvider>()));
         services.AddSingleton<TurboFileScanner>(sp => new TurboFileScanner(
             sp.GetRequiredService<IScanRepository>(),
             sp.GetRequiredService<ILogger<TurboFileScanner>>(),

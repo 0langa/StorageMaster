@@ -1,4 +1,4 @@
-using System.Runtime.InteropServices;
+﻿using System.Runtime.InteropServices;
 using Microsoft.Win32.SafeHandles;
 using StorageMaster.Core.Interfaces;
 using StorageMaster.Core.Models;
@@ -7,11 +7,17 @@ namespace StorageMaster.Platform.Windows;
 
 public sealed class FileIdentityProvider : IFileIdentityProvider
 {
-    public async Task<FileIdentity?> GetIdentityAsync(string path, CancellationToken ct = default)
+    public Task<FileIdentity?> GetIdentityAsync(string path, CancellationToken ct = default)
     {
-        await Task.Yield();
+        // Deliberately synchronous. The work is a single metadata call, and the
+        // former `await Task.Yield()` forced a thread-pool continuation for every
+        // file in the scan — millions of scheduling hops that bought nothing.
         ct.ThrowIfCancellationRequested();
+        return Task.FromResult(ReadIdentity(path));
+    }
 
+    private static FileIdentity? ReadIdentity(string path)
+    {
         using var stream = new FileStream(
             path,
             FileMode.Open,

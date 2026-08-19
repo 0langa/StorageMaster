@@ -47,7 +47,15 @@ public sealed class DownloadedInstallersRule : ICleanupRule
             .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
             + Path.DirectorySeparatorChar;
 
-        var files = await ScanFilePager.LoadAllAsync(_repo, sessionId, cancellationToken);
+        // Both suggestions below are scoped to Downloads, so narrow inside the pager
+        // rather than materializing every file of the scan session first. The
+        // containment check is repeated per suggestion: it is what keeps a target
+        // path inside Downloads, and it stays visible at the point of use.
+        var files = await ScanFilePager.LoadAllAsync(
+            _repo,
+            sessionId,
+            file => IsInDownloads(file.FullPath, downloadsRoot),
+            cancellationToken);
 
         // ── Suggestion 1: installer files only ──────────────────────────────
         var installers = files

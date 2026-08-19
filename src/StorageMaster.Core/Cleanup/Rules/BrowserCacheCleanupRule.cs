@@ -107,9 +107,11 @@ public sealed class BrowserCacheCleanupRule : ICleanupRule
             cancellationToken.ThrowIfCancellationRequested();
             try
             {
-                long dirSize = Directory
-                    .EnumerateFiles(dir, "*", SearchOption.AllDirectories)
-                    .Sum(f => { try { return new FileInfo(f).Length; } catch { return 0L; } });
+                // DirectoryInfo hands back the size the directory enumeration already
+                // read; the string overload discards it and re-stats every file.
+                long dirSize = new DirectoryInfo(dir)
+                    .EnumerateFiles("*", SearchOption.AllDirectories)
+                    .Sum(file => { try { return file.Length; } catch { return 0L; } });
                 if (dirSize == 0) continue;
                 totalBytes += dirSize;
                 dirCount++;

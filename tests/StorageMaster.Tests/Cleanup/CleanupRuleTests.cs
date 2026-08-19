@@ -121,6 +121,76 @@ public sealed class LargeOldFilesRuleTests
     }
 
     [Fact]
+    public async Task AnalyseAsync_FirstPageFullOfRecentFiles_StillFindsOlderMatchesBehindTheCut()
+    {
+        // Age, identity and protected-prefix filtering all happen after the top-N cut,
+        // so a first page made entirely of large *recent* files used to hide every
+        // large old file sitting behind it.
+        var recent = Enumerable.Range(0, LargeOldFilesCleanupRule.InitialCandidateCount)
+            .Select(i => MakeFile(
+                $@"C:\media\recent{i}.mkv",
+                sizeBytes: 300 * 1024 * 1024L,
+                modifiedDaysAgo: 1))
+            .ToList();
+        var oldFile = MakeFile(
+            @"C:\media\archive.mkv",
+            sizeBytes: 200 * 1024 * 1024L,
+            modifiedDaysAgo: 400);
+
+        _repoMock
+            .Setup(r => r.GetLargestFilesAsync(
+                1,
+                LargeOldFilesCleanupRule.InitialCandidateCount,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(recent);
+        _repoMock
+            .Setup(r => r.GetLargestFilesAsync(
+                1,
+                LargeOldFilesCleanupRule.MaxCandidateCount,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(recent.Append(oldFile).ToList());
+
+        var suggestions = new List<CleanupSuggestion>();
+        await foreach (var s in _rule.AnalyzeAsync(1, _settings))
+            suggestions.Add(s);
+
+        suggestions.Should().ContainSingle()
+            .Which.TargetPaths.Should().ContainSingle()
+            .Which.Should().Be(oldFile.FullPath);
+    }
+
+    [Fact]
+    public async Task AnalyseAsync_FirstPageEndsBelowThreshold_DoesNotWidenTheQuery()
+    {
+        var files = Enumerable.Range(0, LargeOldFilesCleanupRule.InitialCandidateCount)
+            .Select(i => MakeFile(
+                $@"C:\media\small{i}.bin",
+                sizeBytes: 1024L,
+                modifiedDaysAgo: 400))
+            .ToList();
+
+        _repoMock
+            .Setup(r => r.GetLargestFilesAsync(
+                1,
+                LargeOldFilesCleanupRule.InitialCandidateCount,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(files);
+
+        var suggestions = new List<CleanupSuggestion>();
+        await foreach (var s in _rule.AnalyzeAsync(1, _settings))
+            suggestions.Add(s);
+
+        suggestions.Should().BeEmpty();
+        _repoMock.Verify(
+            r => r.GetLargestFilesAsync(
+                1,
+                LargeOldFilesCleanupRule.MaxCandidateCount,
+                It.IsAny<CancellationToken>()),
+            Times.Never,
+            "the cheap first page already proves nothing was cut off");
+    }
+
+    [Fact]
     public async Task AnalyseAsync_LegacyFileWithoutIdentity_RequiresRescan()
     {
         var legacy = MakeFile(

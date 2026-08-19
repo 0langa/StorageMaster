@@ -33,12 +33,15 @@ public sealed class WindowsUpdateCacheRule : ICleanupRule
         int fileCount = 0;
         try
         {
-            foreach (var f in Directory.EnumerateFiles(CachePath, "*", SearchOption.AllDirectories))
+            // DirectoryInfo carries the size from the enumeration; the string overload
+            // would force a second metadata call per file, and this cache routinely
+            // holds tens of thousands of them.
+            foreach (var file in new DirectoryInfo(CachePath).EnumerateFiles("*", SearchOption.AllDirectories))
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 try
                 {
-                    totalBytes += new FileInfo(f).Length;
+                    totalBytes += file.Length;
                     fileCount++;
                 }
                 catch { /* best-effort */ }

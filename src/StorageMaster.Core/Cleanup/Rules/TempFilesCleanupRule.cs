@@ -29,12 +29,14 @@ public sealed class TempFilesCleanupRule : ICleanupRule
         AppSettings settings,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
-        var files = await ScanFilePager.LoadAllAsync(_repo, sessionId, cancellationToken);
-
-        var targets = files
-            .Where(static file => file.Identity is not null)
-            .Where(IsTemp)
-            .ToList();
+        // Narrow inside the pager: this rule keeps only the files under a temp root,
+        // so there is no reason to hold a FileEntry for every file of a full-drive
+        // scan just to discard it a line later.
+        var targets = await ScanFilePager.LoadAllAsync(
+            _repo,
+            sessionId,
+            static file => file.Identity is not null && IsTemp(file),
+            cancellationToken);
 
         if (targets.Count == 0) yield break;
 

@@ -181,6 +181,31 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    /// <summary>
+    /// Navigates for <see cref="Infrastructure.ScreenCaptureHarness"/>, keeping the
+    /// rail selection in step so a capture shows the same chrome a user would see.
+    /// </summary>
+    internal bool CaptureNavigateTo(Type pageType)
+    {
+        var navigated = _nav.NavigateTo(pageType);
+        if (navigated)
+            SyncSelection(pageType);
+
+        return navigated;
+    }
+
+    /// <summary>
+    /// What the capture harness renders: the whole window content, so the shell —
+    /// rail, header and pane footer — is reviewed along with the page.
+    /// </summary>
+    internal FrameworkElement CaptureRoot => (FrameworkElement)Content;
+
+    /// <summary>
+    /// The page host, so the capture harness can wait for a navigation to actually
+    /// land rather than guessing at a delay.
+    /// </summary>
+    internal Frame CaptureFrame => ContentFrame;
+
     private void NavView_SelectionChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
     {
         if (_isUpdatingSelection)

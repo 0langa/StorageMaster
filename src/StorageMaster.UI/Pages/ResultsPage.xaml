@@ -192,7 +192,7 @@
                                                        Text="{Binding ModifiedUtc}"
                                                        Style="{StaticResource ColumnHeaderNumericTextStyle}"/>
                                             <TextBlock Grid.Column="3"
-                                                       Text="{Binding Category}"
+                                                       Text="{Binding Category, Converter={StaticResource EnumDisplay}}"
                                                        Style="{StaticResource ColumnHeaderNumericTextStyle}"/>
                                             <Button Grid.Column="4"
                                                     Content="{StaticResource IconOpenInExplorer}"
@@ -312,7 +312,7 @@
                                 <DataTemplate>
                                     <Grid ColumnDefinitions="*,120,80" Padding="0,4">
                                         <Button Grid.Column="0"
-                                                Content="{Binding Category}"
+                                                Content="{Binding Category, Converter={StaticResource EnumDisplay}}"
                                                 FontWeight="SemiBold"
                                                 HorizontalAlignment="Left"
                                                 VerticalAlignment="Center"

@@ -98,7 +98,7 @@ public sealed partial class ScanWorkspaceViewModel : ObservableObject
             SessionTitle = Loc.Format("Workspace_Title_ForRoot", target.RootPath);
             SummaryText = Loc.Format(
                 "Workspace_Summary_StatusStarted",
-                target.Status,
+                Loc.Get(EnumDisplayConverter.KeyFor(target.Status)),
                 target.StartedUtc.ToLocalTime().ToString("g"));
             TotalSize = ByteSizeConverter.Format(target.TotalSizeBytes);
             FileCount = target.TotalFiles.ToString("N0");

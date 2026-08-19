@@ -1107,6 +1107,62 @@
     <value>Whole session</value>
     <comment>[label] Duplicate scope drop-down: search the entire completed scan.</comment>
   </data>
+  <data name="Enum_FileTypeCategory_Archive" xml:space="preserve">
+    <value>Archive</value>
+    <comment>[label] File-type category, shown in the Results type column and the composition breakdown.</comment>
+  </data>
+  <data name="Enum_FileTypeCategory_Audio" xml:space="preserve">
+    <value>Audio</value>
+    <comment>[label] File-type category, shown in the Results type column and the composition breakdown.</comment>
+  </data>
+  <data name="Enum_FileTypeCategory_Cache" xml:space="preserve">
+    <value>Cache</value>
+    <comment>[label] File-type category, shown in the Results type column and the composition breakdown.</comment>
+  </data>
+  <data name="Enum_FileTypeCategory_Database" xml:space="preserve">
+    <value>Database</value>
+    <comment>[label] File-type category, shown in the Results type column and the composition breakdown.</comment>
+  </data>
+  <data name="Enum_FileTypeCategory_Document" xml:space="preserve">
+    <value>Document</value>
+    <comment>[label] File-type category, shown in the Results type column and the composition breakdown.</comment>
+  </data>
+  <data name="Enum_FileTypeCategory_Executable" xml:space="preserve">
+    <value>Application</value>
+    <comment>[label] File-type category, shown in the Results type column and the composition breakdown.</comment>
+  </data>
+  <data name="Enum_FileTypeCategory_Image" xml:space="preserve">
+    <value>Image</value>
+    <comment>[label] File-type category, shown in the Results type column and the composition breakdown.</comment>
+  </data>
+  <data name="Enum_FileTypeCategory_Installer" xml:space="preserve">
+    <value>Installer</value>
+    <comment>[label] File-type category, shown in the Results type column and the composition breakdown.</comment>
+  </data>
+  <data name="Enum_FileTypeCategory_Log" xml:space="preserve">
+    <value>Log file</value>
+    <comment>[label] File-type category, shown in the Results type column and the composition breakdown.</comment>
+  </data>
+  <data name="Enum_FileTypeCategory_SourceCode" xml:space="preserve">
+    <value>Source code</value>
+    <comment>[label] File-type category, shown in the Results type column and the composition breakdown.</comment>
+  </data>
+  <data name="Enum_FileTypeCategory_SystemFile" xml:space="preserve">
+    <value>System file</value>
+    <comment>[label] File-type category, shown in the Results type column and the composition breakdown.</comment>
+  </data>
+  <data name="Enum_FileTypeCategory_Temporary" xml:space="preserve">
+    <value>Temporary file</value>
+    <comment>[label] File-type category, shown in the Results type column and the composition breakdown.</comment>
+  </data>
+  <data name="Enum_FileTypeCategory_Unknown" xml:space="preserve">
+    <value>Unknown</value>
+    <comment>[label] File-type category, shown in the Results type column and the composition breakdown.</comment>
+  </data>
+  <data name="Enum_FileTypeCategory_Video" xml:space="preserve">
+    <value>Video</value>
+    <comment>[label] File-type category, shown in the Results type column and the composition breakdown.</comment>
+  </data>
   <data name="Enum_KeeperPolicy_LongestPath" xml:space="preserve">
     <value>Longest path</value>
     <comment>[label] Drop-down entry: keep the copy with the longest folder path.</comment>

@@ -10,6 +10,14 @@ namespace StorageMaster.UI;
 public partial class App : Application
 {
     public static IServiceProvider Services { get; private set; } = null!;
+
+    /// <summary>
+    /// Set by <c>Program</c> when the process was started with
+    /// <c>--capture-screens</c>. Non-null turns the launch into a capture run: the
+    /// window is parked off-screen, every page is rendered to a PNG, and the process
+    /// exits. See <see cref="Infrastructure.ScreenCaptureHarness"/>.
+    /// </summary>
+    public static Infrastructure.ScreenCaptureOptions? CaptureOptions { get; set; }
     private static readonly string CrashLogPath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "StorageMaster",
@@ -69,9 +77,52 @@ public partial class App : Application
         }
 
         _window.Activate();
+
+        if (CaptureOptions is not null)
+        {
+            // ApplyRequestedThemeAsync is deliberately not started here. It reloads
+            // the persisted theme a moment later and would overwrite the one the
+            // capture asked for — which is exactly what happened: --theme light
+            // rendered dark, because the persisted preference won the race.
+            // A capture run does none of the background startup work below. Update
+            // checks and scan reconciliation would write to the profile and could
+            // change what the pages show, which would make a capture depend on when
+            // it was taken.
+            _ = RunScreenCaptureAsync(_window, CaptureOptions);
+            return;
+        }
+
         _ = ApplyRequestedThemeAsync();
         _ = ReconcileAbandonedScansAsync();
         _ = RunStartupUpdateCheckAsync();
+    }
+
+    private static async Task RunScreenCaptureAsync(MainWindow window, Infrastructure.ScreenCaptureOptions options)
+    {
+        try
+        {
+            if (!string.IsNullOrWhiteSpace(options.Theme))
+            {
+                var preference = options.Theme.Equals("light", StringComparison.OrdinalIgnoreCase)
+                    ? ThemePreference.Light
+                    : options.Theme.Equals("dark", StringComparison.OrdinalIgnoreCase)
+                        ? ThemePreference.Dark
+                        : ThemePreference.Default;
+
+                Services.GetRequiredService<Infrastructure.ThemeService>()
+                    .Apply(preference, accentId: null);
+            }
+
+            await Infrastructure.ScreenCaptureHarness.RunAsync(window, options);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"capture run failed: {ex}");
+        }
+        finally
+        {
+            Current.Exit();
+        }
     }
 
     /// <summary>
@@ -164,6 +215,21 @@ public partial class App : Application
     /// <summary>Language resolved at startup, reused when tagging the visual tree.</summary>
     private static UiLanguage _startupLanguage = UiLanguage.System;
 
+    /// <summary>
+    /// The language a capture run asked for, if any. Applied here rather than after
+    /// startup because the localization markup extension resolves when a page is
+    /// parsed — switching later would capture a half-translated tree that no user
+    /// could ever see.
+    /// </summary>
+    private static UiLanguage? CaptureLanguageOverride() => CaptureOptions?.Language switch
+    {
+        null or "" => null,
+        var tag when tag.StartsWith("de", StringComparison.OrdinalIgnoreCase) => UiLanguage.German,
+        var tag when tag.StartsWith("es", StringComparison.OrdinalIgnoreCase) => UiLanguage.Spanish,
+        var tag when tag.StartsWith("en", StringComparison.OrdinalIgnoreCase) => UiLanguage.English,
+        _ => UiLanguage.System,
+    };
+
     private static void ApplyStartupLanguage()
     {
         try
@@ -178,8 +244,8 @@ public partial class App : Application
                 .GetAwaiter()
                 .GetResult();
 
-            _startupLanguage = settings.Language;
-            Infrastructure.LanguageService.Apply(settings.Language);
+            _startupLanguage = CaptureLanguageOverride() ?? settings.Language;
+            Infrastructure.LanguageService.Apply(_startupLanguage);
         }
         catch (Exception)
         {

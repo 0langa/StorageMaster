@@ -14,9 +14,42 @@ StorageMaster's visual regression suite is intentionally desktop-gated. The app 
 - Accents: at least the default (`aurora`) and one other, on a page that uses accent for state (Dashboard gauges, Drive Health severity), to confirm the live brush swap repaints without a restart.
 - Display scale: every page at 200 %, which is where a star-sized panel starved to zero height or an unbounded list stops virtualizing.
 
+## Capturing without a screen — `--capture-screens`
+
+```
+StorageMaster.UI.exe --capture-screens <dir> [--language de-DE] [--theme dark|light]
+                     [--pages Results,Settings] [--settle 2000]
+```
+
+Renders each page to `<page>--<theme>--<language>.png` with the window parked
+off-screen. This is the preferred way to review the interface: it does not need
+the foreground window, so it cannot be derailed by whatever else is using the
+desktop, and it works while the machine is in use.
+
+Run one process per language and theme rather than switching in place. The
+localization markup extension resolves when a page is parsed, so a language
+applied mid-run would capture a half-translated tree that no user could reach.
+
+```bash
+for L in de-DE es-ES en-US; do for T in dark light; do
+  StorageMaster.UI.exe --capture-screens shots --language "$L" --theme "$T"
+done; done
+```
+
+Point `STORAGEMASTER_DATA_DIR` at a copy of a populated database to capture pages
+with real content; against an empty profile every page shows its empty state.
+
+What it cannot reach: it renders the XAML tree, not the desktop. Tray
+notifications, native file pickers, `ContentDialog` overlays that need a click to
+open, and Windows dialogs still require an interactive session and the procedure
+below.
+
 ## Current automated behavior
 
-The repository contains a skipped xUnit readiness test that records the required desktop prerequisite instead of pretending a headless CI worker can validate WinUI pixels. A future desktop harness should launch `StorageMaster.UI`, navigate to deterministic fixture-backed states, capture screenshots, and compare them against stable baselines.
+The repository contains a skipped xUnit readiness test that records the desktop
+prerequisite for full baseline comparison instead of pretending a headless CI
+worker can validate WinUI pixels. `--capture-screens` produces the images; a
+future step should diff them against committed baselines.
 
 ## Capture procedure (agent- or human-driven)
 

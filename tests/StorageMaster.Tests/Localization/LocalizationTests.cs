@@ -42,6 +42,9 @@ public sealed class LocalizationTests
                 "Safety_Cleanup_Report_Column_Status",      // "Status" is the German word
                 "Settings_About_VersionLabel",              // "Version " is the German word
                 "Workspace_Tab_Delta",                      // technical term, kept in German
+                "Enum_FileTypeCategory_Audio",              // "Audio" is the German word
+                "Enum_FileTypeCategory_Video",              // as is "Video"
+                "Enum_FileTypeCategory_Cache",              // and "Cache", which German uses as-is
                 "Enum_UiLanguage_English",                  // language names stay in their own
                 "Enum_UiLanguage_German",                   // language in every locale, as Windows
                 "Enum_UiLanguage_Spanish",                  // does, so users can find theirs
@@ -52,6 +55,7 @@ public sealed class LocalizationTests
                 "Nav_Dashboard",
                 "Duplicates_Category_Audio",                // "Audio" is the Spanish word
                 "Health_Metric_Total",                      // as is "Total"
+                "Enum_FileTypeCategory_Audio",              // "Audio" is the Spanish word
                 "Enum_UiLanguage_English",                  // language names stay in their own
                 "Enum_UiLanguage_German",                   // language in every locale, as Windows
                 "Enum_UiLanguage_Spanish",                  // does, so users can find theirs

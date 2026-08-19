@@ -1107,6 +1107,62 @@
     <value>Sesión completa</value>
     <comment>[label] Duplicate scope drop-down: search the entire completed scan.</comment>
   </data>
+  <data name="Enum_FileTypeCategory_Archive" xml:space="preserve">
+    <value>Archivo comprimido</value>
+    <comment>[label] File-type category, shown in the Results type column and the composition breakdown.</comment>
+  </data>
+  <data name="Enum_FileTypeCategory_Audio" xml:space="preserve">
+    <value>Audio</value>
+    <comment>[label] File-type category, shown in the Results type column and the composition breakdown.</comment>
+  </data>
+  <data name="Enum_FileTypeCategory_Cache" xml:space="preserve">
+    <value>Caché</value>
+    <comment>[label] File-type category, shown in the Results type column and the composition breakdown.</comment>
+  </data>
+  <data name="Enum_FileTypeCategory_Database" xml:space="preserve">
+    <value>Base de datos</value>
+    <comment>[label] File-type category, shown in the Results type column and the composition breakdown.</comment>
+  </data>
+  <data name="Enum_FileTypeCategory_Document" xml:space="preserve">
+    <value>Documento</value>
+    <comment>[label] File-type category, shown in the Results type column and the composition breakdown.</comment>
+  </data>
+  <data name="Enum_FileTypeCategory_Executable" xml:space="preserve">
+    <value>Aplicación</value>
+    <comment>[label] File-type category, shown in the Results type column and the composition breakdown.</comment>
+  </data>
+  <data name="Enum_FileTypeCategory_Image" xml:space="preserve">
+    <value>Imagen</value>
+    <comment>[label] File-type category, shown in the Results type column and the composition breakdown.</comment>
+  </data>
+  <data name="Enum_FileTypeCategory_Installer" xml:space="preserve">
+    <value>Instalador</value>
+    <comment>[label] File-type category, shown in the Results type column and the composition breakdown.</comment>
+  </data>
+  <data name="Enum_FileTypeCategory_Log" xml:space="preserve">
+    <value>Archivo de registro</value>
+    <comment>[label] File-type category, shown in the Results type column and the composition breakdown.</comment>
+  </data>
+  <data name="Enum_FileTypeCategory_SourceCode" xml:space="preserve">
+    <value>Código fuente</value>
+    <comment>[label] File-type category, shown in the Results type column and the composition breakdown.</comment>
+  </data>
+  <data name="Enum_FileTypeCategory_SystemFile" xml:space="preserve">
+    <value>Archivo de sistema</value>
+    <comment>[label] File-type category, shown in the Results type column and the composition breakdown.</comment>
+  </data>
+  <data name="Enum_FileTypeCategory_Temporary" xml:space="preserve">
+    <value>Archivo temporal</value>
+    <comment>[label] File-type category, shown in the Results type column and the composition breakdown.</comment>
+  </data>
+  <data name="Enum_FileTypeCategory_Unknown" xml:space="preserve">
+    <value>Desconocido</value>
+    <comment>[label] File-type category, shown in the Results type column and the composition breakdown.</comment>
+  </data>
+  <data name="Enum_FileTypeCategory_Video" xml:space="preserve">
+    <value>Vídeo</value>
+    <comment>[label] File-type category, shown in the Results type column and the composition breakdown.</comment>
+  </data>
   <data name="Enum_KeeperPolicy_LongestPath" xml:space="preserve">
     <value>Ruta más larga</value>
     <comment>[label] Drop-down entry: keep the copy with the longest folder path.</comment>
@@ -3379,7 +3435,7 @@ El espacio en disco solo se recupera después de vaciar la Papelera de reciclaje
     <comment>[header] Label of an on/off switch in the Background, Tray and Notifications settings category. Sign-in should use the same wording Windows uses for logging in.</comment>
   </data>
   <data name="Settings_Summary_Duplicates" xml:space="preserve">
-    <value>Conservar {0} · mín. {1} MB</value>
+    <value>Conservar: {0} · mín. {1} MB</value>
     <comment>[status] Status badge on the "Duplicates &amp; Matching" card on the Settings hub. {0} is the keeper policy (which copy of a duplicate set is kept, e.g. Newest); {1} is the smallest file size in megabytes that duplicate detection considers.</comment>
   </data>
   <data name="Settings_Summary_ResultsHistory" xml:space="preserve">

@@ -31,6 +31,17 @@ public static class Program
             return;
         }
 
+        // Screen capture runs the real UI — it renders the live visual tree — so it
+        // takes the normal startup path rather than the headless one, with the
+        // window parked off-screen and the process exiting when the last page is
+        // written. Console output goes to whoever launched it.
+        var capture = Infrastructure.ScreenCaptureOptions.TryParse(args);
+        if (capture is not null)
+        {
+            EnsureConsole(allocateWhenMissing: true);
+            App.CaptureOptions = capture;
+        }
+
         try
         {
             XamlCheckProcessRequirements();

@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Text.Json;
 using FluentAssertions;
 using StorageMaster.Platform.Windows;
@@ -333,6 +333,33 @@ public sealed class TurboScannerContractTests
         result.StandardError.Should().Contain("cannot access scan root");
     }
 
+    /// <summary>
+    /// Reads the product version from Directory.Build.props rather than repeating it
+    /// here. A literal in this test drifts on every release bump and fails the build
+    /// for a reason that has nothing to do with the scanner contract.
+    /// </summary>
+    private static string ExpectedProductVersion()
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null)
+        {
+            var props = Path.Combine(directory.FullName, "Directory.Build.props");
+            if (File.Exists(props))
+            {
+                var match = System.Text.RegularExpressions.Regex.Match(
+                    File.ReadAllText(props),
+                    @"<StorageMasterVersion>([^<]+)</StorageMasterVersion>");
+                if (match.Success)
+                    return match.Groups[1].Value.Trim();
+            }
+
+            directory = directory.Parent;
+        }
+
+        throw new InvalidOperationException(
+            "Could not locate Directory.Build.props to read the expected product version.");
+    }
+
     [Fact]
     public void VersionFlag_ReportsReleaseGateVersion()
     {
@@ -343,7 +370,8 @@ public sealed class TurboScannerContractTests
         var result = RunScannerProcess(exe, "--version");
 
         result.ExitCode.Should().Be(0);
-        result.StandardOutput.Trim().Should().Be("turbo-scanner 2.2.1");
+        result.StandardOutput.Trim().Should().Be($"turbo-scanner {ExpectedProductVersion()}",
+            "the native scanner ships alongside the app and its version gates the release");
         result.StandardError.Should().BeEmpty();
     }
 

@@ -1,4 +1,4 @@
-# Changelog
+﻿# Changelog
 
 All notable changes to StorageMaster are documented here.
 
@@ -7,6 +7,46 @@ All notable changes to StorageMaster are documented here.
 ## [Unreleased]
 
 No unreleased changes.
+
+---
+
+## [2.3.0] — 2026-08-19 — Performance, Correctness, And A Dark-First Interface
+
+### Fixed
+
+- Turbo scans of a whole drive returned nothing. Windows drive roots carry the Hidden and System attributes, and jwalk hands the scan root to the hidden filter as a synthetic child, so `--skip-hidden` pruned the entire walk. Scanning `C:\` reported success with zero files while scanning `C:\Users` worked. The scan root is now always walked.
+- The exact-match duplicate pre-filter dropped candidates whose same-size partners came from the signature cache, so real duplicates were silently never grouped.
+- Files that are exclusively locked or ACL-denied are reported from their enumeration metadata instead of being dropped from turbo scans. The pagefile was previously missing from every turbo scan.
+- Scan sessions abandoned by a crash, a kill or a power loss stayed `Running` forever and were indistinguishable from a scan in progress. They are now reconciled at startup, matching the owning process id together with its start time so a recycled id cannot keep a dead scan looking alive.
+- The Settings editor grew past the window and arranged its Reset, Cancel and Save buttons below the viewport, with no way to reach them.
+- The cleanup suggestion list virtualised nothing. A list measured with unbounded height has an unbounded viewport, so every row was realised; one rule alone can emit a thousand.
+- Severity colours were tuned for dark theme only and failed contrast in light theme.
+
+### Performance
+
+Measured on real data, not estimated.
+
+- Folder-total finalisation after a large scan: about 2.9 hours down to 5.75 seconds for a 213,256-folder session. Path equality could not use any index, because the only one covering it was `COLLATE NOCASE` while the query compared with binary collation.
+- Space Map drill-down: 248 ms down to 5 ms per navigation.
+- Deleting a scan session: 4 m 17 s down to 0.45 s for 20,000 files. Three tables cascade from `FileEntries` and none of the referencing columns was indexed.
+- Managed scan of 46,406 small files: 165 s down to 17.2 s. Each file cost three filesystem round trips; it now costs one, with identity captured once per directory.
+- Turbo scanner thread scaling: 4.60 s down to 1.00 s on 55,301 files. Per-entry metadata ran on the serial drain loop, so `--threads` bought almost nothing.
+- Repository queries no longer run on the UI thread. Microsoft.Data.Sqlite has no real asynchronous I/O, so awaiting it continued inline — the await looked asynchronous and was not. This is what froze navigation after a large scan.
+- Duplicate deletion, duplicate export, cleanup analysis and scan-path validation moved off the dispatcher. Smart Cleaner resolves its allow-listed roots once per group instead of re-enumerating browser profiles for every deleted file.
+
+### Added
+
+- Selectable accents (Aurora, Ember, Verdant, Violet) over a shared dark-first neutral base, applied instantly without a restart. Every accent is contrast-checked in both themes by an automated test, so one cannot ship unreadable.
+- A file-rate readout beside the byte rate. Bytes per second is the wrong meter for trees of small files, where throughput is bound by file count rather than bytes.
+- An interface language setting. WinUI supplies its own text for built-in controls and follows Windows, which produced an English app with German switches; pinning the language makes both halves agree.
+- A space-used readout and a compact action in Settings. Deleting scan history frees pages inside the database but never shrinks the file on disk.
+- `STORAGEMASTER_DATA_DIR` redirects the database, so a development build cannot migrate a released install's data past what that install understands.
+
+### Changed
+
+- The interface follows a dark-first instrument-panel identity across every page.
+- ETA is offered only for whole-drive scans, where a trustworthy total exists, instead of extrapolating drive usage onto a subtree.
+- Drive-health history is bounded rather than growing without limit.
 
 ---
 

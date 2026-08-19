@@ -701,7 +701,7 @@ mod tests {
         let version = Args::try_parse_from(["turbo-scanner", "--version"]).unwrap_err();
 
         assert_eq!(version.kind(), clap::error::ErrorKind::DisplayVersion);
-        assert_eq!(version.to_string().trim(), "turbo-scanner 2.2.1");
+        assert_eq!(version.to_string().trim(), "turbo-scanner 2.3.0");
     }
 
     #[test]

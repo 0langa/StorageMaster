@@ -1,7 +1,7 @@
 <Project>
   <PropertyGroup>
-    <StorageMasterVersion>2.2.1</StorageMasterVersion>
-    <StorageMasterAssemblyVersion>2.2.1.0</StorageMasterAssemblyVersion>
+    <StorageMasterVersion>2.3.0</StorageMasterVersion>
+    <StorageMasterAssemblyVersion>2.3.0.0</StorageMasterAssemblyVersion>
     <Version>$(StorageMasterVersion)</Version>
     <AssemblyVersion>$(StorageMasterAssemblyVersion)</AssemblyVersion>
     <FileVersion>$(StorageMasterAssemblyVersion)</FileVersion>

@@ -17,22 +17,37 @@
 
     <ScrollViewer Padding="{StaticResource PagePaddingWide}">
         <StackPanel Spacing="{StaticResource SectionSpacing}" MaxWidth="{StaticResource PageMaxWidth}" HorizontalAlignment="Center">
+            <!--
+                Start Scan is the page's primary action and sits in the header,
+                so the row below reads as navigation rather than as five equally
+                weighted commands competing with each other.
+            -->
             <controls:PageHeader Title="Overview"
-                                 Subtitle="Storage health, latest scan context, and safe next actions." />
+                                 Subtitle="Storage health, latest scan context, and safe next actions.">
+                <controls:PageHeader.ActionContent>
+                    <Button Content="Start Scan"
+                            Style="{StaticResource AccentButtonStyle}"
+                            MinHeight="36"
+                            Command="{x:Bind ViewModel.GoToScanCommand}" />
+                </controls:PageHeader.ActionContent>
+            </controls:PageHeader>
 
             <Border Style="{StaticResource HeroCardStyle}">
                 <Grid ColumnDefinitions="2*,*,Auto" ColumnSpacing="24">
-                    <StackPanel Grid.Column="0" Spacing="10">
+                    <StackPanel Grid.Column="0" Spacing="{StaticResource TightSpacing}">
                         <TextBlock Text="{x:Bind ViewModel.HeroTitle, Mode=OneWay}" Style="{StaticResource TitleTextBlockStyle}" />
                         <TextBlock Text="{x:Bind ViewModel.HeroSubtitle, Mode=OneWay}" Style="{StaticResource PageSubtitleTextStyle}" />
                         <TextBlock Text="{x:Bind ViewModel.StatusMessage, Mode=OneWay}" Style="{StaticResource HelperTextStyle}" />
                     </StackPanel>
-                    <StackPanel Grid.Column="1" Spacing="6">
-                        <TextBlock Text="Recommended next step" Style="{StaticResource HelperTextStyle}" />
-                        <TextBlock Text="{x:Bind ViewModel.RecommendedActionText, Mode=OneWay}" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                    <StackPanel Grid.Column="1" Spacing="{StaticResource TightSpacing}">
+                        <TextBlock Text="Recommended next step" Style="{StaticResource MetricLabelTextStyle}" />
+                        <TextBlock Text="{x:Bind ViewModel.RecommendedActionText, Mode=OneWay}"
+                                   Style="{StaticResource BodyStrongTextBlockStyle}"
+                                   Foreground="{ThemeResource SmAccentOnSurfaceBrush}"
+                                   TextWrapping="WrapWholeWords" />
                         <TextBlock Text="{x:Bind ViewModel.LatestScanSummary, Mode=OneWay}" Style="{StaticResource HelperTextStyle}" />
                     </StackPanel>
-                    <StackPanel Grid.Column="2" Width="132" Spacing="6" VerticalAlignment="Center">
+                    <StackPanel Grid.Column="2" Width="132" Spacing="{StaticResource TightSpacing}" VerticalAlignment="Center">
                         <controls:RadialGauge Value="{x:Bind ViewModel.ReadinessScore, Mode=OneWay}"
                                                Label="{x:Bind ViewModel.ReadinessLabel, Mode=OneWay}"
                                                GaugeSize="108"
@@ -45,23 +60,26 @@
                 </Grid>
             </Border>
 
-            <Grid ColumnDefinitions="*,*,*,*,*" ColumnSpacing="12">
-                <Button Grid.Column="0" Content="Start Scan" Command="{x:Bind ViewModel.GoToScanCommand}" Style="{StaticResource AccentButtonStyle}" />
-                <Button Grid.Column="1" Content="Workspace" Command="{x:Bind ViewModel.GoToWorkspaceCommand}" IsEnabled="{x:Bind ViewModel.HasLastSession, Mode=OneWay}" />
-                <Button Grid.Column="2" Content="Space Map" Command="{x:Bind ViewModel.GoToSpaceMapCommand}" />
-                <Button Grid.Column="3" Content="Duplicates" Command="{x:Bind ViewModel.GoToDuplicatesCommand}" IsEnabled="{x:Bind ViewModel.HasLastSession, Mode=OneWay}" />
-                <Button Grid.Column="4" Content="Smart Cleanup" Command="{x:Bind ViewModel.GoToSmartCleanerCommand}" />
+            <Grid ColumnDefinitions="*,*,*,*" ColumnSpacing="{StaticResource ControlSpacing}">
+                <Button Grid.Column="0" Content="Workspace" Style="{StaticResource CommandButtonStyle}" HorizontalAlignment="Stretch"
+                        Command="{x:Bind ViewModel.GoToWorkspaceCommand}" IsEnabled="{x:Bind ViewModel.HasLastSession, Mode=OneWay}" />
+                <Button Grid.Column="1" Content="Space Map" Style="{StaticResource CommandButtonStyle}" HorizontalAlignment="Stretch"
+                        Command="{x:Bind ViewModel.GoToSpaceMapCommand}" />
+                <Button Grid.Column="2" Content="Duplicates" Style="{StaticResource CommandButtonStyle}" HorizontalAlignment="Stretch"
+                        Command="{x:Bind ViewModel.GoToDuplicatesCommand}" IsEnabled="{x:Bind ViewModel.HasLastSession, Mode=OneWay}" />
+                <Button Grid.Column="3" Content="Smart Cleanup" Style="{StaticResource CommandButtonStyle}" HorizontalAlignment="Stretch"
+                        Command="{x:Bind ViewModel.GoToSmartCleanerCommand}" />
             </Grid>
 
-            <Grid ColumnDefinitions="1.4*,*" ColumnSpacing="16">
+            <Grid ColumnDefinitions="1.4*,*" ColumnSpacing="{StaticResource CardSpacing}">
                 <Border Grid.Column="0" Style="{StaticResource SectionCardStyle}">
-                    <StackPanel Spacing="14">
+                    <StackPanel Spacing="{StaticResource CardSpacing}">
                         <TextBlock Text="Drive overview" Style="{StaticResource SectionHeaderTextStyle}" />
                         <ItemsControl ItemsSource="{x:Bind ViewModel.DriveHealthSnapshots, Mode=OneWay}">
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate>
-                                    <Border Style="{StaticResource SubtleCardStyle}" Margin="0,0,0,10">
-                                        <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="16">
+                                    <Border Style="{StaticResource SubtleCardStyle}" Margin="0,0,0,8">
+                                        <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="{StaticResource CardSpacing}">
                                             <controls:RadialGauge Grid.Column="0"
                                                                   Value="{Binding FreePercent}"
                                                                   Label="free"
@@ -89,17 +107,17 @@
                     </StackPanel>
                 </Border>
 
-                <StackPanel Grid.Column="1" Spacing="16">
+                <StackPanel Grid.Column="1" Spacing="{StaticResource CardSpacing}">
                     <Border Style="{StaticResource SectionCardStyle}">
-                        <StackPanel Spacing="8">
-                            <TextBlock Text="Latest scan" Style="{StaticResource SectionHeaderTextStyle}" />
+                        <StackPanel Spacing="{StaticResource TightSpacing}">
+                            <TextBlock Text="Latest scan" Style="{StaticResource MetricLabelTextStyle}" />
                             <TextBlock Text="{x:Bind ViewModel.TotalScannedSize, Mode=OneWay}" Style="{StaticResource MetricTextStyle}" />
                             <TextBlock Text="{x:Bind ViewModel.TotalFiles, Mode=OneWay}" Style="{StaticResource HelperTextStyle}" />
                         </StackPanel>
                     </Border>
 
                     <Border Style="{StaticResource SectionCardStyle}">
-                        <StackPanel Spacing="10">
+                        <StackPanel Spacing="{StaticResource ControlSpacing}">
                             <TextBlock Text="Recommended actions" Style="{StaticResource SectionHeaderTextStyle}" />
                             <ItemsControl ItemsSource="{x:Bind ViewModel.Recommendations, Mode=OneWay}">
                                 <ItemsControl.ItemTemplate>

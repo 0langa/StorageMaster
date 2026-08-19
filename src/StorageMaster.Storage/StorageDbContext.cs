@@ -13,7 +13,7 @@ namespace StorageMaster.Storage;
 /// WAL mode lets independently leased readers and the serialized writer run
 /// concurrently without sharing non-thread-safe Microsoft.Data.Sqlite objects.
 /// </summary>
-public sealed class StorageDbContext : IAsyncDisposable
+public sealed class StorageDbContext : IAsyncDisposable, StorageMaster.Core.Interfaces.IDatabaseMaintenance
 {
     // A process may briefly create more than one context for the same file
     // (tests, service re-composition, or overlapping app lifetime). Coordinate
@@ -99,6 +99,67 @@ public sealed class StorageDbContext : IAsyncDisposable
 
         await connection.DisposeAsync().ConfigureAwait(false);
         throw new ObjectDisposedException(nameof(StorageDbContext));
+    }
+
+    /// <summary>
+    /// Bytes the database currently occupies on disk, including its write-ahead log
+    /// and shared-memory index.
+    /// <para>
+    /// The WAL is counted deliberately. It is not a rounding error: a long scan can
+    /// leave a WAL larger than many databases, and reporting only the main file
+    /// would tell the user their data is small while the folder is not.
+    /// </para>
+    /// </summary>
+    public Task<long> GetDatabaseSizeBytesAsync(CancellationToken ct = default) =>
+        Task.Run(() =>
+        {
+            long total = 0;
+            foreach (var suffix in new[] { string.Empty, "-wal", "-shm" })
+            {
+                try
+                {
+                    var info = new FileInfo(_dbPath + suffix);
+                    if (info.Exists)
+                        total += info.Length;
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    // A file that cannot be measured is reported as zero rather than
+                    // failing the whole readout.
+                }
+            }
+
+            return total;
+        }, ct);
+
+    /// <summary>
+    /// Checkpoints the write-ahead log and rebuilds the database file, returning the
+    /// number of bytes reclaimed.
+    /// <para>
+    /// Deleting scan sessions frees pages inside the file but does not shrink it, so
+    /// without an explicit compaction the file only ever grows. VACUUM rewrites it,
+    /// which needs the write lock for the duration and cannot run inside a
+    /// transaction.
+    /// </para>
+    /// </summary>
+    public async Task<long> CompactAsync(CancellationToken ct = default)
+    {
+        var before = await GetDatabaseSizeBytesAsync(ct).ConfigureAwait(false);
+
+        await WriteLock.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            await using var connection = await GetConnectionAsync(ct).ConfigureAwait(false);
+            await ExecuteAsync(connection, "PRAGMA wal_checkpoint(TRUNCATE);", ct).ConfigureAwait(false);
+            await ExecuteAsync(connection, "VACUUM;", ct).ConfigureAwait(false);
+        }
+        finally
+        {
+            WriteLock.Release();
+        }
+
+        var after = await GetDatabaseSizeBytesAsync(ct).ConfigureAwait(false);
+        return Math.Max(0, before - after);
     }
 
     private async Task EnsureInitializedAsync(CancellationToken ct)

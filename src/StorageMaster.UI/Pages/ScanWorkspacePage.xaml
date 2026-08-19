@@ -24,28 +24,28 @@
                 </controls:PageHeader.ActionContent>
             </controls:PageHeader>
 
-            <Grid ColumnDefinitions="*,*,*,*" ColumnSpacing="12">
-                <Border Grid.Column="0" Style="{StaticResource SectionCardStyle}">
-                    <StackPanel Spacing="4">
-                        <TextBlock Text="Scanned size" Style="{StaticResource HelperTextStyle}" />
+            <Grid ColumnDefinitions="*,*,*,*" ColumnSpacing="{StaticResource ControlSpacing}">
+                <Border Grid.Column="0" Style="{StaticResource MetricCardStyle}">
+                    <StackPanel Spacing="2">
+                        <TextBlock Text="Scanned size" Style="{StaticResource MetricLabelTextStyle}" />
                         <TextBlock Text="{x:Bind ViewModel.TotalSize, Mode=OneWay}" Style="{StaticResource MetricTextStyle}" />
                     </StackPanel>
                 </Border>
-                <Border Grid.Column="1" Style="{StaticResource SectionCardStyle}">
-                    <StackPanel Spacing="4">
-                        <TextBlock Text="Files" Style="{StaticResource HelperTextStyle}" />
+                <Border Grid.Column="1" Style="{StaticResource MetricCardStyle}">
+                    <StackPanel Spacing="2">
+                        <TextBlock Text="Files" Style="{StaticResource MetricLabelTextStyle}" />
                         <TextBlock Text="{x:Bind ViewModel.FileCount, Mode=OneWay}" Style="{StaticResource MetricTextStyle}" />
                     </StackPanel>
                 </Border>
-                <Border Grid.Column="2" Style="{StaticResource SectionCardStyle}">
-                    <StackPanel Spacing="4">
-                        <TextBlock Text="Folders" Style="{StaticResource HelperTextStyle}" />
+                <Border Grid.Column="2" Style="{StaticResource MetricCardStyle}">
+                    <StackPanel Spacing="2">
+                        <TextBlock Text="Folders" Style="{StaticResource MetricLabelTextStyle}" />
                         <TextBlock Text="{x:Bind ViewModel.FolderCount, Mode=OneWay}" Style="{StaticResource MetricTextStyle}" />
                     </StackPanel>
                 </Border>
-                <Border Grid.Column="3" Style="{StaticResource SectionCardStyle}">
-                    <StackPanel Spacing="4">
-                        <TextBlock Text="Errors" Style="{StaticResource HelperTextStyle}" />
+                <Border Grid.Column="3" Style="{StaticResource MetricCardStyle}">
+                    <StackPanel Spacing="2">
+                        <TextBlock Text="Errors" Style="{StaticResource MetricLabelTextStyle}" />
                         <TextBlock Text="{x:Bind ViewModel.ErrorCount, Mode=OneWay}" Style="{StaticResource MetricTextStyle}" />
                     </StackPanel>
                 </Border>
@@ -65,17 +65,22 @@
 
             <TabView IsAddTabButtonVisible="False">
                 <TabViewItem Header="Overview" IsClosable="False">
-                    <Grid Padding="0,16,0,0" ColumnDefinitions="1.2*,*" ColumnSpacing="16">
+                    <Grid Padding="0,16,0,0" ColumnDefinitions="1.2*,*" ColumnSpacing="{StaticResource CardSpacing}">
                         <Border Grid.Column="0" Style="{StaticResource SectionCardStyle}">
-                            <StackPanel Spacing="12">
+                            <StackPanel Spacing="{StaticResource ControlSpacing}">
                                 <TextBlock Text="File-type composition" Style="{StaticResource SectionHeaderTextStyle}" />
+                                <Grid ColumnDefinitions="*,90,120" ColumnSpacing="{StaticResource ControlSpacing}">
+                                    <TextBlock Grid.Column="0" Text="Category" Style="{StaticResource ColumnHeaderTextStyle}" />
+                                    <TextBlock Grid.Column="1" Text="Files" Style="{StaticResource ColumnHeaderNumericTextStyle}" />
+                                    <TextBlock Grid.Column="2" Text="Size" Style="{StaticResource ColumnHeaderNumericTextStyle}" />
+                                </Grid>
                                 <ItemsControl ItemsSource="{x:Bind ViewModel.CategoryBreakdown, Mode=OneWay}">
                                     <ItemsControl.ItemTemplate>
                                         <DataTemplate>
-                                            <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="12" Padding="0,6">
-                                                <TextBlock Grid.Column="0" Text="{Binding Category}" />
-                                                <TextBlock Grid.Column="1" Text="{Binding Count}" Style="{StaticResource HelperTextStyle}" />
-                                                <TextBlock Grid.Column="2" Text="{Binding SizeDisplay}" FontWeight="SemiBold" />
+                                            <Grid ColumnDefinitions="*,90,120" ColumnSpacing="{StaticResource ControlSpacing}" Padding="0,6">
+                                                <TextBlock Grid.Column="0" Text="{Binding Category}" VerticalAlignment="Center" />
+                                                <TextBlock Grid.Column="1" Text="{Binding Count}" Style="{StaticResource ColumnHeaderNumericTextStyle}" />
+                                                <TextBlock Grid.Column="2" Text="{Binding SizeDisplay}" Style="{StaticResource MetricColumnTextStyle}" />
                                             </Grid>
                                         </DataTemplate>
                                     </ItemsControl.ItemTemplate>
@@ -83,9 +88,9 @@
                             </StackPanel>
                         </Border>
                         <Border Grid.Column="1" Style="{StaticResource SectionCardStyle}">
-                            <StackPanel Spacing="12">
+                            <StackPanel Spacing="{StaticResource ControlSpacing}">
                                 <TextBlock Text="Review queue" Style="{StaticResource SectionHeaderTextStyle}" />
-                                <TextBlock Text="{x:Bind ViewModel.DuplicateSummary, Mode=OneWay}" TextWrapping="Wrap" />
+                                <TextBlock Text="{x:Bind ViewModel.DuplicateSummary, Mode=OneWay}" TextWrapping="WrapWholeWords" />
                                 <TextBlock Text="{x:Bind ViewModel.ReclaimableSummary, Mode=OneWay}" Style="{StaticResource HelperTextStyle}" />
                             </StackPanel>
                         </Border>
@@ -93,12 +98,12 @@
                 </TabViewItem>
 
                 <TabViewItem Header="Files" IsClosable="False">
-                    <ListView ItemsSource="{x:Bind ViewModel.LargestFiles, Mode=OneWay}" MaxHeight="560">
+                    <ListView ItemsSource="{x:Bind ViewModel.LargestFiles, Mode=OneWay}" MaxHeight="{StaticResource ListMaxHeight}" SelectionMode="None">
                         <ListView.ItemTemplate>
                             <DataTemplate>
-                                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12" Padding="0,6">
-                                    <TextBlock Grid.Column="0" Text="{Binding FullPath}" TextTrimming="CharacterEllipsis" />
-                                    <TextBlock Grid.Column="1" Text="{Binding SizeBytes, Converter={StaticResource ByteSize}}" />
+                                <Grid ColumnDefinitions="*,130" ColumnSpacing="12" Padding="0,6">
+                                    <TextBlock Grid.Column="0" Text="{Binding FullPath}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                                    <TextBlock Grid.Column="1" Text="{Binding SizeBytes, Converter={StaticResource ByteSize}}" Style="{StaticResource MetricColumnTextStyle}" />
                                 </Grid>
                             </DataTemplate>
                         </ListView.ItemTemplate>
@@ -106,12 +111,12 @@
                 </TabViewItem>
 
                 <TabViewItem Header="Folders" IsClosable="False">
-                    <ListView ItemsSource="{x:Bind ViewModel.LargestFolders, Mode=OneWay}" MaxHeight="560">
+                    <ListView ItemsSource="{x:Bind ViewModel.LargestFolders, Mode=OneWay}" MaxHeight="{StaticResource ListMaxHeight}" SelectionMode="None">
                         <ListView.ItemTemplate>
                             <DataTemplate>
-                                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12" Padding="0,6">
-                                    <TextBlock Grid.Column="0" Text="{Binding FullPath}" TextTrimming="CharacterEllipsis" />
-                                    <TextBlock Grid.Column="1" Text="{Binding TotalSizeBytes, Converter={StaticResource ByteSize}}" />
+                                <Grid ColumnDefinitions="*,130" ColumnSpacing="12" Padding="0,6">
+                                    <TextBlock Grid.Column="0" Text="{Binding FullPath}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                                    <TextBlock Grid.Column="1" Text="{Binding TotalSizeBytes, Converter={StaticResource ByteSize}}" Style="{StaticResource MetricColumnTextStyle}" />
                                 </Grid>
                             </DataTemplate>
                         </ListView.ItemTemplate>
@@ -142,13 +147,13 @@
                 </TabViewItem>
 
                 <TabViewItem Header="Delta" IsClosable="False">
-                    <controls:StateView IconGlyph="&#xE9D5;"
+                    <controls:StateView IconGlyph="{StaticResource IconDelta}"
                                         Title="Delta insights"
                                         Message="Scan delta details remain available from Space Map, where comparable scans share the same root." />
                 </TabViewItem>
 
                 <TabViewItem Header="Errors" IsClosable="False">
-                    <ListView ItemsSource="{x:Bind ViewModel.Errors, Mode=OneWay}" MaxHeight="560">
+                    <ListView ItemsSource="{x:Bind ViewModel.Errors, Mode=OneWay}" MaxHeight="{StaticResource ListMaxHeight}" SelectionMode="None">
                         <ListView.ItemTemplate>
                             <DataTemplate>
                                 <StackPanel Padding="0,8" Spacing="3">

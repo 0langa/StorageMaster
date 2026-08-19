@@ -1,4 +1,4 @@
-using Microsoft.UI.Xaml;
+﻿using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 
 namespace StorageMaster.UI.Controls;
@@ -38,6 +38,13 @@ public sealed partial class RadialGauge : UserControl
     }
 
     public string ValueText => $"{Math.Clamp(Value, 0, 100):N0}%";
+
+    /// <summary>
+    /// Spoken description of the gauge. A screen reader announcing only "72%" does
+    /// not say what is 72% full, so the label is carried with the value.
+    /// </summary>
+    public string AutomationText =>
+        string.IsNullOrWhiteSpace(Label) ? ValueText : $"{Label}: {ValueText}";
 
     private static void OnGaugeChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
     {

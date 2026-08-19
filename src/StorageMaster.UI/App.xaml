@@ -17,15 +17,34 @@
                 <ResourceDictionary Source="Styles/Severity.xaml" />
                 <ResourceDictionary Source="Styles/FileTypes.xaml" />
                 <ResourceDictionary Source="Styles/Icons.xaml" />
+                <!--
+                    Must stay last: merged dictionaries are searched last-to-first,
+                    and Palette.xaml deliberately overrides keys that
+                    XamlControlsResources also defines.
+                -->
+                <ResourceDictionary Source="Styles/Palette.xaml" />
             </ResourceDictionary.MergedDictionaries>
+
+            <!--
+                A neutral metadata chip. This used to be filled with the accent,
+                which spent the app's one attention colour on facts like a volume
+                label; accent now means state, selection or primary action only.
+            -->
             <Style x:Key="StatusChipStyle" TargetType="Border">
-                <Setter Property="Background" Value="{ThemeResource AccentFillColorDefaultBrush}" />
+                <Setter Property="Background" Value="{ThemeResource SmSurfaceSunkenBrush}" />
+                <Setter Property="BorderBrush" Value="{ThemeResource SmStrokeSubtleBrush}" />
+                <Setter Property="BorderThickness" Value="1" />
                 <Setter Property="CornerRadius" Value="{StaticResource ChipCornerRadius}" />
                 <Setter Property="Padding" Value="{StaticResource ChipPadding}" />
             </Style>
-            <Style x:Key="EmptyStateTextStyle" TargetType="TextBlock">
-                <Setter Property="Style" Value="{StaticResource MutedTextStyle}" />
-                <Setter Property="Opacity" Value="0.55" />
+
+            <Style x:Key="StatusChipTextStyle" TargetType="TextBlock" BasedOn="{StaticResource CaptionTextBlockStyle}">
+                <Setter Property="Foreground" Value="{ThemeResource SmTextSecondaryBrush}" />
+                <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+                <Setter Property="TextWrapping" Value="NoWrap" />
+            </Style>
+
+            <Style x:Key="EmptyStateTextStyle" TargetType="TextBlock" BasedOn="{StaticResource MutedTextStyle}">
                 <Setter Property="TextWrapping" Value="WrapWholeWords" />
             </Style>
         </ResourceDictionary>

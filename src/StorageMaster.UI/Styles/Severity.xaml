@@ -1,27 +1,32 @@
-<ResourceDictionary
+﻿<ResourceDictionary
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
 
     <!--
-        Severity brushes are aliases onto the runtime palette published by
-        ThemeService, not fixed colours. The previous fixed values were tuned for
-        dark only and failed contrast in light theme, and they could not respond to
-        the selected accent's neutral base.
+        Declared as real brush objects and driven at runtime by ThemeService, which
+        assigns their Color.
 
-        Fill is for bars, dots and gauges; Text is for labels. A colour dense enough
+        They must be declared rather than aliased with <StaticResource>: an alias has
+        to resolve while App.xaml is parsed, and the runtime palette does not exist
+        until after InitializeComponent has returned. The placeholder colour keeps
+        this dictionary parseable while still handing every consumer a live brush.
+
+        Fill is for bars, dots and gauges; Text is for labels — a colour dense enough
         to read as body text is usually too dark to work as a fill, so the two are
         tuned independently in ThemeCatalog and verified by ThemeContrastTests.
-    -->
-    <StaticResource x:Key="SeverityHealthyBrush"  ResourceKey="SmSeverityHealthyBrush" />
-    <StaticResource x:Key="SeverityWatchBrush"    ResourceKey="SmSeverityWatchBrush" />
-    <StaticResource x:Key="SeverityWarningBrush"  ResourceKey="SmSeverityWarningBrush" />
-    <StaticResource x:Key="SeverityCriticalBrush" ResourceKey="SmSeverityCriticalBrush" />
-    <StaticResource x:Key="SeverityUnknownBrush"  ResourceKey="SmSeverityUnknownBrush" />
 
-    <StaticResource x:Key="SeverityHealthyTextBrush"  ResourceKey="SmSeverityHealthyTextBrush" />
-    <StaticResource x:Key="SeverityWatchTextBrush"    ResourceKey="SmSeverityWatchTextBrush" />
-    <StaticResource x:Key="SeverityWarningTextBrush"  ResourceKey="SmSeverityWarningTextBrush" />
-    <StaticResource x:Key="SeverityCriticalTextBrush" ResourceKey="SmSeverityCriticalTextBrush" />
-    <StaticResource x:Key="SeverityUnknownTextBrush"  ResourceKey="SmSeverityUnknownTextBrush" />
+        Severity is accent-independent on purpose: a critical drive must read as
+        critical whichever accent the user picked.
+    -->
+    <SolidColorBrush x:Key="SeverityHealthyBrush" Color="Transparent" />
+    <SolidColorBrush x:Key="SeverityWatchBrush" Color="Transparent" />
+    <SolidColorBrush x:Key="SeverityWarningBrush" Color="Transparent" />
+    <SolidColorBrush x:Key="SeverityCriticalBrush" Color="Transparent" />
+    <SolidColorBrush x:Key="SeverityUnknownBrush" Color="Transparent" />
+    <SolidColorBrush x:Key="SeverityHealthyTextBrush" Color="Transparent" />
+    <SolidColorBrush x:Key="SeverityWatchTextBrush" Color="Transparent" />
+    <SolidColorBrush x:Key="SeverityWarningTextBrush" Color="Transparent" />
+    <SolidColorBrush x:Key="SeverityCriticalTextBrush" Color="Transparent" />
+    <SolidColorBrush x:Key="SeverityUnknownTextBrush" Color="Transparent" />
 
 </ResourceDictionary>

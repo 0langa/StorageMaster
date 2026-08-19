@@ -4,20 +4,28 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
 
-    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16">
-        <StackPanel Grid.Column="0" Spacing="4">
-            <TextBlock Text="{x:Bind Title, Mode=OneWay}"
-                       Style="{StaticResource PageTitleTextStyle}"
-                       TextWrapping="NoWrap"
-                       TextTrimming="CharacterEllipsis" />
-            <TextBlock Text="{x:Bind Subtitle, Mode=OneWay}"
-                       Style="{StaticResource PageSubtitleTextStyle}"
-                       MaxLines="2"
-                       TextTrimming="CharacterEllipsis"
-                       Visibility="{x:Bind HasSubtitle, Mode=OneWay}" />
-        </StackPanel>
-        <ContentPresenter Grid.Column="1"
-                          Content="{x:Bind ActionContent, Mode=OneWay}"
-                          VerticalAlignment="Center" />
-    </Grid>
+    <!--
+        Title, one line of context, and the page's primary action on the right.
+        The rule underneath is what separates the header from the page: without it
+        the first card had to carry that job and every page started differently.
+    -->
+    <StackPanel Spacing="{StaticResource ControlSpacing}">
+        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16">
+            <StackPanel Grid.Column="0" Spacing="4">
+                <TextBlock Text="{x:Bind Title, Mode=OneWay}"
+                           Style="{StaticResource PageTitleTextStyle}"
+                           TextWrapping="NoWrap"
+                           TextTrimming="CharacterEllipsis" />
+                <TextBlock Text="{x:Bind Subtitle, Mode=OneWay}"
+                           Style="{StaticResource PageSubtitleTextStyle}"
+                           MaxLines="2"
+                           TextTrimming="CharacterEllipsis"
+                           Visibility="{x:Bind HasSubtitle, Mode=OneWay}" />
+            </StackPanel>
+            <ContentPresenter Grid.Column="1"
+                              Content="{x:Bind ActionContent, Mode=OneWay}"
+                              VerticalAlignment="Center" />
+        </Grid>
+        <Border Height="1" Background="{ThemeResource SmStrokeSubtleBrush}" />
+    </StackPanel>
 </UserControl>

@@ -26,8 +26,8 @@
                 </controls:PageHeader>
 
                 <Border Style="{StaticResource SectionCardStyle}">
-                    <StackPanel Spacing="12">
-                        <Grid ColumnDefinitions="2*,Auto,Auto,Auto" ColumnSpacing="12">
+                    <StackPanel Spacing="{StaticResource ControlSpacing}">
+                        <Grid ColumnDefinitions="2*,Auto,Auto,Auto" ColumnSpacing="{StaticResource ControlSpacing}">
                             <ComboBox Grid.Column="0"
                                       Header="Scan"
                                       ItemsSource="{x:Bind ViewModel.Sessions, Mode=OneWay}"
@@ -69,8 +69,7 @@
                                     <ItemsControl.ItemTemplate>
                                         <DataTemplate>
                                             <TextBlock Text="{Binding}" Margin="0,0,10,0"
-                                                       Style="{StaticResource CaptionTextBlockStyle}"
-                                                       Opacity="0.68" />
+                                                       Style="{StaticResource MutedTextStyle}" />
                                         </DataTemplate>
                                     </ItemsControl.ItemTemplate>
                                 </ItemsControl>
@@ -100,66 +99,102 @@
                     </StackPanel>
                 </Border>
 
-                <Grid ColumnDefinitions="3*,1.1*" ColumnSpacing="16"
+                <!--
+                    The map takes whatever is left; the selection rail is Auto and
+                    bounded, so it can neither starve nor eat the map.
+
+                    Both halves used to be star-sized (3* / 1.1*) with the canvas
+                    additionally pinned to MinWidth=720 inside a ScrollViewer that
+                    has horizontal scrolling disabled. Below roughly 1364 logical
+                    px of window — which includes the 200% display scale this
+                    machine defaults to — the canvas was laid out 720 wide, clipped
+                    by the rounded border to whatever the column actually got, and
+                    the rail's action buttons were squeezed to ~180px with no
+                    scrollbar to reach either.
+                -->
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16"
                       IsHitTestVisible="{x:Bind ViewModel.CanInteract, Mode=OneWay}">
-                    <Border Grid.Column="0"
-                            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                            BorderThickness="1"
-                            CornerRadius="8"
-                            Padding="8">
+                    <Border Grid.Column="0" Style="{StaticResource ChartWellStyle}">
                         <Canvas x:Name="TreemapCanvas"
                                 Height="560"
-                                MinWidth="720"
                                 SizeChanged="TreemapCanvas_SizeChanged"
                                 AutomationProperties.Name="Interactive disk usage treemap" />
                     </Border>
 
                     <Border Grid.Column="1"
-                            Style="{StaticResource SectionCardStyle}">
-                        <StackPanel Spacing="10">
-                            <TextBlock Text="Selection" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                            Style="{StaticResource SectionCardStyle}"
+                            MinWidth="{StaticResource SidePanelMinWidth}"
+                            MaxWidth="{StaticResource SidePanelMaxWidth}">
+                        <StackPanel Spacing="{StaticResource ControlSpacing}">
+                            <TextBlock Text="Selection" Style="{StaticResource SectionHeaderTextStyle}" />
                             <TextBlock Text="{x:Bind ViewModel.SelectedNodeDisplayName, Mode=OneWay}"
                                        TextWrapping="WrapWholeWords"
                                        FontWeight="SemiBold" />
                             <TextBlock Text="{x:Bind ViewModel.SelectedNodePath, Mode=OneWay}"
                                        TextWrapping="WrapWholeWords"
-                                       Style="{StaticResource CaptionTextBlockStyle}"
-                                       Opacity="0.72" />
-                            <TextBlock Text="{x:Bind ViewModel.SelectedNodeSize, Mode=OneWay}" />
-                            <TextBlock Text="{x:Bind ViewModel.SelectedNodePercent, Mode=OneWay}" />
+                                       Style="{StaticResource HelperTextStyle}" />
+
+                            <Grid ColumnDefinitions="*,*" ColumnSpacing="{StaticResource ControlSpacing}">
+                                <StackPanel Grid.Column="0" Spacing="2">
+                                    <TextBlock Text="Size" Style="{StaticResource MetricLabelTextStyle}" />
+                                    <TextBlock Text="{x:Bind ViewModel.SelectedNodeSize, Mode=OneWay}"
+                                               Style="{StaticResource MetricValueTextStyle}" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" Spacing="2">
+                                    <TextBlock Text="Share" Style="{StaticResource MetricLabelTextStyle}" />
+                                    <TextBlock Text="{x:Bind ViewModel.SelectedNodePercent, Mode=OneWay}"
+                                               Style="{StaticResource MetricValueTextStyle}" />
+                                </StackPanel>
+                            </Grid>
+
                             <Button Content="Reveal in Explorer"
+                                    Style="{StaticResource CommandButtonStyle}"
+                                    HorizontalAlignment="Stretch"
                                     Command="{x:Bind ViewModel.RevealInExplorerCommand}"
                                     CommandParameter="{x:Bind ViewModel.SelectedNode, Mode=OneWay}"
                                     IsEnabled="{x:Bind ViewModel.HasSelectedNode, Mode=OneWay}" />
                             <Button Content="Copy path"
+                                    Style="{StaticResource CommandButtonStyle}"
+                                    HorizontalAlignment="Stretch"
                                     Command="{x:Bind ViewModel.CopyPathCommand}"
                                     CommandParameter="{x:Bind ViewModel.SelectedNode, Mode=OneWay}"
                                     IsEnabled="{x:Bind ViewModel.HasSelectedNode, Mode=OneWay}" />
                             <Button Content="Send to Cleanup review"
+                                    Style="{StaticResource CommandButtonStyle}"
+                                    HorizontalAlignment="Stretch"
                                     Command="{x:Bind ViewModel.SendToCleanupReviewCommand}"
                                     IsEnabled="{x:Bind ViewModel.CanInteract, Mode=OneWay}" />
                             <Button Content="Send to Duplicate review"
+                                    Style="{StaticResource CommandButtonStyle}"
+                                    HorizontalAlignment="Stretch"
                                     Command="{x:Bind ViewModel.SendToDuplicateReviewCommand}"
                                     IsEnabled="{x:Bind ViewModel.CanInteract, Mode=OneWay}" />
                             <Button Content="Open in Results"
+                                    Style="{StaticResource CommandButtonStyle}"
+                                    HorizontalAlignment="Stretch"
                                     Command="{x:Bind ViewModel.OpenInResultsCommand}"
                                     IsEnabled="{x:Bind ViewModel.CanInteract, Mode=OneWay}" />
-                            <TextBlock Text="Legend" Style="{StaticResource BodyStrongTextBlockStyle}" Margin="0,10,0,0" />
+
+                            <!--
+                                The swatches resolve the same FileType*Brush
+                                resources TreemapTileControl paints its tiles
+                                from, so the key cannot drift from the map again.
+                            -->
+                            <TextBlock Text="Legend" Style="{StaticResource MetricLabelTextStyle}" Margin="0,4,0,0" />
                             <StackPanel Orientation="Horizontal" Spacing="8">
-                                <Border Width="12" Height="12" Background="{StaticResource FileTypeFolderBrush}" CornerRadius="3" />
+                                <Border Width="12" Height="12" Background="{StaticResource FileTypeFolderBrush}" CornerRadius="3" VerticalAlignment="Center" />
                                 <TextBlock Text="Folders" Style="{StaticResource HelperTextStyle}" />
                             </StackPanel>
                             <StackPanel Orientation="Horizontal" Spacing="8">
-                                <Border Width="12" Height="12" Background="{StaticResource FileTypeImageBrush}" CornerRadius="3" />
+                                <Border Width="12" Height="12" Background="{StaticResource FileTypeImageBrush}" CornerRadius="3" VerticalAlignment="Center" />
                                 <TextBlock Text="Images" Style="{StaticResource HelperTextStyle}" />
                             </StackPanel>
                             <StackPanel Orientation="Horizontal" Spacing="8">
-                                <Border Width="12" Height="12" Background="{StaticResource FileTypeVideoBrush}" CornerRadius="3" />
+                                <Border Width="12" Height="12" Background="{StaticResource FileTypeVideoBrush}" CornerRadius="3" VerticalAlignment="Center" />
                                 <TextBlock Text="Videos" Style="{StaticResource HelperTextStyle}" />
                             </StackPanel>
                             <StackPanel Orientation="Horizontal" Spacing="8">
-                                <Border Width="12" Height="12" Background="{StaticResource FileTypeArchiveBrush}" CornerRadius="3" />
+                                <Border Width="12" Height="12" Background="{StaticResource FileTypeArchiveBrush}" CornerRadius="3" VerticalAlignment="Center" />
                                 <TextBlock Text="Archives" Style="{StaticResource HelperTextStyle}" />
                             </StackPanel>
                         </StackPanel>
@@ -171,12 +206,10 @@
                          Title="Space Map status"
                          Message="{x:Bind ViewModel.StatusText, Mode=OneWay}" />
 
-                <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                        CornerRadius="8"
-                        Padding="16">
-                    <StackPanel Spacing="14">
+                <Border Style="{StaticResource SectionCardStyle}">
+                    <StackPanel Spacing="{StaticResource CardSpacing}">
                         <Grid ColumnDefinitions="*,Auto">
-                            <TextBlock Grid.Column="0" Text="Scan Delta Insights" Style="{StaticResource TitleTextBlockStyle}" />
+                            <TextBlock Grid.Column="0" Text="Scan delta insights" Style="{StaticResource SectionHeaderTextStyle}" />
                             <ProgressRing Grid.Column="1"
                                           IsActive="{x:Bind ViewModel.IsDeltaLoading, Mode=OneWay}"
                                           Width="24"
@@ -184,43 +217,45 @@
                                           Visibility="{x:Bind ViewModel.IsDeltaLoading, Mode=OneWay, Converter={StaticResource BoolVis}}" />
                         </Grid>
                         <TextBlock Text="{x:Bind ViewModel.DeltaStatusText, Mode=OneWay}"
-                                   TextWrapping="WrapWholeWords"
-                                   Opacity="0.72" />
-                        <Grid ColumnDefinitions="*,*,*" ColumnSpacing="12">
-                            <StackPanel Grid.Column="0" Spacing="8">
-                                <TextBlock Text="Folders that grew" FontWeight="SemiBold" />
-                                <ListView ItemsSource="{x:Bind ViewModel.GrowingFolders, Mode=OneWay}" MaxHeight="260">
+                                   Style="{StaticResource HelperTextStyle}" />
+                        <Grid ColumnDefinitions="*,*,*" ColumnSpacing="{StaticResource ControlSpacing}">
+                            <StackPanel Grid.Column="0" Spacing="{StaticResource TightSpacing}">
+                                <TextBlock Text="Folders that grew" Style="{StaticResource MetricLabelTextStyle}" />
+                                <ListView ItemsSource="{x:Bind ViewModel.GrowingFolders, Mode=OneWay}" MaxHeight="260" SelectionMode="None">
                                     <ListView.ItemTemplate>
                                         <DataTemplate>
-                                            <Grid ColumnDefinitions="*,Auto" Padding="0,4">
-                                                <TextBlock Grid.Column="0" Text="{Binding FullPath}" TextTrimming="CharacterEllipsis" />
-                                                <TextBlock Grid.Column="1" Text="{Binding DeltaBytes, Converter={StaticResource ByteSize}}" />
+                                            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="{StaticResource TightSpacing}" Padding="0,4">
+                                                <TextBlock Grid.Column="0" Text="{Binding FullPath}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                                                <TextBlock Grid.Column="1" Text="{Binding DeltaBytes, Converter={StaticResource ByteSize}}"
+                                                           Style="{StaticResource MetricColumnTextStyle}" />
                                             </Grid>
                                         </DataTemplate>
                                     </ListView.ItemTemplate>
                                 </ListView>
                             </StackPanel>
-                            <StackPanel Grid.Column="1" Spacing="8">
-                                <TextBlock Text="New large files" FontWeight="SemiBold" />
-                                <ListView ItemsSource="{x:Bind ViewModel.NewLargeFiles, Mode=OneWay}" MaxHeight="260">
+                            <StackPanel Grid.Column="1" Spacing="{StaticResource TightSpacing}">
+                                <TextBlock Text="New large files" Style="{StaticResource MetricLabelTextStyle}" />
+                                <ListView ItemsSource="{x:Bind ViewModel.NewLargeFiles, Mode=OneWay}" MaxHeight="260" SelectionMode="None">
                                     <ListView.ItemTemplate>
                                         <DataTemplate>
-                                            <Grid ColumnDefinitions="*,Auto" Padding="0,4">
-                                                <TextBlock Grid.Column="0" Text="{Binding FullPath}" TextTrimming="CharacterEllipsis" />
-                                                <TextBlock Grid.Column="1" Text="{Binding CurrentBytes, Converter={StaticResource ByteSize}}" />
+                                            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="{StaticResource TightSpacing}" Padding="0,4">
+                                                <TextBlock Grid.Column="0" Text="{Binding FullPath}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                                                <TextBlock Grid.Column="1" Text="{Binding CurrentBytes, Converter={StaticResource ByteSize}}"
+                                                           Style="{StaticResource MetricColumnTextStyle}" />
                                             </Grid>
                                         </DataTemplate>
                                     </ListView.ItemTemplate>
                                 </ListView>
                             </StackPanel>
-                            <StackPanel Grid.Column="2" Spacing="8">
-                                <TextBlock Text="Removed files" FontWeight="SemiBold" />
-                                <ListView ItemsSource="{x:Bind ViewModel.RemovedFiles, Mode=OneWay}" MaxHeight="260">
+                            <StackPanel Grid.Column="2" Spacing="{StaticResource TightSpacing}">
+                                <TextBlock Text="Removed files" Style="{StaticResource MetricLabelTextStyle}" />
+                                <ListView ItemsSource="{x:Bind ViewModel.RemovedFiles, Mode=OneWay}" MaxHeight="260" SelectionMode="None">
                                     <ListView.ItemTemplate>
                                         <DataTemplate>
-                                            <Grid ColumnDefinitions="*,Auto" Padding="0,4">
-                                                <TextBlock Grid.Column="0" Text="{Binding FullPath}" TextTrimming="CharacterEllipsis" />
-                                                <TextBlock Grid.Column="1" Text="{Binding PreviousBytes, Converter={StaticResource ByteSize}}" />
+                                            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="{StaticResource TightSpacing}" Padding="0,4">
+                                                <TextBlock Grid.Column="0" Text="{Binding FullPath}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                                                <TextBlock Grid.Column="1" Text="{Binding PreviousBytes, Converter={StaticResource ByteSize}}"
+                                                           Style="{StaticResource MetricColumnTextStyle}" />
                                             </Grid>
                                         </DataTemplate>
                                     </ListView.ItemTemplate>

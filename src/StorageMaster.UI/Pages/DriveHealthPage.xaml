@@ -21,9 +21,11 @@
             <controls:PageHeader Title="Drive Health"
                                  Subtitle="{x:Bind ViewModel.StatusText, Mode=OneWay}">
                 <controls:PageHeader.ActionContent>
-                    <StackPanel Orientation="Horizontal" Spacing="10">
+                    <StackPanel Orientation="Horizontal" Spacing="{StaticResource ControlSpacing}">
                         <ProgressRing IsActive="{x:Bind ViewModel.IsLoading, Mode=OneWay}" Width="28" Height="28" />
                         <Button Content="Refresh"
+                                Style="{StaticResource AccentButtonStyle}"
+                                MinHeight="36"
                                 Command="{x:Bind ViewModel.RefreshCommand}"
                                 IsEnabled="{x:Bind ViewModel.IsLoading, Mode=OneWay, Converter={StaticResource BoolNot}}"
                                 AutomationProperties.Name="Refresh drive health" />
@@ -34,7 +36,7 @@
             <ItemsControl ItemsSource="{x:Bind ViewModel.Snapshots, Mode=OneWay}">
                 <ItemsControl.ItemTemplate>
                     <DataTemplate>
-                        <Border Style="{StaticResource SectionCardStyle}" Margin="0,0,0,12">
+                        <Border Style="{StaticResource SectionCardStyle}" Margin="0,0,0,16">
                             <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto" ColumnSpacing="20" RowSpacing="16">
                                 <controls:RadialGauge Grid.Column="0"
                                                       Value="{Binding FreePercent}"
@@ -61,38 +63,42 @@
 
                                     <ProgressBar Value="{Binding FreeBytes}" Maximum="{Binding TotalBytes}" Height="8" />
 
-                                    <StackPanel Orientation="Horizontal" Spacing="8">
-                                        <Border Style="{StaticResource StatusChipStyle}" Margin="0,0,8,8">
-                                            <TextBlock Text="{Binding MediaType}" Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}" TextTrimming="CharacterEllipsis" />
+                                    <!--
+                                        Neutral chips: a volume label is a fact, not
+                                        a state, so it no longer borrows the accent.
+                                    -->
+                                    <StackPanel Orientation="Horizontal" Spacing="{StaticResource TightSpacing}">
+                                        <Border Style="{StaticResource StatusChipStyle}" Margin="0,0,0,8">
+                                            <TextBlock Text="{Binding MediaType}" Style="{StaticResource StatusChipTextStyle}" />
                                         </Border>
-                                        <Border Style="{StaticResource StatusChipStyle}" Margin="0,0,8,8">
-                                            <TextBlock Text="{Binding DriveFormat}" Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}" TextTrimming="CharacterEllipsis" />
+                                        <Border Style="{StaticResource StatusChipStyle}" Margin="0,0,0,8">
+                                            <TextBlock Text="{Binding DriveFormat}" Style="{StaticResource StatusChipTextStyle}" />
                                         </Border>
-                                        <Border Style="{StaticResource StatusChipStyle}" Margin="0,0,8,8">
-                                            <TextBlock Text="{Binding VolumeLabel}" Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}" TextTrimming="CharacterEllipsis" MaxWidth="160" />
+                                        <Border Style="{StaticResource StatusChipStyle}" Margin="0,0,0,8">
+                                            <TextBlock Text="{Binding VolumeLabel}" Style="{StaticResource StatusChipTextStyle}" MaxWidth="160" />
                                         </Border>
-                                        <Border Style="{StaticResource StatusChipStyle}" Margin="0,0,8,8">
-                                            <TextBlock Text="{Binding Source}" Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}" TextTrimming="CharacterEllipsis" MaxWidth="160" />
+                                        <Border Style="{StaticResource StatusChipStyle}" Margin="0,0,0,8">
+                                            <TextBlock Text="{Binding Source}" Style="{StaticResource StatusChipTextStyle}" MaxWidth="160" />
                                         </Border>
                                     </StackPanel>
 
-                                    <Grid ColumnDefinitions="*,*,*" ColumnSpacing="12">
-                                        <StackPanel Grid.Column="0">
-                                            <TextBlock Text="Free" Style="{StaticResource MutedTextStyle}" />
-                                            <TextBlock Text="{Binding FreeBytes, Converter={StaticResource ByteSize}}" FontWeight="SemiBold" />
+                                    <Grid ColumnDefinitions="*,*,*" ColumnSpacing="{StaticResource ControlSpacing}">
+                                        <StackPanel Grid.Column="0" Spacing="2">
+                                            <TextBlock Text="Free" Style="{StaticResource MetricLabelTextStyle}" />
+                                            <TextBlock Text="{Binding FreeBytes, Converter={StaticResource ByteSize}}" Style="{StaticResource MetricValueTextStyle}" />
                                         </StackPanel>
-                                        <StackPanel Grid.Column="1">
-                                            <TextBlock Text="Total" Style="{StaticResource MutedTextStyle}" />
-                                            <TextBlock Text="{Binding TotalBytes, Converter={StaticResource ByteSize}}" FontWeight="SemiBold" />
+                                        <StackPanel Grid.Column="1" Spacing="2">
+                                            <TextBlock Text="Total" Style="{StaticResource MetricLabelTextStyle}" />
+                                            <TextBlock Text="{Binding TotalBytes, Converter={StaticResource ByteSize}}" Style="{StaticResource MetricValueTextStyle}" />
                                         </StackPanel>
-                                        <StackPanel Grid.Column="2">
-                                            <TextBlock Text="Captured" Style="{StaticResource MutedTextStyle}" />
-                                            <TextBlock Text="{Binding CapturedUtc}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                        <StackPanel Grid.Column="2" Spacing="2">
+                                            <TextBlock Text="Captured" Style="{StaticResource MetricLabelTextStyle}" />
+                                            <TextBlock Text="{Binding CapturedUtc}" Style="{StaticResource MetricValueTextStyle}" />
                                         </StackPanel>
                                     </Grid>
                                 </StackPanel>
-                                <StackPanel Grid.Row="1" Grid.ColumnSpan="2" Spacing="8">
-                                    <TextBlock Text="Recommendation" Style="{StaticResource SectionHeaderTextStyle}" />
+                                <StackPanel Grid.Row="1" Grid.ColumnSpan="2" Spacing="4">
+                                    <TextBlock Text="Recommendation" Style="{StaticResource MetricLabelTextStyle}" />
                                     <TextBlock Text="Run cleanup, review large folders, or move data if free space is low. Unknown states mean Windows did not expose reliable telemetry." Style="{StaticResource HelperTextStyle}" />
                                 </StackPanel>
                             </Grid>

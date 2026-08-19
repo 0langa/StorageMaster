@@ -158,22 +158,82 @@ public sealed class ThemeService(ISettingsRepository settings)
         Set("AccentOnFill", ramp.OnFill);
         Set("AccentOnSurface", ramp.OnSurface);
 
-        Set("SeverityHealthy", severity.HealthyFill);
-        Set("SeverityHealthyText", severity.HealthyText);
-        Set("SeverityWatch", severity.WatchFill);
-        Set("SeverityWatchText", severity.WatchText);
-        Set("SeverityWarning", severity.WarningFill);
-        Set("SeverityWarningText", severity.WarningText);
-        Set("SeverityCritical", severity.CriticalFill);
-        Set("SeverityCriticalText", severity.CriticalText);
-        Set("SeverityUnknown", severity.UnknownFill);
-        Set("SeverityUnknownText", severity.UnknownText);
+        // Severity is published under BOTH the prefixed runtime keys and the
+        // unprefixed keys declared in Styles/Severity.xaml. The unprefixed brushes
+        // must exist as real objects at parse time — an alias would have to resolve
+        // while App.xaml loads, before this palette exists — so the dictionary
+        // declares them and this drives their colour.
+        SetSeverity("SeverityHealthy", severity.HealthyFill);
+        SetSeverity("SeverityHealthyText", severity.HealthyText);
+        SetSeverity("SeverityWatch", severity.WatchFill);
+        SetSeverity("SeverityWatchText", severity.WatchText);
+        SetSeverity("SeverityWarning", severity.WarningFill);
+        SetSeverity("SeverityWarningText", severity.WarningText);
+        SetSeverity("SeverityCritical", severity.CriticalFill);
+        SetSeverity("SeverityCriticalText", severity.CriticalText);
+        SetSeverity("SeverityUnknown", severity.UnknownFill);
+        SetSeverity("SeverityUnknownText", severity.UnknownText);
 
         for (var i = 0; i < CategoricalSlots; i++)
             SetKey($"{Prefix}Categorical{i}Brush", categorical[i % categorical.Count]);
+
+        ApplyBridgedSystemKeys();
+    }
+
+    /// <summary>
+    /// WinUI control templates read their own brush keys, not ours. Rather than
+    /// re-template every control, Styles/Palette.xaml declares brushes under those
+    /// documented lightweight-styling keys and this table drives them from the
+    /// corresponding palette entry, so the whole control set follows the selected
+    /// theme and accent.
+    /// </summary>
+    private static readonly Dictionary<string, string> BridgedSystemKeys = new()
+    {
+        ["CardBackgroundFillColorDefaultBrush"] = "SmSurfaceRaisedBrush",
+        ["CardBackgroundFillColorSecondaryBrush"] = "SmSurfaceSunkenBrush",
+        ["CardStrokeColorDefaultBrush"] = "SmStrokeSubtleBrush",
+        ["CardStrokeColorDefaultSolidBrush"] = "SmStrokeSubtleBrush",
+        ["AccentFillColorDefaultBrush"] = "SmAccentFillBrush",
+        ["AccentFillColorSecondaryBrush"] = "SmAccentFillHoverBrush",
+        ["AccentFillColorTertiaryBrush"] = "SmAccentFillPressedBrush",
+        ["TextOnAccentFillColorPrimaryBrush"] = "SmAccentOnFillBrush",
+        ["TextOnAccentFillColorSecondaryBrush"] = "SmAccentOnFillBrush",
+        ["AccentTextFillColorPrimaryBrush"] = "SmAccentOnSurfaceBrush",
+        ["AccentTextFillColorSecondaryBrush"] = "SmAccentOnSurfaceBrush",
+        ["AccentTextFillColorTertiaryBrush"] = "SmAccentOnSurfaceBrush",
+        ["AccentButtonBackground"] = "SmAccentFillBrush",
+        ["AccentButtonBackgroundPointerOver"] = "SmAccentFillHoverBrush",
+        ["AccentButtonBackgroundPressed"] = "SmAccentFillPressedBrush",
+        ["AccentButtonForeground"] = "SmAccentOnFillBrush",
+        ["AccentButtonForegroundPointerOver"] = "SmAccentOnFillBrush",
+        ["AccentButtonForegroundPressed"] = "SmAccentOnFillBrush",
+        ["SystemFillColorSuccessBrush"] = "SmSeverityHealthyTextBrush",
+        ["SystemFillColorCautionBrush"] = "SmSeverityWarningTextBrush",
+        ["SystemFillColorCriticalBrush"] = "SmSeverityCriticalTextBrush",
+        ["SystemFillColorAttentionBrush"] = "SmSeverityWatchTextBrush",
+    };
+
+    private static void ApplyBridgedSystemKeys()
+    {
+        foreach (var (systemKey, paletteKey) in BridgedSystemKeys)
+        {
+            if (Application.Current.Resources.TryGetValue(paletteKey, out var source)
+                && source is SolidColorBrush from
+                && Application.Current.Resources.TryGetValue(systemKey, out var target)
+                && target is SolidColorBrush to)
+            {
+                to.Color = from.Color;
+            }
+        }
     }
 
     private static void Set(string name, Rgb color) => SetKey(Prefix + name + "Brush", color);
+
+    private static void SetSeverity(string name, Rgb color)
+    {
+        SetKey(Prefix + name + "Brush", color);
+        SetKey(name + "Brush", color);
+    }
 
     private static void SetKey(string resourceKey, Rgb color)
     {

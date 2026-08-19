@@ -2,6 +2,11 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
 
+    <!--
+        Segoe MDL2 glyphs, named once. Pages and MainWindow used to inline the
+        same literals next to these keys, so a nav item and the page it opens
+        could drift to different icons with nothing to catch it.
+    -->
     <x:String x:Key="IconScan">&#xE721;</x:String>
     <x:String x:Key="IconResults">&#xE8A5;</x:String>
     <x:String x:Key="IconCleanup">&#xE74D;</x:String>
@@ -9,4 +14,10 @@
     <x:String x:Key="IconSpaceMap">&#xE9D2;</x:String>
     <x:String x:Key="IconHealth">&#xE95E;</x:String>
     <x:String x:Key="IconSettings">&#xE713;</x:String>
+    <x:String x:Key="IconSmartCleaner">&#xE9E9;</x:String>
+    <x:String x:Key="IconDelta">&#xE9D5;</x:String>
+    <x:String x:Key="IconOpenInExplorer">&#xE8DA;</x:String>
+    <x:String x:Key="IconDelete">&#xE74D;</x:String>
+    <x:String x:Key="IconCopy">&#xE8C8;</x:String>
+    <x:String x:Key="IconClear">&#xE711;</x:String>
 </ResourceDictionary>

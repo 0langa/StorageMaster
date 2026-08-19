@@ -2,23 +2,66 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
 
+    <!--
+        Three depths, and only three: the page is the base, a card is raised off
+        it, and a well is cut into a card. Depth is carried by luminance first
+        and by the stroke second, which is why the palette steps its surfaces
+        rather than relying on borders alone.
+    -->
+
+    <!-- A card: the default container for a section of a page. -->
     <Style x:Key="SectionCardStyle" TargetType="Border">
-        <Setter Property="Background" Value="{ThemeResource CardBackgroundFillColorDefaultBrush}" />
-        <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}" />
+        <Setter Property="Background" Value="{ThemeResource SmSurfaceRaisedBrush}" />
+        <Setter Property="BorderBrush" Value="{ThemeResource SmStrokeSubtleBrush}" />
         <Setter Property="BorderThickness" Value="1" />
         <Setter Property="CornerRadius" Value="{StaticResource CardCornerRadius}" />
         <Setter Property="Padding" Value="{StaticResource CardPadding}" />
     </Style>
 
+    <!-- A well inside a card: list rows, nested items, grouped controls. -->
     <Style x:Key="SubtleCardStyle" TargetType="Border">
-        <Setter Property="Background" Value="{ThemeResource CardBackgroundFillColorSecondaryBrush}" />
+        <Setter Property="Background" Value="{ThemeResource SmSurfaceSunkenBrush}" />
+        <Setter Property="BorderBrush" Value="{ThemeResource SmStrokeSubtleBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
         <Setter Property="CornerRadius" Value="{StaticResource TileCornerRadius}" />
         <Setter Property="Padding" Value="{StaticResource CardPaddingCompact}" />
     </Style>
 
+    <!--
+        The one card per page that carries the page's headline state. It steps
+        one level further forward instead of tinting itself with the accent:
+        accent is reserved for state, selection and the primary action, so
+        spending it on a decorative panel would blunt it everywhere else.
+    -->
     <Style x:Key="HeroCardStyle" TargetType="Border" BasedOn="{StaticResource SectionCardStyle}">
-        <Setter Property="Background" Value="{ThemeResource AccentAcrylicBackgroundFillColorDefaultBrush}" />
+        <Setter Property="Background" Value="{ThemeResource SmSurfaceOverlayBrush}" />
+        <Setter Property="BorderBrush" Value="{ThemeResource SmStrokeStrongBrush}" />
         <Setter Property="Padding" Value="24" />
+    </Style>
+
+    <!-- A single readout: caption over one number, aligned with its neighbours. -->
+    <Style x:Key="MetricCardStyle" TargetType="Border" BasedOn="{StaticResource SectionCardStyle}">
+        <Setter Property="Padding" Value="{StaticResource CardPaddingCompact}" />
+        <Setter Property="MinHeight" Value="76" />
+    </Style>
+
+    <!--
+        The ground a chart, gauge or treemap is drawn on. ThemeContrastTests
+        checks the categorical ramp against the sunken surface specifically, so
+        series colours are only guaranteed discernible when the well uses it.
+    -->
+    <Style x:Key="ChartWellStyle" TargetType="Border">
+        <Setter Property="Background" Value="{ThemeResource SmSurfaceSunkenBrush}" />
+        <Setter Property="BorderBrush" Value="{ThemeResource SmStrokeSubtleBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="{StaticResource TileCornerRadius}" />
+        <Setter Property="Padding" Value="{StaticResource WellPadding}" />
+    </Style>
+
+    <!-- A row inside a list that should read as its own object. -->
+    <Style x:Key="ListRowCardStyle" TargetType="Border" BasedOn="{StaticResource SectionCardStyle}">
+        <Setter Property="CornerRadius" Value="{StaticResource TileCornerRadius}" />
+        <Setter Property="Padding" Value="{StaticResource CardPaddingCompact}" />
     </Style>
 
     <Style x:Key="SettingsTileCardStyle" TargetType="Border" BasedOn="{StaticResource SectionCardStyle}" />

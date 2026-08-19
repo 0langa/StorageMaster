@@ -20,32 +20,33 @@
             BackRequested="NavView_BackRequested"
             SelectionChanged="NavView_SelectionChanged">
 
+            <!--
+                The header is the app's status strip: identity on the left, live
+                scan and monitoring state on the right, separated from the page by
+                a single rule. Everything below it belongs to the page.
+            -->
             <NavigationView.Header>
-                <Grid Padding="24,14,24,10" ColumnDefinitions="Auto,*" ColumnSpacing="20">
+                <Grid Padding="24,14,24,10" ColumnDefinitions="Auto,*" ColumnSpacing="20"
+                      BorderBrush="{ThemeResource SmStrokeSubtleBrush}"
+                      BorderThickness="0,0,0,1">
                     <StackPanel Grid.Column="0" Spacing="2" MinWidth="170">
                         <TextBlock Text="StorageMaster"
                                    Style="{StaticResource BodyStrongTextBlockStyle}"
                                    TextWrapping="NoWrap"
                                    TextTrimming="CharacterEllipsis" />
                         <TextBlock Text="v2 storage command center"
-                                   Style="{StaticResource GlobalStatusTextStyle}"
-                                   TextWrapping="NoWrap"
-                                   TextTrimming="CharacterEllipsis" />
+                                   Style="{StaticResource GlobalStatusTextStyle}" />
                     </StackPanel>
                     <Grid Grid.Column="1" ColumnDefinitions="*,Auto" ColumnSpacing="14" VerticalAlignment="Center">
                         <TextBlock x:Name="LatestScanStatusText"
                                    Grid.Column="0"
                                    Text="No scan loaded"
                                    Style="{StaticResource GlobalStatusTextStyle}"
-                                   TextWrapping="NoWrap"
-                                   TextTrimming="CharacterEllipsis"
                                    HorizontalAlignment="Right" />
                         <TextBlock x:Name="WarningStatusText"
                                    Grid.Column="1"
                                    Text="Monitoring active"
-                                   Style="{StaticResource GlobalStatusTextStyle}"
-                                   TextWrapping="NoWrap"
-                                   TextTrimming="CharacterEllipsis" />
+                                   Style="{StaticResource GlobalStatusTextStyle}" />
                     </Grid>
                 </Grid>
             </NavigationView.Header>
@@ -58,13 +59,13 @@
                 <NavigationViewItem Tag="Scan" Icon="Find" Content="Scan" AutomationProperties.Name="Scan" />
                 <NavigationViewItem Tag="ScanWorkspace" Content="Scan Workspace" AutomationProperties.Name="Scan Workspace">
                     <NavigationViewItem.Icon>
-                        <FontIcon Glyph="&#xE8A5;" />
+                        <FontIcon Glyph="{StaticResource IconResults}" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
                 <NavigationViewItem Tag="Results" Icon="List" Content="Results" AutomationProperties.Name="Results" />
                 <NavigationViewItem Tag="SpaceMap" Content="Space Map" AutomationProperties.Name="Space Map">
                     <NavigationViewItem.Icon>
-                        <FontIcon Glyph="&#xE9D2;" />
+                        <FontIcon Glyph="{StaticResource IconSpaceMap}" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
                 <NavigationViewItem Tag="Duplicates" Icon="Copy" Content="Duplicates" AutomationProperties.Name="Duplicates" />
@@ -73,30 +74,41 @@
                 <NavigationViewItem Tag="Cleanup" Icon="Delete" Content="Cleanup" AutomationProperties.Name="Cleanup" />
                 <NavigationViewItem Tag="SmartCleaner" Content="Smart Cleaner" AutomationProperties.Name="Smart Cleaner">
                     <NavigationViewItem.Icon>
-                        <FontIcon Glyph="&#xE9E9;" />
+                        <FontIcon Glyph="{StaticResource IconSmartCleaner}" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
 
                 <NavigationViewItemHeader Content="Monitor" />
                 <NavigationViewItem Tag="DriveHealth" Content="Drive Health" AutomationProperties.Name="Drive Health">
                     <NavigationViewItem.Icon>
-                        <FontIcon Glyph="&#xE95E;" />
+                        <FontIcon Glyph="{StaticResource IconHealth}" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
             </NavigationView.MenuItems>
 
             <NavigationView.PaneFooter>
                 <Border x:Name="PaneFooterBorder"
-                        Margin="12" Padding="12" CornerRadius="{StaticResource TileCornerRadius}" Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}">
+                        Margin="12" Padding="12"
+                        CornerRadius="{StaticResource TileCornerRadius}"
+                        Background="{ThemeResource SmSurfaceSunkenBrush}"
+                        BorderBrush="{ThemeResource SmStrokeSubtleBrush}"
+                        BorderThickness="1">
                     <StackPanel Spacing="4">
-                        <TextBlock Text="Global status" Style="{StaticResource CaptionTextBlockStyle}" FontWeight="SemiBold" />
+                        <TextBlock Text="Global status"
+                                   Style="{StaticResource CaptionTextBlockStyle}"
+                                   FontWeight="SemiBold" />
                         <TextBlock x:Name="PaneLatestScanText" Text="Latest scan unavailable" Style="{StaticResource GlobalStatusTextStyle}" />
                         <TextBlock x:Name="PaneDiskStatusText" Text="Disk monitor starting" Style="{StaticResource GlobalStatusTextStyle}" />
                     </StackPanel>
                 </Border>
             </NavigationView.PaneFooter>
 
-            <Frame x:Name="ContentFrame" />
+            <!--
+                The page surface. Painting the base here rather than on each page
+                means every page — including ones this pass did not touch — sits on
+                the same ground, and the Mica chrome stays visible around it.
+            -->
+            <Frame x:Name="ContentFrame" Background="{ThemeResource SmSurfaceBaseBrush}" />
         </NavigationView>
     </Grid>
 </Window>

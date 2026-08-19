@@ -22,7 +22,7 @@ public sealed class ScanRepository : IScanRepository
 
     public async Task<ScanSession> CreateSessionAsync(string rootPath, CancellationToken ct = default)
     {
-        await _db.WriteLock.WaitAsync(ct);
+        await _db.WriteLock.WaitAsync(ct).ConfigureAwait(false);
         try
         {
             var startedUtc = DateTime.UtcNow;
@@ -44,7 +44,7 @@ public sealed class ScanRepository : IScanRepository
             cmd.Parameters.AddWithValue("$started", startedUtc.ToString("O"));
             cmd.Parameters.AddWithValue("$ownerId", ownerId);
             cmd.Parameters.AddWithValue("$ownerStarted", ownerStartedUtc.ToString("O"));
-            var id = Convert.ToInt64(await cmd.ExecuteScalarAsync(ct));
+            var id = Convert.ToInt64(await cmd.ExecuteScalarAsync(ct).ConfigureAwait(false));
 
             return new ScanSession
             {
@@ -68,8 +68,8 @@ public sealed class ScanRepository : IScanRepository
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "SELECT * FROM ScanSessions WHERE Id = $id;";
         cmd.Parameters.AddWithValue("$id", sessionId);
-        using var reader = await cmd.ExecuteReaderAsync(ct);
-        return await reader.ReadAsync(ct) ? ReadSession(reader) : null;
+        using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
+        return await reader.ReadAsync(ct).ConfigureAwait(false) ? ReadSession(reader) : null;
     }
 
     public async Task<IReadOnlyList<ScanSession>> GetRecentSessionsAsync(int count = 10, CancellationToken ct = default)
@@ -78,16 +78,16 @@ public sealed class ScanRepository : IScanRepository
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "SELECT * FROM ScanSessions ORDER BY StartedUtc DESC LIMIT $n;";
         cmd.Parameters.AddWithValue("$n", count);
-        using var reader = await cmd.ExecuteReaderAsync(ct);
+        using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
         var sessions = new List<ScanSession>();
-        while (await reader.ReadAsync(ct))
+        while (await reader.ReadAsync(ct).ConfigureAwait(false))
             sessions.Add(ReadSession(reader));
         return sessions;
     }
 
     public async Task UpdateSessionAsync(ScanSession session, CancellationToken ct = default)
     {
-        await _db.WriteLock.WaitAsync(ct);
+        await _db.WriteLock.WaitAsync(ct).ConfigureAwait(false);
         try
         {
             await using var conn = await _db.GetConnectionAsync(ct);
@@ -111,7 +111,7 @@ public sealed class ScanRepository : IScanRepository
             cmd.Parameters.AddWithValue("$denied", session.AccessDeniedCount);
             cmd.Parameters.AddWithValue("$error", (object?)session.ErrorMessage ?? DBNull.Value);
             cmd.Parameters.AddWithValue("$id", session.Id);
-            await cmd.ExecuteNonQueryAsync(ct);
+            await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
         }
         finally
         {
@@ -125,11 +125,11 @@ public sealed class ScanRepository : IScanRepository
     {
         if (entries.Count == 0) return;
 
-        await _db.WriteLock.WaitAsync(ct);
+        await _db.WriteLock.WaitAsync(ct).ConfigureAwait(false);
         try
         {
             await using var conn = await _db.GetConnectionAsync(ct);
-            using var tx = await conn.BeginTransactionAsync(ct);
+            using var tx = await conn.BeginTransactionAsync(ct).ConfigureAwait(false);
             using var cmd = conn.CreateCommand();
             cmd.Transaction = (SqliteTransaction)tx;
             cmd.CommandText = """
@@ -188,10 +188,10 @@ public sealed class ScanRepository : IScanRepository
                 pIdentityIndex.Value = e.Identity is null
                     ? DBNull.Value
                     : e.Identity.FileIndex.ToString(CultureInfo.InvariantCulture);
-                await cmd.ExecuteNonQueryAsync(ct);
+                await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
             }
 
-            await tx.CommitAsync(ct);
+            await tx.CommitAsync(ct).ConfigureAwait(false);
         }
         finally
         {
@@ -205,11 +205,11 @@ public sealed class ScanRepository : IScanRepository
     {
         if (entries.Count == 0) return;
 
-        await _db.WriteLock.WaitAsync(ct);
+        await _db.WriteLock.WaitAsync(ct).ConfigureAwait(false);
         try
         {
             await using var conn = await _db.GetConnectionAsync(ct);
-            using var tx = await conn.BeginTransactionAsync(ct);
+            using var tx = await conn.BeginTransactionAsync(ct).ConfigureAwait(false);
             using var cmd = conn.CreateCommand();
             cmd.Transaction = (SqliteTransaction)tx;
 
@@ -283,10 +283,10 @@ public sealed class ScanRepository : IScanRepository
                 pNormalized.Value = normalized;
                 pParent.Value = (object?)ScanOptionValidator.GetParentOfNormalizedPath(normalized)
                     ?? DBNull.Value;
-                await cmd.ExecuteNonQueryAsync(ct);
+                await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
             }
 
-            await tx.CommitAsync(ct);
+            await tx.CommitAsync(ct).ConfigureAwait(false);
         }
         finally
         {
@@ -309,9 +309,9 @@ public sealed class ScanRepository : IScanRepository
             """;
         cmd.Parameters.AddWithValue("$sid", sessionId);
         cmd.Parameters.AddWithValue("$n", topN);
-        using var reader = await cmd.ExecuteReaderAsync(ct);
+        using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
         var list = new List<FileEntry>();
-        while (await reader.ReadAsync(ct))
+        while (await reader.ReadAsync(ct).ConfigureAwait(false))
             list.Add(ReadFileEntry(reader));
         return list;
     }
@@ -329,9 +329,9 @@ public sealed class ScanRepository : IScanRepository
             """;
         cmd.Parameters.AddWithValue("$sid", sessionId);
         cmd.Parameters.AddWithValue("$n", topN);
-        using var reader = await cmd.ExecuteReaderAsync(ct);
+        using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
         var list = new List<FolderEntry>();
-        while (await reader.ReadAsync(ct))
+        while (await reader.ReadAsync(ct).ConfigureAwait(false))
             list.Add(ReadFolderEntry(reader));
         return list;
     }
@@ -368,9 +368,9 @@ public sealed class ScanRepository : IScanRepository
         cmd.Parameters.AddWithValue("$category", categoryFilter?.Trim() ?? string.Empty);
         cmd.Parameters.AddWithValue("$offset", offset);
         cmd.Parameters.AddWithValue("$limit", limit);
-        using var reader = await cmd.ExecuteReaderAsync(ct);
+        using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
         var list = new List<FileEntry>();
-        while (await reader.ReadAsync(ct))
+        while (await reader.ReadAsync(ct).ConfigureAwait(false))
             list.Add(ReadFileEntry(reader));
         return list;
     }
@@ -389,7 +389,7 @@ public sealed class ScanRepository : IScanRepository
         cmd.Parameters.AddWithValue("$sid", sessionId);
         cmd.Parameters.AddWithValue("$filter", filter?.Trim() ?? string.Empty);
         cmd.Parameters.AddWithValue("$category", categoryFilter?.Trim() ?? string.Empty);
-        return Convert.ToInt64(await cmd.ExecuteScalarAsync(ct));
+        return Convert.ToInt64(await cmd.ExecuteScalarAsync(ct).ConfigureAwait(false));
     }
 
     public async Task<IReadOnlyList<FolderEntry>> SearchFoldersAsync(
@@ -420,9 +420,9 @@ public sealed class ScanRepository : IScanRepository
         cmd.Parameters.AddWithValue("$filter", filter?.Trim() ?? string.Empty);
         cmd.Parameters.AddWithValue("$offset", offset);
         cmd.Parameters.AddWithValue("$limit", limit);
-        using var reader = await cmd.ExecuteReaderAsync(ct);
+        using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
         var list = new List<FolderEntry>();
-        while (await reader.ReadAsync(ct))
+        while (await reader.ReadAsync(ct).ConfigureAwait(false))
             list.Add(ReadFolderEntry(reader));
         return list;
     }
@@ -439,7 +439,7 @@ public sealed class ScanRepository : IScanRepository
             """;
         cmd.Parameters.AddWithValue("$sid", sessionId);
         cmd.Parameters.AddWithValue("$filter", filter?.Trim() ?? string.Empty);
-        return Convert.ToInt64(await cmd.ExecuteScalarAsync(ct));
+        return Convert.ToInt64(await cmd.ExecuteScalarAsync(ct).ConfigureAwait(false));
     }
 
     public async Task<IReadOnlyDictionary<FileTypeCategory, (long Count, long Bytes)>> GetCategoryBreakdownAsync(
@@ -454,9 +454,9 @@ public sealed class ScanRepository : IScanRepository
             GROUP BY Category;
             """;
         cmd.Parameters.AddWithValue("$sid", sessionId);
-        using var reader = await cmd.ExecuteReaderAsync(ct);
+        using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
         var dict = new Dictionary<FileTypeCategory, (long, long)>();
-        while (await reader.ReadAsync(ct))
+        while (await reader.ReadAsync(ct).ConfigureAwait(false))
         {
             var cat = Enum.TryParse<FileTypeCategory>(reader.GetString(0), out var c)
                 ? c : FileTypeCategory.Unknown;
@@ -467,18 +467,18 @@ public sealed class ScanRepository : IScanRepository
 
     public async Task DeleteSessionAsync(long sessionId, CancellationToken ct = default)
     {
-        await _db.WriteLock.WaitAsync(ct);
+        await _db.WriteLock.WaitAsync(ct).ConfigureAwait(false);
         try
         {
             await using var conn = await _db.GetConnectionAsync(ct);
             using var cmd = conn.CreateCommand();
             cmd.CommandText = "DELETE FROM ScanSessions WHERE Id = $id;";
             cmd.Parameters.AddWithValue("$id", sessionId);
-            await cmd.ExecuteNonQueryAsync(ct);
+            await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
 
             using var optimize = conn.CreateCommand();
             optimize.CommandText = "PRAGMA optimize;";
-            await optimize.ExecuteNonQueryAsync(ct);
+            await optimize.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
         }
         finally
         {
@@ -488,14 +488,14 @@ public sealed class ScanRepository : IScanRepository
 
     public async Task DeleteFileEntryAsync(long fileId, CancellationToken ct = default)
     {
-        await _db.WriteLock.WaitAsync(ct);
+        await _db.WriteLock.WaitAsync(ct).ConfigureAwait(false);
         try
         {
             await using var conn = await _db.GetConnectionAsync(ct);
             using var cmd = conn.CreateCommand();
             cmd.CommandText = "DELETE FROM FileEntries WHERE Id = $id;";
             cmd.Parameters.AddWithValue("$id", fileId);
-            await cmd.ExecuteNonQueryAsync(ct);
+            await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
         }
         finally
         {
@@ -505,7 +505,7 @@ public sealed class ScanRepository : IScanRepository
 
     public async Task MarkSessionStaleAsync(long sessionId, string reason, CancellationToken ct = default)
     {
-        await _db.WriteLock.WaitAsync(ct);
+        await _db.WriteLock.WaitAsync(ct).ConfigureAwait(false);
         try
         {
             await using var conn = await _db.GetConnectionAsync(ct);
@@ -520,7 +520,7 @@ public sealed class ScanRepository : IScanRepository
                 """;
             cmd.Parameters.AddWithValue("$id", sessionId);
             cmd.Parameters.AddWithValue("$reason", reason);
-            await cmd.ExecuteNonQueryAsync(ct);
+            await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
         }
         finally
         {
@@ -540,9 +540,9 @@ public sealed class ScanRepository : IScanRepository
             WHERE SessionId = $sid;
             """;
         cmd.Parameters.AddWithValue("$sid", sessionId);
-        using var reader = await cmd.ExecuteReaderAsync(ct);
+        using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
         var list = new List<FolderEntry>();
-        while (await reader.ReadAsync(ct))
+        while (await reader.ReadAsync(ct).ConfigureAwait(false))
             list.Add(ReadFolderEntry(reader));
         return list;
     }
@@ -576,10 +576,11 @@ public sealed class ScanRepository : IScanRepository
             ORDER BY f.TotalSizeBytes DESC, f.FullPath ASC;
             """;
         cmd.Parameters.AddWithValue("$sid", sessionId);
-        cmd.Parameters.AddWithValue("$rootNorm", NormalizeForStorage(await GetSessionRootPathAsync(conn, sessionId, ct)));
-        using var reader = await cmd.ExecuteReaderAsync(ct);
+        var rootPath = await GetSessionRootPathAsync(conn, sessionId, ct).ConfigureAwait(false);
+        cmd.Parameters.AddWithValue("$rootNorm", NormalizeForStorage(rootPath));
+        using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
         var list = new List<FolderEntry>();
-        while (await reader.ReadAsync(ct))
+        while (await reader.ReadAsync(ct).ConfigureAwait(false))
             list.Add(ReadFolderEntry(reader));
         return list;
     }
@@ -604,9 +605,9 @@ public sealed class ScanRepository : IScanRepository
             """;
         cmd.Parameters.AddWithValue("$sid", sessionId);
         cmd.Parameters.AddWithValue("$parentNorm", NormalizeForStorage(parentPath));
-        using var reader = await cmd.ExecuteReaderAsync(ct);
+        using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
         var list = new List<FolderEntry>();
-        while (await reader.ReadAsync(ct))
+        while (await reader.ReadAsync(ct).ConfigureAwait(false))
             list.Add(ReadFolderEntry(reader));
         return list;
     }
@@ -626,7 +627,7 @@ public sealed class ScanRepository : IScanRepository
             """;
         cmd.Parameters.AddWithValue("$sid", sessionId);
         cmd.Parameters.AddWithValue("$parentNorm", NormalizeForStorage(parentPath));
-        return Convert.ToInt32(await cmd.ExecuteScalarAsync(ct));
+        return Convert.ToInt32(await cmd.ExecuteScalarAsync(ct).ConfigureAwait(false));
     }
 
     private static async Task<string> GetSessionRootPathAsync(
@@ -637,7 +638,7 @@ public sealed class ScanRepository : IScanRepository
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "SELECT RootPath FROM ScanSessions WHERE Id = $sid;";
         cmd.Parameters.AddWithValue("$sid", sessionId);
-        return await cmd.ExecuteScalarAsync(ct) as string ?? string.Empty;
+        return await cmd.ExecuteScalarAsync(ct).ConfigureAwait(false) as string ?? string.Empty;
     }
 
     private static string NormalizeDirectoryPath(string path)
@@ -669,11 +670,11 @@ public sealed class ScanRepository : IScanRepository
         // Now the totals land in a temporary table and one UPDATE ... FROM joins
         // on NormalizedFullPath, which is covered by a unique BINARY index. The
         // whole finalisation is a single transaction holding the write lock once.
-        await _db.WriteLock.WaitAsync(ct);
+        await _db.WriteLock.WaitAsync(ct).ConfigureAwait(false);
         try
         {
             await using var conn = await _db.GetConnectionAsync(ct);
-            using var tx = await conn.BeginTransactionAsync(ct);
+            using var tx = await conn.BeginTransactionAsync(ct).ConfigureAwait(false);
 
             using (var create = conn.CreateCommand())
             {
@@ -685,7 +686,7 @@ public sealed class ScanRepository : IScanRepository
                     );
                     DELETE FROM FolderTotalStaging;
                     """;
-                await create.ExecuteNonQueryAsync(ct);
+                await create.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
             }
 
             using (var insert = conn.CreateCommand())
@@ -705,7 +706,7 @@ public sealed class ScanRepository : IScanRepository
                     ct.ThrowIfCancellationRequested();
                     pPath.Value = NormalizeForStorage(path);
                     pTotal.Value = total;
-                    await insert.ExecuteNonQueryAsync(ct);
+                    await insert.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
                 }
             }
 
@@ -720,17 +721,17 @@ public sealed class ScanRepository : IScanRepository
                       AND FolderEntries.NormalizedFullPath = staging.NormalizedFullPath;
                     """;
                 apply.Parameters.AddWithValue("$sid", sessionId);
-                await apply.ExecuteNonQueryAsync(ct);
+                await apply.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
             }
 
             using (var drop = conn.CreateCommand())
             {
                 drop.Transaction = (SqliteTransaction)tx;
                 drop.CommandText = "DROP TABLE IF EXISTS FolderTotalStaging;";
-                await drop.ExecuteNonQueryAsync(ct);
+                await drop.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
             }
 
-            await tx.CommitAsync(ct);
+            await tx.CommitAsync(ct).ConfigureAwait(false);
         }
         finally
         {

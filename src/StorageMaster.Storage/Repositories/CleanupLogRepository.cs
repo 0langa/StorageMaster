@@ -1,4 +1,4 @@
-using Microsoft.Data.Sqlite;
+﻿using Microsoft.Data.Sqlite;
 using StorageMaster.Core.Interfaces;
 using StorageMaster.Core.Models;
 
@@ -12,7 +12,7 @@ public sealed class CleanupLogRepository : ICleanupLogRepository
 
     public async Task LogResultAsync(CleanupResult result, CleanupSuggestion suggestion, CancellationToken ct = default)
     {
-        await _db.WriteLock.WaitAsync(ct);
+        await _db.WriteLock.WaitAsync(ct).ConfigureAwait(false);
         try
         {
             await using var conn = await _db.GetConnectionAsync(ct);
@@ -32,7 +32,7 @@ public sealed class CleanupLogRepository : ICleanupLogRepository
             cmd.Parameters.AddWithValue("$executed", result.ExecutedUtc.ToString("O"));
             cmd.Parameters.AddWithValue("$error", (object?)result.ErrorMessage ?? DBNull.Value);
             cmd.Parameters.AddWithValue("$audit", (object?)BuildAuditJson(result, suggestion) ?? DBNull.Value);
-            await cmd.ExecuteNonQueryAsync(ct);
+            await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
         }
         finally
         {
@@ -70,9 +70,9 @@ public sealed class CleanupLogRepository : ICleanupLogRepository
             SELECT * FROM CleanupLog ORDER BY ExecutedUtc DESC LIMIT $n;
             """;
         cmd.Parameters.AddWithValue("$n", count);
-        using var reader = await cmd.ExecuteReaderAsync(ct);
+        using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
         var list = new List<CleanupLogEntry>();
-        while (await reader.ReadAsync(ct))
+        while (await reader.ReadAsync(ct).ConfigureAwait(false))
         {
             list.Add(new CleanupLogEntry
             {

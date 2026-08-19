@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using StorageMaster.Core.Interfaces;
 using StorageMaster.Core.Models;
@@ -24,7 +24,7 @@ public sealed class SettingsRepository : ISettingsRepository, ISettingsSnapshotP
     public async Task<AppSettings> LoadAsync(CancellationToken ct = default)
     {
         await using var conn = await _db.GetConnectionAsync(ct);
-        var settings = await LoadCoreAsync(conn, transaction: null, ct);
+        var settings = await LoadCoreAsync(conn, transaction: null, ct).ConfigureAwait(false);
         _current = Clone(settings);
         return settings;
     }
@@ -38,7 +38,7 @@ public sealed class SettingsRepository : ISettingsRepository, ISettingsSnapshotP
         cmd.Transaction = transaction;
         cmd.CommandText = "SELECT Value FROM Settings WHERE Key = $key;";
         cmd.Parameters.AddWithValue("$key", Key);
-        var result = await cmd.ExecuteScalarAsync(ct);
+        var result = await cmd.ExecuteScalarAsync(ct).ConfigureAwait(false);
 
         if (result is string json)
         {
@@ -52,10 +52,10 @@ public sealed class SettingsRepository : ISettingsRepository, ISettingsSnapshotP
 
     public async Task SaveAsync(AppSettings settings, CancellationToken ct = default)
     {
-        await _mutationLock.WaitAsync(ct);
+        await _mutationLock.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            await SaveCoreAsync(settings, ct);
+            await SaveCoreAsync(settings, ct).ConfigureAwait(false);
         }
         finally
         {
@@ -65,23 +65,23 @@ public sealed class SettingsRepository : ISettingsRepository, ISettingsSnapshotP
 
     public async Task<AppSettings> UpdateAsync(Action<AppSettings> mutate, CancellationToken ct = default)
     {
-        await _mutationLock.WaitAsync(ct);
+        await _mutationLock.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            await _db.WriteLock.WaitAsync(ct);
+            await _db.WriteLock.WaitAsync(ct).ConfigureAwait(false);
             try
             {
                 await using var conn = await _db.GetConnectionAsync(ct);
                 await using var transaction =
-                    (SqliteTransaction)await conn.BeginTransactionAsync(ct);
-                var settings = await LoadCoreAsync(conn, transaction, ct);
+                    (SqliteTransaction)await conn.BeginTransactionAsync(ct).ConfigureAwait(false);
+                var settings = await LoadCoreAsync(conn, transaction, ct).ConfigureAwait(false);
 
                 ct.ThrowIfCancellationRequested();
                 mutate(settings);
                 ct.ThrowIfCancellationRequested();
 
-                await PersistAsync(conn, transaction, settings, ct);
-                await transaction.CommitAsync(ct);
+                await PersistAsync(conn, transaction, settings, ct).ConfigureAwait(false);
+                await transaction.CommitAsync(ct).ConfigureAwait(false);
                 _current = Clone(settings);
                 return settings;
             }
@@ -98,11 +98,11 @@ public sealed class SettingsRepository : ISettingsRepository, ISettingsSnapshotP
 
     private async Task SaveCoreAsync(AppSettings settings, CancellationToken ct)
     {
-        await _db.WriteLock.WaitAsync(ct);
+        await _db.WriteLock.WaitAsync(ct).ConfigureAwait(false);
         try
         {
             await using var conn = await _db.GetConnectionAsync(ct);
-            await PersistAsync(conn, transaction: null, settings, ct);
+            await PersistAsync(conn, transaction: null, settings, ct).ConfigureAwait(false);
             _current = Clone(settings);
         }
         finally
@@ -127,7 +127,7 @@ public sealed class SettingsRepository : ISettingsRepository, ISettingsSnapshotP
             """;
         cmd.Parameters.AddWithValue("$key", Key);
         cmd.Parameters.AddWithValue("$val", json);
-        await cmd.ExecuteNonQueryAsync(ct);
+        await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
     }
 
     private static AppSettings Clone(AppSettings settings) =>

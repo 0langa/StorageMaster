@@ -1,4 +1,4 @@
-using Microsoft.Data.Sqlite;
+﻿using Microsoft.Data.Sqlite;
 using StorageMaster.Core.Interfaces;
 using StorageMaster.Core.Models;
 using StorageMaster.Core.Scanner;
@@ -23,9 +23,9 @@ public sealed class SpaceMapRepository : ISpaceMapRepository
             ORDER BY StartedUtc DESC
             LIMIT 100;
             """;
-        using var reader = await cmd.ExecuteReaderAsync(ct);
+        using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
         var sessions = new List<ScanSession>();
-        while (await reader.ReadAsync(ct))
+        while (await reader.ReadAsync(ct).ConfigureAwait(false))
             sessions.Add(ReadSession(reader));
         return sessions;
     }
@@ -41,8 +41,8 @@ public sealed class SpaceMapRepository : ISpaceMapRepository
         {
             currentCmd.CommandText = "SELECT * FROM ScanSessions WHERE Id = $id;";
             currentCmd.Parameters.AddWithValue("$id", currentSessionId);
-            using var currentReader = await currentCmd.ExecuteReaderAsync(ct);
-            current = await currentReader.ReadAsync(ct) ? ReadSession(currentReader) : null;
+            using var currentReader = await currentCmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
+            current = await currentReader.ReadAsync(ct).ConfigureAwait(false) ? ReadSession(currentReader) : null;
         }
 
         if (current is null)
@@ -62,8 +62,8 @@ public sealed class SpaceMapRepository : ISpaceMapRepository
         cmd.Parameters.AddWithValue("$id", currentSessionId);
         cmd.Parameters.AddWithValue("$root", NormalizeForStorage(current.RootPath));
         cmd.Parameters.AddWithValue("$started", current.StartedUtc.ToString("O"));
-        using var reader = await cmd.ExecuteReaderAsync(ct);
-        return await reader.ReadAsync(ct) ? ReadSession(reader) : null;
+        using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
+        return await reader.ReadAsync(ct).ConfigureAwait(false) ? ReadSession(reader) : null;
     }
 
     public async Task<IReadOnlyList<SpaceMapNode>> GetFolderChildrenWithSizesAsync(
@@ -75,7 +75,7 @@ public sealed class SpaceMapRepository : ISpaceMapRepository
         CancellationToken ct = default)
     {
         var normalizedFolder = NormalizePath(folderPath);
-        var parentSize = await GetFolderSizeAsync(sessionId, normalizedFolder, ct);
+        var parentSize = await GetFolderSizeAsync(sessionId, normalizedFolder, ct).ConfigureAwait(false);
         var results = new List<SpaceMapNode>();
 
         if (limit <= 0)
@@ -89,7 +89,7 @@ public sealed class SpaceMapRepository : ISpaceMapRepository
                 parentSize,
                 minimumSizeBytes,
                 limit,
-                ct);
+                ct).ConfigureAwait(false);
             results.AddRange(folders);
         }
 
@@ -103,7 +103,7 @@ public sealed class SpaceMapRepository : ISpaceMapRepository
                 parentSize,
                 minimumSizeBytes,
                 limit,
-                ct);
+                ct).ConfigureAwait(false);
             results.AddRange(files);
         }
 
@@ -123,7 +123,7 @@ public sealed class SpaceMapRepository : ISpaceMapRepository
         var folder = NormalizePath(folderPath);
         var prefix = ChildPrefix(folder);
         var prefixNorm = NormalizeForStorage(prefix);
-        var parentSize = await GetFolderSizeAsync(sessionId, folder, ct);
+        var parentSize = await GetFolderSizeAsync(sessionId, folder, ct).ConfigureAwait(false);
 
         await using var conn = await _db.GetConnectionAsync(ct);
         using var cmd = conn.CreateCommand();
@@ -139,9 +139,9 @@ public sealed class SpaceMapRepository : ISpaceMapRepository
         cmd.Parameters.AddWithValue("$prefixNorm", prefixNorm);
         cmd.Parameters.AddWithValue("$limit", limit);
 
-        using var reader = await cmd.ExecuteReaderAsync(ct);
+        using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
         var list = new List<SpaceMapNode>();
-        while (await reader.ReadAsync(ct))
+        while (await reader.ReadAsync(ct).ConfigureAwait(false))
             list.Add(ReadFileNode(reader, parentSize));
         return list;
     }
@@ -156,10 +156,10 @@ public sealed class SpaceMapRepository : ISpaceMapRepository
         {
             CurrentSessionId = currentSessionId,
             PreviousSessionId = previousSessionId,
-            GrowingFolders = await QueryFolderDeltaAsync(currentSessionId, previousSessionId, growing: true, limit, ct),
-            ShrinkingFolders = await QueryFolderDeltaAsync(currentSessionId, previousSessionId, growing: false, limit, ct),
-            NewLargeFiles = await QueryFileAddRemoveDeltaAsync(currentSessionId, previousSessionId, added: true, limit, ct),
-            RemovedFiles = await QueryFileAddRemoveDeltaAsync(currentSessionId, previousSessionId, added: false, limit, ct),
+            GrowingFolders = await QueryFolderDeltaAsync(currentSessionId, previousSessionId, growing: true, limit, ct).ConfigureAwait(false),
+            ShrinkingFolders = await QueryFolderDeltaAsync(currentSessionId, previousSessionId, growing: false, limit, ct).ConfigureAwait(false),
+            NewLargeFiles = await QueryFileAddRemoveDeltaAsync(currentSessionId, previousSessionId, added: true, limit, ct).ConfigureAwait(false),
+            RemovedFiles = await QueryFileAddRemoveDeltaAsync(currentSessionId, previousSessionId, added: false, limit, ct).ConfigureAwait(false),
         };
     }
 
@@ -175,7 +175,7 @@ public sealed class SpaceMapRepository : ISpaceMapRepository
             """;
         cmd.Parameters.AddWithValue("$sid", sessionId);
         cmd.Parameters.AddWithValue("$path", NormalizeForStorage(folderPath));
-        return Convert.ToInt64(await cmd.ExecuteScalarAsync(ct));
+        return Convert.ToInt64(await cmd.ExecuteScalarAsync(ct).ConfigureAwait(false));
     }
 
     private async Task<IReadOnlyList<SpaceMapNode>> QueryDirectFoldersAsync(
@@ -204,9 +204,9 @@ public sealed class SpaceMapRepository : ISpaceMapRepository
         cmd.Parameters.AddWithValue("$minBytes", minimumSizeBytes);
         cmd.Parameters.AddWithValue("$limit", limit);
 
-        using var reader = await cmd.ExecuteReaderAsync(ct);
+        using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
         var list = new List<SpaceMapNode>();
-        while (await reader.ReadAsync(ct))
+        while (await reader.ReadAsync(ct).ConfigureAwait(false))
         {
             list.Add(new SpaceMapNode
             {
@@ -258,9 +258,9 @@ public sealed class SpaceMapRepository : ISpaceMapRepository
         cmd.Parameters.AddWithValue("$minBytes", minimumSizeBytes);
         cmd.Parameters.AddWithValue("$limit", limit);
 
-        using var reader = await cmd.ExecuteReaderAsync(ct);
+        using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
         var list = new List<SpaceMapNode>();
-        while (await reader.ReadAsync(ct))
+        while (await reader.ReadAsync(ct).ConfigureAwait(false))
             list.Add(ReadFileNode(reader, parentSize));
         return list;
     }
@@ -300,9 +300,9 @@ public sealed class SpaceMapRepository : ISpaceMapRepository
         cmd.Parameters.AddWithValue("$current", currentSessionId);
         cmd.Parameters.AddWithValue("$prev", previousSessionId);
         cmd.Parameters.AddWithValue("$limit", limit);
-        using var reader = await cmd.ExecuteReaderAsync(ct);
+        using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
         var list = new List<ScanDeltaItem>();
-        while (await reader.ReadAsync(ct))
+        while (await reader.ReadAsync(ct).ConfigureAwait(false))
             list.Add(ReadDeltaItem(reader, SpaceMapNodeKind.Folder));
         return list;
     }
@@ -342,9 +342,9 @@ public sealed class SpaceMapRepository : ISpaceMapRepository
         cmd.Parameters.AddWithValue("$current", currentSessionId);
         cmd.Parameters.AddWithValue("$prev", previousSessionId);
         cmd.Parameters.AddWithValue("$limit", limit);
-        using var reader = await cmd.ExecuteReaderAsync(ct);
+        using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
         var list = new List<ScanDeltaItem>();
-        while (await reader.ReadAsync(ct))
+        while (await reader.ReadAsync(ct).ConfigureAwait(false))
             list.Add(ReadDeltaItem(reader, SpaceMapNodeKind.File));
         return list;
     }

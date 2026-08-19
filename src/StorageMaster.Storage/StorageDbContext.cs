@@ -60,17 +60,44 @@ public sealed class StorageDbContext : IAsyncDisposable
     /// Returns a new open, configured pooled connection. The caller owns the
     /// lease and must use <c>await using</c> to dispose it deterministically.
     /// </summary>
+    /// <summary>
+    /// Leases a configured connection, guaranteeing the caller does not continue on
+    /// the thread that asked for it.
+    /// <para>
+    /// Microsoft.Data.Sqlite has no real asynchronous I/O. <c>SqliteConnection</c>
+    /// and <c>SqliteDataReader</c> declare no async methods at all, so
+    /// <c>OpenAsync</c> and <c>ReadAsync</c> fall through to the synchronous
+    /// ADO.NET defaults, and <c>ExecuteReaderAsync</c> merely wraps the synchronous
+    /// call in an already-completed task. Awaiting a completed task continues
+    /// inline, so a repository method invoked from the UI thread used to run its
+    /// entire query there — the <c>await</c> looked asynchronous and was not. That
+    /// is what froze navigation after a large scan.
+    /// </para>
+    /// <para>
+    /// Every repository method begins by leasing a connection here, so forcing the
+    /// hop once at this choke point moves the rest of the method off the calling
+    /// thread. It only holds while callers do not marshal straight back, which is
+    /// why the repositories await with <c>ConfigureAwait(false)</c> throughout.
+    /// <c>RepositoryThreadAffinityTests</c> guards both halves.
+    /// </para>
+    /// </summary>
     public async Task<SqliteConnection> GetConnectionAsync(CancellationToken ct = default)
     {
         ThrowIfDisposed();
-        await EnsureInitializedAsync(ct);
-        ThrowIfDisposed();
 
-        var connection = await OpenConfiguredConnectionAsync(ct);
+        // Task.Run is the hop itself, not an attempt to parallelise: it takes the
+        // synchronous open off whatever thread called in.
+        var connection = await Task.Run(async () =>
+        {
+            await EnsureInitializedAsync(ct).ConfigureAwait(false);
+            ThrowIfDisposed();
+            return await OpenConfiguredConnectionAsync(ct).ConfigureAwait(false);
+        }, ct).ConfigureAwait(false);
+
         if (Volatile.Read(ref _disposed) == 0)
             return connection;
 
-        await connection.DisposeAsync();
+        await connection.DisposeAsync().ConfigureAwait(false);
         throw new ObjectDisposedException(nameof(StorageDbContext));
     }
 
@@ -79,7 +106,7 @@ public sealed class StorageDbContext : IAsyncDisposable
         if (Volatile.Read(ref _initialized))
             return;
 
-        await _coordination.InitializationLock.WaitAsync(ct);
+        await _coordination.InitializationLock.WaitAsync(ct).ConfigureAwait(false);
         try
         {
             ThrowIfDisposed();
@@ -91,10 +118,10 @@ public sealed class StorageDbContext : IAsyncDisposable
                 Directory.CreateDirectory(dir);
 
             await using var connection = await OpenRawConnectionAsync(ct);
-            await ExecuteAsync(connection, "PRAGMA foreign_keys=ON;", ct);
-            await MigrateAsync(connection, ct);
-            await ExecuteAsync(connection, "PRAGMA journal_mode=WAL;", ct);
-            await ConfigureConnectionAsync(connection, ct);
+            await ExecuteAsync(connection, "PRAGMA foreign_keys=ON;", ct).ConfigureAwait(false);
+            await MigrateAsync(connection, ct).ConfigureAwait(false);
+            await ExecuteAsync(connection, "PRAGMA journal_mode=WAL;", ct).ConfigureAwait(false);
+            await ConfigureConnectionAsync(connection, ct).ConfigureAwait(false);
 
             ThrowIfDisposed();
             Volatile.Write(ref _initialized, true);
@@ -108,15 +135,15 @@ public sealed class StorageDbContext : IAsyncDisposable
 
     private async Task<SqliteConnection> OpenConfiguredConnectionAsync(CancellationToken ct)
     {
-        var connection = await OpenRawConnectionAsync(ct);
+        var connection = await OpenRawConnectionAsync(ct).ConfigureAwait(false);
         try
         {
-            await ConfigureConnectionAsync(connection, ct);
+            await ConfigureConnectionAsync(connection, ct).ConfigureAwait(false);
             return connection;
         }
         catch
         {
-            await connection.DisposeAsync();
+            await connection.DisposeAsync().ConfigureAwait(false);
             throw;
         }
     }
@@ -126,27 +153,27 @@ public sealed class StorageDbContext : IAsyncDisposable
         var connection = new SqliteConnection(_connectionString);
         try
         {
-            await connection.OpenAsync(ct);
+            await connection.OpenAsync(ct).ConfigureAwait(false);
             return connection;
         }
         catch
         {
-            await connection.DisposeAsync();
+            await connection.DisposeAsync().ConfigureAwait(false);
             throw;
         }
     }
 
     private static async Task ConfigureConnectionAsync(SqliteConnection connection, CancellationToken ct)
     {
-        await ExecuteAsync(connection, "PRAGMA synchronous=NORMAL;", ct);
-        await ExecuteAsync(connection, "PRAGMA foreign_keys=ON;", ct);
-        await ExecuteAsync(connection, "PRAGMA temp_store=MEMORY;", ct);
-        await ExecuteAsync(connection, "PRAGMA cache_size=-32000;", ct); // 32 MB page cache
+        await ExecuteAsync(connection, "PRAGMA synchronous=NORMAL;", ct).ConfigureAwait(false);
+        await ExecuteAsync(connection, "PRAGMA foreign_keys=ON;", ct).ConfigureAwait(false);
+        await ExecuteAsync(connection, "PRAGMA temp_store=MEMORY;", ct).ConfigureAwait(false);
+        await ExecuteAsync(connection, "PRAGMA cache_size=-32000;", ct).ConfigureAwait(false); // 32 MB page cache
     }
 
     private async Task MigrateAsync(SqliteConnection conn, CancellationToken ct)
     {
-        int current = await GetSchemaVersionAsync(conn, _logger, transaction: null, ct);
+        int current = await GetSchemaVersionAsync(conn, _logger, transaction: null, ct).ConfigureAwait(false);
         ThrowIfSchemaVersionIsUnsupported(current);
 
         if (current >= DatabaseSchema.CurrentVersion)
@@ -163,55 +190,55 @@ public sealed class StorageDbContext : IAsyncDisposable
         // apply only the still-missing levels. One transaction also keeps every
         // DDL change and version stamp atomic as a complete migration sequence.
         using var transaction = conn.BeginTransaction(deferred: false);
-        current = await GetSchemaVersionAsync(conn, _logger, transaction, ct);
+        current = await GetSchemaVersionAsync(conn, _logger, transaction, ct).ConfigureAwait(false);
         ThrowIfSchemaVersionIsUnsupported(current);
 
         if (current < 1)
-            await ApplyMigrationAsync(conn, transaction, DatabaseSchema.V1Statements, 1, ct);
+            await ApplyMigrationAsync(conn, transaction, DatabaseSchema.V1Statements, 1, ct).ConfigureAwait(false);
 
         if (current < 2)
-            await ApplyMigrationAsync(conn, transaction, DatabaseSchema.V2Statements, 2, ct);
+            await ApplyMigrationAsync(conn, transaction, DatabaseSchema.V2Statements, 2, ct).ConfigureAwait(false);
 
         if (current < 3)
-            await ApplyMigrationAsync(conn, transaction, DatabaseSchema.V3Statements, 3, ct);
+            await ApplyMigrationAsync(conn, transaction, DatabaseSchema.V3Statements, 3, ct).ConfigureAwait(false);
 
         if (current < 4)
-            await ApplyMigrationAsync(conn, transaction, DatabaseSchema.V4Statements, 4, ct);
+            await ApplyMigrationAsync(conn, transaction, DatabaseSchema.V4Statements, 4, ct).ConfigureAwait(false);
 
         if (current < 5)
-            await ApplyMigrationAsync(conn, transaction, DatabaseSchema.V5Statements, 5, ct);
+            await ApplyMigrationAsync(conn, transaction, DatabaseSchema.V5Statements, 5, ct).ConfigureAwait(false);
 
         if (current < 6)
-            await ApplyMigrationAsync(conn, transaction, DatabaseSchema.V6Statements, 6, ct);
+            await ApplyMigrationAsync(conn, transaction, DatabaseSchema.V6Statements, 6, ct).ConfigureAwait(false);
 
         if (current < 7)
-            await ApplyMigrationAsync(conn, transaction, DatabaseSchema.V7Statements, 7, ct);
+            await ApplyMigrationAsync(conn, transaction, DatabaseSchema.V7Statements, 7, ct).ConfigureAwait(false);
 
         if (current < 8)
-            await ApplyMigrationAsync(conn, transaction, DatabaseSchema.V8Statements, 8, ct);
+            await ApplyMigrationAsync(conn, transaction, DatabaseSchema.V8Statements, 8, ct).ConfigureAwait(false);
 
         if (current < 9)
-            await ApplyMigrationAsync(conn, transaction, DatabaseSchema.V9Statements, 9, ct);
+            await ApplyMigrationAsync(conn, transaction, DatabaseSchema.V9Statements, 9, ct).ConfigureAwait(false);
 
         if (current < 10)
-            await ApplyMigrationAsync(conn, transaction, DatabaseSchema.V10Statements, 10, ct);
+            await ApplyMigrationAsync(conn, transaction, DatabaseSchema.V10Statements, 10, ct).ConfigureAwait(false);
 
         if (current < 11)
-            await ApplyMigrationAsync(conn, transaction, DatabaseSchema.V11Statements, 11, ct);
+            await ApplyMigrationAsync(conn, transaction, DatabaseSchema.V11Statements, 11, ct).ConfigureAwait(false);
 
         if (current < 12)
-            await ApplyMigrationAsync(conn, transaction, DatabaseSchema.V12Statements, 12, ct);
+            await ApplyMigrationAsync(conn, transaction, DatabaseSchema.V12Statements, 12, ct).ConfigureAwait(false);
 
         if (current < 13)
-            await ApplyMigrationAsync(conn, transaction, DatabaseSchema.V13Statements, 13, ct);
+            await ApplyMigrationAsync(conn, transaction, DatabaseSchema.V13Statements, 13, ct).ConfigureAwait(false);
 
         if (current < 14)
-            await ApplyMigrationAsync(conn, transaction, DatabaseSchema.V14Statements, 14, ct);
+            await ApplyMigrationAsync(conn, transaction, DatabaseSchema.V14Statements, 14, ct).ConfigureAwait(false);
 
         if (current < 15)
-            await ApplyMigrationAsync(conn, transaction, DatabaseSchema.V15Statements, 15, ct);
+            await ApplyMigrationAsync(conn, transaction, DatabaseSchema.V15Statements, 15, ct).ConfigureAwait(false);
 
-        await transaction.CommitAsync(ct);
+        await transaction.CommitAsync(ct).ConfigureAwait(false);
     }
 
     private static void ThrowIfSchemaVersionIsUnsupported(int current)
@@ -243,7 +270,7 @@ public sealed class StorageDbContext : IAsyncDisposable
                 LIMIT 1;
                 """;
             objectCmd.Transaction = transaction;
-            var objectType = await objectCmd.ExecuteScalarAsync(ct);
+            var objectType = await objectCmd.ExecuteScalarAsync(ct).ConfigureAwait(false);
             if (objectType is null or DBNull)
                 return 0;
             if (objectType is not string type || !string.Equals(type, "table", StringComparison.OrdinalIgnoreCase))
@@ -252,7 +279,7 @@ public sealed class StorageDbContext : IAsyncDisposable
             using var cmd = conn.CreateCommand();
             cmd.CommandText = "SELECT MAX(Version) FROM SchemaVersion;";
             cmd.Transaction = transaction;
-            var result = await cmd.ExecuteScalarAsync(ct);
+            var result = await cmd.ExecuteScalarAsync(ct).ConfigureAwait(false);
             if (result is null or DBNull)
                 throw new InvalidDataException("SchemaVersion exists but contains no version rows.");
             if (result is not long version || version < 1 || version > int.MaxValue)
@@ -283,7 +310,7 @@ public sealed class StorageDbContext : IAsyncDisposable
             using var cmd = conn.CreateCommand();
             cmd.CommandText = sql;
             cmd.Transaction = transaction;
-            await cmd.ExecuteNonQueryAsync(ct);
+            await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
         }
         // Stamp version inside the same transaction — atomic with DDL.
         using var stampCmd = conn.CreateCommand();
@@ -291,14 +318,14 @@ public sealed class StorageDbContext : IAsyncDisposable
         stampCmd.Transaction = transaction;
         stampCmd.Parameters.AddWithValue("$v", version);
         stampCmd.Parameters.AddWithValue("$t", DateTime.UtcNow.ToString("O"));
-        await stampCmd.ExecuteNonQueryAsync(ct);
+        await stampCmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
     }
 
     private static async Task ExecuteAsync(SqliteConnection conn, string sql, CancellationToken ct)
     {
         using var cmd = conn.CreateCommand();
         cmd.CommandText = sql;
-        await cmd.ExecuteNonQueryAsync(ct);
+        await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
     }
 
     private void ThrowIfDisposed()
@@ -316,7 +343,7 @@ public sealed class StorageDbContext : IAsyncDisposable
         // operations own and dispose their leases independently, so there is
         // no shared connection to close here. Semaphores intentionally remain
         // undisposed so in-flight operations can safely release them.
-        await _coordination.InitializationLock.WaitAsync();
+        await _coordination.InitializationLock.WaitAsync().ConfigureAwait(false);
         try
         {
             Volatile.Write(ref _initialized, false);

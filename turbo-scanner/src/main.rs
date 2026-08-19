@@ -375,8 +375,17 @@ fn scan(args: &Args, out: &mut impl Write) -> io::Result<()> {
         .parallelism(parallelism)
         .follow_links(args.follow_links)
         .skip_hidden(false)
-        .process_read_dir(move |_depth, _dir_path, _state, children| {
+        .process_read_dir(move |depth, _dir_path, _state, children| {
             if !prune_hidden {
+                return;
+            }
+            // jwalk invokes this once with `depth == None` for a synthetic read
+            // whose only child is the scan root itself. Filtering there prunes
+            // the whole walk: real drive roots such as `C:\` carry the Hidden
+            // and System attributes, so `--skip-hidden` scans of a whole drive
+            // silently returned zero files. The scan root is chosen explicitly
+            // by the caller and is always walked.
+            if depth.is_none() {
                 return;
             }
             // Dropping a hidden directory here prevents descent, so files
@@ -705,6 +714,42 @@ mod tests {
         let all_paths = scan_paths(&args_inclusive);
         assert!(all_paths.iter().any(|p| p.ends_with("hidden.txt")));
         assert!(all_paths.iter().any(|p| p.ends_with("inside.txt")));
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// A hidden scan root must still be walked. jwalk hands the root itself to
+    /// `process_read_dir` as a synthetic depth-`None` child, so a naive hidden
+    /// filter prunes the entire tree. Real drive roots such as `C:\` carry the
+    /// Hidden and System attributes, which made `--skip-hidden` scans of a whole
+    /// drive report success with zero files.
+    #[cfg(windows)]
+    #[test]
+    fn skip_hidden_still_walks_a_hidden_scan_root() {
+        let root = std::env::temp_dir().join(format!("turbo_hidden_root_{}", std::process::id()));
+        let child_dir = root.join("child-dir");
+        std::fs::create_dir_all(&child_dir).unwrap();
+        std::fs::write(root.join("visible.txt"), b"v").unwrap();
+        std::fs::write(child_dir.join("nested.txt"), b"n").unwrap();
+        set_hidden(&root);
+
+        let args = Args {
+            path: root.to_string_lossy().into_owned(),
+            threads: 1,
+            min_size: 0,
+            skip_hidden: true,
+            follow_links: false,
+        };
+        let paths = scan_paths(&args);
+
+        assert!(
+            paths.iter().any(|p| p.ends_with("visible.txt")),
+            "a hidden scan root must not prune its own contents: {paths:?}"
+        );
+        assert!(
+            paths.iter().any(|p| p.ends_with("nested.txt")),
+            "descendants of a hidden scan root must still be walked: {paths:?}"
+        );
 
         let _ = std::fs::remove_dir_all(&root);
     }

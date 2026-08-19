@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using Microsoft.Data.Sqlite;
 using StorageMaster.Core.Interfaces;
 using StorageMaster.Core.Models;
@@ -28,13 +28,22 @@ public sealed class ScanRepository : IScanRepository
             var startedUtc = DateTime.UtcNow;
             await using var conn = await _db.GetConnectionAsync(ct);
             using var cmd = conn.CreateCommand();
+            // Ownership is stamped at creation so a session left Running by a crash
+            // can later be told apart from one a live process is still working on.
+            using var owner = System.Diagnostics.Process.GetCurrentProcess();
+            var ownerId = owner.Id;
+            var ownerStartedUtc = owner.StartTime.ToUniversalTime();
+
             cmd.CommandText = """
-                INSERT INTO ScanSessions (RootPath, StartedUtc, Status)
-                VALUES ($root, $started, 'Running');
+                INSERT INTO ScanSessions
+                    (RootPath, StartedUtc, Status, OwnerProcessId, OwnerProcessStartedUtc)
+                VALUES ($root, $started, 'Running', $ownerId, $ownerStarted);
                 SELECT last_insert_rowid();
                 """;
             cmd.Parameters.AddWithValue("$root", rootPath);
             cmd.Parameters.AddWithValue("$started", startedUtc.ToString("O"));
+            cmd.Parameters.AddWithValue("$ownerId", ownerId);
+            cmd.Parameters.AddWithValue("$ownerStarted", ownerStartedUtc.ToString("O"));
             var id = Convert.ToInt64(await cmd.ExecuteScalarAsync(ct));
 
             return new ScanSession
@@ -43,6 +52,8 @@ public sealed class ScanRepository : IScanRepository
                 RootPath = rootPath,
                 StartedUtc = startedUtc,
                 Status = ScanStatus.Running,
+                OwnerProcessId = ownerId,
+                OwnerProcessStartedUtc = ownerStartedUtc,
             };
         }
         finally
@@ -745,6 +756,10 @@ public sealed class ScanRepository : IScanRepository
         AccessDeniedCount = r.GetInt64(r.GetOrdinal("AccessDeniedCount")),
         ErrorMessage = r.IsDBNull(r.GetOrdinal("ErrorMessage")) ? null
                             : r.GetString(r.GetOrdinal("ErrorMessage")),
+        OwnerProcessId = r.IsDBNull(r.GetOrdinal("OwnerProcessId")) ? null
+                            : r.GetInt32(r.GetOrdinal("OwnerProcessId")),
+        OwnerProcessStartedUtc = r.IsDBNull(r.GetOrdinal("OwnerProcessStartedUtc")) ? null
+                            : UtcTimestamp.Parse(r.GetString(r.GetOrdinal("OwnerProcessStartedUtc"))),
     };
 
     private static FileEntry ReadFileEntry(SqliteDataReader r) => new()

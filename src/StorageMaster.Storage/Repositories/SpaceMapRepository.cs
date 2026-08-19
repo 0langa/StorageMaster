@@ -194,17 +194,13 @@ public sealed class SpaceMapRepository : ISpaceMapRepository
                    SubFolderCount, IsReparsePoint
             FROM FolderEntries
             WHERE SessionId = $sid
-              AND NormalizedFullPath <> $parentNorm
-              AND substr(NormalizedFullPath, 1, length($prefixNorm)) = $prefixNorm
-              AND instr(substr(FullPath, length($prefix) + 1), '\') = 0
+              AND ParentNormalizedPath = $parentNorm
               AND TotalSizeBytes >= $minBytes
             ORDER BY TotalSizeBytes DESC
             LIMIT $limit;
             """;
         cmd.Parameters.AddWithValue("$sid", sessionId);
         cmd.Parameters.AddWithValue("$parentNorm", NormalizeForStorage(parentPath));
-        cmd.Parameters.AddWithValue("$prefixNorm", NormalizeForStorage(prefix));
-        cmd.Parameters.AddWithValue("$prefix", prefix);
         cmd.Parameters.AddWithValue("$minBytes", minimumSizeBytes);
         cmd.Parameters.AddWithValue("$limit", limit);
 
@@ -244,15 +240,21 @@ public sealed class SpaceMapRepository : ISpaceMapRepository
             SELECT Id, SessionId, FullPath, FileName, SizeBytes, ModifiedUtc, Category, IsReparsePoint
             FROM FileEntries
             WHERE SessionId = $sid
-              AND substr(NormalizedFullPath, 1, length($prefixNorm)) = $prefixNorm
-              AND instr(substr(FullPath, length($prefix) + 1), '\') = 0
+              AND NormalizedFullPath >= $prefixNorm
+              AND NormalizedFullPath < $prefixUpper
+              AND instr(substr(NormalizedFullPath, length($prefixNorm) + 1), '\') = 0
               AND SizeBytes >= $minBytes
             ORDER BY SizeBytes DESC
             LIMIT $limit;
             """;
+        // NormalizeForStorage strips a trailing separator, so it cannot be used to
+        // build a prefix: "C:\Root\" would come back as "C:\ROOT" and the range would
+        // then also match siblings such as "C:\RootBackup". Normalise the parent and
+        // re-attach the separator instead.
+        var prefixNorm = NormalizedChildPrefix(parentPath);
         cmd.Parameters.AddWithValue("$sid", sessionId);
-        cmd.Parameters.AddWithValue("$prefixNorm", NormalizeForStorage(prefix));
-        cmd.Parameters.AddWithValue("$prefix", prefix);
+        cmd.Parameters.AddWithValue("$prefixNorm", prefixNorm);
+        cmd.Parameters.AddWithValue("$prefixUpper", PrefixUpperBound(prefixNorm));
         cmd.Parameters.AddWithValue("$minBytes", minimumSizeBytes);
         cmd.Parameters.AddWithValue("$limit", limit);
 
@@ -422,6 +424,40 @@ public sealed class SpaceMapRepository : ISpaceMapRepository
         {
             return path.Trim().ToUpperInvariant();
         }
+    }
+
+    /// <summary>
+    /// Storage-normalised path of <paramref name="folderPath"/> with a trailing
+    /// separator, suitable as a prefix for descendant range scans.
+    /// </summary>
+    private static string NormalizedChildPrefix(string folderPath)
+    {
+        var normalized = NormalizeForStorage(folderPath);
+        return normalized.EndsWith(Path.DirectorySeparatorChar)
+            ? normalized
+            : normalized + Path.DirectorySeparatorChar;
+    }
+
+    /// <summary>
+    /// Exclusive upper bound for a prefix range scan.
+    /// <para>
+    /// Rewriting <c>substr(col, 1, n) = prefix</c> as
+    /// <c>col &gt;= prefix AND col &lt; bound</c> is what lets SQLite use the index on
+    /// NormalizedFullPath. Applying <c>substr()</c> to the column defeats indexing
+    /// outright, which made every Space Map navigation scan the whole session.
+    /// </para>
+    /// </summary>
+    private static string PrefixUpperBound(string prefix)
+    {
+        if (string.IsNullOrEmpty(prefix))
+            return prefix;
+
+        // Stored paths compare with BINARY collation, so incrementing the final code
+        // unit gives the first value the prefix no longer covers.
+        var last = prefix[^1];
+        return last == char.MaxValue
+            ? prefix + '￿'
+            : string.Concat(prefix.AsSpan(0, prefix.Length - 1), ((char)(last + 1)).ToString());
     }
 
     private static string ChildPrefix(string folderPath)

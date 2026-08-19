@@ -7,7 +7,7 @@
 /// </summary>
 internal static class DatabaseSchema
 {
-    internal const int CurrentVersion = 14;
+    internal const int CurrentVersion = 15;
 
     /// <summary>SQL executed once at version 1 creation.</summary>
     internal static readonly string[] V1Statements =
@@ -537,5 +537,36 @@ internal static class DatabaseSchema
     [
         "ALTER TABLE ScanSessions ADD COLUMN OwnerProcessId INTEGER;",
         "ALTER TABLE ScanSessions ADD COLUMN OwnerProcessStartedUtc TEXT;",
+    ];
+
+    /// <summary>
+    /// V15: index the columns SQLite needs for foreign-key cascade checks and for
+    /// the errored-only duplicate filter.
+    /// <para>
+    /// Three tables reference FileEntries(Id) ON DELETE CASCADE, and none of the
+    /// referencing columns was indexed. With PRAGMA foreign_keys=ON, SQLite must
+    /// find child rows for every parent row it deletes, so each cascade step
+    /// degraded into a full scan of the child table. Deleting a scan session that
+    /// did not itself own the populated duplicate tables was measured at roughly
+    /// 11 ms per file row — about an hour and a half for a 500k-file session, with
+    /// the write lock held throughout. "Purge old history" issues many such
+    /// deletes at once.
+    /// </para>
+    /// <para>
+    /// DuplicateErrors additionally gets a (RunId, FileEntryId) index. The
+    /// errored-only duplicate filter correlates on exactly that pair, but the only
+    /// existing index was (RunId, ErrorType), so every error row of the run was
+    /// re-walked for every candidate group. The filter is slowest precisely when it
+    /// has nothing to show, because a file whose hash failed cannot become a group
+    /// member and therefore never matches.
+    /// </para>
+    /// </summary>
+    internal static readonly string[] V15Statements =
+    [
+        "CREATE INDEX IF NOT EXISTS IX_DuplicateGroupMembers_FileEntryId ON DuplicateGroupMembers (FileEntryId);",
+        "CREATE INDEX IF NOT EXISTS IX_DuplicateGroups_RepresentativeFileEntryId ON DuplicateGroups (RepresentativeFileEntryId);",
+        "CREATE INDEX IF NOT EXISTS IX_DuplicateErrors_FileEntryId ON DuplicateErrors (FileEntryId);",
+        "CREATE INDEX IF NOT EXISTS IX_DuplicateErrors_Run_File ON DuplicateErrors (RunId, FileEntryId);",
+        "CREATE INDEX IF NOT EXISTS IX_DuplicateSignatures_FileEntryId ON DuplicateSignatures (FileEntryId);",
     ];
 }

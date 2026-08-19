@@ -1,8 +1,9 @@
-using Microsoft.Extensions.DependencyInjection;
+﻿using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.UI.Xaml;
 using StorageMaster.Core.Interfaces;
 using StorageMaster.Core.Models;
+using StorageMaster.Platform.Windows;
 
 namespace StorageMaster.UI;
 
@@ -41,7 +42,35 @@ public partial class App : Application
         _window = Services.GetRequiredService<MainWindow>();
         _window.Activate();
         _ = ApplyRequestedThemeAsync();
+        _ = ReconcileAbandonedScansAsync();
         _ = RunStartupUpdateCheckAsync();
+    }
+
+    /// <summary>
+    /// Marks scan sessions abandoned by a previous process as interrupted. Without
+    /// this they stay Running forever, look identical to a scan in progress, and
+    /// their data is never reclaimable.
+    /// </summary>
+    private static async Task ReconcileAbandonedScansAsync()
+    {
+        try
+        {
+            var recovered = await Services
+                .GetRequiredService<ScanSessionRecoveryService>()
+                .ReconcileAsync()
+                .ConfigureAwait(false);
+
+            if (recovered > 0)
+            {
+                Services.GetRequiredService<ILogger<App>>().LogInformation(
+                    "Marked {Count} abandoned scan session(s) as interrupted.", recovered);
+            }
+        }
+        catch (Exception ex)
+        {
+            Services.GetRequiredService<ILogger<App>>()
+                .LogWarning(ex, "Startup reconciliation of abandoned scans failed.");
+        }
     }
 
     internal static void SetServices(IServiceProvider services) => Services = services;

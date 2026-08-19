@@ -1,4 +1,4 @@
-<Page
+﻿<Page
     x:Class="StorageMaster.UI.Pages.CleanupPage"
     AutomationProperties.Name="Cleanup page"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
@@ -210,8 +210,18 @@
 
                 <TextBlock Text="Suggestions" Style="{StaticResource SubtitleTextBlockStyle}" />
 
+                <!--  A ListView measured with infinite height has an infinite viewport,
+                      so ItemsStackPanel culls nothing and realises every row. The page
+                      root is a ScrollViewer, which supplies exactly that infinite
+                      height. One rule alone can emit a thousand suggestions, so the
+                      list is bounded here to keep virtualisation working, matching
+                      what DuplicatesPage already does.  -->
                 <ListView ItemsSource="{x:Bind ViewModel.Suggestions}"
                           SelectionMode="None"
+                          MinHeight="240"
+                          MaxHeight="620"
+                          ScrollViewer.VerticalScrollBarVisibility="Auto"
+                          ScrollViewer.VerticalScrollMode="Enabled"
                           IsEnabled="{x:Bind ViewModel.CanChangeAnalysisScope, Mode=OneWay}">
                     <ListView.ItemContainerStyle>
                         <Style TargetType="ListViewItem">

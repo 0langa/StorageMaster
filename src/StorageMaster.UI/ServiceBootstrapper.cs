@@ -79,6 +79,7 @@ internal static class ServiceBootstrapper
         services.AddSingleton<IInstalledProgramProvider, InstalledProgramProvider>();
         services.AddSingleton<IFileIdentityProvider, FileIdentityProvider>();
         services.AddSingleton<IDirectoryFileIdentityProvider, DirectoryFileIdentityProvider>();
+        services.AddSingleton<ScanSessionRecoveryService>();
 
         services.AddSingleton<FileScanner>(sp => new FileScanner(
             sp.GetRequiredService<IScanRepository>(),

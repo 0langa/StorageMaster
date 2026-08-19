@@ -1,0 +1,133 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <xsd:schema id="root" xmlns="" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:msdata="urn:schemas-microsoft-com:xml-msdata">
+    <xsd:import namespace="http://www.w3.org/XML/1998/namespace" />
+    <xsd:element name="root" msdata:IsDataSet="true">
+      <xsd:complexType>
+        <xsd:choice maxOccurs="unbounded">
+          <xsd:element name="metadata">
+            <xsd:complexType>
+              <xsd:sequence><xsd:element name="value" type="xsd:string" minOccurs="0" /></xsd:sequence>
+              <xsd:attribute name="name" use="required" type="xsd:string" />
+              <xsd:attribute name="type" type="xsd:string" />
+              <xsd:attribute name="mimetype" type="xsd:string" />
+              <xsd:attribute ref="xml:space" />
+            </xsd:complexType>
+          </xsd:element>
+          <xsd:element name="assembly">
+            <xsd:complexType>
+              <xsd:attribute name="alias" type="xsd:string" />
+              <xsd:attribute name="name" type="xsd:string" />
+            </xsd:complexType>
+          </xsd:element>
+          <xsd:element name="data">
+            <xsd:complexType>
+              <xsd:sequence>
+                <xsd:element name="value" type="xsd:string" minOccurs="0" msdata:Ordinal="1" />
+                <xsd:element name="comment" type="xsd:string" minOccurs="0" msdata:Ordinal="2" />
+              </xsd:sequence>
+              <xsd:attribute name="name" type="xsd:string" use="required" msdata:Ordinal="1" />
+              <xsd:attribute name="type" type="xsd:string" msdata:Ordinal="3" />
+              <xsd:attribute name="mimetype" type="xsd:string" msdata:Ordinal="4" />
+              <xsd:attribute ref="xml:space" />
+            </xsd:complexType>
+          </xsd:element>
+          <xsd:element name="resheader">
+            <xsd:complexType>
+              <xsd:sequence><xsd:element name="value" type="xsd:string" minOccurs="0" msdata:Ordinal="1" /></xsd:sequence>
+              <xsd:attribute name="name" type="xsd:string" use="required" />
+            </xsd:complexType>
+          </xsd:element>
+        </xsd:choice>
+      </xsd:complexType>
+    </xsd:element>
+  </xsd:schema>
+  <resheader name="resmimetype"><value>text/microsoft-resx</value></resheader>
+  <resheader name="version"><value>2.0</value></resheader>
+  <resheader name="reader"><value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value></resheader>
+  <resheader name="writer"><value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value></resheader>
+  <data name="Nav_Overview" xml:space="preserve">
+    <value>Overview</value>
+  </data>
+  <data name="Nav_Dashboard" xml:space="preserve">
+    <value>Dashboard</value>
+  </data>
+  <data name="Nav_Analyze" xml:space="preserve">
+    <value>Analyze</value>
+  </data>
+  <data name="Nav_Scan" xml:space="preserve">
+    <value>Scan</value>
+  </data>
+  <data name="Nav_ScanWorkspace" xml:space="preserve">
+    <value>Scan Workspace</value>
+  </data>
+  <data name="Nav_Results" xml:space="preserve">
+    <value>Results</value>
+  </data>
+  <data name="Nav_SpaceMap" xml:space="preserve">
+    <value>Space Map</value>
+  </data>
+  <data name="Nav_Duplicates" xml:space="preserve">
+    <value>Duplicates</value>
+  </data>
+  <data name="Nav_Clean" xml:space="preserve">
+    <value>Clean</value>
+  </data>
+  <data name="Nav_Cleanup" xml:space="preserve">
+    <value>Cleanup</value>
+  </data>
+  <data name="Nav_SmartCleaner" xml:space="preserve">
+    <value>Smart Cleaner</value>
+  </data>
+  <data name="Nav_Monitor" xml:space="preserve">
+    <value>Monitor</value>
+  </data>
+  <data name="Nav_DriveHealth" xml:space="preserve">
+    <value>Drive Health</value>
+  </data>
+  <data name="Nav_Settings" xml:space="preserve">
+    <value>Settings</value>
+  </data>
+  <data name="Shell_Subtitle" xml:space="preserve">
+    <value>v2 storage command center</value>
+  </data>
+  <data name="Shell_GlobalStatus" xml:space="preserve">
+    <value>Global status</value>
+  </data>
+  <data name="Shell_NoScansYet" xml:space="preserve">
+    <value>No scans yet</value>
+  </data>
+  <data name="Shell_LowestFreeSpace" xml:space="preserve">
+    <value>Lowest free space: {0}</value>
+  </data>
+  <data name="Common_Cancel" xml:space="preserve">
+    <value>Cancel</value>
+  </data>
+  <data name="Common_Save" xml:space="preserve">
+    <value>Save</value>
+  </data>
+  <data name="Common_Close" xml:space="preserve">
+    <value>Close</value>
+  </data>
+  <data name="Common_Refresh" xml:space="preserve">
+    <value>Refresh</value>
+  </data>
+  <data name="Common_Delete" xml:space="preserve">
+    <value>Delete</value>
+  </data>
+  <data name="Common_Free" xml:space="preserve">
+    <value>free</value>
+  </data>
+  <data name="Common_Healthy" xml:space="preserve">
+    <value>Healthy</value>
+  </data>
+  <data name="Safety_PermanentDelete" xml:space="preserve">
+    <value>Permanently delete</value>
+  </data>
+  <data name="Safety_MoveToRecycleBin" xml:space="preserve">
+    <value>Move to Recycle Bin</value>
+  </data>
+  <data name="Safety_CannotBeUndone" xml:space="preserve">
+    <value>This cannot be undone.</value>
+  </data>
+</root>

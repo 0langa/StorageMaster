@@ -25,6 +25,7 @@ public enum UiLanguage
     System,
     English,
     German,
+    Spanish,
 }
 
 public enum UiDensity

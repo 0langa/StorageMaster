@@ -4,6 +4,7 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:i18n="using:StorageMaster.UI.Infrastructure"
     mc:Ignorable="d"
     Title="StorageMaster">
 
@@ -71,34 +72,34 @@
             </NavigationView.Header>
 
             <NavigationView.MenuItems>
-                <NavigationViewItemHeader Content="Overview" />
-                <NavigationViewItem Tag="Dashboard" Icon="Home" Content="Dashboard" AutomationProperties.Name="Dashboard" />
+                <NavigationViewItemHeader Content="{i18n:Loc Key=Nav_Overview}" />
+                <NavigationViewItem Tag="Dashboard" Icon="Home" Content="{i18n:Loc Key=Nav_Dashboard}" AutomationProperties.Name="{i18n:Loc Key=Nav_Dashboard}" />
 
-                <NavigationViewItemHeader Content="Analyze" />
-                <NavigationViewItem Tag="Scan" Icon="Find" Content="Scan" AutomationProperties.Name="Scan" />
-                <NavigationViewItem Tag="ScanWorkspace" Content="Scan Workspace" AutomationProperties.Name="Scan Workspace">
+                <NavigationViewItemHeader Content="{i18n:Loc Key=Nav_Analyze}" />
+                <NavigationViewItem Tag="Scan" Icon="Find" Content="{i18n:Loc Key=Nav_Scan}" AutomationProperties.Name="{i18n:Loc Key=Nav_Scan}" />
+                <NavigationViewItem Tag="ScanWorkspace" Content="{i18n:Loc Key=Nav_ScanWorkspace}" AutomationProperties.Name="{i18n:Loc Key=Nav_ScanWorkspace}">
                     <NavigationViewItem.Icon>
                         <FontIcon Glyph="{StaticResource IconResults}" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
-                <NavigationViewItem Tag="Results" Icon="List" Content="Results" AutomationProperties.Name="Results" />
-                <NavigationViewItem Tag="SpaceMap" Content="Space Map" AutomationProperties.Name="Space Map">
+                <NavigationViewItem Tag="Results" Icon="List" Content="{i18n:Loc Key=Nav_Results}" AutomationProperties.Name="{i18n:Loc Key=Nav_Results}" />
+                <NavigationViewItem Tag="SpaceMap" Content="{i18n:Loc Key=Nav_SpaceMap}" AutomationProperties.Name="{i18n:Loc Key=Nav_SpaceMap}">
                     <NavigationViewItem.Icon>
                         <FontIcon Glyph="{StaticResource IconSpaceMap}" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
-                <NavigationViewItem Tag="Duplicates" Icon="Copy" Content="Duplicates" AutomationProperties.Name="Duplicates" />
+                <NavigationViewItem Tag="Duplicates" Icon="Copy" Content="{i18n:Loc Key=Nav_Duplicates}" AutomationProperties.Name="{i18n:Loc Key=Nav_Duplicates}" />
 
-                <NavigationViewItemHeader Content="Clean" />
-                <NavigationViewItem Tag="Cleanup" Icon="Delete" Content="Cleanup" AutomationProperties.Name="Cleanup" />
-                <NavigationViewItem Tag="SmartCleaner" Content="Smart Cleaner" AutomationProperties.Name="Smart Cleaner">
+                <NavigationViewItemHeader Content="{i18n:Loc Key=Nav_Clean}" />
+                <NavigationViewItem Tag="Cleanup" Icon="Delete" Content="{i18n:Loc Key=Nav_Cleanup}" AutomationProperties.Name="{i18n:Loc Key=Nav_Cleanup}" />
+                <NavigationViewItem Tag="SmartCleaner" Content="{i18n:Loc Key=Nav_SmartCleaner}" AutomationProperties.Name="{i18n:Loc Key=Nav_SmartCleaner}">
                     <NavigationViewItem.Icon>
                         <FontIcon Glyph="{StaticResource IconSmartCleaner}" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
 
-                <NavigationViewItemHeader Content="Monitor" />
-                <NavigationViewItem Tag="DriveHealth" Content="Drive Health" AutomationProperties.Name="Drive Health">
+                <NavigationViewItemHeader Content="{i18n:Loc Key=Nav_Monitor}" />
+                <NavigationViewItem Tag="DriveHealth" Content="{i18n:Loc Key=Nav_DriveHealth}" AutomationProperties.Name="{i18n:Loc Key=Nav_DriveHealth}">
                     <NavigationViewItem.Icon>
                         <FontIcon Glyph="{StaticResource IconHealth}" />
                     </NavigationViewItem.Icon>

@@ -18,6 +18,16 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- The string catalogue. Embedded rather than indexed into resources.pri:
+         MRT's PRI generation needs Microsoft.Build.Packaging.Pri.Tasks.dll, which
+         ships only with Visual Studio and is absent from the .NET SDK, so it
+         cannot run in this build or in CI. Embedding keeps the .resw authoring
+         format and works for packaged and unpackaged builds alike.
+         Logical name ends up as StorageMaster.Core.Strings.<tag>.Resources.resw. -->
+    <EmbeddedResource Include="Strings\**\*.resw" />
+  </ItemGroup>
+
+  <ItemGroup>
     <InternalsVisibleTo Include="StorageMaster.Tests" />
   </ItemGroup>
 

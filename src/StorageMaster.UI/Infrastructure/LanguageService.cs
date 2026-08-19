@@ -1,4 +1,5 @@
-﻿using StorageMaster.Core.Models;
+﻿using StorageMaster.Core.Localization;
+using StorageMaster.Core.Models;
 using Windows.Globalization;
 
 namespace StorageMaster.UI.Infrastructure;
@@ -26,8 +27,9 @@ public static class LanguageService
     /// rather than derived from CultureInfo so the set cannot silently widen to
     /// languages that have no translations.
     /// </summary>
-    private const string English = "en-US";
-    private const string German = "de-DE";
+    private const string English = LocalizationCatalog.English;
+    private const string German = LocalizationCatalog.German;
+    private const string Spanish = LocalizationCatalog.Spanish;
 
     /// <summary>
     /// BCP-47 tag for a language, for callers that need to tag the visual tree.
@@ -36,6 +38,7 @@ public static class LanguageService
     {
         UiLanguage.English => English,
         UiLanguage.German => German,
+        UiLanguage.Spanish => Spanish,
         _ => string.Empty,
     };
 
@@ -51,12 +54,19 @@ public static class LanguageService
     /// </summary>
     public static void Apply(UiLanguage language)
     {
+        // The app's own strings are resolved by the catalogue, which does not
+        // depend on the override succeeding. Set it first so that even if the
+        // call below is ignored, everything StorageMaster itself writes is in the
+        // requested language.
+        LocalizationCatalog.SetLanguage(language);
+
         try
         {
             ApplicationLanguages.PrimaryLanguageOverride = language switch
             {
                 UiLanguage.English => English,
                 UiLanguage.German => German,
+                UiLanguage.Spanish => Spanish,
                 _ => string.Empty,
             };
         }

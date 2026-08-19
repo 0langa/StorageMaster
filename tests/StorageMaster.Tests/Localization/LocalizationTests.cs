@@ -1,7 +1,7 @@
 ﻿using System.Globalization;
 using System.Text.RegularExpressions;
-using System.Xml.Linq;
 using FluentAssertions;
+using StorageMaster.Core.Localization;
 
 namespace StorageMaster.Tests.Localization;
 
@@ -226,35 +226,21 @@ public sealed class LocalizationTests
         spanish["Safety_PermanentDelete"].Should().NotContain("papelera");
     }
 
+    /// <summary>
+    /// Reads through the catalogue rather than off disk, so these tests also fail
+    /// if the .resw files stop being embedded — which would leave the shipped app
+    /// showing raw resource keys while the files on disk still looked correct.
+    /// </summary>
     private static IReadOnlyDictionary<string, string> ReadResources(string language)
     {
-        var path = ResourcePath(language);
-        File.Exists(path).Should().BeTrue("resource file for {0} must exist at {1}", language, path);
+        var strings = LocalizationCatalog.Strings(language);
 
-        return XDocument.Load(path)
-            .Root!
-            .Elements("data")
-            .Where(e => e.Attribute("name") is not null)
-            .ToDictionary(
-                e => e.Attribute("name")!.Value,
-                e => e.Element("value")?.Value ?? string.Empty,
-                StringComparer.Ordinal);
-    }
+        strings.Should().NotBeEmpty(
+            "the {0} catalogue must be embedded in StorageMaster.Core; an empty one means "
+            + "the EmbeddedResource glob in StorageMaster.Core.csproj no longer matches",
+            language);
 
-    private static string ResourcePath(string language)
-    {
-        var directory = new DirectoryInfo(AppContext.BaseDirectory);
-        while (directory is not null)
-        {
-            var candidate = Path.Combine(
-                directory.FullName, "src", "StorageMaster.UI", "Strings", language, "Resources.resw");
-            if (File.Exists(candidate))
-                return candidate;
-
-            directory = directory.Parent;
-        }
-
-        throw new InvalidOperationException($"Could not locate the {language} resource file.");
+        return strings;
     }
 
     private static IReadOnlyList<string> Placeholders(string value) =>

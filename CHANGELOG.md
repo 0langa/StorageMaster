@@ -10,6 +10,23 @@ No unreleased changes.
 
 ---
 
+## [2.5.1] — 2026-08-19 — Capture at a real window size
+
+### Added
+
+- `--capture-screens` takes `--width` and `--height`, which set the window's
+  logical size. That is what reproduces a display-scale problem: scaling does not
+  change layout, which is in logical units — it changes how many logical units the
+  screen has. A 2880x1920 panel at 200 % leaves an app about 1440x900, so
+  capturing at the default window size showed 23 % more room than a user has and
+  would have hidden exactly the clipping being looked for.
+
+  With it, the German interface is confirmed intact at 200 %: the navigation rail
+  collapses to icons as designed, all five Results tabs still fit, and no text is
+  clipped.
+
+---
+
 ## [2.5.0] — 2026-08-19 — Off-screen screen capture
 
 ### Added

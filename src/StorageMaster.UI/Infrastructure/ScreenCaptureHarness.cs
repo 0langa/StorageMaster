@@ -26,6 +26,20 @@ public sealed class ScreenCaptureOptions
     public IReadOnlyList<string> Pages { get; init; } = [];
 
     /// <summary>
+    /// Logical size of the capture window.
+    /// <para>
+    /// This is what reproduces a display-scale problem. Scaling does not change
+    /// layout, which is in logical units — it changes how many logical units the
+    /// screen has. A 2880x1920 panel at 200 % leaves an app roughly 1440x900, so
+    /// capturing at the default window size shows more room than a user has and
+    /// quietly hides exactly the clipping being looked for.
+    /// </para>
+    /// </summary>
+    public int? Width { get; init; }
+
+    public int? Height { get; init; }
+
+    /// <summary>
     /// How long to let a page settle before capturing it. Pages load their data
     /// asynchronously, and a capture taken too early shows an empty state rather
     /// than the screen being reviewed.
@@ -55,6 +69,8 @@ public sealed class ScreenCaptureOptions
             Language = Value("--language"),
             Theme = Value("--theme"),
             Pages = Value("--pages")?.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries) ?? [],
+            Width = int.TryParse(Value("--width"), out var width) ? width : null,
+            Height = int.TryParse(Value("--height"), out var height) ? height : null,
             SettleMilliseconds = int.TryParse(settle, out var parsed) ? parsed : 2000,
         };
     }
@@ -94,12 +110,16 @@ public static class ScreenCaptureHarness
         // realizing layout, and RenderTargetBitmap then captures nothing.
         window.AppWindow.Move(OffScreen);
 
+        if (options.Width is int w && options.Height is int h)
+            window.AppWindow.Resize(new SizeInt32(w, h));
+
         var routes = options.Pages.Count > 0
             ? options.Pages.Where(NavigationRoutes.TagToPage.ContainsKey).ToArray()
             : NavigationRoutes.TagToPage.Keys.ToArray();
 
         var language = options.Language ?? LocalizationCatalog.ActiveLanguage;
         var theme = options.Theme ?? "default";
+        var size = options.Width is int width && options.Height is int height ? $"--{width}x{height}" : string.Empty;
         var captured = 0;
 
         foreach (var tag in routes)
@@ -114,7 +134,7 @@ public static class ScreenCaptureHarness
 
             await SettleAsync(window, options.SettleMilliseconds);
 
-            var path = Path.Combine(options.OutputDirectory, $"{tag}--{theme}--{language}.png");
+            var path = Path.Combine(options.OutputDirectory, $"{tag}--{theme}--{language}{size}.png");
 
             try
             {

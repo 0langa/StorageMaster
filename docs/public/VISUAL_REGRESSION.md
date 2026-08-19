@@ -19,6 +19,7 @@ StorageMaster's visual regression suite is intentionally desktop-gated. The app 
 ```
 StorageMaster.UI.exe --capture-screens <dir> [--language de-DE] [--theme dark|light]
                      [--pages Results,Settings] [--settle 2000]
+                     [--width 1440 --height 900]
 ```
 
 Renders each page to `<page>--<theme>--<language>.png` with the window parked
@@ -35,6 +36,21 @@ for L in de-DE es-ES en-US; do for T in dark light; do
   StorageMaster.UI.exe --capture-screens shots --language "$L" --theme "$T"
 done; done
 ```
+
+### Checking display scale
+
+`--width`/`--height` set the window's **logical** size, and that — not DPI — is what
+reproduces a scaling problem. Display scale does not change layout, which is in
+logical units; it changes how many logical units the screen has. This machine's
+2880x1920 panel at 200 % leaves an app about **1440x900**, so:
+
+```bash
+StorageMaster.UI.exe --capture-screens shots --language de-DE --width 1440 --height 900
+```
+
+Without it the capture window is larger than a user's, and it quietly hides the
+clipping being looked for. The size is appended to the file name so the two sets
+cannot be confused.
 
 Point `STORAGEMASTER_DATA_DIR` at a copy of a populated database to capture pages
 with real content; against an empty profile every page shows its empty state.

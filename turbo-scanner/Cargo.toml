@@ -1,6 +1,6 @@
 [package]
 name    = "turbo-scanner"
-version = "2.5.0"
+version = "2.5.1"
 edition = "2021"
 description = "High-performance parallel file system scanner for StorageMaster"
 

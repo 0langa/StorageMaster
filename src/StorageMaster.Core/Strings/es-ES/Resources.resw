@@ -1123,6 +1123,26 @@
     <value>Ruta más corta</value>
     <comment>[label] Drop-down entry: keep the copy with the shortest folder path.</comment>
   </data>
+  <data name="Enum_ScanStatus_Cancelled" xml:space="preserve">
+    <value>Cancelado</value>
+    <comment>[status] Scan state: the user stopped the scan.</comment>
+  </data>
+  <data name="Enum_ScanStatus_Completed" xml:space="preserve">
+    <value>Completado</value>
+    <comment>[status] Scan state in the navigation pane's status line.</comment>
+  </data>
+  <data name="Enum_ScanStatus_Failed" xml:space="preserve">
+    <value>Con errores</value>
+    <comment>[status] Scan state: the scan ended with an error.</comment>
+  </data>
+  <data name="Enum_ScanStatus_Interrupted" xml:space="preserve">
+    <value>Interrumpido</value>
+    <comment>[status] Scan state: the scan stopped without finishing, e.g. the app was closed.</comment>
+  </data>
+  <data name="Enum_ScanStatus_Running" xml:space="preserve">
+    <value>En curso</value>
+    <comment>[status] Scan state in the navigation pane's status line.</comment>
+  </data>
   <data name="Enum_ScheduledJobFrequency_Daily" xml:space="preserve">
     <value>Diariamente</value>
     <comment>[label] Scheduled job frequency drop-down entry.</comment>
@@ -1146,6 +1166,14 @@
   <data name="Enum_ScheduledJobKind_ScanAndReport" xml:space="preserve">
     <value>Análisis e informe</value>
     <comment>[label] Scheduled job type drop-down entry.</comment>
+  </data>
+  <data name="Enum_SpaceMapNodeKind_File" xml:space="preserve">
+    <value>Archivo</value>
+    <comment>[accessibility] Spoken before a treemap tile's name to say what it is.</comment>
+  </data>
+  <data name="Enum_SpaceMapNodeKind_Folder" xml:space="preserve">
+    <value>Carpeta</value>
+    <comment>[accessibility] Spoken before a treemap tile's name to say what it is.</comment>
   </data>
   <data name="Enum_ThemePreference_Dark" xml:space="preserve">
     <value>Oscuro</value>

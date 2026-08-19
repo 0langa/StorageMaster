@@ -1,4 +1,5 @@
 ﻿using Microsoft.UI;
+using StorageMaster.Core.Localization;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
@@ -82,7 +83,7 @@ public sealed class TreemapTileControl : Button
         BorderBrush = IsSelected ? label : NoRingBrush;
         BorderThickness = new Thickness(IsSelected ? 3 : 1);
         ToolTipService.SetToolTip(this, $"{LayoutNode.Node.FullPath}\n{ByteSizeConverter.Format(LayoutNode.Node.SizeBytes)} ({LayoutNode.Node.PercentOfParent:N1}% of parent)");
-        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(this, $"{LayoutNode.Node.Kind} {LayoutNode.Node.DisplayName}, {ByteSizeConverter.Format(LayoutNode.Node.SizeBytes)}");
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(this, $"{Loc.Get(EnumDisplayConverter.KeyFor(LayoutNode.Node.Kind))} {LayoutNode.Node.DisplayName}, {ByteSizeConverter.Format(LayoutNode.Node.SizeBytes)}");
         Content = BuildContent(LayoutNode, label);
     }
 

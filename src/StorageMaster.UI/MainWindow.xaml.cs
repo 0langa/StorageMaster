@@ -11,6 +11,7 @@ using Microsoft.UI.Windowing;
 using StorageMaster.UI.Infrastructure;
 using StorageMaster.Core.Interfaces;
 using StorageMaster.Core.Localization;
+using StorageMaster.UI.Converters;
 using StorageMaster.UI.Pages;
 using Windows.Graphics;
 
@@ -424,7 +425,8 @@ public sealed partial class MainWindow : Window
 
             var completed = latest.CompletedUtc?.ToLocalTime().ToString("g") ?? Loc.Get("Shell_ScanInProgress");
             LatestScanStatusText.Text = Loc.Format("Shell_LastScan", latest.RootPath);
-            PaneLatestScanText.Text = $"{latest.Status} · {completed}";
+            PaneLatestScanText.Text =
+                $"{Loc.Get(EnumDisplayConverter.KeyFor(latest.Status))} · {completed}";
         }
         catch (Exception ex)
         {

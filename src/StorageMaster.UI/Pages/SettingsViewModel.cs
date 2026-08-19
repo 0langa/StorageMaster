@@ -21,7 +21,8 @@ public sealed partial class ScheduledJobEditorItem : ObservableObject
 {
     public ScheduledTaskInfo Info { get; }
     public string Summary =>
-        $"{Info.Job.Kind} · {Info.Job.Frequency} · {Info.Job.StartTimeLocal}" +
+        $"{Loc.Get(EnumDisplayConverter.KeyFor(Info.Job.Kind))} · "
+        + $"{Loc.Get(EnumDisplayConverter.KeyFor(Info.Job.Frequency))} · {Info.Job.StartTimeLocal}" +
         (string.IsNullOrWhiteSpace(Info.Job.TargetPath) ? string.Empty : $" · {Info.Job.TargetPath}");
 
     public ScheduledJobEditorItem(ScheduledTaskInfo info) => Info = info;

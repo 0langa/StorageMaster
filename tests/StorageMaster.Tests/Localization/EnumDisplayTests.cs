@@ -3,6 +3,7 @@ using StorageMaster.Core.Cleanup;
 using StorageMaster.Core.Localization;
 using StorageMaster.Core.Models;
 using StorageMaster.Core.Scheduling;
+using StorageMaster.Core.SpaceMap;
 
 namespace StorageMaster.Tests.Localization;
 
@@ -36,9 +37,12 @@ public sealed class EnumDisplayTests
         typeof(DuplicateGroupSortBy),
         typeof(DuplicateScopeMode),
 
-        // Not a drop-down: the drive-health badge falls back to this enum for its
-        // caption, which is the same leak by a different route.
+        // Not drop-downs, but each is composed into text a user reads — the badge
+        // caption, the shell's status line, and a treemap tile's spoken name — and
+        // each leaked its identifier before it had strings.
         typeof(DriveHealthStatus),
+        typeof(ScanStatus),
+        typeof(SpaceMapNodeKind),
     ];
 
     [Theory]

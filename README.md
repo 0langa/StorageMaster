@@ -31,7 +31,7 @@ A Windows disk analyzer and storage cleaner built with **C# / .NET 8 / WinUI 3**
 | **Drive Health & Storage Sentinel** | Windows WMI/storage health snapshots, Dashboard warnings, dedicated Drive Health page, tray alerts, and CLI JSON reports |
 | **Scheduled tasks** | Windows Task Scheduler integration — daily/weekly scans and reviewable cleanup jobs; enabled unattended cleanup requires dedicated versioned consent |
 | **GitHub release updater** | Checks GitHub Releases, verifies digest/signature policy, downloads setup EXE, and launches installer on demand |
-| **Theme + retention settings** | Persisted light/dark/default theme, scan-history retention window, and uninstall-safe user data |
+| **Theme, language + retention settings** | Persisted light/dark/default theme with four selectable accents applied live, an interface-language pin (System/English/German) so WinUI's built-in control text matches the app, scan-history retention window, and uninstall-safe user data |
 
 ---
 
@@ -85,6 +85,7 @@ StorageMaster.UI.exe --cli dedupe scan --session <id> --methods exact,text,image
 StorageMaster.UI.exe --cli cleanup analyze --session <id> [--json <file>]
 StorageMaster.UI.exe --cli cleanup execute --session <id> --rules <csv> --recycle-bin|--quarantine --confirm
 StorageMaster.UI.exe --cli health report [--json <file>]
+StorageMaster.UI.exe --cli version
 StorageMaster.UI.exe --headless jobs run --id <job-id>
 ```
 
@@ -127,11 +128,14 @@ dotnet test tests/StorageMaster.Tests/StorageMaster.Tests.csproj
 
 ### WinUI desktop application
 
-Build the UI project with `dotnet build`; `Directory.Build.targets` enables the executable WinUI XAML compiler path used by CI:
+`Directory.Build.targets` enables the executable WinUI XAML compiler path used by CI. Build the UI project directly and name the platform:
 
 ```powershell
-dotnet build StorageMaster.sln -c Release
+dotnet build src/StorageMaster.UI/StorageMaster.UI.csproj -c Release -p:Platform=x64
+# Runnable exe: src\StorageMaster.UI\bin\x64\Release\net8.0-windows10.0.19041.0\StorageMaster.UI.exe
 ```
+
+`dotnet build StorageMaster.sln -c Release` builds every library and the test project, but the solution maps the UI project's `Any CPU` configuration to `x86` — so it does **not** refresh the x64 executable, which is the shipped configuration. If you are testing live app behaviour, build the UI csproj as above and check the exe's timestamp before trusting what you see.
 
 ### Build the Turbo Scanner (Rust)
 
@@ -296,9 +300,9 @@ Schema auto-migrates on first launch. Key tables:
 
 | Table | Purpose |
 |-------|---------|
-| `ScanSessions` | One row per scan run |
+| `ScanSessions` | One row per scan run, including the owning process so a scan abandoned by a crash can be told apart from a live one (schema v14) |
 | `FileEntries` | One row per file, FK → session, normalized path, nullable stable volume/file identity (schema v12) |
-| `FolderEntries` | One row per directory with aggregated sizes |
+| `FolderEntries` | One row per directory with aggregated sizes and a materialised parent path (schema v13) |
 | `ScanErrors` | Per-path errors (access denied, I/O) |
 | `CleanupLog` | Append-only deletion audit |
 | `Settings` | JSON-serialised `AppSettings` |
@@ -307,7 +311,18 @@ Schema auto-migrates on first launch. Key tables:
 | `DuplicateErrors` | Per-file dedupe errors and skipped reasons |
 | `QuarantinedFiles` | Original-to-quarantine path mapping for restore |
 | `DuplicateOperationJournal` | Planned and completed duplicate cleanup/restore operations for recovery inspection |
-| `DiagnosticsLog` | Internal event log for scheduler and CLI operations |
+| `DriveHealthSnapshots` | Per-drive health readings captured from the local Windows storage APIs |
+
+Scheduled jobs are not a table of their own: they live inside the `AppSettings` JSON document alongside their consent fingerprint, and the OS-side trigger lives in Windows Task Scheduler.
+
+Schema migrations run on the first database access after an upgrade, each level applied and stamped in one transaction. To check which level a database is on:
+
+```powershell
+sqlite3 "$env:LOCALAPPDATA\StorageMaster\storagemaster.db" "SELECT MAX(Version) FROM SchemaVersion;"
+```
+
+<!-- schema-version: 15 -->
+The expected value is `DatabaseSchema.CurrentVersion` for the build you are running — schema v15 at the time of writing. A lower number means migration has not run yet; it happens on first database access after an upgrade, not at install time.
 
 Uninstall keeps `%LOCALAPPDATA%\StorageMaster` by default, so the database and settings survive reinstall/upgrade cycles.
 

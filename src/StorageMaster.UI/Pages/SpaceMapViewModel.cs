@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Text;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Microsoft.UI.Dispatching;
 using StorageMaster.Core.Interfaces;
 using StorageMaster.Core.Models;
 using StorageMaster.Core.SpaceMap;
@@ -14,6 +15,21 @@ namespace StorageMaster.UI.Pages;
 public sealed partial class SpaceMapViewModel : ObservableObject
 {
     private const int ChildLimit = 450;
+
+    /// <summary>
+    /// Sizes closer than this to the current layout are not a new layout. WinUI
+    /// reports fractional sizes at 200 % scale, so an exact comparison never matches
+    /// and every frame of a drag would rebuild the map.
+    /// </summary>
+    private const double LayoutTolerancePixels = 0.5;
+
+    /// <summary>
+    /// How long changes are collected before the last one is applied. Long enough to
+    /// swallow a burst of drag frames, short enough that the map feels attached to the
+    /// window edge the user is pulling.
+    /// </summary>
+    private static readonly TimeSpan ResizeCoalescingWindow = TimeSpan.FromMilliseconds(120);
+
     private readonly ISpaceMapRepository _spaceMapRepository;
     private readonly INavigationService _navigation;
     private readonly TreemapLayoutService _layoutService = new();
@@ -21,6 +37,9 @@ public sealed partial class SpaceMapViewModel : ObservableObject
     private IReadOnlyList<SpaceMapNode> _currentNodes = [];
     private double _layoutWidth = 960;
     private double _layoutHeight = 560;
+    private double _pendingLayoutWidth = 960;
+    private double _pendingLayoutHeight = 560;
+    private DispatcherQueueTimer? _resizeCoalescing;
     private bool _suppressSessionReload;
     private long _loadGeneration;
 
@@ -100,14 +119,43 @@ public sealed partial class SpaceMapViewModel : ObservableObject
 
     public void CancelPendingLoad() => _loadCts?.Cancel();
 
+    /// <summary>
+    /// Accepts a new canvas size from the page's SizeChanged handler.
+    /// <para>
+    /// SizeChanged fires on every frame of a window drag and a relayout tears down and
+    /// rebuilds every treemap tile, so the raw event stream cannot drive layout
+    /// directly. Three filters apply, in order: sub-pixel noise is dropped, the first
+    /// real size is applied at once — it is the one the page reports on its first
+    /// measure pass, and delaying it would leave the map blank — and anything that
+    /// arrives while the coalescing window is open is collapsed into a single relayout
+    /// with the last size seen.
+    /// </para>
+    /// </summary>
     public void ResizeLayout(double width, double height)
     {
         if (width <= 0 || height <= 0)
             return;
 
-        _layoutWidth = width;
-        _layoutHeight = height;
-        Relayout();
+        if (IsWithinLayoutTolerance(width, height))
+            return;
+
+        _pendingLayoutWidth = width;
+        _pendingLayoutHeight = height;
+
+        _resizeCoalescing ??= CreateResizeCoalescingTimer();
+        if (_resizeCoalescing is null)
+        {
+            // No dispatcher on this thread (headless host): there is no frame loop to
+            // coalesce against, so apply directly.
+            ApplyPendingLayout();
+            return;
+        }
+
+        if (_resizeCoalescing.IsRunning)
+            return;
+
+        ApplyPendingLayout();
+        _resizeCoalescing.Start();
     }
 
     partial void OnMinimumSizeMbChanged(double value)
@@ -473,6 +521,44 @@ public sealed partial class SpaceMapViewModel : ObservableObject
             // protects future reload implementations from becoming naked tasks.
             StatusText = $"Space map reload failed: {ex.Message}";
         }
+    }
+
+    private bool IsWithinLayoutTolerance(double width, double height) =>
+        Math.Abs(width - _layoutWidth) <= LayoutTolerancePixels &&
+        Math.Abs(height - _layoutHeight) <= LayoutTolerancePixels;
+
+    private DispatcherQueueTimer? CreateResizeCoalescingTimer()
+    {
+        var queue = DispatcherQueue.GetForCurrentThread();
+        if (queue is null)
+            return null;
+
+        var timer = queue.CreateTimer();
+        timer.Interval = ResizeCoalescingWindow;
+        timer.IsRepeating = false;
+        timer.Tick += (_, _) => OnResizeCoalescingWindowClosed();
+        return timer;
+    }
+
+    /// <summary>
+    /// Applies the last size seen during the window, if it still differs from what is
+    /// on screen. A drag that is still in progress simply opens a new window on its
+    /// next event, which caps the map at one rebuild per window rather than one per
+    /// frame.
+    /// </summary>
+    private void OnResizeCoalescingWindowClosed()
+    {
+        if (IsWithinLayoutTolerance(_pendingLayoutWidth, _pendingLayoutHeight))
+            return;
+
+        ApplyPendingLayout();
+    }
+
+    private void ApplyPendingLayout()
+    {
+        _layoutWidth = _pendingLayoutWidth;
+        _layoutHeight = _pendingLayoutHeight;
+        Relayout();
     }
 
     private void Relayout()

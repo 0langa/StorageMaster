@@ -11,11 +11,6 @@ internal readonly partial record struct SemanticVersion(
 {
     private static readonly StringComparer IdentifierComparer = StringComparer.OrdinalIgnoreCase;
 
-    public static SemanticVersion FromVersion(Version version) => new(
-        version.Major,
-        version.Minor,
-        version.Build >= 0 ? version.Build : 0);
-
     public static string NormalizeTag(string tag) => tag.Trim().TrimStart('v', 'V');
 
     public static bool TryParseTag(string tag, out SemanticVersion version)

@@ -5,12 +5,26 @@ using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using StorageMaster.Core.Models;
 using StorageMaster.Core.SpaceMap;
+using StorageMaster.Core.Theming;
 using StorageMaster.UI.Converters;
 
 namespace StorageMaster.UI.Controls;
 
 public sealed class TreemapTileControl : Button
 {
+    /// <summary>
+    /// Relative luminance at which a near-black label overtakes a white one for the
+    /// WCAG ratio. <c>PaletteUsageContrastTests</c> holds the categorical ramp to
+    /// this same crossover, so every fill the theme can produce stays labellable.
+    /// </summary>
+    private const double LuminanceCrossover = 0.18;
+
+    private static readonly SolidColorBrush OnLightFillBrush =
+        new(Windows.UI.Color.FromArgb(0xFF, 0x0E, 0x11, 0x16));
+    private static readonly SolidColorBrush OnDarkFillBrush = new(Colors.White);
+    private static readonly SolidColorBrush UncategorisedFillBrush = new(Colors.Gray);
+    private static readonly SolidColorBrush NoRingBrush = new(Colors.Transparent);
+
     public static readonly DependencyProperty LayoutNodeProperty =
         DependencyProperty.Register(nameof(LayoutNode), typeof(SpaceMapLayoutNode), typeof(TreemapTileControl), new PropertyMetadata(null, OnTileChanged));
 
@@ -51,20 +65,25 @@ public sealed class TreemapTileControl : Button
         if (LayoutNode is null)
             return;
 
+        var fill = FillBrushFor(LayoutNode.Node);
+        var label = LabelBrushFor(fill);
+
         Width = Math.Max(0, LayoutNode.Width - 3);
         Height = Math.Max(0, LayoutNode.Height - 3);
-        Background = new SolidColorBrush(ColorFor(LayoutNode.Node));
-        BorderBrush = new SolidColorBrush(IsSelected ? Colors.White : Colors.Transparent);
+        Background = fill;
+        // The selection ring is drawn in the tile's own label colour instead of a
+        // fixed white, so it stays visible on a pale categorical fill in light theme.
+        BorderBrush = IsSelected ? label : NoRingBrush;
         BorderThickness = new Thickness(IsSelected ? 3 : 1);
         ToolTipService.SetToolTip(this, $"{LayoutNode.Node.FullPath}\n{ByteSizeConverter.Format(LayoutNode.Node.SizeBytes)} ({LayoutNode.Node.PercentOfParent:N1}% of parent)");
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(this, $"{LayoutNode.Node.Kind} {LayoutNode.Node.DisplayName}, {ByteSizeConverter.Format(LayoutNode.Node.SizeBytes)}");
-        Content = BuildContent(LayoutNode);
+        Content = BuildContent(LayoutNode, label);
     }
 
     private void OnPointerEntered(object sender, PointerRoutedEventArgs e)
     {
         Opacity = 0.92;
-        BorderBrush = new SolidColorBrush(Colors.White);
+        BorderBrush = LabelBrushFor(Background);
     }
 
     private void OnPointerExited(object sender, PointerRoutedEventArgs e)
@@ -82,7 +101,13 @@ public sealed class TreemapTileControl : Button
         }
     }
 
-    private static UIElement BuildContent(SpaceMapLayoutNode layout)
+    /// <summary>
+    /// Builds the tile label. The label brush is assigned per TextBlock rather than
+    /// inherited from the control: the Button template swaps its own foreground in the
+    /// pointer-over and pressed visual states, which would drop the tile back to the
+    /// theme foreground exactly while the user is looking at it.
+    /// </summary>
+    private static UIElement BuildContent(SpaceMapLayoutNode layout, Brush label)
     {
         if (layout.Width < 64 || layout.Height < 32)
             return new Grid();
@@ -94,6 +119,7 @@ public sealed class TreemapTileControl : Button
             TextTrimming = TextTrimming.CharacterEllipsis,
             TextWrapping = TextWrapping.NoWrap,
             FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+            Foreground = label,
         });
 
         if (layout.Width >= 92 && layout.Height >= 52)
@@ -104,24 +130,61 @@ public sealed class TreemapTileControl : Button
                 TextTrimming = TextTrimming.CharacterEllipsis,
                 Opacity = 0.78,
                 FontSize = 12,
+                Foreground = label,
             });
         }
 
         return panel;
     }
 
-    private static Windows.UI.Color ColorFor(SpaceMapNode node) => node.Kind == SpaceMapNodeKind.Folder
-        ? Colors.SlateBlue
+    /// <summary>
+    /// Resolves the tile fill from the shared <c>FileType*Brush</c> resources — the
+    /// very keys the Space Map legend paints its swatches from.
+    /// <para>
+    /// These colours used to be named <c>Colors.*</c> constants here while the legend
+    /// carried its own hex values in XAML. The two sets drifted far enough that the
+    /// legend showed videos as magenta while the map drew them red, so the key
+    /// actively misled. Resolving one palette by key makes that drift impossible, and
+    /// because <c>ThemeService</c> mutates those brushes in place the map follows a
+    /// theme or accent change without being rebuilt.
+    /// </para>
+    /// </summary>
+    private static Brush FillBrushFor(SpaceMapNode node) =>
+        (Application.Current.Resources.TryGetValue(FillKeyFor(node), out var resource)
+            ? resource as Brush
+            : null)
+        ?? UncategorisedFillBrush;
+
+    private static string FillKeyFor(SpaceMapNode node) => node.Kind == SpaceMapNodeKind.Folder
+        ? "FileTypeFolderBrush"
         : node.Category switch
         {
-            FileTypeCategory.Image => Colors.SeaGreen,
-            FileTypeCategory.Video => Colors.IndianRed,
-            FileTypeCategory.Audio => Colors.DarkCyan,
-            FileTypeCategory.Archive => Colors.DarkGoldenrod,
-            FileTypeCategory.Executable => Colors.DimGray,
-            FileTypeCategory.Document => Colors.RoyalBlue,
-            FileTypeCategory.SourceCode => Colors.Teal,
-            FileTypeCategory.Cache or FileTypeCategory.Temporary => Colors.Peru,
-            _ => Colors.Gray,
+            FileTypeCategory.Image => "FileTypeImageBrush",
+            FileTypeCategory.Video => "FileTypeVideoBrush",
+            FileTypeCategory.Audio => "FileTypeAudioBrush",
+            FileTypeCategory.Archive => "FileTypeArchiveBrush",
+            FileTypeCategory.Executable or FileTypeCategory.Installer => "FileTypeExecutableBrush",
+            FileTypeCategory.Document => "FileTypeDocumentBrush",
+            FileTypeCategory.SourceCode => "FileTypeSourceCodeBrush",
+            FileTypeCategory.Cache or FileTypeCategory.Temporary or FileTypeCategory.Log => "FileTypeCacheBrush",
+            FileTypeCategory.SystemFile => "FileTypeSystemBrush",
+            _ => "FileTypeOtherBrush",
         };
+
+    /// <summary>
+    /// Chooses the label colour for a given fill. The theme foreground is wrong here:
+    /// the categorical ramp is light in dark theme and dark in light theme, so a
+    /// single inherited foreground is unreadable on half the tiles either way. Picking
+    /// near-black or white by the fill's relative luminance is the rule
+    /// <c>PaletteUsageContrastTests</c> mirrors against the catalogue.
+    /// </summary>
+    internal static Brush LabelBrushFor(Brush? fill)
+    {
+        if (fill is not SolidColorBrush solid)
+            return OnDarkFillBrush;
+
+        var luminance = ColorContrast.RelativeLuminance(
+            new Rgb(solid.Color.R, solid.Color.G, solid.Color.B));
+        return luminance > LuminanceCrossover ? OnLightFillBrush : OnDarkFillBrush;
+    }
 }

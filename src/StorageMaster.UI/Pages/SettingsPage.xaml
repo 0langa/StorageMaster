@@ -337,6 +337,20 @@
                         AutomationProperties.Name="Purge old scan history"
                         AutomationProperties.HelpText="Permanently removes scan sessions older than the retention days." />
 
+                <Border Style="{StaticResource SubtleCardStyle}">
+                    <StackPanel Spacing="8">
+                        <TextBlock Text="Space used by StorageMaster" Style="{StaticResource SectionHeaderTextStyle}" />
+                        <TextBlock Text="{x:Bind DatabaseSizeText, Mode=OneWay}" Style="{StaticResource MetricTextStyle}" />
+                        <TextBlock Text="Scan history, duplicate signatures and drive-health samples, including the write-ahead log. Deleting history frees space inside the file but does not shrink it until the database is compacted."
+                                   Style="{StaticResource HelperTextStyle}" />
+                        <Button Content="Compact database"
+                                Command="{x:Bind CompactDatabaseCommand}"
+                                IsEnabled="{x:Bind CanCompact, Mode=OneWay}"
+                                AutomationProperties.Name="Compact database"
+                                AutomationProperties.HelpText="Rebuilds the database file to release space already freed by deleted scan history. No scan data is removed." />
+                    </StackPanel>
+                </Border>
+
                 <TextBlock Text="Installer uninstall now preserves your database and settings in %LOCALAPPDATA%\StorageMaster by default."
                            Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.7" TextWrapping="Wrap" />
             </StackPanel>

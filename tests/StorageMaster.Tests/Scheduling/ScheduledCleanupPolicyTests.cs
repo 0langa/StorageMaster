@@ -6,10 +6,32 @@ namespace StorageMaster.Tests.Scheduling;
 
 public sealed class ScheduledCleanupPolicyTests
 {
-    [Fact]
-    public void BlankRules_ExpandToExactCentralDefaults()
+    // GetEffectiveRules is the only way to reach the safe default set — the
+    // separate DefaultRuleTokens accessor was removed as unreferenced, so both
+    // "no value" forms are pinned here to keep the unattended-cleanup default
+    // set covered.
+    [Theory]
+    [InlineData("  ")]
+    [InlineData("")]
+    [InlineData(null)]
+    public void BlankRules_ExpandToExactCentralDefaults(string? rulesCsv)
     {
-        ScheduledCleanupPolicy.GetEffectiveRules("  ").Should().Equal(
+        ScheduledCleanupPolicy.GetEffectiveRules(rulesCsv).Should().Equal(
+            "TempFiles",
+            "CacheFolders",
+            "BrowserCache",
+            "WindowsUpdateCache",
+            "DeliveryOptimization",
+            "WindowsErrorReporting",
+            "DownloadedInstallers");
+    }
+
+    // A rules string that parses to nothing must fall back to the same safe
+    // defaults rather than to an empty rule set.
+    [Fact]
+    public void SeparatorOnlyRules_FallBackToCentralDefaults()
+    {
+        ScheduledCleanupPolicy.GetEffectiveRules(" , ; , ").Should().Equal(
             "TempFiles",
             "CacheFolders",
             "BrowserCache",

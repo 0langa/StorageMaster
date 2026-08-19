@@ -1,5 +1,7 @@
 # StorageMaster 3.0 audit
 
+> **Snapshot, not current state.** Retained for history. Version and schema references below are as of the time it was written (schema v8). `RELIABILITY_AUDIT_2026-08-18.md` is the later disposition, and `ARCHITECTURE.md` / `CODEMAP.md` describe the current source.
+
 StorageMaster already contains much of the StorageMaster 3.0 surface: exact SHA-256 duplicate detection, normalized-text review, image pHash, video pHash integration through FFmpeg, keeper policies, quarantine/restore records, SQLite persistence, WinUI duplicate review, CLI/headless workflows, and deletion hardening tests.
 
 ## Architecture boundaries

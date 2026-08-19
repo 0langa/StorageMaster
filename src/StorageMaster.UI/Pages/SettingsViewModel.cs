@@ -34,6 +34,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     private readonly StartupRegistrationService _startupRegistration;
     private readonly ThemeService? _themeService;
     private UiLanguage _savedLanguage = UiLanguage.System;
+    private readonly IDatabaseMaintenance? _database;
     private AppSettings _loadedSettings = new();
     private AppSettings? _editorSnapshot;
 
@@ -58,6 +59,13 @@ public sealed partial class SettingsViewModel : ObservableObject
     [ObservableProperty] private AccentOption? _accent;
     [ObservableProperty] private UiLanguage _language = UiLanguage.System;
     [ObservableProperty] private bool _languageRestartPending;
+    [ObservableProperty] private string _databaseSizeText = "Calculating…";
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanCompact))]
+    private bool _isCompacting;
+
+    /// <summary>False while a compaction is running, so the button cannot re-enter.</summary>
+    public bool CanCompact => !IsCompacting;
     [ObservableProperty] private int _scanHistoryRetentionDays = 365;
 
     // ── Cleanup default rule toggles ─────────────────────────────────────
@@ -315,9 +323,11 @@ public sealed partial class SettingsViewModel : ObservableObject
         ILocalDiagnosticsService diagnostics,
         IScheduledTaskService scheduledTaskService,
         StartupRegistrationService startupRegistration,
-        ThemeService? themeService = null)
+        ThemeService? themeService = null,
+        IDatabaseMaintenance? database = null)
     {
         _themeService = themeService;
+        _database = database;
         _repo = repo;
         _updateService = updateService;
         _scanRepository = scanRepository;
@@ -749,8 +759,9 @@ public sealed partial class SettingsViewModel : ObservableObject
                 .ToArray();
 
             await Task.WhenAll(deletions);
+            await RefreshDatabaseSizeAsync();
             await ShowSavedMessageAsync(deletions.Length > 0
-                ? $"Deleted {deletions.Length} old scan session(s)."
+                ? $"Deleted {deletions.Length} old scan session(s). Compact the database to release the space on disk."
                 : "No scan history matched the current retention window.");
         }
         catch (Exception ex)
@@ -1222,6 +1233,79 @@ public sealed partial class SettingsViewModel : ObservableObject
             }
         }
     }
+
+    /// <summary>
+    /// Local byte formatter. The shared converter lives in the Converters namespace,
+    /// which XAML also imports; keeping this view model independent of it avoids
+    /// coupling a presentation helper into the settings surface.
+    /// </summary>
+    private static string FormatBytes(long bytes)
+    {
+        string[] units = ["B", "KB", "MB", "GB", "TB"];
+        double value = bytes;
+        var unit = 0;
+        while (value >= 1024 && unit < units.Length - 1)
+        {
+            value /= 1024;
+            unit++;
+        }
+
+        return unit == 0 ? $"{bytes} B" : $"{value:0.##} {units[unit]}";
+    }
+
+    /// <summary>
+    /// Reports how much disk StorageMaster's own database occupies. Without this the
+    /// user has no way to notice it growing; one real database reached 1.68 GB
+    /// unnoticed, most of it abandoned scan sessions.
+    /// </summary>
+    public async Task RefreshDatabaseSizeAsync()
+    {
+        if (_database is null)
+        {
+            DatabaseSizeText = "Unavailable";
+            return;
+        }
+
+        try
+        {
+            DatabaseSizeText = FormatBytes(await _database.GetDatabaseSizeBytesAsync());
+        }
+        catch (Exception)
+        {
+            DatabaseSizeText = "Unavailable";
+        }
+    }
+
+    /// <summary>
+    /// Rebuilds the database file so deleted scan history is actually released.
+    /// Deleting sessions frees pages inside the file but never shrinks it, so without
+    /// this the file only ever grows.
+    /// </summary>
+    [RelayCommand]
+    private async Task CompactDatabaseAsync()
+    {
+        if (_database is null || IsCompacting)
+            return;
+
+        IsCompacting = true;
+        try
+        {
+            var reclaimed = await _database.CompactAsync();
+            await RefreshDatabaseSizeAsync();
+            await ShowSavedMessageAsync(reclaimed > 0
+                ? $"Compacted the database and released {FormatBytes(reclaimed)}."
+                : "Database compacted. There was no unused space to release.");
+        }
+        catch (Exception ex)
+        {
+            ReportOperationFailure("Could not compact the database. No scan data was removed.", ex);
+        }
+        finally
+        {
+            IsCompacting = false;
+        }
+    }
+
 }
 
 /// <summary>One selectable accent, as shown in Settings.</summary>

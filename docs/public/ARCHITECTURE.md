@@ -1,7 +1,9 @@
 # StorageMaster — Architecture Overview
 
+<!-- schema-version: 15 -->
+
 > **Version:** 2.2.1 | **Current-state review:** 2026-08-18 | **Framework:** .NET 8 / WinUI 3 / Windows App SDK 1.6
-> **Current-state note:** StorageMaster uses schema v12, independent pooled SQLite connection leases, persisted scan-time file identity, a managed/Rust scanner boundary, dedicated duplicate recovery, and fail-closed deletion guards. See `RELIABILITY_AUDIT_2026-08-18.md` for verified hardening and remaining limits.
+> **Current-state note:** StorageMaster uses schema v15, independent pooled SQLite connection leases, persisted scan-time file identity, a managed/Rust scanner boundary, dedicated duplicate recovery, and fail-closed deletion guards. `DatabaseSchema.CurrentVersion` is authoritative for the schema number; a test asserts this document agrees with it. See `RELIABILITY_AUDIT_2026-08-18.md` for verified hardening and remaining limits (that audit is a dated snapshot and describes the schema as of v12).
 
 ---
 
@@ -135,7 +137,9 @@ Pure SQLite persistence:
 | `CleanupLogRepository` | Append-only audit log |
 | `SettingsRepository` | JSON-serialized `AppSettings` as a key-value row |
 
-Schema v8 adds `DuplicateOperationJournal`; v9 adds generic-quarantine restore support; v10 repairs the quarantine-member foreign key; v11 normalizes folder identity and collapses Windows case variants conservatively; v12 persists nullable volume/file identity for scan rows. Historical identity-less rows remain readable for analysis but cannot authorize scan-backed deletion until rescanned. Duplicate deletion writes intent before filesystem operations and records final state afterward, so interrupted or partial duplicate operations can be inspected after restart.
+Schema v8 adds `DuplicateOperationJournal`; v9 adds generic-quarantine restore support; v10 repairs the quarantine-member foreign key; v11 normalizes folder identity and collapses Windows case variants conservatively; v12 persists nullable volume/file identity for scan rows; v13 materializes `FolderEntries.ParentNormalizedPath` plus a `(SessionId, ParentNormalizedPath, TotalSizeBytes DESC)` index so parent/child lookups stop deriving the relationship inside the predicate; v14 adds `ScanSessions.OwnerProcessId` / `OwnerProcessStartedUtc` so a session left `Running` by a crash can be told apart from a live scan; v15 indexes the `FileEntries(Id)` cascade referrers (`DuplicateGroupMembers`, `DuplicateGroups`, `DuplicateErrors`, `DuplicateSignatures`) and adds `DuplicateErrors(RunId, FileEntryId)`.
+
+Historical identity-less rows remain readable for analysis but cannot authorize scan-backed deletion until rescanned. Duplicate deletion writes intent before filesystem operations and records final state afterward, so interrupted or partial duplicate operations can be inspected after restart.
 
 ### StorageMaster.UI
 
@@ -190,17 +194,29 @@ FileTypeCategory (14 values)
     Unknown | Document | Image | Video | Audio | Archive | Executable
     SourceCode | Database | Temporary | SystemFile | Installer | Log | Cache
 
-CleanupCategory (13 values)
+CleanupCategory (19 values)
     RecycleBin | TempFiles | DownloadedInstallers | CacheFolders | LargeOldFiles
-    DuplicateFiles | LogFiles | Custom | BrowserCache | WindowsUpdateCache
-    ProgramLeftovers | DeliveryOptimization | WindowsErrorReporting
+    DuplicateFiles | LogFiles | BrowserCache | WindowsUpdateCache
+    ProgramLeftovers | DeliveryOptimization | WindowsErrorReporting | Custom
+    ThumbnailCache | IconCache | FontCache | DnsCache | PrefetchFiles | StoreLogs
 
 CleanupRisk (4 values)
     Safe | Low | Medium | High
 
-ScanStatus (4 values)
-    Running | Completed | Cancelled | Failed
+ScanStatus (5 values)
+    Running | Completed | Cancelled | Failed | Interrupted
 ```
+
+`Interrupted` is written by startup recovery, not by a scanner. A session row records the
+process that owns it (`OwnerProcessId` + `OwnerProcessStartedUtc`, schema v14). At startup
+`ScanSessionRecoveryService` reads the most recent sessions, compares each `Running` one
+against the live StorageMaster processes, and marks those no process claims as
+`Interrupted`, keeping whatever partial totals were already persisted. The recorded start
+time is part of the match because Windows recycles process ids; only StorageMaster
+processes count as owners, so an unrelated program that inherited an id cannot pin a dead
+session. A headless CLI scan running alongside the UI is a live owner and is left alone.
+Rows written before v14 carry NULL ownership and are treated as unowned. Failure to
+reconcile is logged and never blocks startup.
 
 ---
 
@@ -368,21 +384,25 @@ SmartCleanerService.CleanAsync(groups, method, progress)
 
 ## 8. Database architecture
 
-### Schema (v12 current)
+### Schema (v15 current)
 
 ```sql
 SchemaVersion     (Version INTEGER, AppliedUtc TEXT)
 
 ScanSessions      (Id PK, RootPath, StartedUtc, CompletedUtc, Status,
                    TotalSizeBytes, TotalFiles, TotalFolders,
-                   AccessDeniedCount, ErrorMessage)
+                   AccessDeniedCount, ErrorMessage,
+                   OwnerProcessId NULL, OwnerProcessStartedUtc NULL)
 
 FileEntries       (Id PK, SessionId FK→CASCADE, FullPath, FileName, Extension,
                    SizeBytes, CreatedUtc, ModifiedUtc, AccessedUtc,
                    Attributes, Category, IsReparsePoint,
-                   IdentityVolumeSerial NULL, IdentityFileIndex NULL)
+                   NormalizedFullPath NULL,
+                   IdentityVolumeSerial NULL, IdentityFileIndex NULL,
+                   UNIQUE(SessionId, NormalizedFullPath))
 
 FolderEntries     (Id PK, SessionId FK→CASCADE, FullPath, NormalizedFullPath,
+                   ParentNormalizedPath NULL,
                    FolderName, DirectSizeBytes, TotalSizeBytes,
                    FileCount, SubFolderCount, IsReparsePoint, WasAccessDenied,
                    UNIQUE(SessionId, NormalizedFullPath))
@@ -404,9 +424,18 @@ IX_FileEntries_Extension       ON FileEntries(SessionId, Extension)
 UX_FileEntries_Session_NormalizedFullPath ON FileEntries(SessionId, NormalizedFullPath)
 IX_FolderEntries_Session_Size  ON FolderEntries(SessionId, TotalSizeBytes DESC)
 UX_FolderEntries_Session_NormalizedFullPath ON FolderEntries(SessionId, NormalizedFullPath)
+IX_FolderEntries_Session_Parent_Size ON FolderEntries(SessionId, ParentNormalizedPath, TotalSizeBytes DESC)
+
+-- v15: SQLite must locate child rows for every cascaded delete, so each
+-- FileEntries(Id) referrer is indexed on its referencing column.
+IX_DuplicateGroupMembers_FileEntryId ON DuplicateGroupMembers(FileEntryId)
+IX_DuplicateGroups_RepresentativeFileEntryId ON DuplicateGroups(RepresentativeFileEntryId)
+IX_DuplicateErrors_FileEntryId ON DuplicateErrors(FileEntryId)
+IX_DuplicateSignatures_FileEntryId ON DuplicateSignatures(FileEntryId)
+IX_DuplicateErrors_Run_File    ON DuplicateErrors(RunId, FileEntryId)
 ```
 
-These are primary scan-query and identity indexes; `DatabaseSchema.cs` defines additional duplicate, quarantine, journal, health, and path indexes.
+These are primary scan-query, identity, and cascade indexes; `DatabaseSchema.cs` defines additional duplicate, quarantine, journal, health, and path indexes.
 
 ### SQLite configuration
 
@@ -422,7 +451,12 @@ WAL mode normally allows the UI to read committed results while a scan writes. S
 
 ### Migration strategy
 
-`StorageDbContext` obtains an immediate SQLite writer reservation, re-reads `SchemaVersion` inside that reservation, then applies every missing version through v12 and stamps each version in the same transaction. Some migrations rebuild tables to change constraints, so migrations are not append-column-only.
+`StorageDbContext` obtains an immediate SQLite writer reservation, re-reads `SchemaVersion` inside that reservation, then applies every missing level up to `DatabaseSchema.CurrentVersion` and stamps each level in the same transaction. Some migrations rebuild tables to change constraints (v9, v10, v11), so migrations are not append-column-only.
+
+Two rules constrain how a new level may be written:
+
+- **Never compute path casing in SQL.** SQLite's `upper()` is ASCII-only, while the application normalizes with `ToUpperInvariant`; the two disagree on any path containing non-ASCII letters. A backfill must derive from an already-normalized column, as v13 does when it splits the parent off `NormalizedFullPath`. Levels v6 and v11 predate the rule and did normalize in SQL — see [Known limitations](#15-known-limitations).
+- **Never edit an existing level.** A shipped level has already run against user databases; changing it means those databases and a fresh one diverge while both report the same version.
 
 ### Batch insert pattern
 
@@ -502,17 +536,21 @@ Rules use category-specific canonical roots and policy flags. `UninstalledProgra
 
 ```
 MainWindow
-  └── NavigationView (PaneDisplayMode=Left)
-        ├── NavigationViewItem: Dashboard     → DashboardPage
-        ├── NavigationViewItem: Scan          → ScanPage
-        ├── NavigationViewItem: Scan Workspace→ ScanWorkspacePage
-        ├── NavigationViewItem: Results       → ResultsPage
-        ├── NavigationViewItem: Space Map     → SpaceMapPage
-        ├── NavigationViewItem: Duplicates    → DuplicatesPage
-        ├── NavigationViewItem: Cleanup       → CleanupPage
-        ├── NavigationViewItem: Smart Cleaner → SmartCleanerPage
-        ├── NavigationViewItem: Drive Health  → DriveHealthPage
-        └── SettingsItem                      → SettingsPage
+  └── NavigationView (PaneDisplayMode=Auto, grouped by header)
+        ├── Overview
+        │     └── Dashboard        → DashboardPage
+        ├── Analyze
+        │     ├── Scan             → ScanPage
+        │     ├── Scan Workspace   → ScanWorkspacePage
+        │     ├── Results          → ResultsPage
+        │     ├── Space Map        → SpaceMapPage
+        │     └── Duplicates       → DuplicatesPage
+        ├── Clean
+        │     ├── Cleanup          → CleanupPage
+        │     └── Smart Cleaner    → SmartCleanerPage
+        ├── Monitor
+        │     └── Drive Health     → DriveHealthPage
+        └── SettingsItem           → SettingsPage
                 │
                 └── Frame (ContentFrame)
                       NavigationService.NavigateTo(Type)
@@ -541,11 +579,21 @@ Pages prefer `{x:Bind}` for page/ViewModel members and use `{Binding}` inside da
 
 Before creating `App`, `Program.Main()` installs a `DispatcherQueueSynchronizationContext` for the UI thread. `Progress<T>` instances created on that context post callbacks back to it. Scan, Cleanup, and Smart Cleaner also capture the current `DispatcherQueue` and explicitly enqueue progress updates as a defensive boundary.
 
+### Theming
+
+`ThemeCatalog` (Core, `StorageMaster.Core/Theming`) holds the palette as plain data — light and dark neutral ramps, severity colours, and the selectable accents — so contrast can be checked by an ordinary unit test before any of it reaches a screen, and adding an accent is a data change rather than a resource-dictionary migration. `ThemeService` (UI) projects the catalogue into application resources under an `Sm` key prefix and **mutates the existing `SolidColorBrush` objects in place** rather than swapping merged dictionaries. That is what makes an accent change appear immediately: an element resolves a `StaticResource` once at load and never looks again, but it keeps a reference to the brush, so changing the brush's `Color` updates everything already bound to it. WinUI's own theme resources stay in use for control chrome.
+
+The persisted `AccentId` is a string, not an enum, so an accent retired in a later version degrades to the default instead of failing to deserialize.
+
+### Display scaling
+
+Pages must remain usable at 200 % display scale. In practice that means no star-sized panel that can starve to zero height, and bounded `MinHeight`/`MaxHeight` on long lists inside scrollable pages so they keep virtualizing.
+
 ---
 
 ## 11. Dependency injection wiring
 
-All DI configuration lives in `ServiceBootstrapper.BuildServices()`.
+All DI configuration lives in `ServiceBootstrapper.BuildServices()`, which is authoritative. The listing below is representative of the shape, not an exhaustive registration dump.
 
 ```
 Singletons (one instance for app lifetime):
@@ -564,6 +612,8 @@ IAdminService                  → AdminService
 IInstalledProgramProvider      → InstalledProgramProvider
 IFileIdentityProvider          → FileIdentityProvider
 INoFollowFileEnumerator        → NoFollowFileEnumerator
+ScanSessionRecoveryService     → (concrete; run once from App startup)
+ThemeService                   → (concrete; publishes runtime palette brushes)
 FileScanner                    → concrete singleton (managed scanner)
 TurboFileScanner               → concrete singleton (Rust-backed; wraps FileScanner as fallback)
 IFileScanner                   → FileScanner (default; ScanViewModel selects turbo at runtime)
@@ -691,6 +741,9 @@ User navigates to Results (parameter: sessionId)
 | Rust + jwalk for Turbo Scanner | Work-stealing at configured parallelism; actual managed/native performance depends on filesystem and storage |
 | Batch `IFileOperation` for Recycle Bin | One shell operation for all paths, followed by per-path outcome verification |
 | Bottom-up `FolderSizeAggregator` | Deterministic deepest-first aggregation in O(n log n) time after enumeration/final flush |
+| Materialized `ParentNormalizedPath` (schema v13) | Parent/child relationships are stored, not derived in the predicate. `substr()` on a column and a BINARY compare against a `COLLATE NOCASE` index both defeat indexing, so tree and drill-down queries previously degraded to a per-session scan |
+| Indexed cascade referrers (schema v15) | `PRAGMA foreign_keys=ON` makes SQLite locate child rows for every parent row deleted; unindexed referencing columns turned each cascade step into a full child-table scan, which is the path behind "Delete scan" and "Purge old history" |
+| File metadata read from the enumeration buffer | `FileSystemEnumerable` exposes size, attributes, and timestamps from the directory enumeration itself, avoiding a second `stat` per file. The same `EnumerationOptions` drive it, so hidden/system filtering is unchanged |
 
 ---
 
@@ -730,7 +783,8 @@ The `CleanupEngine` discovers all `IEnumerable<ICleanupRule>` from DI automatica
 | **Scanner boundary races** | Turbo holds strong no-follow ancestor locks where Windows permits them; ACL-protected ancestors and queued descendants retain a narrow same-privilege swap window | Persisted identity and downstream snapshot/no-follow deletion fail closed; see reliability audit |
 | **Turbo Scanner folders** | Native records do not carry aggregate folder totals | Host computes and persists direct/subtree metrics after enumeration |
 | **Visualization scope** | Native Space Map treemap exists with CSV/HTML/PNG export; no WebView2/D3 dependency | Continue with scale polish and richer reports |
-| **Localization** | English only | Future localization work |
+| **Localization** | The app's own strings are English only | A Settings **Language** option (`System` / `English` / `German`) sets `ApplicationLanguages.PrimaryLanguageOverride`, which controls the text WinUI supplies for built-in controls — without it a German Windows install produced an English app with German toggle switches. It does not translate StorageMaster's own text; the override applies to controls created after it is set, so the page reports that a restart is needed |
+| **Legacy non-ASCII folder paths** | Schema levels v6 and v11 backfilled `NormalizedFullPath` with SQLite's ASCII-only `upper()`, while the app matches on `ToUpperInvariant` | A database that already held folder rows with non-ASCII paths (umlauts, accents) when it upgraded through those levels stores a value the app cannot match: the affected subtrees render as empty in the folder tree and Space Map drill-down, and scoped duplicate scans skip them. Rescanning the root writes correct values. Sessions created after the upgrade are unaffected, and no file data is at risk |
 | **Smart Cleaner log** | Smart Cleaner cleanup uses `IFileDeleter` directly; not routed through `CleanupEngine` | `SmartCleanerService` writes synthetic results to `CleanupLog` |
 | **pHash threshold changes** | A duplicate-analysis run uses one settings snapshot for consistency | Saved threshold changes apply to the next analysis, not an already-running one |
 | **FFmpeg for video previews** | Video preview/keyframe support requires both `ffmpeg.exe` and `ffprobe.exe` | Resolver checks the configured executable, bundled app tools, then PATH; guidance appears when absent |

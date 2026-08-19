@@ -155,6 +155,17 @@ public sealed partial class DuplicatesViewModel : ObservableObject
         int SelectedMemberCount,
         IReadOnlyList<DuplicateDeletionGroupPlan> Groups);
 
+    /// <summary>
+    /// Everything the UI needs after a plan has run. Returned as one value so the
+    /// offloaded loop hands its results back at a single point rather than writing
+    /// into view-model state from the pool.
+    /// </summary>
+    private sealed record DuplicateDeletionOutcome(
+        long ProcessedBytes,
+        int DeletedFileCount,
+        IReadOnlyList<string> GroupErrors,
+        IReadOnlyList<string> PersistenceWarnings);
+
     private readonly IScanRepository _scanRepository;
     private readonly ISettingsRepository _settingsRepository;
     private readonly IDuplicateFinderService _duplicateFinderService;
@@ -740,9 +751,13 @@ public sealed partial class DuplicatesViewModel : ObservableObject
     [RelayCommand]
     private async Task ExportCsvAsync()
     {
-        if (LatestRun is null)
+        // The run is captured before the writer leaves the UI thread. Read from the
+        // pool it could describe a run the user has since replaced, or be nulled out
+        // half-way through the report. The other two writers capture the summary too.
+        var run = LatestRun;
+        if (run is null)
             return;
-        await RunExportAsync("csv", async (filePath, ct) =>
+        await RunExportAsync("csv", async (filePath, progress, ct) =>
         {
             await using var stream = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.Read);
             await using var writer = new StreamWriter(stream);
@@ -753,7 +768,7 @@ public sealed partial class DuplicatesViewModel : ObservableObject
             {
                 ct.ThrowIfCancellationRequested();
                 var groups = await _duplicateRepository.GetDuplicateGroupsPageAsync(
-                    LatestRun.Id, page, GroupPageSize, null, DuplicateGroupSortBy.ReclaimableBytesDesc, ct);
+                    run.Id, page, GroupPageSize, null, DuplicateGroupSortBy.ReclaimableBytesDesc, ct);
                 if (groups.Count == 0)
                     break;
 
@@ -778,7 +793,7 @@ public sealed partial class DuplicatesViewModel : ObservableObject
                 }
 
                 page++;
-                UpdateExportProgress(ct, $"Exporting CSV page {page - 1:N0}…");
+                progress.Report($"Exporting CSV page {page - 1:N0}…");
             }
         });
     }
@@ -786,18 +801,20 @@ public sealed partial class DuplicatesViewModel : ObservableObject
     [RelayCommand]
     private async Task ExportJsonAsync()
     {
-        if (LatestRun is null)
+        var run = LatestRun;
+        if (run is null)
             return;
-        await RunExportAsync("json", async (filePath, ct) =>
+        var summary = _runSummary;
+        await RunExportAsync("json", async (filePath, progress, ct) =>
         {
             await using var stream = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.Read);
             using var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = true });
 
             writer.WriteStartObject();
             writer.WritePropertyName("run");
-            JsonSerializer.Serialize(writer, LatestRun);
+            JsonSerializer.Serialize(writer, run);
             writer.WritePropertyName("summary");
-            JsonSerializer.Serialize(writer, _runSummary);
+            JsonSerializer.Serialize(writer, summary);
             writer.WritePropertyName("settings");
             JsonSerializer.Serialize(writer, await _settingsRepository.LoadAsync(ct));
 
@@ -808,12 +825,15 @@ public sealed partial class DuplicatesViewModel : ObservableObject
             {
                 ct.ThrowIfCancellationRequested();
                 var groups = await _duplicateRepository.GetDuplicateGroupsPageAsync(
-                    LatestRun.Id, page, GroupPageSize, null, DuplicateGroupSortBy.ReclaimableBytesDesc, ct);
+                    run.Id, page, GroupPageSize, null, DuplicateGroupSortBy.ReclaimableBytesDesc, ct);
                 if (groups.Count == 0)
                     break;
 
                 foreach (var group in groups)
                 {
+                    // Per group, as in the CSV writer: a page is many queries and a
+                    // cancelled export must stop at the next group, not the next page.
+                    ct.ThrowIfCancellationRequested();
                     var members = await _duplicateRepository.GetDuplicateGroupMembersAsync(group.Id, ct);
                     writer.WriteStartObject();
                     writer.WriteNumber("id", group.Id);
@@ -827,7 +847,7 @@ public sealed partial class DuplicatesViewModel : ObservableObject
                 }
 
                 page++;
-                UpdateExportProgress(ct, $"Exporting JSON page {page - 1:N0}…");
+                progress.Report($"Exporting JSON page {page - 1:N0}…");
                 await writer.FlushAsync(ct);
             }
 
@@ -840,9 +860,11 @@ public sealed partial class DuplicatesViewModel : ObservableObject
     [RelayCommand]
     private async Task ExportHtmlAsync()
     {
-        if (LatestRun is null)
+        var run = LatestRun;
+        if (run is null)
             return;
-        await RunExportAsync("html", async (filePath, ct) =>
+        var summary = _runSummary;
+        await RunExportAsync("html", async (filePath, progress, ct) =>
         {
             await using var stream = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.Read);
             await using var writer = new StreamWriter(stream);
@@ -850,8 +872,8 @@ public sealed partial class DuplicatesViewModel : ObservableObject
             await writer.WriteLineAsync("<html><head><meta charset=\"utf-8\"><title>StorageMaster Duplicate Report</title>");
             await writer.WriteLineAsync("<style>body{font-family:Segoe UI,Arial,sans-serif;padding:24px;}table{border-collapse:collapse;width:100%;}th,td{border:1px solid #ddd;padding:8px;}th{background:#f3f3f3;text-align:left;}tr:nth-child(even){background:#fafafa}</style>");
             await writer.WriteLineAsync("</head><body>");
-            await writer.WriteLineAsync($"<h1>StorageMaster Duplicate Report (Run {LatestRun.Id})</h1>");
-            await writer.WriteLineAsync($"<p>Generated {DateTime.Now:G}. Groups: {_runSummary.GroupCount:N0}, Reclaimable: {ByteSizeConverter.Format(_runSummary.ReclaimableBytes)}</p>");
+            await writer.WriteLineAsync($"<h1>StorageMaster Duplicate Report (Run {run.Id})</h1>");
+            await writer.WriteLineAsync($"<p>Generated {DateTime.Now:G}. Groups: {summary.GroupCount:N0}, Reclaimable: {ByteSizeConverter.Format(summary.ReclaimableBytes)}</p>");
             await writer.WriteLineAsync("<table><thead><tr><th>Group</th><th>Method</th><th>Confidence</th><th>Reclaimable</th><th>Keeper</th><th>Duplicate</th></tr></thead><tbody>");
 
             var page = 1;
@@ -859,12 +881,15 @@ public sealed partial class DuplicatesViewModel : ObservableObject
             {
                 ct.ThrowIfCancellationRequested();
                 var groups = await _duplicateRepository.GetDuplicateGroupsPageAsync(
-                    LatestRun.Id, page, GroupPageSize, null, DuplicateGroupSortBy.ReclaimableBytesDesc, ct);
+                    run.Id, page, GroupPageSize, null, DuplicateGroupSortBy.ReclaimableBytesDesc, ct);
                 if (groups.Count == 0)
                     break;
 
                 foreach (var group in groups)
                 {
+                    // Per group, as in the CSV writer: a page is many queries and a
+                    // cancelled export must stop at the next group, not the next page.
+                    ct.ThrowIfCancellationRequested();
                     var members = await _duplicateRepository.GetDuplicateGroupMembersAsync(group.Id, ct);
                     var keeper = members.FirstOrDefault(static m => m.IsKeeper)?.FullPath ?? string.Empty;
                     foreach (var member in members.Where(static m => !m.IsKeeper))
@@ -881,7 +906,7 @@ public sealed partial class DuplicatesViewModel : ObservableObject
                 }
 
                 page++;
-                UpdateExportProgress(ct, $"Exporting HTML page {page - 1:N0}…");
+                progress.Report($"Exporting HTML page {page - 1:N0}…");
             }
 
             await writer.WriteLineAsync("</tbody></table></body></html>");
@@ -988,34 +1013,28 @@ public sealed partial class DuplicatesViewModel : ObservableObject
             if (!confirmed || !IsCurrentLifetime(lifetimeVersion))
                 return;
 
-            long processedBytes = 0;
-            var processedFileCount = 0;
-            var groupErrors = new List<string>();
-            var persistenceWarnings = new List<string>();
-            foreach (var groupPlan in plan.Groups)
+            // Created here, on the UI thread, so Progress<T> captures the dispatcher's
+            // synchronisation context: the pool thread reports text and the assignment
+            // to the bound property still happens on the UI thread.
+            var progress = new Progress<string>(text =>
             {
-                // One group failing (e.g. its keeper vanished) must not abort
-                // the remaining reviewed groups.
-                try
-                {
-                    var result = await _duplicateDeletionService.DeleteSelectedWithResultAsync(
-                        groupPlan.Group,
-                        groupPlan.Members,
-                        plan.Method);
-                    processedBytes += result.ProcessedBytes;
-                    processedFileCount += result.DeletedFileCount;
-                    persistenceWarnings.AddRange(result.Warnings.Select(warning =>
-                        $"Group {groupPlan.Group.Id}, {warning.Path}: {warning.Message}"));
-                }
-                catch (Exception ex)
-                {
-                    groupErrors.Add($"Group {groupPlan.Group.Id}: {ex.Message}");
-                }
-            }
+                if (IsCurrentLifetime(lifetimeVersion))
+                    StatusText = text;
+            });
+
+            // Deleting a page of duplicates re-reads and SHA-256-hashes every selected
+            // file before touching it. Awaited straight from the command, that work
+            // runs on the dispatcher and the window stops redrawing for the whole run.
+            // The plan is already frozen, so the loop needs nothing from the UI thread.
+            var outcome = await Task.Run(() => ExecuteDeletionPlanAsync(plan, progress));
 
             if (!IsCurrentLifetime(lifetimeVersion))
                 return;
 
+            var processedBytes = outcome.ProcessedBytes;
+            var processedFileCount = outcome.DeletedFileCount;
+            var groupErrors = outcome.GroupErrors;
+            var persistenceWarnings = outcome.PersistenceWarnings;
             var processedSize = ByteSizeConverter.Format(processedBytes);
             var operationSummary = plan.Method switch
             {
@@ -1045,6 +1064,59 @@ public sealed partial class DuplicatesViewModel : ObservableObject
             if (IsCurrentLifetime(lifetimeVersion))
                 IsDeleting = false;
         }
+    }
+
+    /// <summary>
+    /// Executes a frozen deletion plan group by group. Runs on the thread pool: it
+    /// reads nothing from the view model and writes nothing to it, reporting progress
+    /// through <paramref name="progress"/> instead, so every bound property is still
+    /// only ever assigned on the UI thread.
+    /// <para>
+    /// Deliberately not cancellable. The plan is confirmed work on the user's files:
+    /// navigating away must not abandon a run half-way between the filesystem move and
+    /// the quarantine restore record that makes it undoable.
+    /// </para>
+    /// </summary>
+    private async Task<DuplicateDeletionOutcome> ExecuteDeletionPlanAsync(
+        DuplicateDeletionPlan plan,
+        IProgress<string> progress)
+    {
+        long processedBytes = 0;
+        var processedFileCount = 0;
+        var groupErrors = new List<string>();
+        var persistenceWarnings = new List<string>();
+        var completedGroups = 0;
+
+        foreach (var groupPlan in plan.Groups)
+        {
+            // One group failing (e.g. its keeper vanished) must not abort
+            // the remaining reviewed groups.
+            try
+            {
+                var result = await _duplicateDeletionService.DeleteSelectedWithResultAsync(
+                    groupPlan.Group,
+                    groupPlan.Members,
+                    plan.Method).ConfigureAwait(false);
+                processedBytes += result.ProcessedBytes;
+                processedFileCount += result.DeletedFileCount;
+                persistenceWarnings.AddRange(result.Warnings.Select(warning =>
+                    $"Group {groupPlan.Group.Id}, {warning.Path}: {warning.Message}"));
+            }
+            catch (Exception ex)
+            {
+                groupErrors.Add($"Group {groupPlan.Group.Id}: {ex.Message}");
+            }
+
+            completedGroups++;
+            progress.Report(
+                $"Deleting duplicates… {completedGroups:N0} of {plan.Groups.Count:N0} group(s) processed.");
+        }
+
+        return new DuplicateDeletionOutcome(
+            processedBytes,
+            processedFileCount,
+            groupErrors,
+            persistenceWarnings);
     }
 
     private DuplicateDeletionPlan? CaptureDeletionPlan()
@@ -1461,7 +1533,19 @@ public sealed partial class DuplicatesViewModel : ObservableObject
                 member.PropertyChanged -= OnMemberPropertyChanged;
     }
 
-    private async Task RunExportAsync(string extension, Func<string, CancellationToken, Task> exportAction)
+    /// <summary>
+    /// Runs one report writer and owns the surrounding UI state.
+    /// <para>
+    /// A report walks the whole run with a query per group. Run from the dispatcher it
+    /// competes with the Cancel Export button it is supposed to let the user press, so
+    /// the writer is handed to the pool and only its status text comes back — through
+    /// an <see cref="IProgress{T}"/> created here, on the UI thread, rather than by
+    /// assigning a bound property from the worker.
+    /// </para>
+    /// </summary>
+    private async Task RunExportAsync(
+        string extension,
+        Func<string, IProgress<string>, CancellationToken, Task> exportAction)
     {
         if (LatestRun is null || IsExporting)
             return;
@@ -1483,7 +1567,13 @@ public sealed partial class DuplicatesViewModel : ObservableObject
         ExportStatusText = $"Exporting {extension.ToUpperInvariant()} report…";
         try
         {
-            await exportAction(filePath, ct);
+            var progress = new Progress<string>(status =>
+            {
+                if (!ct.IsCancellationRequested && IsCurrentExport(lifetimeVersion, exportCts))
+                    ExportStatusText = status;
+            });
+
+            await Task.Run(() => exportAction(filePath, progress, ct), ct);
             ct.ThrowIfCancellationRequested();
             if (!IsCurrentExport(lifetimeVersion, exportCts))
                 return;
@@ -1518,12 +1608,6 @@ public sealed partial class DuplicatesViewModel : ObservableObject
             }
             exportCts.Dispose();
         }
-    }
-
-    private void UpdateExportProgress(CancellationToken ct, string status)
-    {
-        if (!ct.IsCancellationRequested && _exportCts?.Token == ct)
-            ExportStatusText = status;
     }
 
     public void CancelBackgroundWork()

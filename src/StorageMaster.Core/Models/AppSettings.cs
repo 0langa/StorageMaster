@@ -66,14 +66,20 @@ public sealed class AppSettings
     /// <summary>
     /// Interface language. See <see cref="UiLanguage"/> for why this exists.
     /// <para>
-    /// Defaults to English rather than System because the app's own strings are
-    /// English and no translation ships yet. Following Windows produced the exact
-    /// defect this setting exists to fix — an English app whose switches read
-    /// "Ein"/"Aus" on a German install. When real translations land, the default
-    /// should move back to <see cref="UiLanguage.System"/>.
+    /// Follows Windows by default, as a Windows application is expected to. This
+    /// was pinned to English for as long as English was the only language the app
+    /// had: following Windows then produced the very defect the setting exists to
+    /// fix — an English app whose switches read "Ein"/"Aus" on a German install.
+    /// German and Spanish now ship, so the pin is gone.
+    /// </para>
+    /// <para>
+    /// Upgrading users have no Language in their persisted settings and so pick
+    /// this up: a German install that showed English before will come up in German.
+    /// That is the intent. Anyone who wants English regardless can choose it, and
+    /// their choice is then stored explicitly.
     /// </para>
     /// </summary>
-    public UiLanguage Language { get; set; } = UiLanguage.English;
+    public UiLanguage Language { get; set; } = UiLanguage.System;
     public int ScanHistoryRetentionDays { get; set; } = 365;
 
     // ── Cleanup rule toggles (persisted, can be overridden per-session) ─────

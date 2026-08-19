@@ -162,7 +162,7 @@ public partial class App : Application
     /// </para>
     /// </summary>
     /// <summary>Language resolved at startup, reused when tagging the visual tree.</summary>
-    private static UiLanguage _startupLanguage = UiLanguage.English;
+    private static UiLanguage _startupLanguage = UiLanguage.System;
 
     private static void ApplyStartupLanguage()
     {

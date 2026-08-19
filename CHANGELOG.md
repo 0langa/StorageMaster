@@ -10,6 +10,26 @@ No unreleased changes.
 
 ---
 
+## [2.4.1] — 2026-08-19 — Follow Windows by default
+
+### Fixed
+
+- A fresh install now follows the Windows display language instead of defaulting
+  to English. 2.4.0 shipped German and Spanish but left the language setting
+  pinned to English, so a German user installed the app, saw an English
+  interface, and would reasonably conclude there was no German.
+
+  The pin was deliberate while English was the only language there was — following
+  Windows then produced the exact defect the setting exists to fix, an English app
+  whose switches read "Ein"/"Aus". The note on the property said to move it back
+  once real translations shipped; 2.4.0 shipped them without doing so.
+
+  Upgrading users have no language stored and so pick this up: a German install
+  that showed English before comes up in German. Anyone who wants English
+  regardless can choose it, and that choice is then stored explicitly.
+
+---
+
 ## [2.4.0] — 2026-08-19 — German and Spanish
 
 StorageMaster now speaks German and Spanish as well as English. Around a thousand

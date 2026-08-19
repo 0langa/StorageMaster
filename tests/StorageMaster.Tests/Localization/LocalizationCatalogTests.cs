@@ -90,6 +90,20 @@ public sealed class LocalizationCatalogTests : IDisposable
     public void SystemLanguageCollapsesOntoAShippedCatalogue(string osCulture, string expected)
         => LocalizationCatalog.FromCulture(new CultureInfo(osCulture)).Should().Be(expected);
 
+    /// <summary>
+    /// A fresh install follows Windows.
+    /// <para>
+    /// This was deliberately pinned to English while English was the only language
+    /// the app had, and the note on the property said to move it back once real
+    /// translations shipped. They have. Asserting it here so the pin cannot quietly
+    /// return: with it in place, a German user installing the app sees an English
+    /// interface and reasonably concludes there is no German.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void AFreshInstallFollowsTheWindowsDisplayLanguage()
+        => new AppSettings().Language.Should().Be(UiLanguage.System);
+
     [Fact]
     public void EveryUiLanguageValueResolvesToAShippedCatalogue()
     {

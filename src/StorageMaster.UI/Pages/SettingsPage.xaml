@@ -39,6 +39,30 @@
                 </StackPanel>
 
                 <StackPanel Spacing="4">
+                    <TextBlock Text="Accent" Style="{StaticResource CaptionTextBlockStyle}" />
+                    <ComboBox ItemsSource="{x:Bind AccentOptions}"
+                              SelectedItem="{x:Bind Accent, Mode=TwoWay}"
+                              DisplayMemberPath="DisplayName"
+                              AutomationProperties.Name="Accent colour"
+                              AutomationProperties.HelpText="Accent used for emphasis and selection. Every accent is contrast-checked in both themes." />
+                    <TextBlock Text="Applies immediately. Severity colours stay fixed so a warning always reads as a warning."
+                               Style="{StaticResource HelperTextStyle}" />
+                </StackPanel>
+
+                <StackPanel Spacing="4">
+                    <TextBlock Text="Language" Style="{StaticResource CaptionTextBlockStyle}" />
+                    <ComboBox ItemsSource="{x:Bind LanguageOptions, Mode=OneWay}"
+                              SelectedItem="{x:Bind Language, Mode=TwoWay}"
+                              AutomationProperties.Name="Interface language"
+                              AutomationProperties.HelpText="Also pins the text Windows supplies for built-in controls, so the interface is not half translated." />
+                    <InfoBar IsOpen="{x:Bind LanguageRestartPending, Mode=OneWay}"
+                             Severity="Informational"
+                             IsClosable="False"
+                             Title="Restart required"
+                             Message="Windows supplies the text for built-in controls when they are created, so the new language applies after StorageMaster restarts." />
+                </StackPanel>
+
+                <StackPanel Spacing="4">
                     <TextBlock Text="UI density" Style="{StaticResource CaptionTextBlockStyle}" />
                     <ComboBox ItemsSource="{x:Bind UiDensityOptions, Mode=OneWay}"
                               SelectedItem="{x:Bind UiDensity, Mode=TwoWay}"

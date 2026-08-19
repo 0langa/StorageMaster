@@ -34,12 +34,26 @@ public partial class App : Application
         TaskScheduler.UnobservedTaskException += OnUnobservedTaskException;
 
         Services ??= ServiceBootstrapper.BuildServices();
+
+        // The language override is read by the resource system when a control is
+        // created, so it has to be set before any content exists. Settings are read
+        // synchronously here for that reason; the file is tiny and this runs once.
+        ApplyStartupLanguage();
+
         InitializeComponent();
     }
 
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
+        // Brush resources must exist before any page loads: an unresolved
+        // StaticResource is a load-time failure, not a fallback.
+        var theme = Services.GetRequiredService<Infrastructure.ThemeService>();
+        theme.EnsureResources();
+
         _window = Services.GetRequiredService<MainWindow>();
+        if (_window.Content is FrameworkElement themeRoot)
+            theme.Attach(themeRoot);
+
         _window.Activate();
         _ = ApplyRequestedThemeAsync();
         _ = ReconcileAbandonedScansAsync();
@@ -108,25 +122,45 @@ public partial class App : Application
     {
         try
         {
-            if (_window?.Content is not FrameworkElement root)
+            if (_window?.Content is not FrameworkElement)
                 return;
 
-            var settings = await Services
-                .GetRequiredService<ISettingsRepository>()
-                .LoadAsync()
+            // ThemeService owns both the element theme and the palette, so they can
+            // never drift apart.
+            await Services
+                .GetRequiredService<Infrastructure.ThemeService>()
+                .ApplyFromSettingsAsync()
                 .ConfigureAwait(true);
-
-            root.RequestedTheme = settings.Theme switch
-            {
-                ThemePreference.Light => ElementTheme.Light,
-                ThemePreference.Dark => ElementTheme.Dark,
-                _ => ElementTheme.Default,
-            };
         }
         catch (Exception ex)
         {
             Services.GetRequiredService<ILogger<App>>()
                 .LogDebug(ex, "Failed to apply requested theme");
+        }
+    }
+
+    /// <summary>
+    /// Applies the persisted interface language before any UI is constructed.
+    /// <para>
+    /// Failure here is deliberately silent: an unreadable settings file must not
+    /// stop the app from starting, and the fallback — letting Windows choose — is
+    /// exactly what <see cref="UiLanguage.System"/> means anyway.
+    /// </para>
+    /// </summary>
+    private static void ApplyStartupLanguage()
+    {
+        try
+        {
+            var settings = Services.GetRequiredService<ISettingsRepository>()
+                .LoadAsync()
+                .GetAwaiter()
+                .GetResult();
+
+            Infrastructure.LanguageService.Apply(settings.Language);
+        }
+        catch (Exception)
+        {
+            Infrastructure.LanguageService.Apply(UiLanguage.System);
         }
     }
 

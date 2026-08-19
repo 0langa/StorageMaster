@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace StorageMaster.Core.Models;
@@ -8,6 +8,23 @@ public enum ThemePreference
     Default,
     Light,
     Dark,
+}
+
+/// <summary>
+/// Which language the interface uses.
+/// <para>
+/// This is not cosmetic. WinUI supplies its own text for built-in controls — a
+/// ToggleSwitch renders "On"/"Off" or "Ein"/"Aus" — and it follows the Windows
+/// language, not the app's strings. On a German Windows install that produced an
+/// English app with German switches. Pinning the language makes both halves agree.
+/// </para>
+/// </summary>
+public enum UiLanguage
+{
+    /// <summary>Follow Windows.</summary>
+    System,
+    English,
+    German,
 }
 
 public enum UiDensity
@@ -36,6 +53,17 @@ public sealed class AppSettings
     public bool UseTurboScanner { get; set; } = false;
     public IList<string> ExcludedPaths { get; set; } = [];
     public ThemePreference Theme { get; set; } = ThemePreference.Default;
+
+    /// <summary>
+    /// Identifier of the selected accent, resolved through
+    /// <see cref="Theming.ThemeCatalog.ResolveAccent"/>. Stored as a string rather
+    /// than an enum so an accent retired in a future version degrades to the
+    /// default instead of failing to deserialise.
+    /// </summary>
+    public string AccentId { get; set; } = Theming.ThemeCatalog.DefaultAccentId;
+
+    /// <summary>Interface language. See <see cref="UiLanguage"/> for why this exists.</summary>
+    public UiLanguage Language { get; set; } = UiLanguage.System;
     public int ScanHistoryRetentionDays { get; set; } = 365;
 
     // ── Cleanup rule toggles (persisted, can be overridden per-session) ─────

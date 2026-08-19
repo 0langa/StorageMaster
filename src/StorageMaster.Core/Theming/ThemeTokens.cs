@@ -1,18 +1,8 @@
-namespace StorageMaster.Core.Theming;
+﻿namespace StorageMaster.Core.Theming;
 
 /// <summary>Which of the two base surfaces a palette describes.</summary>
 public enum ThemeMode
 {
-    Dark,
-    Light,
-}
-
-/// <summary>
-/// How the app picks a <see cref="ThemeMode"/>. Stored in settings.
-/// </summary>
-public enum ThemePreference
-{
-    System,
     Dark,
     Light,
 }

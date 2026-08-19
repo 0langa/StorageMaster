@@ -484,8 +484,8 @@ public sealed partial class SettingsViewModel : ObservableObject
         {
             case SettingsCategory.General:
                 Theme = defaults.Theme;
-            Language = defaults.Language;
-            Accent = AccentOptions.FirstOrDefault(a => a.Id == ThemeCatalog.ResolveAccent(defaults.AccentId).Id);
+                Language = defaults.Language;
+                Accent = AccentOptions.FirstOrDefault(a => a.Id == ThemeCatalog.ResolveAccent(defaults.AccentId).Id);
                 DefaultScanPath = defaults.DefaultScanPath;
                 UiDensity = defaults.UiDensity;
                 ReduceAnimations = defaults.ReduceAnimations;

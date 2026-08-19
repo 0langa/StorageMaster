@@ -641,18 +641,6 @@ public sealed class ScanRepository : IScanRepository
         return await cmd.ExecuteScalarAsync(ct).ConfigureAwait(false) as string ?? string.Empty;
     }
 
-    private static string NormalizeDirectoryPath(string path)
-    {
-        try
-        {
-            return ScanOptionValidator.NormalizeDirectoryPath(path);
-        }
-        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
-        {
-            return path.Trim();
-        }
-    }
-
     public async Task UpdateFolderTotalsAsync(
         long sessionId,
         IReadOnlyDictionary<string, long> pathToTotal,

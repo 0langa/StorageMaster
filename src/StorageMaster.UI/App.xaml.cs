@@ -50,6 +50,12 @@ public partial class App : Application
         var theme = Services.GetRequiredService<Infrastructure.ThemeService>();
         theme.EnsureResources();
 
+        // Seed the palette with its defaults before any window exists. The persisted
+        // preference is applied moments later, but without this seed every palette
+        // brush is transparent for the first frame — which is invisible on a surface
+        // and very visible on text.
+        theme.Apply(ThemePreference.Default, accentId: null);
+
         _window = Services.GetRequiredService<MainWindow>();
         if (_window.Content is FrameworkElement themeRoot)
             theme.Attach(themeRoot);
@@ -151,8 +157,13 @@ public partial class App : Application
     {
         try
         {
-            var settings = Services.GetRequiredService<ISettingsRepository>()
-                .LoadAsync()
+            // Task.Run, then block. Blocking directly on LoadAsync deadlocks: the
+            // repository hops to the thread pool and its continuation marshals back
+            // to this thread, which is the one waiting. Running the whole chain
+            // inside Task.Run gives it no SynchronizationContext to return to, so
+            // the continuation completes on the pool and this wait always finishes.
+            var settings = Task.Run(() =>
+                    Services.GetRequiredService<ISettingsRepository>().LoadAsync())
                 .GetAwaiter()
                 .GetResult();
 

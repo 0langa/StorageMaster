@@ -1,4 +1,4 @@
-<Page
+﻿<Page
     x:Class="StorageMaster.UI.Pages.DashboardPage"
     x:Name="PageRoot"
     AutomationProperties.Name="Dashboard page"
@@ -43,7 +43,7 @@
                         <TextBlock Text="Recommended next step" Style="{StaticResource MetricLabelTextStyle}" />
                         <TextBlock Text="{x:Bind ViewModel.RecommendedActionText, Mode=OneWay}"
                                    Style="{StaticResource BodyStrongTextBlockStyle}"
-                                   Foreground="{ThemeResource SmAccentOnSurfaceBrush}"
+                                   Foreground="{StaticResource SmAccentOnSurfaceBrush}"
                                    TextWrapping="WrapWholeWords" />
                         <TextBlock Text="{x:Bind ViewModel.LatestScanSummary, Mode=OneWay}" Style="{StaticResource HelperTextStyle}" />
                     </StackPanel>

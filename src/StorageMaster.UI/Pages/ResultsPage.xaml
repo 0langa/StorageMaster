@@ -1,4 +1,4 @@
-<Page
+﻿<Page
     x:Class="StorageMaster.UI.Pages.ResultsPage"
     x:Name="PageRoot"
     AutomationProperties.Name="Results page"
@@ -330,14 +330,14 @@
                         <PivotItem.Header>
                             <StackPanel Orientation="Horizontal" Spacing="6">
                                 <TextBlock Text="Errors"/>
-                                <Border BorderBrush="{ThemeResource SmSeverityCriticalTextBrush}"
+                                <Border BorderBrush="{StaticResource SmSeverityCriticalTextBrush}"
                                         BorderThickness="1"
                                         CornerRadius="{StaticResource ChipCornerRadius}" Padding="6,1"
                                         Visibility="{x:Bind ViewModel.HasErrors, Mode=OneWay, Converter={StaticResource BoolVis}}">
                                     <TextBlock Text="{x:Bind ViewModel.ErrorCount, Mode=OneWay}"
                                                Style="{StaticResource CaptionTextBlockStyle}"
                                                FontWeight="SemiBold"
-                                               Foreground="{ThemeResource SmSeverityCriticalTextBrush}"/>
+                                               Foreground="{StaticResource SmSeverityCriticalTextBrush}"/>
                                 </Border>
                             </StackPanel>
                         </PivotItem.Header>
@@ -368,7 +368,7 @@
                                         <TextBlock Grid.Column="1"
                                                    Text="{Binding ErrorType}"
                                                    VerticalAlignment="Center"
-                                                   Foreground="{ThemeResource SmSeverityWarningTextBrush}"
+                                                   Foreground="{StaticResource SmSeverityWarningTextBrush}"
                                                    Style="{StaticResource CaptionTextBlockStyle}"/>
                                         <TextBlock Grid.Column="2"
                                                    Text="{Binding Message}"

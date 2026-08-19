@@ -1,4 +1,4 @@
-<UserControl
+﻿<UserControl
     x:Class="StorageMaster.UI.Controls.PageHeader"
     x:Name="Root"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
@@ -26,6 +26,6 @@
                               Content="{x:Bind ActionContent, Mode=OneWay}"
                               VerticalAlignment="Center" />
         </Grid>
-        <Border Height="1" Background="{ThemeResource SmStrokeSubtleBrush}" />
+        <Border Height="1" Background="{StaticResource SmStrokeSubtleBrush}" />
     </StackPanel>
 </UserControl>

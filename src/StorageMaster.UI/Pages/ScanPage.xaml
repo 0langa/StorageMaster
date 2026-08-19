@@ -124,7 +124,7 @@
                                 Click="BrowseButton_Click" />
                     </Grid>
                     <TextBlock Text="{x:Bind ViewModel.ScanPathError, Mode=OneWay}"
-                               Foreground="{ThemeResource SmSeverityCriticalTextBrush}"
+                               Foreground="{StaticResource SmSeverityCriticalTextBrush}"
                                Style="{StaticResource CaptionTextBlockStyle}"
                                TextWrapping="WrapWholeWords"
                                Visibility="{x:Bind ViewModel.HasScanPathError, Mode=OneWay, Converter={StaticResource BoolVis}}" />
@@ -209,13 +209,13 @@
 
                     <!-- Elevation prompt (deep scan on, not yet admin) -->
                     <Border Style="{StaticResource SubtleCardStyle}"
-                            BorderBrush="{ThemeResource SmSeverityWarningBrush}"
+                            BorderBrush="{StaticResource SmSeverityWarningBrush}"
                             Visibility="{x:Bind ViewModel.NeedsElevation, Mode=OneWay, Converter={StaticResource BoolVis}}">
                         <Grid ColumnDefinitions="*,Auto" ColumnSpacing="{StaticResource ControlSpacing}">
                             <StackPanel Grid.Column="0" Spacing="2" VerticalAlignment="Center">
                                 <TextBlock Text="Administrator privileges recommended"
                                            Style="{StaticResource BodyStrongTextBlockStyle}"
-                                           Foreground="{ThemeResource SmSeverityWarningTextBrush}" />
+                                           Foreground="{StaticResource SmSeverityWarningTextBrush}" />
                                 <TextBlock Text="Without admin rights, access-denied errors will be recorded for protected system folders. Use the button to relaunch with full privileges."
                                            Style="{StaticResource HelperTextStyle}" />
                             </StackPanel>

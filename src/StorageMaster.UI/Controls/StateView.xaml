@@ -1,4 +1,4 @@
-<UserControl
+﻿<UserControl
     x:Class="StorageMaster.UI.Controls.StateView"
     x:Name="Root"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
@@ -9,7 +9,7 @@
             <FontIcon Grid.Row="0"
                       Glyph="{x:Bind IconGlyph, Mode=OneWay}"
                       FontSize="28"
-                      Foreground="{ThemeResource SmTextMutedBrush}"
+                      Foreground="{StaticResource SmTextMutedBrush}"
                       HorizontalAlignment="Center" />
             <TextBlock Grid.Row="1"
                        Text="{x:Bind Title, Mode=OneWay}"

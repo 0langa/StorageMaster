@@ -1,4 +1,4 @@
-<Page
+﻿<Page
     x:Class="StorageMaster.UI.Pages.SmartCleanerPage"
     AutomationProperties.Name="Smart Cleaner page"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
@@ -45,7 +45,7 @@
                 <StackPanel Spacing="{StaticResource ControlSpacing}">
                     <StackPanel Orientation="Horizontal" Spacing="{StaticResource ControlSpacing}">
                         <FontIcon Glyph="{StaticResource IconSmartCleaner}" FontSize="28"
-                                  Foreground="{ThemeResource SmAccentOnSurfaceBrush}" />
+                                  Foreground="{StaticResource SmAccentOnSurfaceBrush}" />
                         <StackPanel VerticalAlignment="Center" Spacing="2">
                             <TextBlock Text="One-click junk removal"
                                        Style="{StaticResource SectionHeaderTextStyle}" />

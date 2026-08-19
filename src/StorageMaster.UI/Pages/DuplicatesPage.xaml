@@ -1,4 +1,4 @@
-<Page
+﻿<Page
     x:Class="StorageMaster.UI.Pages.DuplicatesPage"
     x:Name="PageRoot"
     AutomationProperties.Name="Duplicates page"
@@ -266,7 +266,7 @@
                     <TextBlock Text="Safe exact" Style="{StaticResource MetricLabelTextStyle}" />
                     <TextBlock Text="{x:Bind ViewModel.ExactGroupCount, Mode=OneWay}"
                                Style="{StaticResource MetricTextStyle}"
-                               Foreground="{ThemeResource SmSeverityHealthyTextBrush}" />
+                               Foreground="{StaticResource SmSeverityHealthyTextBrush}" />
                 </StackPanel>
             </Border>
 
@@ -275,7 +275,7 @@
                     <TextBlock Text="Needs review" Style="{StaticResource MetricLabelTextStyle}" />
                     <TextBlock Text="{x:Bind ViewModel.ReviewGroupCount, Mode=OneWay}"
                                Style="{StaticResource MetricTextStyle}"
-                               Foreground="{ThemeResource SmSeverityWarningTextBrush}" />
+                               Foreground="{StaticResource SmSeverityWarningTextBrush}" />
                 </StackPanel>
             </Border>
 

@@ -628,7 +628,7 @@
 
         <!-- Editor overlay -->
         <Grid Visibility="{x:Bind ViewModel.IsEditorOpen, Mode=OneWay, Converter={StaticResource BoolVis}}"
-              Background="{ThemeResource SmokeFillColorDefaultBrush}">
+              Background="{StaticResource SmokeFillColorDefaultBrush}">
             <!--  The dialog row is star-sized rather than Auto. An Auto row is measured
                   with infinite height, so the dialog grew to its own content height and
                   its footer — Reset, Cancel and Save — was arranged below the visible

@@ -1,4 +1,4 @@
-<UserControl
+﻿<UserControl
     x:Class="StorageMaster.UI.Controls.RadialGauge"
     x:Name="Root"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
@@ -12,7 +12,7 @@
         <ProgressRing IsActive="False"
                       Value="{x:Bind Value, Mode=OneWay}"
                       Maximum="100"
-                      Background="{ThemeResource SmSurfaceSunkenBrush}"
+                      Background="{StaticResource SmSurfaceSunkenBrush}"
                       Width="{x:Bind GaugeSize, Mode=OneWay}"
                       Height="{x:Bind GaugeSize, Mode=OneWay}"
                       AutomationProperties.Name="{x:Bind AutomationText, Mode=OneWay}" />

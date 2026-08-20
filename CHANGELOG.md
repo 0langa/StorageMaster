@@ -10,6 +10,25 @@ No unreleased changes.
 
 ---
 
+## [2.6.1] — 2026-08-20 — Statuses that stayed English
+
+### Fixed
+
+- The duplicate summary read "Letzte Analyse: Completed am …" — the run status
+  was the enum name rather than a word. The same leak affected four Dashboard
+  lines that only appear once there is scan history, which is why a review of a
+  fresh Dashboard never showed them.
+
+### Internal
+
+- The capture harness reaches error states (`--scenarios errors`), using a fixture
+  that genuinely fails rather than a simulated message. Both leaks above were found
+  by it. Two error states remain out of reach by design and the run says which and
+  why: the scan Errors tab needs a deep scan, and a partial delete failure is
+  captured as a dialog because a capture run must never delete a file.
+
+---
+
 ## [2.6.0] — 2026-08-19 — Deep scans in the app
 
 ### Added

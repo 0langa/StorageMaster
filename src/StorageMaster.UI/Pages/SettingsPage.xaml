@@ -696,7 +696,7 @@
                     </Grid>
 
                     <!-- Body -->
-                    <ScrollViewer Grid.Row="1" Padding="24">
+                    <ScrollViewer x:Name="EditorScrollViewer" Grid.Row="1" Padding="24">
                         <ContentControl x:Name="EditorContentControl"
                                         Content="{x:Bind ViewModel}"
                                         ContentTemplateSelector="{StaticResource CategorySelector}" />

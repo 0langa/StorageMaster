@@ -1095,6 +1095,22 @@
     <value>Most space to reclaim</value>
     <comment>[label] Duplicate group sort order: most reclaimable space first.</comment>
   </data>
+  <data name="Enum_DuplicateRunStatus_Cancelled" xml:space="preserve">
+    <value>Cancelled</value>
+    <comment>[status] Duplicate run state: the user stopped the run.</comment>
+  </data>
+  <data name="Enum_DuplicateRunStatus_Completed" xml:space="preserve">
+    <value>Completed</value>
+    <comment>[status] Duplicate run state in the last-run summary.</comment>
+  </data>
+  <data name="Enum_DuplicateRunStatus_Failed" xml:space="preserve">
+    <value>Failed</value>
+    <comment>[status] Duplicate run state: the run ended with an error.</comment>
+  </data>
+  <data name="Enum_DuplicateRunStatus_Running" xml:space="preserve">
+    <value>Running</value>
+    <comment>[status] Duplicate run state in the last-run summary.</comment>
+  </data>
   <data name="Enum_DuplicateScopeMode_ExcludedFolders" xml:space="preserve">
     <value>Excluded folders</value>
     <comment>[label] Duplicate scope drop-down: search everything except the folders listed.</comment>

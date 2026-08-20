@@ -39,6 +39,9 @@
          coverage test can check it against the real call sites. -->
     <Compile Include="..\..\src\StorageMaster.UI\Infrastructure\ScenarioCatalogue.cs"
              Link="UI\Infrastructure\ScenarioCatalogue.cs" />
+    <!-- The error fixture has to genuinely fail, so it is tested rather than trusted. -->
+    <Compile Include="..\..\src\StorageMaster.UI\Infrastructure\ErrorStateFixture.cs"
+             Link="UI\Infrastructure\ErrorStateFixture.cs" />
   </ItemGroup>
 
 </Project>

@@ -318,7 +318,7 @@ public sealed partial class DuplicatesViewModel : ObservableObject
         ? Loc.Get("Duplicates_LatestRun_None")
         : Loc.Format(
             "Duplicates_LatestRun_Summary",
-            LatestRun.Status,
+            Loc.Get(EnumDisplayConverter.KeyFor(LatestRun.Status)),
             LatestRun.CompletedUtc?.ToString("g") ?? LatestRun.StartedUtc.ToString("g"),
             LatestRun.GroupCount.ToString("N0"),
             ByteSizeConverter.Format(LatestRun.ReclaimableBytes),

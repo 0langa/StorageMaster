@@ -64,6 +64,20 @@ public sealed partial class SettingsPage : Page
         }
     }
 
+    /// <summary>
+    /// Scrolls the open category editor to the bottom, for the capture harness.
+    /// <para>
+    /// A validation message usually sits below the fold of a long category. Capturing
+    /// the editor as it opens shows a disabled Save button and none of the text that
+    /// explains why, which is the half that needs reviewing in each language.
+    /// </para>
+    /// </summary>
+    internal void CaptureScrollEditorToEnd()
+    {
+        EditorScrollViewer.UpdateLayout();
+        EditorScrollViewer.ChangeView(null, EditorScrollViewer.ScrollableHeight, null, disableAnimation: true);
+    }
+
     private void OnViewModelPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
     {
         if (e.PropertyName is nameof(SettingsViewModel.SelectedCategory)

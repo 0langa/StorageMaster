@@ -69,6 +69,7 @@ StorageMaster.UI.exe --capture-screens shots --language de-DE     --scenarios di
 | `dialogs` | Every safety confirmation | Rebuilt from the same resource keys the real call sites use, then rendered. The dialog itself is rendered, not the window — a `ContentDialog` lives in the popup layer, so rendering the window gives the page with no dialog on it. |
 | `accents` | Dashboard and Drive Health per accent | Applies each accent in place, which is what the app does when a user picks one, so it also proves the live swap repaints. The starting accent is restored afterwards. |
 | `progress` | A scan running, and the same scan complete | Starts a real scan and waits for it to actually be running. |
+| `errors` | A duplicate run that could not read a file, and the FFmpeg-not-found validation state | Builds a fixture in TEMP that genuinely fails, drives the app through it, then removes it. |
 
 The dialogs are declared in `ScenarioCatalogue`, because a real confirmation only
 appears while someone is deleting something and a capture run must never be the
@@ -81,12 +82,28 @@ instantly with nothing because system folders are skipped by default. When no
 running state can be captured the run says so and writes no file, rather than
 writing a "running" capture of a finished page.
 
+### Error states
+
+`errors` builds `ErrorStateFixture`: a folder in TEMP holding a directory with a
+real deny ACE, a file with a JPEG header and noise for bytes, and one of a
+duplicate pair held open with no sharing. It is removed afterwards, deny rule
+included, and a fixture left behind by a killed process is cleaned up on the next
+run. `ErrorStateFixtureTests` asserts it actually fails — a fixture that quietly
+succeeds would make the harness report "no errors produced" on a machine where
+error handling is in fact broken, and the two look identical from outside.
+
+What each state needs:
+
+| State | Reachable | Why |
+|---|---|---|
+| Unreadable file | Yes, via duplicates | Duplicate detection must open every candidate, so a locked file fails and is recorded where a user sees it. |
+| Missing FFmpeg | Yes | The setting validates on change, so the state is reachable without saving anything. |
+| Scan access-denied | **Needs administrator** | A normal scan sets `IgnoreInaccessible` and skips unreadable folders on purpose. The Errors tab only fills during a deep scan, which needs a UAC prompt no capture run can answer. The run says so rather than capturing an empty tab. |
+| Partial delete failure | Dialog only | Captured as a dialog from `ScenarioCatalogue.FailureDialogs`. Reaching it for real means arranging a delete to fail, and a capture run must never be the thing that deletes a file. |
+
 What it still cannot reach: it renders the XAML tree, not the desktop. Tray
 notifications, native file pickers and Windows dialogs need an interactive
-session and the procedure below. **Error states** — inaccessible file, missing
-FFmpeg, corrupt media, partial delete failure — are not yet scriptable either:
-each needs a fixture that fails in a specific way, which is the next piece of
-work on this harness.
+session and the procedure below.
 
 ## Current automated behavior
 

@@ -77,4 +77,34 @@ public static class ScenarioCatalogue
             PrimaryKey: "Safety_SendToRecycleBin",
             BodyArguments: ["rootfs.vhdx", "7,70 GB"]),
     ];
+
+    /// <summary>
+    /// Failures a user is told about after the fact.
+    /// <para>
+    /// Separate from the confirmations because nothing is being asked — these report
+    /// that something did not happen, and the wording has to say so without implying
+    /// the file is gone. They are captured the same way, since reaching one for real
+    /// would mean arranging a delete to fail.
+    /// </para>
+    /// </summary>
+    public static IReadOnlyList<SafetyDialogScenario> FailureDialogs { get; } =
+    [
+        new(
+            Id: "dialog-delete-failed",
+            TitleKey: "Safety_DeleteFile_Error_Title",
+            BodyKey: "Safety_DeleteFile_Error_Body",
+            PrimaryKey: "Common_Close",
+            BodyArguments: ["rootfs.vhdx"]),
+
+        new(
+            Id: "dialog-restore-failed",
+            TitleKey: "Safety_Duplicates_RestoreFailed_Title",
+            BodyKey: "Safety_Duplicates_RestoreFailed_Body",
+            PrimaryKey: "Common_Close",
+            BodyArguments: ["urlaub-2019.jpg", "Der Zielordner ist nicht mehr vorhanden."]),
+    ];
+
+    /// <summary>Every dialog the harness can render.</summary>
+    public static IReadOnlyList<SafetyDialogScenario> AllDialogs { get; } =
+        [.. SafetyDialogs, .. FailureDialogs];
 }

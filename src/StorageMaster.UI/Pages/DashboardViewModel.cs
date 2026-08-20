@@ -91,17 +91,17 @@ public sealed partial class DashboardViewModel : ObservableObject
             {
                 LatestScanSummary = Loc.Format(
                     "Dashboard_LatestScan_AttemptAndCompleted",
-                    latestAttempt.Status,
+                    Loc.Get(EnumDisplayConverter.KeyFor(latestAttempt.Status)),
                     LastSession.RootPath,
                     FormatSessionTime(LastSession));
                 StatusMessage = Loc.Format(
                     "Dashboard_Status_LatestIncomplete",
-                    latestAttempt.Status,
+                    Loc.Get(EnumDisplayConverter.KeyFor(latestAttempt.Status)),
                     LastSession.RootPath);
                 HeroTitle = Loc.Get("Dashboard_Hero_Title_NeedsAttention");
                 HeroSubtitle = Loc.Get("Dashboard_Hero_Subtitle_NeedsAttention");
                 RecommendedActionText = Loc.Get("Dashboard_Action_RetryScan");
-                Recommendations.Add(Loc.Format("Dashboard_Recommendation_RetryLatest", latestAttempt.Status));
+                Recommendations.Add(Loc.Format("Dashboard_Recommendation_RetryLatest", Loc.Get(EnumDisplayConverter.KeyFor(latestAttempt.Status))));
             }
             else
             {
@@ -143,7 +143,7 @@ public sealed partial class DashboardViewModel : ObservableObject
                 ? Loc.Get("Dashboard_LatestScan_None")
                 : Loc.Format(
                     "Dashboard_LatestScan_AttemptOnly",
-                    LatestAttempt.Status,
+                    Loc.Get(EnumDisplayConverter.KeyFor(LatestAttempt.Status)),
                     FormatSessionTime(LatestAttempt));
             StatusMessage = LatestAttempt is null
                 ? HasDrives

@@ -47,6 +47,10 @@ public static class ScenarioCapture
                         await CaptureProgressAsync(window, options, language, theme, size);
                         break;
 
+                    case "errors":
+                        await CaptureErrorStatesAsync(window, options, language, theme, size);
+                        break;
+
                     default:
                         Console.WriteLine($"unknown scenario '{scenario}'");
                         break;
@@ -83,7 +87,7 @@ public static class ScenarioCapture
             return;
         }
 
-        foreach (var scenario in ScenarioCatalogue.SafetyDialogs)
+        foreach (var scenario in ScenarioCatalogue.AllDialogs)
         {
             var dialog = new ContentDialog
             {
@@ -292,6 +296,214 @@ public static class ScenarioCapture
         }
 
         return condition();
+    }
+
+    /// <summary>
+    /// Drives the app into its error screens using a fixture that genuinely fails.
+    /// <para>
+    /// Two states are reached here: a scan that cannot read a folder, and a settings
+    /// page pointed at an FFmpeg that is not there. Both take the app's real error
+    /// paths — a real deny ACE, a real missing executable — rather than a simulated
+    /// message, because a simulated one proves only that the string exists.
+    /// </para>
+    /// <para>
+    /// The fixture is created in TEMP and removed afterwards, including the deny rule.
+    /// Nothing outside it is touched, and nothing is deleted: a capture run must never
+    /// be the thing that removes a file.
+    /// </para>
+    /// </summary>
+    private static async Task CaptureErrorStatesAsync(
+        MainWindow window,
+        ScreenCaptureOptions options,
+        string language,
+        string theme,
+        string size)
+    {
+        using var fixture = ErrorStateFixture.Create();
+
+        await CaptureScanErrorsAsync(window, options, language, theme, size, fixture);
+        await CaptureDuplicateErrorsAsync(window, options, language, theme, size);
+        await CaptureMissingFfmpegAsync(window, options, language, theme, size);
+    }
+
+    /// <summary>
+    /// Runs duplicate detection over the fixture, where one of a duplicate pair is
+    /// held open and therefore cannot be hashed.
+    /// <para>
+    /// This is the unreadable-file state that does not need administrator rights. A
+    /// normal scan skips what it cannot read, deliberately — <c>IgnoreInaccessible</c>
+    /// is on unless the scan is deep — so the scan's own error list is only reachable
+    /// elevated. Duplicate detection must open each candidate, so a locked file fails
+    /// there and is recorded where a user can see it.
+    /// </para>
+    /// </summary>
+    private static async Task CaptureDuplicateErrorsAsync(
+        MainWindow window,
+        ScreenCaptureOptions options,
+        string language,
+        string theme,
+        string size)
+    {
+        if (!await ScreenCaptureHarness.NavigateAndWaitAsync(window, typeof(DuplicatesPage)))
+            return;
+
+        if (window.CaptureFrame.Content is not DuplicatesPage page)
+            return;
+
+        var duplicates = page.ViewModel;
+
+        if (!await WaitUntilAsync(() => duplicates.CanRun, TimeSpan.FromSeconds(20)))
+        {
+            Console.WriteLine("scenario errors skipped: the duplicates page has no scan session to run against");
+            return;
+        }
+
+        await duplicates.RunAnalysisCommand.ExecuteAsync(null);
+        await ScreenCaptureHarness.SettleAsync(window, options.SettleMilliseconds);
+
+        if (!duplicates.HasErrors)
+        {
+            Console.WriteLine(
+                "scenario errors: the duplicate run recorded no errors, so the locked file was "
+                + "readable after all. Nothing captured for duplicate errors.");
+            return;
+        }
+
+        var path = Path.Combine(
+            options.OutputDirectory,
+            $"Duplicates-errors--{theme}--{language}{size}.png");
+
+        await ScreenCaptureHarness.CaptureAsync(window.CaptureRoot, path);
+        Console.WriteLine($"captured Duplicates-errors -> {Path.GetFileName(path)}");
+    }
+
+    /// <summary>Scans the fixture and shows the errors the scan recorded.</summary>
+    private static async Task CaptureScanErrorsAsync(
+        MainWindow window,
+        ScreenCaptureOptions options,
+        string language,
+        string theme,
+        string size,
+        ErrorStateFixture fixture)
+    {
+        if (!await ScreenCaptureHarness.NavigateAndWaitAsync(window, typeof(ScanPage)))
+            return;
+
+        var scan = App.Services.GetRequiredService<ScanViewModel>();
+
+        if (!await WaitUntilAsync(() => !scan.IsInitializing))
+        {
+            Console.WriteLine("scenario errors skipped: the scan page did not finish initializing");
+            return;
+        }
+
+        scan.SelectedPath = fixture.Root;
+
+        if (!await WaitUntilAsync(() => scan.CanStartScan))
+        {
+            Console.WriteLine($"scenario errors skipped: cannot scan the fixture ({scan.ScanPathError})");
+            return;
+        }
+
+        await scan.StartScanCommand.ExecuteAsync(null);
+
+        if (!await ScreenCaptureHarness.NavigateAndWaitAsync(window, typeof(ResultsPage)))
+            return;
+
+        if (window.CaptureFrame.Content is not ResultsPage results)
+            return;
+
+        await results.CaptureShowErrorsTabAsync();
+        await ScreenCaptureHarness.SettleAsync(window, options.SettleMilliseconds);
+
+        // Asked of the page rather than of the scan view model. The scan's own counter
+        // is fed by progress ticks and a short scan can finish before one carries the
+        // final count, so it reads zero for a scan that did record errors.
+        if (results.ViewModel.ErrorCount == 0)
+        {
+            // The usual reason, said accurately. A normal scan sets
+            // IgnoreInaccessible and skips unreadable folders on purpose, so this tab
+            // only fills during a deep scan — which needs administrator rights and a
+            // prompt no capture run can answer. Capturing the empty tab would read as
+            // proof that errors render correctly.
+            Console.WriteLine(
+                "scenario errors: no scan errors were recorded. A normal scan skips unreadable "
+                + "folders by design; this state needs a deep scan, which needs administrator "
+                + "rights. Nothing captured for scan errors.");
+            return;
+        }
+
+        var path = Path.Combine(
+            options.OutputDirectory,
+            $"Results-errors--{theme}--{language}{size}.png");
+
+        await ScreenCaptureHarness.CaptureAsync(window.CaptureRoot, path);
+        Console.WriteLine($"captured Results-errors ({results.ViewModel.ErrorCount} error(s)) -> {Path.GetFileName(path)}");
+    }
+
+    /// <summary>
+    /// Points the FFmpeg setting at a path that does not exist and captures the
+    /// validation state, which is what a user sees when video matching cannot run.
+    /// </summary>
+    private static async Task CaptureMissingFfmpegAsync(
+        MainWindow window,
+        ScreenCaptureOptions options,
+        string language,
+        string theme,
+        string size)
+    {
+        if (!await ScreenCaptureHarness.NavigateAndWaitAsync(window, typeof(SettingsPage)))
+            return;
+
+        // Taken from the page, not from the container: SettingsViewModel is registered
+        // transient, so resolving it here would hand back a fresh instance that never
+        // loads and is not the one on screen.
+        if (window.CaptureFrame.Content is not SettingsPage page)
+            return;
+
+        var settings = page.ViewModel;
+
+        if (!await WaitUntilAsync(() => settings.IsLoaded))
+        {
+            Console.WriteLine("scenario errors skipped: settings did not load");
+            return;
+        }
+
+        var original = settings.FfmpegPath;
+
+        try
+        {
+            // Never saved. The view model validates on change, so the error state is
+            // reachable without writing anything to the user's settings.
+            settings.FfmpegPath = Path.Combine(Path.GetTempPath(), "no-such-ffmpeg", "ffmpeg.exe");
+
+            if (!await WaitUntilAsync(() => settings.HasFfmpegPathError, TimeSpan.FromSeconds(3)))
+            {
+                Console.WriteLine("scenario errors: the FFmpeg path did not report an error");
+                return;
+            }
+
+            // Duplicates is the category the FFmpeg setting lives in; opening it is
+            // what puts the validation message on screen.
+            settings.OpenCategoryCommand.Execute(SettingsCategory.Duplicates);
+            await ScreenCaptureHarness.SettleAsync(window, options.SettleMilliseconds);
+
+            // The FFmpeg field sits below the fold, and with it the message that says
+            // why Save is disabled.
+            page.CaptureScrollEditorToEnd();
+            await ScreenCaptureHarness.SettleAsync(window, options.SettleMilliseconds);
+
+            var path = Path.Combine(
+                options.OutputDirectory,
+                $"Settings-ffmpeg-missing--{theme}--{language}{size}.png");
+
+            await ScreenCaptureHarness.CaptureAsync(window.CaptureRoot, path);
+            Console.WriteLine($"captured Settings-ffmpeg-missing -> {Path.GetFileName(path)}");
+        }
+        finally
+        {
+            settings.FfmpegPath = original;
+        }
     }
 
     private static string DefaultScanPath()

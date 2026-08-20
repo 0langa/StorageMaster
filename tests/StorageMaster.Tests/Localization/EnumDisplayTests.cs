@@ -43,6 +43,7 @@ public sealed class EnumDisplayTests
         typeof(DriveHealthStatus),
         typeof(ScanStatus),
         typeof(SpaceMapNodeKind),
+        typeof(DuplicateRunStatus),
         typeof(FileTypeCategory),
     ];
 

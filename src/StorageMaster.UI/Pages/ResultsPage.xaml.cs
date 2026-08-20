@@ -75,6 +75,20 @@ public sealed partial class ResultsPage : Page
         ResultsPivot.SelectedIndex = 0;
     }
 
+    /// <summary>
+    /// Selects the Errors tab for the capture harness and waits for it to load.
+    /// <para>
+    /// Exposed rather than reached through the pivot from outside, because the tab
+    /// only loads its rows on selection — a capture that set the index and rendered
+    /// immediately would show an empty list and read as "no errors".
+    /// </para>
+    /// </summary>
+    internal async Task CaptureShowErrorsTabAsync()
+    {
+        ResultsPivot.SelectedItem = ErrorsPivotItem;
+        await ViewModel.EnsureErrorsLoadedAsync();
+    }
+
     private async void ResultsPivot_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         try

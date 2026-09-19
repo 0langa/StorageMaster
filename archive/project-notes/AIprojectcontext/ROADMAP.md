@@ -1,6 +1,6 @@
 # StorageMaster Roadmap
 
-Current release metadata: v2.1.3. The working tree also contains Unreleased presentation-hardening changes; source and tests remain authoritative.
+Release metadata: v2.1.3. Working tree also holds Unreleased presentation-hardening changes; source and tests remain authoritative.
 
 ## Shipped baseline
 
@@ -15,9 +15,9 @@ Current release metadata: v2.1.3. The working tree also contains Unreleased pres
 | 1.7.4 | Results hardening: paged scan errors, lazy folder tree, cached repeat navigation, duplicate filter/export/previews hardening, dashboard/cleanup layout refresh, settings toast cancellation |
 | 1.8.0 | Settings redesign into category-tile hub with modal overlays, accessibility annotations, UI preferences layer, shared styles |
 | 1.9.0 | Space Map native treemap, Scan Delta Insights, scanner validation/exclusion hardening, schema v6 normalized path integrity, folder aggregation hardening, deletion safety fixes |
-| 1.9.6 | Runtime rollback: kept 1.9.x features while returning release builds to framework-dependent Windows App SDK 1.6 with staged runtime MSIX prereq |
+| 1.9.6 | Runtime rollback: kept 1.9.x features, returned release builds to framework-dependent Windows App SDK 1.6 with staged runtime MSIX prereq |
 | 2.0.1 | Responsive UI/loading hotfix: auto-collapsing shell, scan ETA/live progress placement, coalesced Space Map rendering, faster folder-tree expansion, Duplicates advanced-options scrolling, Drive Health layout cleanup, Dashboard health-score descriptor |
-| 2.0.0 | Drive Health & Storage Sentinel, schema v7 health snapshots, stable/prerelease-safe versioning and release flow, .NET runtime setup check, elevated CLI deep-scan worker, and v2 visual foundation: shared style dictionaries, grouped shell with Mica fallback, Dashboard/Drive Health refresh, guided scan flow, Scan Workspace, Space Map tile control |
+| 2.0.0 | Drive Health & Storage Sentinel, schema v7 health snapshots, stable/prerelease-safe versioning and release flow, .NET runtime setup check, elevated CLI deep-scan worker, v2 visual foundation: shared style dictionaries, grouped shell with Mica fallback, Dashboard/Drive Health refresh, guided scan flow, Scan Workspace, Space Map tile control |
 | 2.1.0 | Settings page fix (ContentTemplateSelector only evaluated once — forced manual refresh on SelectedCategory change); removed duplicate ScanHistoryRetentionDays slider from Scanning category; added missing ClearEntireDownloads toggle to Cleanup category; DuplicatesViewModel event subscription unsubscribed before page rebuild; StorageDbContext schema-version catch now logs Warning; TurboFileScanner JSON parse catch now logs Debug; ROADMAP rewrite; GitHub issue/PR templates |
 | 2.1.1 | UI polish for settings tiles, compact navigation, Results file-type navigation, cleanup feedback, and Duplicates layout |
 | 2.1.2 | deletion safety hardening: root guards, per-path Recycle Bin verification, junction-safe recursive deletion, and cleanup path-boundary fixes |
@@ -35,11 +35,11 @@ Not present: WebView2/D3 visualization assets, Serilog rolling logs, broad ViewM
 |---:|---|---|
 | 1 | Fix remaining correctness/data-loss edges in `FileDeleter`, scanner option validation, folder aggregation, and Shell32 return checking | prevents destructive or hanging behavior |
 | 2 | Accessibility and visual QA pass for remaining pages: keyboard/focus, text scaling, high contrast, Narrator verification, screenshot matrix | shared controls exist; final rendered QA still required |
-| 3 | Results/Duplicates/Cleanup performance profiling on million-file sessions | current code has paging/lazy loading but no benchmark suite |
-| 4 | Structured logging + diagnostics package | app uses Debug logger, startup crash log, prereq log, and local diagnostics, not production rolling file logs |
-| 5 | Installer/runtime hardening lab | setup checks .NET Desktop Runtime 8 and stages Windows App Runtime 1.6, but clean-VM install coverage should stay mandatory |
-| 6 | Space Map scale polish: virtualization benchmarks and richer reports | native treemap and PNG screenshot export exist; next work is scale/UX depth |
-| 7 | Test expansion: ViewModels, platform wrappers, CLI, scheduler, updater failure modes | current tests are useful but not UI-heavy |
+| 3 | Results/Duplicates/Cleanup performance profiling on million-file sessions | code has paging/lazy loading but no benchmark suite |
+| 4 | Structured logging + diagnostics package | uses Debug logger, startup crash log, prereq log, local diagnostics, not production rolling file logs |
+| 5 | Installer/runtime hardening lab | setup checks .NET Desktop Runtime 8 and stages Windows App Runtime 1.6; clean-VM install coverage stays mandatory |
+| 6 | Space Map scale polish: virtualization benchmarks and richer reports | native treemap and PNG screenshot export exist; next is scale/UX depth |
+| 7 | Test expansion: ViewModels, platform wrappers, CLI, scheduler, updater failure modes | tests useful but not UI-heavy |
 
 ## Suggested release plan
 
@@ -50,4 +50,4 @@ Not present: WebView2/D3 visualization assets, Serilog rolling logs, broad ViewM
 
 ## Implementation rules for future agents
 
-Keep Core free of WinUI/SQLite/Win32 dependencies. Route cross-layer work through existing interfaces. Never delete without UI confirmation or CLI `--confirm`. Keep migrations additive and version-stamped in the same transaction. Use `StorageDbContext.WriteLock` for transactional writes. Preserve audit logging for every cleanup/duplicate deletion. Avoid `.Result`/`.Wait()`. UI state updates from background work require `DispatcherQueue`. Treat reparse points as dangerous unless explicitly opted in. Add tests with every behavior change.
+Keep Core free of WinUI/SQLite/Win32 dependencies. Route cross-layer work through existing interfaces. Never delete without UI confirmation or CLI `--confirm`. Keep migrations additive and version-stamped in same transaction. Use `StorageDbContext.WriteLock` for transactional writes. Preserve audit logging for every cleanup/duplicate deletion. Avoid `.Result`/`.Wait()`. UI state updates from background work require `DispatcherQueue`. Treat reparse points as dangerous unless explicitly opted in. Add tests with every behavior change.

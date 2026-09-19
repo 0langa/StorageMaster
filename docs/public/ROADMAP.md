@@ -1,13 +1,13 @@
 # StorageMaster — Development Roadmap
 
-> **Current product version:** v2.2.1. Reliability hardening and remaining limits are documented in `RELIABILITY_AUDIT_2026-08-18.md`.
+> **Current product version:** v2.2.1. Reliability hardening and remaining limits documented in `RELIABILITY_AUDIT_2026-08-18.md`.
 
 ---
 
 ## How to read this document
 
-- **Phase** = a coherent release milestone delivering real user value
-- **Milestone** = a specific deliverable inside a phase
+- **Phase** = coherent release milestone delivering real user value
+- **Milestone** = specific deliverable inside a phase
 - **Complexity** = estimated engineering effort: S (hours–1 day) | M (2–5 days) | L (1–2 weeks) | XL (2–4 weeks)
 - **Impact** = `Low | Medium | High | Critical`
 - ✅ = shipped
@@ -40,7 +40,7 @@ v3.0.0  [TBD]
 
 ## Phase 0 — Shipped (v1.x – v2.2.1)
 
-All features from the v1.x and v2.x development cycle are shipped. This includes:
+All v1.x and v2.x cycle features shipped:
 
 - Parallel BFS scanner with bounded concurrency
 - Turbo Scanner (Rust/jwalk parallel native enumerator)
@@ -64,10 +64,10 @@ All features from the v1.x and v2.x development cycle are shipped. This includes
 
 **Complexity:** S | **Impact:** High (diagnosability)
 
-Replace `Microsoft.Extensions.Logging.Debug` with a Serilog rolling file sink:
+Replace `Microsoft.Extensions.Logging.Debug` with Serilog rolling file sink:
 - Path: `%LOCALAPPDATA%\StorageMaster\logs\sm-{Date}.log`
 - Max 5 files × 5 MB; `Information` in release, `Debug` in debug builds
-- Startup errors already land in `startup-errors.log`; structured sink unifies the rest
+- Startup errors already land in `startup-errors.log`; structured sink unifies rest
 
 **NuGet:** `Serilog.Extensions.Hosting`, `Serilog.Sinks.File`
 
@@ -106,7 +106,7 @@ Document explicit `Unsupported` / `Unknown` behavior per drive class. Update com
 - UI error state tests for Settings, Scan, and Cleanup pages
 - Scan Workspace integration tests
 
-**Blocker:** the current non-UI test assembly deliberately does not reference `StorageMaster.UI`; WinUI lifecycle tests need a separate supported host rather than a production UI reference copied into the xUnit output.
+**Blocker:** current non-UI test assembly deliberately does not reference `StorageMaster.UI`; WinUI lifecycle tests need a separate supported host, not a production UI reference copied into the xUnit output.
 
 ---
 
@@ -114,7 +114,7 @@ Document explicit `Unsupported` / `Unknown` behavior per drive class. Update com
 
 **Complexity:** M | **Impact:** Critical
 
-Test on builds 17763 (1809) through 26100 (24H2). Document regressions in the table below. Focus areas: `DisplayArea.GetFromWindowId`, `SHGetKnownFolderPath`, WinUI 3 control availability, Turbo Scanner MSVC CRT requirements.
+Test builds 17763 (1809) through 26100 (24H2). Document regressions in table below. Focus: `DisplayArea.GetFromWindowId`, `SHGetKnownFolderPath`, WinUI 3 control availability, Turbo Scanner MSVC CRT requirements.
 
 ---
 
@@ -124,7 +124,7 @@ Test on builds 17763 (1809) through 26100 (24H2). Document regressions in the ta
 
 **Complexity:** M | **Impact:** High (accessibility)
 
-Full keyboard operability: Tab/Shift+Tab, arrow keys in lists, Enter activates, Escape closes dialogs, focus lands on the first interactive element after navigation.
+Full keyboard operability: Tab/Shift+Tab, arrow keys in lists, Enter activates, Escape closes dialogs, focus lands on first interactive element after navigation.
 
 ---
 
@@ -140,7 +140,7 @@ Verify and complete `AutomationProperties.Name` / `.HelpText` on all interactive
 
 **Complexity:** S | **Impact:** Medium (accessibility)
 
-Ensure all custom colors use `ThemeResource` tokens. Verify with Windows "High Contrast Black" and "High Contrast White".
+All custom colors use `ThemeResource` tokens. Verify with Windows "High Contrast Black" and "High Contrast White".
 
 ---
 
@@ -156,7 +156,7 @@ Test at 125%, 150%, 200% text scaling. No clipped text, no overlapping elements.
 
 **Complexity:** S | **Impact:** Medium
 
-On first launch after update: slide-in InfoBar listing new features. Dismissed once; never shown again for the same version.
+On first launch after update: slide-in InfoBar listing new features. Dismissed once; never shown again for same version.
 
 ---
 
@@ -164,11 +164,11 @@ On first launch after update: slide-in InfoBar listing new features. Dismissed o
 
 | Principle | Enforcement |
 |-----------|-------------|
-| **Interfaces at platform/persistence boundaries** | Core owns the contracts; UI composes concrete host/scanner services where backend selection requires them |
-| **No deletion without authorization** | Interactive UI uses review/dialog intent, CLI needs `--confirm`, and enabled unattended cleanup needs current versioned consent |
+| **Interfaces at platform/persistence boundaries** | Core owns contracts; UI composes concrete host/scanner services where backend selection requires them |
+| **No deletion without authorization** | Interactive UI uses review/dialog intent, CLI needs `--confirm`, enabled unattended cleanup needs current versioned consent |
 | **Versioned transactional schema migrations** | Writer reservation, in-transaction version re-read, atomic version stamps, regression tests |
-| **Bound critical waits** | External-process and SQLite paths use explicit cancellation/time limits where a hang could block safety or shutdown; UI work remains asynchronous |
-| **Structured diagnostics** | Current code uses `ILogger` fields plus a startup crash log; a durable rolling structured sink remains M-1.1 |
+| **Bound critical waits** | External-process and SQLite paths use explicit cancellation/time limits where a hang could block safety or shutdown; UI work stays asynchronous |
+| **Structured diagnostics** | Current code uses `ILogger` fields plus a startup crash log; durable rolling structured sink remains M-1.1 |
 | **Test before merge** | CI runs `dotnet test` on every pull request |
 | **Audit failures are visible** | Cleanup returns warning/partial status when a log row cannot be written; deletion is never repeated to recreate audit |
 | **Accessibility as a release target** | Add automation metadata with new controls; complete keyboard/Narrator/high-contrast validation in Phase 2 |

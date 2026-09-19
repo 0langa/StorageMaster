@@ -127,6 +127,6 @@ for ($i = 0; $i -lt $sizes.Count; $i++) {
 foreach ($stream in $pngStreams) { $writer.Write($stream) }
 $writer.Flush()
 
-$outPath = "C:\Users\juliu\source\repos\StorageMaster\src\StorageMaster.UI\Assets\storagemaster.ico"
+$outPath = "C:\Users\Julius\source\repos\maintained\StorageMaster\src\StorageMaster.UI\Assets\storagemaster.ico"
 [System.IO.File]::WriteAllBytes($outPath, $ms.ToArray())
 Write-Host "ICO written: $($ms.Length) bytes to $outPath"

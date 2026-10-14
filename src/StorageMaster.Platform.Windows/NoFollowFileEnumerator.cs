@@ -422,7 +422,7 @@ public sealed class NoFollowFileEnumerator : INoFollowFileEnumerator
     private static FileEntryGuard? TryOpenFileNoFollow(string path)
     {
         var handle = CreateFileW(
-            path,
+            DirectoryTraversalInterop.ToWin32Path(path),
             FileReadAttributes,
             FileShare.Read,
             IntPtr.Zero,

@@ -32,6 +32,12 @@ All notable changes to StorageMaster are documented here.
   Files kept on the device are still compared.
 - "Large old files" no longer suggests online-only cloud files. They take no
   local space, so deleting one reclaimed nothing and removed the cloud copy.
+- Folders deeper than the old 260-character limit are deleted and inspected
+  correctly on machines where Windows long-path support is off, which is the
+  default. The no-follow safety checks opened them with a plain path, Windows
+  answered "path not found", and the folder was treated as already gone: a
+  permanent delete of such a folder reported success with nothing deleted, and
+  cleanup analysis skipped what was inside.
 
 ---
 

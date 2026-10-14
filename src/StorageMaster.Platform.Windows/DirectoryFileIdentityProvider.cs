@@ -2,6 +2,7 @@ using System.Runtime.InteropServices;
 using Microsoft.Win32.SafeHandles;
 using StorageMaster.Core.Interfaces;
 using StorageMaster.Core.Models;
+using StorageMaster.Platform.Windows.Interop;
 
 namespace StorageMaster.Platform.Windows;
 
@@ -58,7 +59,7 @@ public sealed class DirectoryFileIdentityProvider : IDirectoryFileIdentityProvid
         CancellationToken ct)
     {
         using var handle = CreateFileW(
-            directoryPath,
+            DirectoryTraversalInterop.ToWin32Path(directoryPath),
             FileListDirectory,
             FileShareAll,
             IntPtr.Zero,

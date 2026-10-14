@@ -244,6 +244,58 @@ public sealed class DeletionSafetyHardeningTests
         outcomes[0].Error.Should().BeNull();
     }
 
+    // ── Long paths ────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void ToWin32Path_LongPaths_GetTheExtendedLengthPrefix()
+    {
+        var longLocal = @"C:\" + string.Join('\\', Enumerable.Repeat(new string('d', 50), 6));
+        var longUnc = @"\\server\share\" + string.Join('\\', Enumerable.Repeat(new string('d', 50), 6));
+
+        DirectoryTraversalInterop.ToWin32Path(@"C:\short\path").Should().Be(@"C:\short\path");
+        DirectoryTraversalInterop.ToWin32Path(longLocal).Should().Be(@"\\?\" + longLocal);
+        DirectoryTraversalInterop.ToWin32Path(longUnc).Should().Be(@"\\?\UNC\" + longUnc[2..]);
+        DirectoryTraversalInterop.ToWin32Path(@"\\?\" + longLocal).Should().Be(@"\\?\" + longLocal);
+        DirectoryTraversalInterop.ToWin32Path(@"\\.\" + longLocal[..2]).Should().Be(@"\\.\C:");
+    }
+
+    [Fact]
+    public async Task DeletePermanently_DirectoryBeyondMaxPath_IsDeletedNotReportedAsVanished()
+    {
+        // Without the \\?\ prefix the no-follow guard's CreateFileW fails with
+        // "path not found" on machines where LongPathsEnabled is off (the default),
+        // and the deleter took that as "already gone". This machine-independent
+        // check pins that the prefixed route deletes a deep tree and its contents.
+        var root = Path.Combine(Path.GetTempPath(), $"smhard_long_{Guid.NewGuid():N}");
+        var deep = root;
+        while (deep.Length < 300)
+            deep = Path.Combine(deep, new string('d', 40));
+        Directory.CreateDirectory(Path.Combine(deep, "child"));
+        File.WriteAllText(Path.Combine(deep, "child", "file.txt"), "long");
+
+        try
+        {
+            using (var guard = DirectoryTraversalInterop.TryOpenNoFollow(deep))
+                guard.Should().NotBeNull("a long directory exists and must not read as vanished");
+
+            var enumerated = await new NoFollowFileEnumerator(new FileSnapshotProvider())
+                .EnumerateAsync(deep);
+            enumerated.Files.Should().ContainSingle(f => f.Path.EndsWith(@"child\file.txt", StringComparison.Ordinal));
+            enumerated.Errors.Should().BeEmpty();
+
+            var outcome = await _deleter.DeleteAsync(
+                new DeletionRequest(deep, DeletionMethod.Permanent, DryRun: false));
+
+            outcome.Success.Should().BeTrue(outcome.Error);
+            Directory.Exists(deep).Should().BeFalse();
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
     // ── DeletePermanently hardening ───────────────────────────────────────────
 
     [Fact]

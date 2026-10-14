@@ -84,6 +84,36 @@ internal static class DirectoryTraversalInterop
     private const int FileDispositionInfo = 4;
     private const int FileAttributeTagInfo = 9;
 
+    // Below this a plain path always works. CreateDirectory's limit (MAX_PATH - 12)
+    // is the strictest of the legacy limits, so it is used for every call.
+    private const int LegacyPathLimit = 248;
+
+    /// <summary>
+    /// Returns the form of an absolute path that raw Win32 calls can open at any length.
+    /// <para>
+    /// .NET adds the <c>\\?\</c> prefix to long paths for its own file APIs, but a
+    /// P/Invoke receives the string as given, and Windows rejects a plain path over
+    /// MAX_PATH with "path not found" unless the machine-wide LongPathsEnabled policy is
+    /// on — it is off by default. The no-follow guards read "not found" as "the entry
+    /// vanished", so without the prefix a long directory was skipped as if deleted.
+    /// Short paths are returned unchanged, so their behaviour does not move.
+    /// </para>
+    /// </summary>
+    internal static string ToWin32Path(string path)
+    {
+        if (path.Length < LegacyPathLimit ||
+            path.StartsWith(@"\\?\", StringComparison.Ordinal) ||
+            path.StartsWith(@"\\.\", StringComparison.Ordinal) ||
+            !Path.IsPathFullyQualified(path))
+        {
+            return path;
+        }
+
+        return path.StartsWith(@"\\", StringComparison.Ordinal)
+            ? @"\\?\UNC\" + path[2..]
+            : @"\\?\" + path;
+    }
+
     /// <summary>
     /// Opens the named directory itself rather than any reparse target. Returns null only
     /// when the entry vanished; all other inspection/open failures fail closed.
@@ -91,7 +121,7 @@ internal static class DirectoryTraversalInterop
     internal static DirectoryTraversalGuard? TryOpenNoFollow(string path)
     {
         var handle = CreateFileW(
-            path,
+            ToWin32Path(path),
             FileReadAttributes | DeleteAccess,
             FileShare.Read,
             IntPtr.Zero,
@@ -151,7 +181,7 @@ internal static class DirectoryTraversalInterop
         if (attemptStrongGuard)
         {
             handle = CreateFileW(
-                path,
+                ToWin32Path(path),
                 FileReadAttributes | DeleteAccess,
                 FileShare.Read | FileShare.Write,
                 IntPtr.Zero,
@@ -179,7 +209,7 @@ internal static class DirectoryTraversalInterop
         if (handle is null)
         {
             handle = CreateFileW(
-                path,
+                ToWin32Path(path),
                 FileReadAttributes,
                 FileShare.Read | FileShare.Write | FileShare.Delete,
                 IntPtr.Zero,

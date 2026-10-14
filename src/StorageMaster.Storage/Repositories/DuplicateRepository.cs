@@ -667,6 +667,7 @@ public sealed class DuplicateRepository(StorageDbContext db) : IDuplicateReposit
                     $includeHidden = 1
                     OR (Attributes & $hiddenMask) = 0
                   )
+              AND (Attributes & $remoteContentMask) = 0
               AND (
                     $extFilter = ''
                     OR instr(',' || $extFilter || ',', ',' || lower(Extension) || ',') > 0
@@ -683,6 +684,8 @@ public sealed class DuplicateRepository(StorageDbContext db) : IDuplicateReposit
         cmd.Parameters.AddWithValue("$allowReparse", query.IncludeReparsePoints ? 1 : 0);
         cmd.Parameters.AddWithValue("$includeHidden", query.IncludeHiddenFiles ? 1 : 0);
         cmd.Parameters.AddWithValue("$hiddenMask", (int)(FileAttributes.Hidden | FileAttributes.System));
+        // Every strategy reads content, and reading an online-only cloud file downloads it.
+        cmd.Parameters.AddWithValue("$remoteContentMask", (int)RemoteContentAttributes.Mask);
         cmd.Parameters.AddWithValue("$extFilter", extFilter);
         for (var i = 0; i < query.Categories.Count; i++)
             cmd.Parameters.AddWithValue($"$cat{i}", query.Categories[i].ToString());

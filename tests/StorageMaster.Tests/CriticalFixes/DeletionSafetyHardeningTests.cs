@@ -110,6 +110,57 @@ public sealed class DeletionSafetyHardeningTests
     }
 
     [Theory]
+    [InlineData("victim.", "victim")]
+    [InlineData("victim ", "victim")]
+    [InlineData("victim. .", "victim")]
+    [InlineData(@"sub.\victim", @"sub\victim")]
+    [InlineData(@"sub \victim", @"sub\victim")]
+    public async Task DeleteAsync_NameEndingInDotOrSpace_DoesNotDeleteTheTrimmedSibling(
+        string requested,
+        string sibling)
+    {
+        // Win32 path normalisation (and Path.GetFullPath) trims trailing dots and
+        // spaces from every segment, so "victim." would resolve to, and delete, the
+        // different, unselected entry "victim".
+        var directory = Path.Combine(Path.GetTempPath(), $"smhard_trim_{Guid.NewGuid():N}");
+        var siblingPath = Path.Combine(directory, sibling);
+        Directory.CreateDirectory(Path.GetDirectoryName(siblingPath)!);
+        File.WriteAllText(siblingPath, "not selected");
+
+        try
+        {
+            foreach (var method in new[] { DeletionMethod.Permanent, DeletionMethod.RecycleBin, DeletionMethod.Quarantine })
+            {
+                var outcome = await _deleter.DeleteAsync(new DeletionRequest(
+                    directory + Path.DirectorySeparatorChar + requested,
+                    method,
+                    DryRun: false,
+                    QuarantineRunId: 1));
+
+                outcome.Success.Should().BeFalse($"{method} must not resolve the request to another entry");
+                outcome.Error.Should().Contain("ends in a space or a dot");
+                File.Exists(siblingPath).Should().BeTrue($"{method} named a different file");
+            }
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task DeleteAsync_ExtendedLengthPathEndingInDot_IsNotRefusedAsAmbiguous()
+    {
+        // A \\?\ path is not normalised, so it names exactly one entry.
+        var outcome = await _deleter.DeleteAsync(new DeletionRequest(
+            $@"\\?\{Path.GetTempPath()}smhard_missing_{Guid.NewGuid():N}.",
+            DeletionMethod.Permanent,
+            DryRun: true));
+
+        outcome.Error.Should().BeNull();
+    }
+
+    [Theory]
     [InlineData("relative.txt")]
     [InlineData(@".\relative.txt")]
     [InlineData(@"..\relative.txt")]
@@ -191,6 +242,58 @@ public sealed class DeletionSafetyHardeningTests
         outcomes.Should().ContainSingle();
         outcomes[0].Success.Should().BeTrue("a UNC child path is below the share root and must not be blocked by root guard");
         outcomes[0].Error.Should().BeNull();
+    }
+
+    // ── Long paths ────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void ToWin32Path_LongPaths_GetTheExtendedLengthPrefix()
+    {
+        var longLocal = @"C:\" + string.Join('\\', Enumerable.Repeat(new string('d', 50), 6));
+        var longUnc = @"\\server\share\" + string.Join('\\', Enumerable.Repeat(new string('d', 50), 6));
+
+        DirectoryTraversalInterop.ToWin32Path(@"C:\short\path").Should().Be(@"C:\short\path");
+        DirectoryTraversalInterop.ToWin32Path(longLocal).Should().Be(@"\\?\" + longLocal);
+        DirectoryTraversalInterop.ToWin32Path(longUnc).Should().Be(@"\\?\UNC\" + longUnc[2..]);
+        DirectoryTraversalInterop.ToWin32Path(@"\\?\" + longLocal).Should().Be(@"\\?\" + longLocal);
+        DirectoryTraversalInterop.ToWin32Path(@"\\.\" + longLocal[..2]).Should().Be(@"\\.\C:");
+    }
+
+    [Fact]
+    public async Task DeletePermanently_DirectoryBeyondMaxPath_IsDeletedNotReportedAsVanished()
+    {
+        // Without the \\?\ prefix the no-follow guard's CreateFileW fails with
+        // "path not found" on machines where LongPathsEnabled is off (the default),
+        // and the deleter took that as "already gone". This machine-independent
+        // check pins that the prefixed route deletes a deep tree and its contents.
+        var root = Path.Combine(Path.GetTempPath(), $"smhard_long_{Guid.NewGuid():N}");
+        var deep = root;
+        while (deep.Length < 300)
+            deep = Path.Combine(deep, new string('d', 40));
+        Directory.CreateDirectory(Path.Combine(deep, "child"));
+        File.WriteAllText(Path.Combine(deep, "child", "file.txt"), "long");
+
+        try
+        {
+            using (var guard = DirectoryTraversalInterop.TryOpenNoFollow(deep))
+                guard.Should().NotBeNull("a long directory exists and must not read as vanished");
+
+            var enumerated = await new NoFollowFileEnumerator(new FileSnapshotProvider())
+                .EnumerateAsync(deep);
+            enumerated.Files.Should().ContainSingle(f => f.Path.EndsWith(@"child\file.txt", StringComparison.Ordinal));
+            enumerated.Errors.Should().BeEmpty();
+
+            var outcome = await _deleter.DeleteAsync(
+                new DeletionRequest(deep, DeletionMethod.Permanent, DryRun: false));
+
+            outcome.Success.Should().BeTrue(outcome.Error);
+            Directory.Exists(deep).Should().BeFalse();
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
     }
 
     // ── DeletePermanently hardening ───────────────────────────────────────────

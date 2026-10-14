@@ -84,6 +84,11 @@ public sealed class LargeOldFilesCleanupRule : ICleanupRule
             if (IsProtected(file.FullPath))
                 continue;
 
+            // An online-only cloud file takes no local space: deleting it reclaims
+            // nothing here and removes the copy in the cloud.
+            if (RemoteContentAttributes.IsRemote(file.Attributes))
+                continue;
+
             yield return new CleanupSuggestion
             {
                 Id = Guid.NewGuid(),

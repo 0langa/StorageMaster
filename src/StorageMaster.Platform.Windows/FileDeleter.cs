@@ -23,12 +23,23 @@ namespace StorageMaster.Platform.Windows;
 ///     re-checked BEFORE any path in that chunk is submitted, so batching
 ///     changes how verified deletions are handed to the shell, never whether
 ///     they are verified. Chunking keeps the check→submit window short.
-///   • On batch failure (partial error) the batch falls back to per-file mode
-///     so individual error messages are captured — and the per-file path
-///     re-validates each snapshot again before deleting.
+///   • When a batch stops part-way, items the shell already recycled are
+///     reported as recycled and every other item falls back to per-file mode,
+///     which re-validates each snapshot again before deleting.
 ///   • Permanent deletion uses parallel File.Delete / Directory.Delete.
 ///   • All IFileOperation work runs on ONE long-lived STA apartment thread
 ///     rather than a freshly created STA thread per call.
+///
+/// Recycle Bin mode is "recycle or nothing":
+///   • FOF_NOCONFIRMATION also auto-confirms the shell's "cannot recycle, delete
+///     permanently?" question, so an item on a drive without a Recycle Bin
+///     (network share, many removable drives), an item larger than the bin, or an
+///     item on a drive whose bin is turned off would be destroyed while the call
+///     reports success. Every recycled item therefore carries a
+///     RecycleOnlyProgressSink, which stops the shell before such an item is
+///     touched; the request fails with an explanation instead.
+///   • Every recycled path — batched or single — is checked afterwards: one that
+///     is still at its original location is reported as not recycled.
 ///
 /// Error handling:
 ///   • IFileOperation is called with FOF_NOERRORUI | FOF_NOCONFIRMATION so the
@@ -51,6 +62,14 @@ public sealed class FileDeleter : IFileDeleter
     // recycling while bounding both the snapshot-check→submit window and the
     // size of a single IFileOperation.
     private const int RecycleBatchSize = 512;
+
+    internal const string RecycleBinUnavailableError =
+        "Not deleted: Windows cannot move this item to the Recycle Bin here (the drive has no Recycle Bin, " +
+        "the item is larger than the Recycle Bin's maximum size, or the Recycle Bin is turned off for this drive). " +
+        "Recycle Bin mode never deletes permanently; use permanent deletion to remove it.";
+
+    internal const string NotRecycledError =
+        "File could not be moved to the Recycle Bin (may be locked, access denied, or cross-volume).";
 
     /// <param name="VerifiedSize">
     /// Size read from the file handle during snapshot re-validation. Present only
@@ -123,9 +142,20 @@ public sealed class FileDeleter : IFileDeleter
                 return await QuarantineAsync(request, requestedPath, size, cancellationToken);
 
             if (request.Method == DeletionMethod.RecycleBin)
-                RecyclePathsViaIFileOperation([request.Path]);
+            {
+                var notRecycled = DescribeSingleRecycleFailure(
+                    RecyclePathsViaIFileOperation([request.Path]),
+                    request.Path);
+                if (notRecycled is not null)
+                {
+                    _logger.LogWarning("Not moved to the Recycle Bin: {Path} — {Error}", request.Path, notRecycled);
+                    return new DeletionOutcome(requestedPath, false, 0, notRecycled);
+                }
+            }
             else
+            {
                 DeletePermanently(request.Path);
+            }
             _logger.LogInformation("Deleted {Path} ({Size} B)", request.Path, size);
             return new DeletionOutcome(requestedPath, true, size);
         }
@@ -281,52 +311,87 @@ public sealed class FileDeleter : IFileDeleter
         }
 
         var paths = requests.Select(r => r.Request.Path).ToList();
-        bool batchSucceeded = false;
+        RecycleRun? run = null;
         try
         {
-            RecyclePathsViaIFileOperation(paths);
-            batchSucceeded = true;
+            run = RecyclePathsViaIFileOperation(paths);
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Batch recycle failed, falling back to per-file");
+            // Thrown while the batch was being assembled (e.g. a path the shell
+            // cannot parse): nothing was performed, so every item is retried alone.
+            _logger.LogWarning(ex, "Batch recycle could not be prepared, falling back to per-file");
         }
 
-        if (batchSucceeded)
+        if (run is null)
         {
-            // IFileOperation with FOF_NOERRORUI silently skips files it cannot recycle
-            // (locked by another process, access denied, cross-volume Recycle Bin).
-            // It returns S_OK and GetAnyOperationsAborted()=false even when items were skipped.
-            // We verify each path is actually gone from its original location.
-            // A file still present at its original path after PerformOperations means it failed.
-            _logger.LogInformation("Batch recycle: {Count} item(s) submitted; verifying outcomes", requests.Count);
-            int succeeded = 0, failed = 0;
-            for (int i = 0; i < requests.Count; i++)
-            {
-                var path = requests[i].Request.Path;
-                var requestedPath = requests[i].RequestedPath;
-                bool recycled = !File.Exists(path) && !Directory.Exists(path);
-                if (recycled)
-                {
-                    succeeded++;
-                    yield return new DeletionOutcome(requestedPath, Success: true, BytesFreed: sizes[i]);
-                }
-                else
-                {
-                    failed++;
-                    _logger.LogWarning("Batch recycle: item not moved to Recycle Bin (locked/denied?) — {Path}", path);
-                    yield return new DeletionOutcome(requestedPath, Success: false, BytesFreed: 0,
-                        Error: "File could not be moved to the Recycle Bin (may be locked, access denied, or cross-volume).");
-                }
-            }
-            if (failed > 0)
-                _logger.LogWarning("Batch recycle partial failure: {Succeeded} recycled, {Failed} skipped by IFileOperation", succeeded, failed);
+            await foreach (var o in ParallelDeleteAsync(requests, cancellationToken))
+                yield return o;
             yield break;
         }
 
-        // Fallback: per-file so we get individual error messages
-        await foreach (var o in ParallelDeleteAsync(requests, cancellationToken))
-            yield return o;
+        // IFileOperation with FOF_NOERRORUI silently skips files it cannot recycle
+        // (locked by another process, access denied, cross-volume Recycle Bin).
+        // It returns S_OK even when items were skipped; with the progress sink attached
+        // GetAnyOperationsAborted() then reports true, so a skip also takes the
+        // retry-individually route below and the locked item fails on its own.
+        // We verify each path is actually gone from its original location.
+        // A file still present at its original path after PerformOperations means it failed.
+        //
+        // A batch can also stop part-way. The shell decides "recycle or destroy"
+        // for a whole batch: one item it cannot recycle (a network path, an item
+        // larger than the bin) turns every item in the batch into a permanent
+        // delete, local ones included. The Recycle Bin guard refuses that and
+        // aborts everything still pending. Items the shell had already recycled
+        // are gone and are reported as recycled; every other item is retried on
+        // its own, where the shell judges it alone and a refusal is final.
+        _logger.LogInformation("Batch recycle: {Count} item(s) submitted; verifying outcomes", requests.Count);
+        if (!run.Completed)
+        {
+            _logger.LogWarning(
+                "Batch recycle stopped early (HRESULT 0x{HResult:X8}, {Refused} item(s) refused as permanent deletes); " +
+                "remaining items are retried individually",
+                run.HResult,
+                run.Items.Count(static item => item.RefusedPermanentDelete));
+        }
+
+        int succeeded = 0, failed = 0;
+        var retryIndividually = new List<ValidatedDeletionRequest>();
+        for (int i = 0; i < requests.Count; i++)
+        {
+            var path = requests[i].Request.Path;
+            var requestedPath = requests[i].RequestedPath;
+            var item = run.Items[i];
+
+            if (!item.RefusedPermanentDelete && !PathExists(path))
+            {
+                succeeded++;
+                LogIfDestroyedWithoutRecycle(item);
+                yield return new DeletionOutcome(requestedPath, Success: true, BytesFreed: sizes[i]);
+                continue;
+            }
+
+            if (!run.Completed || item.RefusedPermanentDelete)
+            {
+                retryIndividually.Add(requests[i]);
+                continue;
+            }
+
+            failed++;
+            _logger.LogWarning("Batch recycle: item not moved to Recycle Bin (locked/denied?) — {Path}", path);
+            yield return new DeletionOutcome(requestedPath, Success: false, BytesFreed: 0,
+                Error: NotRecycledError);
+        }
+
+        if (failed > 0)
+            _logger.LogWarning("Batch recycle partial failure: {Succeeded} recycled, {Failed} not recycled", succeeded, failed);
+
+        // Per-file so every remaining item gets its own snapshot re-check and outcome.
+        if (retryIndividually.Count > 0)
+        {
+            await foreach (var o in ParallelDeleteAsync(retryIndividually, cancellationToken))
+                yield return o;
+        }
     }
 
     // ── Parallel per-file (normal path) ────────────────────────────────────
@@ -364,23 +429,70 @@ public sealed class FileDeleter : IFileDeleter
     // ── Deletion helpers ────────────────────────────────────────────────────
 
     /// <summary>
+    /// What one IFileOperation recycle run did. <see cref="Items"/> holds one sink
+    /// per submitted path, in submission order.
+    /// </summary>
+    private sealed record RecycleRun(
+        int HResult,
+        bool AnyOperationsAborted,
+        IReadOnlyList<RecycleOnlyProgressSink> Items)
+    {
+        /// <summary>The shell processed every item (skipped items still need the existence check).</summary>
+        internal bool Completed => HResult >= 0 && !AnyOperationsAborted;
+    }
+
+    private static bool PathExists(string path) => File.Exists(path) || Directory.Exists(path);
+
+    /// <summary>
+    /// Returns why a one-item recycle run did not move <paramref name="path"/> to the
+    /// Recycle Bin, or <c>null</c> when the item left its original location.
+    /// </summary>
+    private string? DescribeSingleRecycleFailure(RecycleRun run, string path)
+    {
+        var item = run.Items[0];
+        if (item.RefusedPermanentDelete)
+            return RecycleBinUnavailableError;
+
+        if (!PathExists(path))
+        {
+            LogIfDestroyedWithoutRecycle(item);
+            return null;
+        }
+
+        if (run.HResult < 0)
+            return Marshal.GetExceptionForHR(run.HResult)?.Message ?? $"IFileOperation failed (HRESULT 0x{run.HResult:X8}).";
+
+        return NotRecycledError;
+    }
+
+    private void LogIfDestroyedWithoutRecycle(RecycleOnlyProgressSink item)
+    {
+        if (item.DestroyedWithoutRecycle)
+            _logger.LogError("The shell deleted {Path} without placing it in the Recycle Bin", item.Path);
+    }
+
+    /// <summary>
     /// Sends one or more paths to the Recycle Bin using IFileOperation — the
     /// modern COM API used by Explorer.exe itself. Unlike the legacy
     /// SHFileOperation + FOF_SILENT combination, this approach is not flagged
     /// by antivirus heuristics that associate SHFileOperation's stealth flags
     /// with malware file deletion.
+    /// <para>
+    /// Each path carries a <see cref="RecycleOnlyProgressSink"/>, so an item the
+    /// shell could only delete permanently is refused instead. The returned run
+    /// reports per item; callers still verify which paths actually left.
+    /// </para>
     /// </summary>
-    private static void RecyclePathsViaIFileOperation(IReadOnlyList<string> paths)
+    private static RecycleRun RecyclePathsViaIFileOperation(IReadOnlyList<string> paths)
     {
         // Already on an STA (including the shared apartment's own pump thread,
         // which keeps a re-entrant call from deadlocking on itself).
         if (Thread.CurrentThread.GetApartmentState() == ApartmentState.STA)
-        {
-            RecyclePathsViaIFileOperationCore(paths);
-            return;
-        }
+            return RecyclePathsViaIFileOperationCore(paths);
 
-        SharedStaApartment.Value.Invoke(() => RecyclePathsViaIFileOperationCore(paths));
+        RecycleRun? run = null;
+        SharedStaApartment.Value.Invoke(() => run = RecyclePathsViaIFileOperationCore(paths));
+        return run!;
     }
 
     private static readonly Lazy<StaApartment> SharedStaApartment =
@@ -441,7 +553,7 @@ public sealed class FileDeleter : IFileDeleter
         }
     }
 
-    private static void RecyclePathsViaIFileOperationCore(IReadOnlyList<string> paths)
+    private static RecycleRun RecyclePathsViaIFileOperationCore(IReadOnlyList<string> paths)
     {
         var fo = FileOperationInterop.CreateFileOperation();
         try
@@ -450,12 +562,15 @@ public sealed class FileDeleter : IFileDeleter
 
             fo.SetOwnerWindow(IntPtr.Zero);
 
+            var sinks = new List<RecycleOnlyProgressSink>(paths.Count);
             foreach (var path in paths)
             {
                 var item = FileOperationInterop.CreateShellItem(path);
                 try
                 {
-                    fo.DeleteItem(item, IntPtr.Zero);
+                    var sink = new RecycleOnlyProgressSink(path);
+                    fo.DeleteItem(item, sink);
+                    sinks.Add(sink);
                 }
                 finally
                 {
@@ -464,12 +579,7 @@ public sealed class FileDeleter : IFileDeleter
             }
 
             int hr = fo.PerformOperations();
-            if (hr < 0)
-                Marshal.ThrowExceptionForHR(hr);
-
-            if (fo.GetAnyOperationsAborted())
-                throw new IOException(
-                    $"IFileOperation: one or more items could not be recycled ({paths.Count} items).");
+            return new RecycleRun(hr, fo.GetAnyOperationsAborted(), sinks);
         }
         finally
         {
@@ -617,6 +727,15 @@ public sealed class FileDeleter : IFileDeleter
             return false;
         }
 
+        if (HasSegmentEndingInDotOrSpace(requestedPath))
+        {
+            normalizedRequest = request;
+            failure = new DeletionOutcome(requestedPath, false, 0,
+                "Refusing to delete a path in which a name ends in a space or a dot: Windows would resolve it " +
+                "to a different file or folder.");
+            return false;
+        }
+
         string canonicalPath;
         try
         {
@@ -644,6 +763,31 @@ public sealed class FileDeleter : IFileDeleter
         normalizedRequest = request with { Path = canonicalPath };
         failure = default!;
         return true;
+    }
+
+    /// <summary>
+    /// Win32 path normalisation — and <see cref="Path.GetFullPath(string)"/>, and every
+    /// .NET file API given a plain path — trims trailing spaces and dots from path
+    /// segments, so <c>C:\x\victim.</c> names <c>C:\x\victim</c>. A name that really
+    /// ends that way can only have been created through a <c>\\?\</c> path, and
+    /// deleting it by its plain path would delete a different entry, or none.
+    /// <c>\\?\</c> paths are not normalised, so they are exact and pass.
+    /// </summary>
+    internal static bool HasSegmentEndingInDotOrSpace(string path)
+    {
+        if (path.StartsWith(@"\\?\", StringComparison.Ordinal))
+            return false;
+
+        foreach (var segment in path.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar))
+        {
+            if (segment.Length == 0 || segment is "." or "..")
+                continue;
+
+            if (segment[^1] is '.' or ' ')
+                return true;
+        }
+
+        return false;
     }
 
     private static void ClearReadOnly(string path)

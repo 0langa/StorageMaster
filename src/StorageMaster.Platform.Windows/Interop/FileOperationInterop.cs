@@ -32,6 +32,15 @@ internal static class FileOperationInterop
         FOF_NOERRORUI |
         FOFX_RECYCLEONDELETE;
 
+    // TRANSFER_SOURCE_FLAGS bit the copy engine sets in PreDeleteItem when the item is
+    // about to go to the Recycle Bin. It is absent when the engine is about to destroy
+    // the item instead (no Recycle Bin on the drive, item larger than the bin, or the bin
+    // is turned off), which FOF_NOCONFIRMATION would otherwise allow without a prompt.
+    internal const uint TSF_DELETE_RECYCLE_IF_POSSIBLE = 0x00000080;
+
+    internal const int S_OK = 0;
+    internal const int E_ABORT = unchecked((int)0x80004004);
+
     [DllImport("shell32.dll", CharSet = CharSet.Unicode, ExactSpelling = true)]
     private static extern int SHCreateItemFromParsingName(
         string pszPath,
@@ -128,8 +137,10 @@ internal interface IFileOperation
     // slot 17
     void CopyItems([MarshalAs(UnmanagedType.Interface)] object punkItems,
                   [MarshalAs(UnmanagedType.Interface)] object psiDestinationFolder);
-    // slot 18  ← we call this
-    void DeleteItem([MarshalAs(UnmanagedType.Interface)] IShellItem psiItem, IntPtr pfopsItem);
+    // slot 18  ← we call this, with a per-item progress sink
+    void DeleteItem(
+        [MarshalAs(UnmanagedType.Interface)] IShellItem psiItem,
+        [MarshalAs(UnmanagedType.Interface)] IFileOperationProgressSink? pfopsItem);
     // slot 19
     void DeleteItems([MarshalAs(UnmanagedType.Interface)] object punkItems);
     // slot 20
@@ -143,4 +154,34 @@ internal interface IFileOperation
     [PreserveSig] int PerformOperations();
     // slot 22  ← we call this to detect partial failures
     [return: MarshalAs(UnmanagedType.Bool)] bool GetAnyOperationsAborted();
+}
+
+// ── IFileOperationProgressSink (vtable order from shobjidl_core.h) ──────────
+//
+// Implemented in managed code and handed to IFileOperation.DeleteItem. Every
+// method keeps its HRESULT (PreserveSig) so the sink decides exactly what the
+// copy engine sees. Shell items arrive as raw pointers; the sink never needs
+// to dereference them.
+
+[ComImport]
+[Guid("04b0f1a7-9490-44bc-96e1-4296a31252e2")]
+[InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+internal interface IFileOperationProgressSink
+{
+    [PreserveSig] int StartOperations();
+    [PreserveSig] int FinishOperations(int hrResult);
+    [PreserveSig] int PreRenameItem(uint dwFlags, IntPtr psiItem, IntPtr pszNewName);
+    [PreserveSig] int PostRenameItem(uint dwFlags, IntPtr psiItem, IntPtr pszNewName, int hrRename, IntPtr psiNewlyCreated);
+    [PreserveSig] int PreMoveItem(uint dwFlags, IntPtr psiItem, IntPtr psiDestinationFolder, IntPtr pszNewName);
+    [PreserveSig] int PostMoveItem(uint dwFlags, IntPtr psiItem, IntPtr psiDestinationFolder, IntPtr pszNewName, int hrMove, IntPtr psiNewlyCreated);
+    [PreserveSig] int PreCopyItem(uint dwFlags, IntPtr psiItem, IntPtr psiDestinationFolder, IntPtr pszNewName);
+    [PreserveSig] int PostCopyItem(uint dwFlags, IntPtr psiItem, IntPtr psiDestinationFolder, IntPtr pszNewName, int hrCopy, IntPtr psiNewlyCreated);
+    [PreserveSig] int PreDeleteItem(uint dwFlags, IntPtr psiItem);
+    [PreserveSig] int PostDeleteItem(uint dwFlags, IntPtr psiItem, int hrDelete, IntPtr psiNewlyCreated);
+    [PreserveSig] int PreNewItem(uint dwFlags, IntPtr psiDestinationFolder, IntPtr pszNewName);
+    [PreserveSig] int PostNewItem(uint dwFlags, IntPtr psiDestinationFolder, IntPtr pszNewName, IntPtr pszTemplateName, uint dwFileAttributes, int hrNew, IntPtr psiNewItem);
+    [PreserveSig] int UpdateProgress(uint iWorkTotal, uint iWorkSoFar);
+    [PreserveSig] int ResetTimer();
+    [PreserveSig] int PauseTimer();
+    [PreserveSig] int ResumeTimer();
 }

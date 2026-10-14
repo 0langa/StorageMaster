@@ -40,12 +40,11 @@
 | `docs/public/ARCHITECTURE.md` | Deep architecture reference |
 | `docs/public/CODEMAP.md` | This file |
 | `docs/public/DOCUMENTATION.md` | Full API and configuration reference |
-| `docs/public/ROADMAP.md` | Current roadmap and shipped baseline |
 | `docs/public/RELIABILITY_AUDIT_2026-08-18.md` | Dated audit findings, completed evidence, residual risks, and release decision rule |
 | `docs/public/STORAGEMASTER_3_AUDIT.md` | Earlier StorageMaster 3 audit snapshot; the dated reliability audit above is the current disposition |
 | `docs/public/SAFETY_RECOVERY.md` | Deletion, quarantine, recovery journal, and undo/restore model |
 | `docs/public/VISUAL_REGRESSION.md` | WinUI visual regression scenario matrix and desktop harness requirements |
-| `archive/` | Archived local clutter and historical planning notes; `archive/project-notes/AIprojectcontext/` preserves the retired agent context pack |
+| `archive/` | Archived local clutter and historical planning notes |
 | `.github/workflows/release.yml` | CI/CD: test → Rust build → publish → installer → Release |
 | `installer/StorageMaster.iss` | Inno Setup 6 script (per-user installer, checks .NET Desktop Runtime 8 x64, stages Windows App Runtime 1.6 prereq) |
 | `turbo-scanner/Cargo.toml` | Rust crate manifest |

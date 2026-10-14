@@ -6,7 +6,38 @@ All notable changes to StorageMaster are documented here.
 
 ## [Unreleased]
 
-No unreleased changes.
+### Fixed
+
+- **Recycle Bin mode could delete files permanently.** Windows has no Recycle Bin
+  on network shares and many removable drives, and will not recycle an item
+  larger than the bin's maximum size or on a drive whose bin is turned off. The
+  shell asks before destroying such an item instead, and StorageMaster answered
+  that question "yes" without showing it — then reported the file as moved to
+  the Recycle Bin. Because the shell decides for a whole batch, one such item
+  among hundreds of ordinary files was enough to delete all of them permanently.
+  Recycle Bin mode now means recycle or nothing: an item Windows cannot recycle
+  is left in place and reported as not deleted, with the reason, and the rest of
+  the batch is still recycled.
+- A one-item Recycle Bin request is now checked the same way as a batch: an item
+  still at its original location afterwards is reported as not recycled.
+- A delete request for a name ending in a space or a dot (`report.`, `Cache `) is
+  refused. Windows trims those characters when it resolves a path, so the request
+  reached a different, unselected sibling (`report`, `Cache`) and deleted it,
+  reporting success. Such names only exist when created through `\\?\` paths, by
+  WSL or by tools from other systems; they are now left alone and reported.
+- Online-only cloud files (OneDrive Files On-Demand placeholders, and files in
+  offline storage) are no longer read by duplicate detection. Every method reads
+  file content, and reading such a file downloads it, so a duplicate scan of a
+  synced folder could pull the whole cloud library onto the disk being cleaned.
+  Files kept on the device are still compared.
+- "Large old files" no longer suggests online-only cloud files. They take no
+  local space, so deleting one reclaimed nothing and removed the cloud copy.
+- Folders deeper than the old 260-character limit are deleted and inspected
+  correctly on machines where Windows long-path support is off, which is the
+  default. The no-follow safety checks opened them with a plain path, Windows
+  answered "path not found", and the folder was treated as already gone: a
+  permanent delete of such a folder reported success with nothing deleted, and
+  cleanup analysis skipped what was inside.
 
 ---
 

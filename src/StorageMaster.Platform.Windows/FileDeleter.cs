@@ -725,6 +725,15 @@ public sealed class FileDeleter : IFileDeleter
             return false;
         }
 
+        if (HasSegmentEndingInDotOrSpace(requestedPath))
+        {
+            normalizedRequest = request;
+            failure = new DeletionOutcome(requestedPath, false, 0,
+                "Refusing to delete a path in which a name ends in a space or a dot: Windows would resolve it " +
+                "to a different file or folder.");
+            return false;
+        }
+
         string canonicalPath;
         try
         {
@@ -752,6 +761,31 @@ public sealed class FileDeleter : IFileDeleter
         normalizedRequest = request with { Path = canonicalPath };
         failure = default!;
         return true;
+    }
+
+    /// <summary>
+    /// Win32 path normalisation — and <see cref="Path.GetFullPath(string)"/>, and every
+    /// .NET file API given a plain path — trims trailing spaces and dots from path
+    /// segments, so <c>C:\x\victim.</c> names <c>C:\x\victim</c>. A name that really
+    /// ends that way can only have been created through a <c>\\?\</c> path, and
+    /// deleting it by its plain path would delete a different entry, or none.
+    /// <c>\\?\</c> paths are not normalised, so they are exact and pass.
+    /// </summary>
+    internal static bool HasSegmentEndingInDotOrSpace(string path)
+    {
+        if (path.StartsWith(@"\\?\", StringComparison.Ordinal))
+            return false;
+
+        foreach (var segment in path.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar))
+        {
+            if (segment.Length == 0 || segment is "." or "..")
+                continue;
+
+            if (segment[^1] is '.' or ' ')
+                return true;
+        }
+
+        return false;
     }
 
     private static void ClearReadOnly(string path)

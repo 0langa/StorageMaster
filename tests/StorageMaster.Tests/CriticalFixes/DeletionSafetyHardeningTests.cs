@@ -110,6 +110,57 @@ public sealed class DeletionSafetyHardeningTests
     }
 
     [Theory]
+    [InlineData("victim.", "victim")]
+    [InlineData("victim ", "victim")]
+    [InlineData("victim. .", "victim")]
+    [InlineData(@"sub.\victim", @"sub\victim")]
+    [InlineData(@"sub \victim", @"sub\victim")]
+    public async Task DeleteAsync_NameEndingInDotOrSpace_DoesNotDeleteTheTrimmedSibling(
+        string requested,
+        string sibling)
+    {
+        // Win32 path normalisation (and Path.GetFullPath) trims trailing dots and
+        // spaces from every segment, so "victim." would resolve to, and delete, the
+        // different, unselected entry "victim".
+        var directory = Path.Combine(Path.GetTempPath(), $"smhard_trim_{Guid.NewGuid():N}");
+        var siblingPath = Path.Combine(directory, sibling);
+        Directory.CreateDirectory(Path.GetDirectoryName(siblingPath)!);
+        File.WriteAllText(siblingPath, "not selected");
+
+        try
+        {
+            foreach (var method in new[] { DeletionMethod.Permanent, DeletionMethod.RecycleBin, DeletionMethod.Quarantine })
+            {
+                var outcome = await _deleter.DeleteAsync(new DeletionRequest(
+                    directory + Path.DirectorySeparatorChar + requested,
+                    method,
+                    DryRun: false,
+                    QuarantineRunId: 1));
+
+                outcome.Success.Should().BeFalse($"{method} must not resolve the request to another entry");
+                outcome.Error.Should().Contain("ends in a space or a dot");
+                File.Exists(siblingPath).Should().BeTrue($"{method} named a different file");
+            }
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task DeleteAsync_ExtendedLengthPathEndingInDot_IsNotRefusedAsAmbiguous()
+    {
+        // A \\?\ path is not normalised, so it names exactly one entry.
+        var outcome = await _deleter.DeleteAsync(new DeletionRequest(
+            $@"\\?\{Path.GetTempPath()}smhard_missing_{Guid.NewGuid():N}.",
+            DeletionMethod.Permanent,
+            DryRun: true));
+
+        outcome.Error.Should().BeNull();
+    }
+
+    [Theory]
     [InlineData("relative.txt")]
     [InlineData(@".\relative.txt")]
     [InlineData(@"..\relative.txt")]

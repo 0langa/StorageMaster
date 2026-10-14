@@ -20,6 +20,11 @@ All notable changes to StorageMaster are documented here.
   the batch is still recycled.
 - A one-item Recycle Bin request is now checked the same way as a batch: an item
   still at its original location afterwards is reported as not recycled.
+- A delete request for a name ending in a space or a dot (`report.`, `Cache `) is
+  refused. Windows trims those characters when it resolves a path, so the request
+  reached a different, unselected sibling (`report`, `Cache`) and deleted it,
+  reporting success. Such names only exist when created through `\\?\` paths, by
+  WSL or by tools from other systems; they are now left alone and reported.
 
 ---
 

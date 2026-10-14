@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Text.Json;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using StorageMaster.Core.Deduplication;
 using StorageMaster.Core.Interfaces;
 using StorageMaster.Core.Localization;
 using StorageMaster.Core.Models;
@@ -24,6 +25,12 @@ public sealed record DuplicateMethodFilterOption(string Label, DuplicateMethod? 
     /// user reads and is localized, so a saved setting cannot be matched against it.
     /// </summary>
     public string SettingsName { get; init; } = string.Empty;
+}
+
+/// <summary>A selected duplicate the last deletion left in place, and why, as shown on the page.</summary>
+public sealed record DuplicateNotDeletedItem(string Path, string Reason, string Detail)
+{
+    public bool HasDetail => !string.IsNullOrWhiteSpace(Detail);
 }
 
 public sealed partial class DuplicateMemberItem : ObservableObject
@@ -173,7 +180,13 @@ public sealed partial class DuplicatesViewModel : ObservableObject
         long ProcessedBytes,
         int DeletedFileCount,
         IReadOnlyList<string> GroupErrors,
-        IReadOnlyList<string> PersistenceWarnings);
+        IReadOnlyList<string> PersistenceWarnings,
+        IReadOnlyList<DuplicateDeletionGroupSkips> Skipped);
+
+    /// <summary>The members of one planned group that were left in place, and why.</summary>
+    private sealed record DuplicateDeletionGroupSkips(
+        DuplicateDeletionGroupPlan GroupPlan,
+        IReadOnlyList<DuplicateDeletionSkip> Skipped);
 
     private readonly IScanRepository _scanRepository;
     private readonly ISettingsRepository _settingsRepository;
@@ -251,6 +264,7 @@ public sealed partial class DuplicatesViewModel : ObservableObject
     public ObservableCollection<DuplicateError> Errors { get; } = [];
     public ObservableCollection<DuplicatePreviewItem> PreviewItems { get; } = [];
     public ObservableCollection<QuarantinedFile> QuarantineItems { get; } = [];
+    public ObservableCollection<DuplicateNotDeletedItem> NotDeletedItems { get; } = [];
 
     public Array KeeperPolicyOptions => Enum.GetValues(typeof(KeeperPolicy));
     public Array ScopeModeOptions => Enum.GetValues(typeof(DuplicateScopeMode));
@@ -280,6 +294,9 @@ public sealed partial class DuplicatesViewModel : ObservableObject
     public bool HasSelectedGroup => SelectedGroup is not null;
     public bool HasPreviewItems => PreviewItems.Count > 0;
     public bool HasQuarantineItems => QuarantineItems.Count > 0;
+    public bool HasNotDeletedItems => NotDeletedItems.Count > 0;
+    public string NotDeletedTitle =>
+        Loc.Format("Safety_Duplicates_NotDeleted_Title", NotDeletedItems.Count.ToString("N0"));
     public bool IsWholeSessionScope => SelectedScopeMode == DuplicateScopeMode.WholeSession;
     public bool IsIncludedScopeMode => SelectedScopeMode == DuplicateScopeMode.IncludedFolders;
     public bool IsExcludedScopeMode => SelectedScopeMode == DuplicateScopeMode.ExcludedFolders;
@@ -371,6 +388,7 @@ public sealed partial class DuplicatesViewModel : ObservableObject
     partial void OnSelectedSessionChanged(ScanSession? value)
     {
         OnPropertyChanged(nameof(CanRun));
+        SetNotDeletedItems([]);
         if (!_suppressReactiveLoads)
             _ = LoadLatestRunSafeAsync(value?.Id, CurrentLifetimeToken);
     }
@@ -1043,6 +1061,8 @@ public sealed partial class DuplicatesViewModel : ObservableObject
             if (!confirmed || !IsCurrentLifetime(lifetimeVersion))
                 return;
 
+            SetNotDeletedItems([]);
+
             // Created here, on the UI thread, so Progress<T> captures the dispatcher's
             // synchronisation context: the pool thread reports text and the assignment
             // to the bound property still happens on the UI thread.
@@ -1061,38 +1081,95 @@ public sealed partial class DuplicatesViewModel : ObservableObject
             if (!IsCurrentLifetime(lifetimeVersion))
                 return;
 
-            var processedBytes = outcome.ProcessedBytes;
-            var processedFileCount = outcome.DeletedFileCount;
-            var groupErrors = outcome.GroupErrors;
-            var persistenceWarnings = outcome.PersistenceWarnings;
-            var processedSize = ByteSizeConverter.Format(processedBytes);
-            var processedCount = processedFileCount.ToString("N0");
-            var operationSummary = plan.Method switch
+            // Recycle Bin mode never deletes permanently on its own. Files Windows could
+            // not recycle are still in place; deleting them permanently instead is a
+            // separate decision, asked with the files listed and "no" as the default,
+            // and the retry goes through every live check again.
+            DuplicateDeletionOutcome? permanentRetry = null;
+            var refused = plan.Method == DeletionMethod.RecycleBin
+                ? outcome.Skipped
+                    .SelectMany(static group => group.Skipped)
+                    .Where(static skip => skip.Reason == DuplicateDeletionSkipReason.RecycleBinUnavailable)
+                    .ToArray()
+                : [];
+            if (refused.Length > 0)
             {
-                DeletionMethod.Quarantine => Loc.Format("Safety_Duplicates_Outcome_Quarantine", processedSize, processedCount),
-                DeletionMethod.RecycleBin => Loc.Format("Safety_Duplicates_Outcome_RecycleBin", processedSize, processedCount),
+                var deletePermanently = await _dialogs.ConfirmItemsAsync(
+                    Loc.Get("Safety_RecycleRefused_Title"),
+                    Loc.Format("Safety_RecycleRefused_Body", refused.Length.ToString("N0")),
+                    refused.Select(static skip => skip.Path).ToArray(),
+                    Loc.Get("Safety_PermanentDelete"),
+                    Loc.Get("Safety_RecycleRefused_Keep"));
+                if (!IsCurrentLifetime(lifetimeVersion))
+                    return;
+
+                if (deletePermanently)
+                {
+                    var retryPlan = BuildPermanentRetryPlan(plan, outcome);
+                    permanentRetry = await Task.Run(() => ExecuteDeletionPlanAsync(retryPlan, progress));
+                    if (!IsCurrentLifetime(lifetimeVersion))
+                        return;
+                }
+            }
+
+            var processedSize = ByteSizeConverter.Format(outcome.ProcessedBytes);
+            var processedCount = outcome.DeletedFileCount.ToString("N0");
+            var operationSummary = (plan.Method, permanentRetry) switch
+            {
+                (DeletionMethod.RecycleBin, not null) => Loc.Format(
+                    "Safety_Duplicates_Outcome_RecycleBinThenPermanent",
+                    processedSize,
+                    processedCount,
+                    ByteSizeConverter.Format(permanentRetry.ProcessedBytes),
+                    permanentRetry.DeletedFileCount.ToString("N0")),
+                (DeletionMethod.Quarantine, _) => Loc.Format("Safety_Duplicates_Outcome_Quarantine", processedSize, processedCount),
+                (DeletionMethod.RecycleBin, _) => Loc.Format("Safety_Duplicates_Outcome_RecycleBin", processedSize, processedCount),
                 _ => Loc.Format("Safety_Duplicates_Outcome_Permanent", processedSize, processedCount),
             };
-            StatusText = (groupErrors.Count, persistenceWarnings.Count) switch
+
+            var groupErrors = outcome.GroupErrors
+                .Concat(permanentRetry?.GroupErrors ?? [])
+                .ToArray();
+            var persistenceWarnings = outcome.PersistenceWarnings
+                .Concat(permanentRetry?.PersistenceWarnings ?? [])
+                .ToArray();
+            StatusText = (groupErrors.Length, persistenceWarnings.Length) switch
             {
                 (0, 0) => Loc.Format("Duplicates_Status_DeleteDone", operationSummary, plan.Page.ToString("N0")),
                 (0, _) => Loc.Format(
                     "Duplicates_Status_DeleteWarnings",
                     operationSummary,
-                    persistenceWarnings.Count.ToString("N0"),
+                    persistenceWarnings.Length.ToString("N0"),
                     persistenceWarnings[0]),
                 (_, 0) => Loc.Format(
                     "Duplicates_Status_DeleteErrors",
                     operationSummary,
-                    groupErrors.Count.ToString("N0"),
+                    groupErrors.Length.ToString("N0"),
                     groupErrors[0]),
                 _ => Loc.Format(
                     "Duplicates_Status_DeleteErrorsAndWarnings",
                     operationSummary,
-                    groupErrors.Count.ToString("N0"),
-                    persistenceWarnings.Count.ToString("N0"),
+                    groupErrors.Length.ToString("N0"),
+                    persistenceWarnings.Length.ToString("N0"),
                     groupErrors[0]),
             };
+
+            // A refusal the permanent retry dealt with is replaced by what the retry
+            // did: nothing if the file is now gone, its own reason if it is not.
+            var retried = permanentRetry is null
+                ? new HashSet<long>()
+                : refused.Select(static skip => skip.MemberId).ToHashSet();
+            var stillInPlace = outcome.Skipped
+                .SelectMany(static group => group.Skipped)
+                .Where(skip => !retried.Contains(skip.MemberId))
+                .Concat(permanentRetry?.Skipped.SelectMany(static group => group.Skipped) ?? []);
+            SetNotDeletedItems(stillInPlace
+                .Select(static skip => new DuplicateNotDeletedItem(
+                    skip.Path,
+                    Loc.Get(DuplicateDeletionSkips.ResourceKey(skip.Reason)),
+                    skip.Detail ?? string.Empty))
+                .ToArray());
+
             await LoadLatestRunAsync(selectedSessionId, CurrentLifetimeToken);
         }
         catch (OperationCanceledException)
@@ -1108,6 +1185,37 @@ public sealed partial class DuplicatesViewModel : ObservableObject
             if (IsCurrentLifetime(lifetimeVersion))
                 IsDeleting = false;
         }
+    }
+
+    private void SetNotDeletedItems(IReadOnlyList<DuplicateNotDeletedItem> items)
+    {
+        NotDeletedItems.Clear();
+        foreach (var item in items)
+            NotDeletedItems.Add(item);
+
+        OnPropertyChanged(nameof(HasNotDeletedItems));
+        OnPropertyChanged(nameof(NotDeletedTitle));
+    }
+
+    /// <summary>
+    /// The confirmed plan again, reduced to the files the Recycle Bin refused, as a
+    /// permanent deletion. Every other member is deselected, so the retry can only
+    /// reach files the user has just seen listed.
+    /// </summary>
+    private static DuplicateDeletionPlan BuildPermanentRetryPlan(
+        DuplicateDeletionPlan plan,
+        DuplicateDeletionOutcome outcome)
+    {
+        var groups = outcome.Skipped
+            .Select(static group => new DuplicateDeletionGroupPlan(
+                group.GroupPlan.Group,
+                DuplicateDeletionSkips.SelectOnlyRecycleBinRefusals(group.GroupPlan.Members, group.Skipped)))
+            .Where(static group => group.Members.Any(static member => member.IsSelected && !member.IsKeeper))
+            .ToArray();
+
+        var selectedMemberCount = groups.Sum(static group =>
+            group.Members.Count(static member => member.IsSelected && !member.IsKeeper));
+        return new DuplicateDeletionPlan(plan.Page, DeletionMethod.Permanent, selectedMemberCount, groups);
     }
 
     /// <summary>
@@ -1129,6 +1237,7 @@ public sealed partial class DuplicatesViewModel : ObservableObject
         var processedFileCount = 0;
         var groupErrors = new List<string>();
         var persistenceWarnings = new List<string>();
+        var skipped = new List<DuplicateDeletionGroupSkips>();
         var completedGroups = 0;
 
         foreach (var groupPlan in plan.Groups)
@@ -1145,10 +1254,15 @@ public sealed partial class DuplicatesViewModel : ObservableObject
                 processedFileCount += result.DeletedFileCount;
                 persistenceWarnings.AddRange(result.Warnings.Select(warning =>
                     $"Group {groupPlan.Group.Id}, {warning.Path}: {warning.Message}"));
+                if (result.Skipped.Count > 0)
+                    skipped.Add(new DuplicateDeletionGroupSkips(groupPlan, result.Skipped));
             }
             catch (Exception ex)
             {
                 groupErrors.Add($"Group {groupPlan.Group.Id}: {ex.Message}");
+                skipped.Add(new DuplicateDeletionGroupSkips(
+                    groupPlan,
+                    DuplicateDeletionSkips.ForUnprocessedGroup(groupPlan.Members, ex.Message)));
             }
 
             completedGroups++;
@@ -1162,7 +1276,8 @@ public sealed partial class DuplicatesViewModel : ObservableObject
             processedBytes,
             processedFileCount,
             groupErrors,
-            persistenceWarnings);
+            persistenceWarnings,
+            skipped);
     }
 
     private DuplicateDeletionPlan? CaptureDeletionPlan()

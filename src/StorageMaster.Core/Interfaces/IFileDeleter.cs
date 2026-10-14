@@ -32,7 +32,14 @@ public sealed record DeletionOutcome(
     long BytesFreed,
     string? Error = null,
     /// <summary>Set when Method == Quarantine and move succeeded.</summary>
-    string? QuarantinePath = null);
+    string? QuarantinePath = null,
+    /// <summary>
+    /// True when Recycle Bin mode left the item in place because Windows could
+    /// only have deleted it permanently (no Recycle Bin on that drive, the item is
+    /// larger than the bin allows, or the bin is turned off). The item is untouched;
+    /// a caller that wants it gone must ask the user before a permanent delete.
+    /// </summary>
+    bool RecycleBinRefused = false);
 
 /// <summary>
 /// Platform abstraction for file/folder deletion.

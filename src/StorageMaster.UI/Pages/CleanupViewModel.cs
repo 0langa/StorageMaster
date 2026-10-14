@@ -215,6 +215,17 @@ public sealed partial class CleanupViewModel : ObservableObject
 
     // Stored between initial run and any follow-up re-runs.
     private IReadOnlyList<CleanupSuggestion> _lastSelectedSuggestions = [];
+
+    /// <summary>
+    /// After a real Recycle Bin run: the targets Windows would not recycle, as
+    /// permanent-deletion suggestions waiting for the user's explicit yes. Empty
+    /// otherwise, and emptied as soon as it is used or another run starts.
+    /// </summary>
+    private IReadOnlyList<CleanupSuggestion> _recycleBinRefusalRetry = [];
+
+    /// <summary>Targets the last Recycle Bin run left in place that may be deleted permanently instead.</summary>
+    public IReadOnlyList<string> RecycleBinRefusedPaths =>
+        _recycleBinRefusalRetry.SelectMany(static suggestion => suggestion.TargetPaths).ToArray();
     private CancellationTokenSource? _analysisCts;
     private int _analysisGeneration;
     private bool _isInitializing;
@@ -549,6 +560,22 @@ public sealed partial class CleanupViewModel : ObservableObject
         return true;
     }
 
+    /// <summary>
+    /// Permanently deletes the targets the last Recycle Bin run left in place. Only
+    /// call after the user confirmed the listed items; returns false when there is
+    /// nothing to retry. Every target is checked against its scan-time snapshot again.
+    /// </summary>
+    public async Task<bool> RunPermanentForRecycleBinRefusalsAsync()
+    {
+        var retry = _recycleBinRefusalRetry;
+        _recycleBinRefusalRetry = [];
+        if (retry.Count == 0)
+            return false;
+
+        await RunCleanupCoreAsync(dryRun: false, DeletionMethod.Permanent, retry);
+        return true;
+    }
+
     public string LastRunSelectedSizeDisplay => ByteSizeConverter.Format(
         _lastSelectedSuggestions.Sum(suggestion => suggestion.EstimatedBytes));
 
@@ -558,6 +585,7 @@ public sealed partial class CleanupViewModel : ObservableObject
         IReadOnlyList<CleanupSuggestion> suggestions)
     {
         IsExecuting = true;
+        _recycleBinRefusalRetry = [];
         LastRunWasDryRun = dryRun;
         LastRunDeletionMethod = method;
         LastPreviewAllowsExecution = false;
@@ -604,6 +632,8 @@ public sealed partial class CleanupViewModel : ObservableObject
                     error));
             }
             HasExecutionResults = ExecutionResults.Count > 0;
+            if (!dryRun && method == DeletionMethod.RecycleBin)
+                _recycleBinRefusalRetry = CleanupEngine.BuildPermanentRetryForRecycleBinRefusals(suggestions, results);
 
             long totalFreed = results.Sum(r => r.BytesFreed);
             int succeeded = results.Count(r => r.Status == CleanupResultStatus.Success);

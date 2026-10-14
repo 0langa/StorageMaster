@@ -60,7 +60,7 @@ public sealed class DuplicateDeletionService : IDuplicateDeletionService
             .Where(static m => m.IsSelected && !m.IsKeeper && m.ExistsNow)
             .ToList();
         if (selected.Count == 0)
-            return new DuplicateDeletionResult(0, 0, []);
+            return new DuplicateDeletionResult(0, 0, [], []);
 
         if (!_strategies.TryGetValue(group.Method, out var strategy) || !strategy.IsAvailable)
         {
@@ -101,27 +101,35 @@ public sealed class DuplicateDeletionService : IDuplicateDeletionService
         long processedBytes = 0L;
         var deletedMembers = new List<DuplicateGroupMember>(selected.Count);
         var warnings = new List<DuplicateDeletionWarning>();
+        var skipped = new List<DuplicateDeletionSkip>();
         foreach (var member in selected)
         {
             ct.ThrowIfCancellationRequested();
 
             if (member.Identity is null)
             {
-                warnings.Add(new DuplicateDeletionWarning(
-                    member.FullPath,
-                    "Skipped because no stable scan-time file identity is available. Run duplicate analysis again."));
+                Skip(member, DuplicateDeletionSkipReason.NoStableIdentity);
                 continue;
             }
 
             var memberSnapshot = await _snapshotProvider.TakeSnapshotAsync(member.FullPath, ct);
             if (memberSnapshot is null || !MatchesRecordedState(member, memberSnapshot))
+            {
+                Skip(member, DuplicateDeletionSkipReason.ChangedSinceAnalysis);
                 continue;
+            }
 
             var memberCandidate = CreateLiveCandidate(member, memberSnapshot);
             var memberSignature = await strategy.ComputeSignatureAsync(memberCandidate, ct);
-            if (!IsReady(memberSignature) ||
-                !AreLiveDuplicates(strategy, keeperCandidate, keeperSignature, memberCandidate, memberSignature))
+            if (!IsReady(memberSignature))
             {
+                Skip(member, DuplicateDeletionSkipReason.CouldNotVerify, memberSignature.ErrorMessage);
+                continue;
+            }
+
+            if (!AreLiveDuplicates(strategy, keeperCandidate, keeperSignature, memberCandidate, memberSignature))
+            {
+                Skip(member, DuplicateDeletionSkipReason.NoLongerDuplicate);
                 continue;
             }
 
@@ -145,6 +153,12 @@ public sealed class DuplicateDeletionService : IDuplicateDeletionService
                     outcome.BytesFreed,
                     outcome.Error ?? "Deletion failed.",
                     CancellationToken.None);
+                Skip(
+                    member,
+                    outcome.RecycleBinRefused
+                        ? DuplicateDeletionSkipReason.RecycleBinUnavailable
+                        : DuplicateDeletionSkipReason.DeleteFailed,
+                    outcome.Error);
                 continue;
             }
 
@@ -255,7 +269,14 @@ public sealed class DuplicateDeletionService : IDuplicateDeletionService
             }
         }
 
-        return new DuplicateDeletionResult(processedBytes, deletedMembers.Count, warnings.ToArray());
+        return new DuplicateDeletionResult(
+            processedBytes,
+            deletedMembers.Count,
+            warnings.ToArray(),
+            skipped.ToArray());
+
+        void Skip(DuplicateGroupMember member, DuplicateDeletionSkipReason reason, string? detail = null) =>
+            skipped.Add(new DuplicateDeletionSkip(member.Id, member.FullPath, reason, detail));
     }
 
     public async Task RestoreFromQuarantineAsync(

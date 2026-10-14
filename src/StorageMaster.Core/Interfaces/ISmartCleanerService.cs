@@ -49,7 +49,11 @@ public sealed record SmartCleanGroup(
     IReadOnlyDictionary<string, FileSnapshot> ExpectedFileSnapshots,
     bool IsSelected = true);
 
-public sealed record SmartCleanFailure(string Path, string Error);
+/// <param name="RecycleBinRefused">
+/// True when Recycle Bin mode left the path in place because Windows could only
+/// have deleted it permanently. The file is untouched.
+/// </param>
+public sealed record SmartCleanFailure(string Path, string Error, bool RecycleBinRefused = false);
 
 /// <summary>Read-only Smart Cleaner findings plus path-specific scan warnings.</summary>
 public sealed record SmartCleanAnalysisResult(

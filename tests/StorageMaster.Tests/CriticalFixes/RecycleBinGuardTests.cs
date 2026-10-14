@@ -42,6 +42,8 @@ public sealed class RecycleBinGuardTests : IDisposable
         outcome.Success.Should().BeFalse("the shell could only have deleted it permanently");
         outcome.BytesFreed.Should().Be(0);
         outcome.Error.Should().Be(FileDeleter.RecycleBinUnavailableError);
+        outcome.RecycleBinRefused.Should().BeTrue(
+            "callers offer a permanent delete only for items the Recycle Bin refused");
         File.Exists(local).Should().BeTrue("Recycle Bin mode must not destroy the file");
     }
 
@@ -66,6 +68,7 @@ public sealed class RecycleBinGuardTests : IDisposable
         // its own and refused there too.
         outcomes.Should().HaveCount(2);
         outcomes.Should().OnlyContain(o => !o.Success && o.Error == FileDeleter.RecycleBinUnavailableError);
+        outcomes.Should().OnlyContain(o => o.RecycleBinRefused);
         outcomes.Select(o => o.Path).Should().BeEquivalentTo([firstNetwork, secondNetwork]);
         File.Exists(first).Should().BeTrue();
         File.Exists(second).Should().BeTrue();
@@ -99,8 +102,9 @@ public sealed class RecycleBinGuardTests : IDisposable
         outcomes.Should().HaveCount(3);
         outcomes.Should().ContainSingle(o => o.Path == recyclable).Which.Success.Should().BeTrue(
             "the local file can be recycled on its own once the batch has been refused");
+        outcomes.Single(o => o.Path == recyclable).RecycleBinRefused.Should().BeFalse();
         outcomes.Where(o => o.Path != recyclable).Should().OnlyContain(
-            o => !o.Success && o.Error == FileDeleter.RecycleBinUnavailableError);
+            o => !o.Success && o.Error == FileDeleter.RecycleBinUnavailableError && o.RecycleBinRefused);
         File.Exists(recyclable).Should().BeFalse();
         File.Exists(first).Should().BeTrue();
         File.Exists(second).Should().BeTrue();
@@ -163,6 +167,8 @@ public sealed class RecycleBinGuardTests : IDisposable
         outcomes.Should().ContainSingle(o => o.Path == recyclable).Which.Success.Should().BeTrue(
             "the file is in the Recycle Bin, so reporting it as changed or failed is wrong");
         outcomes.Should().ContainSingle(o => o.Path == locked).Which.Success.Should().BeFalse();
+        outcomes.Single(o => o.Path == locked).RecycleBinRefused.Should().BeFalse(
+            "a locked file is not a Recycle Bin refusal; deleting it permanently would fail the same way");
         File.Exists(recyclable).Should().BeFalse();
         File.Exists(locked).Should().BeTrue();
     }
@@ -184,6 +190,7 @@ public sealed class RecycleBinGuardTests : IDisposable
 
         outcome.Success.Should().BeFalse();
         outcome.BytesFreed.Should().Be(0);
+        outcome.RecycleBinRefused.Should().BeFalse();
         File.Exists(local).Should().BeTrue();
     }
 

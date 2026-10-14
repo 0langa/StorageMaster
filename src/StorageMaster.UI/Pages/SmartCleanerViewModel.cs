@@ -7,6 +7,7 @@ using Microsoft.UI.Xaml.Controls;
 using StorageMaster.Core.Interfaces;
 using StorageMaster.Core.Localization;
 using StorageMaster.Core.Models;
+using StorageMaster.Core.SmartCleaner;
 using StorageMaster.UI.Converters;
 using StorageMaster.UI.Infrastructure;
 
@@ -242,7 +243,40 @@ public sealed partial class SmartCleanerViewModel : ObservableObject
             if (!IsCurrentOperation(operationVersion, operationCts))
                 return;
 
-            ApplyCleanupResult(result, method);
+            // Recycle Bin mode never deletes permanently on its own. Files Windows could
+            // not recycle are still in place; deleting them permanently instead is a
+            // separate decision, asked with the files listed and "no" as the default.
+            SmartCleanResult? permanentRetry = null;
+            var retryGroups = method == DeletionMethod.RecycleBin && !result.WasCancelled
+                ? SmartCleanerService.NarrowToRecycleBinRefusals(selected, result)
+                : [];
+            if (retryGroups.Count > 0)
+            {
+                var refusedPaths = retryGroups.SelectMany(static group => group.Paths).ToArray();
+                var deletePermanently = await _dialogs.ConfirmItemsAsync(
+                    Loc.Get("Safety_RecycleRefused_Title"),
+                    Loc.Format(
+                        "Safety_RecycleRefused_Body",
+                        refusedPaths.Length.ToString("N0", CultureInfo.CurrentCulture)),
+                    refusedPaths,
+                    Loc.Get("Safety_PermanentDelete"),
+                    Loc.Get("Safety_RecycleRefused_Keep"));
+                if (!IsCurrentOperation(operationVersion, operationCts))
+                    return;
+
+                if (deletePermanently)
+                {
+                    permanentRetry = await _service.CleanAsync(
+                        retryGroups,
+                        DeletionMethod.Permanent,
+                        progress,
+                        operationCts.Token);
+                    if (!IsCurrentOperation(operationVersion, operationCts))
+                        return;
+                }
+            }
+
+            ApplyCleanupResult(result, method, permanentRetry);
         }
         catch (OperationCanceledException) when (operationCts.IsCancellationRequested)
         {
@@ -305,8 +339,45 @@ public sealed partial class SmartCleanerViewModel : ObservableObject
         UnsubscribeGroups();
     }
 
-    private void ApplyCleanupResult(SmartCleanResult result, DeletionMethod method)
+    private void ApplyCleanupResult(
+        SmartCleanResult result,
+        DeletionMethod method,
+        SmartCleanResult? permanentRetry = null)
     {
+        var operationSummary = method == DeletionMethod.RecycleBin
+            ? Loc.Format("Safety_Smart_Summary_RecycleBin", ByteSizeConverter.Format(result.BytesProcessed))
+            : Loc.Format(
+                "Safety_Smart_Summary_Permanent",
+                ByteSizeConverter.Format(result.BytesProcessed),
+                ByteSizeConverter.Format(result.BytesFreed));
+
+        if (permanentRetry is not null)
+        {
+            // Both summaries are self-contained sentences, so the user reads what went
+            // to the Recycle Bin and what was deleted permanently, separately.
+            operationSummary += " " + Loc.Format(
+                "Safety_Smart_Summary_Permanent",
+                ByteSizeConverter.Format(permanentRetry.BytesProcessed),
+                ByteSizeConverter.Format(permanentRetry.BytesFreed));
+
+            // A refusal the retry dealt with is replaced by what the retry did.
+            var retried = result.Failures
+                .Where(static failure => failure.RecycleBinRefused)
+                .Select(static failure => failure.Path)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            result = new SmartCleanResult(
+                result.BytesFreed + permanentRetry.BytesFreed,
+                result.BytesProcessed + permanentRetry.BytesProcessed,
+                result.SuccessfulPathCount + permanentRetry.SuccessfulPathCount,
+                result.Failures
+                    .Where(failure => !retried.Contains(failure.Path))
+                    .Concat(permanentRetry.Failures)
+                    .ToArray(),
+                result.AuditWarnings.Concat(permanentRetry.AuditWarnings).ToArray(),
+                result.WasCancelled || permanentRetry.WasCancelled,
+                result.ErrorMessage ?? permanentRetry.ErrorMessage);
+        }
+
         InvalidateGroups();
         FreedText = ByteSizeConverter.Format(result.BytesFreed);
 
@@ -317,11 +388,6 @@ public sealed partial class SmartCleanerViewModel : ObservableObject
         if (!string.IsNullOrWhiteSpace(result.ErrorMessage))
             FailureDetails.Add(Loc.Format("Smart_FailureDetails_CleanupError", result.ErrorMessage));
         HasFailureDetails = FailureDetails.Count > 0;
-
-        var processedText = ByteSizeConverter.Format(result.BytesProcessed);
-        var operationSummary = method == DeletionMethod.RecycleBin
-            ? Loc.Format("Safety_Smart_Summary_RecycleBin", processedText)
-            : Loc.Format("Safety_Smart_Summary_Permanent", processedText, FreedText);
 
         if (result.SuccessfulPathCount == 0)
         {

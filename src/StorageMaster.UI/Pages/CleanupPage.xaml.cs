@@ -1,3 +1,4 @@
+using System.Globalization;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI;
 using Microsoft.UI.Text;
@@ -7,6 +8,7 @@ using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Navigation;
 using StorageMaster.Core.Interfaces;
 using StorageMaster.Core.Localization;
+using StorageMaster.UI.Infrastructure;
 
 namespace StorageMaster.UI.Pages;
 
@@ -177,11 +179,43 @@ public sealed partial class CleanupPage : Page
                     break;
                 }
             }
+            else if (!wasDry &&
+                     wasMethod == DeletionMethod.RecycleBin &&
+                     ViewModel.RecycleBinRefusedPaths is { Count: > 0 } refusedPaths)
+            {
+                // Recycle Bin mode never deletes permanently on its own. What Windows
+                // would not recycle is still in place; deleting it permanently is a
+                // separate decision, asked with the items listed and "no" as the
+                // default. The next pass shows that run's own report.
+                if (!await ConfirmPermanentForRecycleBinRefusalsAsync(refusedPaths, navigationGeneration) ||
+                    !await ViewModel.RunPermanentForRecycleBinRefusalsAsync())
+                {
+                    break;
+                }
+            }
             else
             {
                 break; // User dismissed, or no further action available.
             }
         }
+    }
+
+    private async Task<bool> ConfirmPermanentForRecycleBinRefusalsAsync(
+        IReadOnlyList<string> refusedPaths,
+        int navigationGeneration)
+    {
+        if (!IsCurrentNavigation(navigationGeneration))
+            return false;
+
+        var confirmed = await App.Services.GetRequiredService<IDialogService>().ConfirmItemsAsync(
+            Loc.Get("Safety_RecycleRefused_Title"),
+            Loc.Format(
+                "Safety_RecycleRefused_Body",
+                refusedPaths.Count.ToString("N0", CultureInfo.CurrentCulture)),
+            refusedPaths,
+            Loc.Get("Safety_PermanentDelete"),
+            Loc.Get("Safety_RecycleRefused_Keep"));
+        return confirmed && IsCurrentNavigation(navigationGeneration);
     }
 
     // ── Dialog builder ─────────────────────────────────────────────────────

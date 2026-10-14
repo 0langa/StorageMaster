@@ -3,6 +3,7 @@ using Moq;
 using StorageMaster.Core.Cleanup;
 using StorageMaster.Core.Deduplication;
 using StorageMaster.Core.Interfaces;
+using StorageMaster.Core.Localization;
 using StorageMaster.Core.Models;
 using StorageMaster.Platform.Windows;
 
@@ -473,6 +474,208 @@ public sealed class DuplicateDeletionServiceTests : IDisposable
         File.Exists(deletePath).Should().BeTrue();
         deleter.VerifyNoOtherCalls();
         repo.VerifyNoOtherCalls();
+    }
+
+    // ── Why a selected file was not deleted ─────────────────────────────────
+
+    [Fact]
+    public async Task DeleteSelectedWithResultAsync_ReportsAReasonForEverySelectedFileLeftInPlace()
+    {
+        var keeperPath = WriteFile("reason-keeper.txt", "same");
+        var changedPath = WriteFile("reason-changed.txt", "same");
+        var differentPath = WriteFile("reason-different.txt", "diff");
+        var lockedPath = WriteFile("reason-locked.txt", "same");
+        var refusedPath = WriteFile("reason-refused.txt", "same");
+        var deletedPath = WriteFile("reason-deleted.txt", "same");
+
+        var keeper = MakeMember(1, 10, keeperPath, isKeeper: true, isSelected: false);
+        var changed = MakeMember(2, 10, changedPath, isKeeper: false, isSelected: true);
+        var different = MakeMember(3, 10, differentPath, isKeeper: false, isSelected: true);
+        var locked = MakeMember(4, 10, lockedPath, isKeeper: false, isSelected: true);
+        var refused = MakeMember(5, 10, refusedPath, isKeeper: false, isSelected: true);
+        var deleted = MakeMember(6, 10, deletedPath, isKeeper: false, isSelected: true);
+        var noIdentityPath = WriteFile("reason-noidentity.txt", "same");
+        var noIdentity = MakeMember(7, 10, noIdentityPath, isKeeper: false, isSelected: true) with { Identity = null };
+        await File.AppendAllTextAsync(changedPath, " changed");
+
+        var deleter = new Mock<IFileDeleter>();
+        deleter.Setup(x => x.DeleteAsync(It.IsAny<DeletionRequest>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((DeletionRequest request, CancellationToken _) =>
+                request.Path == lockedPath
+                    ? new DeletionOutcome(request.Path, false, 0, "The process cannot access the file.")
+                    : request.Path == refusedPath
+                        ? new DeletionOutcome(request.Path, false, 0, "Not deleted: no Recycle Bin.", RecycleBinRefused: true)
+                        : new DeletionOutcome(request.Path, true, 4));
+        var service = CreateService(deleter.Object, Mock.Of<ICleanupLogRepository>(), CreatePermissiveRepository().Object);
+
+        var result = await service.DeleteSelectedWithResultAsync(
+            MakeGroup(),
+            [keeper, changed, different, locked, refused, deleted, noIdentity],
+            DeletionMethod.RecycleBin);
+
+        result.DeletedFileCount.Should().Be(1);
+        result.Skipped.Should().BeEquivalentTo(new[]
+        {
+            new DuplicateDeletionSkip(changed.Id, changedPath, DuplicateDeletionSkipReason.ChangedSinceAnalysis),
+            new DuplicateDeletionSkip(different.Id, differentPath, DuplicateDeletionSkipReason.NoLongerDuplicate),
+            new DuplicateDeletionSkip(locked.Id, lockedPath, DuplicateDeletionSkipReason.DeleteFailed, "The process cannot access the file."),
+            new DuplicateDeletionSkip(refused.Id, refusedPath, DuplicateDeletionSkipReason.RecycleBinUnavailable, "Not deleted: no Recycle Bin."),
+            new DuplicateDeletionSkip(noIdentity.Id, noIdentity.FullPath, DuplicateDeletionSkipReason.NoStableIdentity),
+        });
+        result.Warnings.Should().BeEmpty(
+            "a file left in place is not a bookkeeping warning; it is reported with its reason");
+    }
+
+    [Fact]
+    public async Task DeleteSelectedWithResultAsync_MemberThatCannotBeReread_IsReportedAsNotVerified()
+    {
+        var keeperPath = WriteFile("verify-keeper.txt", "same");
+        var memberPath = WriteFile("verify-member.txt", "same");
+        var keeper = MakeMember(1, 10, keeperPath, isKeeper: true, isSelected: false);
+        var member = MakeMember(2, 10, memberPath, isKeeper: false, isSelected: true);
+
+        var strategy = new Mock<IDuplicateDetectionStrategy>();
+        strategy.SetupGet(x => x.Method).Returns(DuplicateMethod.ExactSha256);
+        strategy.SetupGet(x => x.Algorithm).Returns("SHA-256");
+        strategy.SetupGet(x => x.IsAvailable).Returns(true);
+        strategy.Setup(x => x.ComputeSignatureAsync(It.IsAny<DuplicateCandidate>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((DuplicateCandidate candidate, CancellationToken _) => candidate.File.FullPath == keeperPath
+                ? Signature(candidate, "Ready", text: "AA")
+                : Signature(candidate, "Error", error: "sharing violation"));
+
+        var service = new DuplicateDeletionService(
+            new Mock<IFileDeleter>(MockBehavior.Strict).Object,
+            Mock.Of<ICleanupLogRepository>(),
+            new Mock<IDuplicateRepository>(MockBehavior.Strict).Object,
+            new FileSnapshotProvider(),
+            [strategy.Object]);
+
+        var result = await service.DeleteSelectedWithResultAsync(MakeGroup(), [keeper, member], DeletionMethod.Permanent);
+
+        result.Skipped.Should().ContainSingle().Which.Should().Be(
+            new DuplicateDeletionSkip(member.Id, memberPath, DuplicateDeletionSkipReason.CouldNotVerify, "sharing violation"));
+        File.Exists(memberPath).Should().BeTrue();
+
+        static DuplicateSignature Signature(DuplicateCandidate candidate, string status, string? text = null, string? error = null) =>
+            new()
+            {
+                Id = 0,
+                SessionId = 0,
+                FileEntryId = candidate.File.Id,
+                Method = DuplicateMethod.ExactSha256,
+                Algorithm = "SHA-256",
+                AlgorithmVersion = 1,
+                ComputedUtc = DateTime.UtcNow,
+                Status = status,
+                SignatureText = text,
+                ErrorMessage = error,
+            };
+    }
+
+    [Fact]
+    public void EveryNotDeletedReasonHasAStringInEveryLanguage()
+    {
+        foreach (var language in LocalizationCatalog.ShippedLanguages)
+        {
+            var strings = LocalizationCatalog.Strings(language);
+            foreach (var reason in Enum.GetValues<DuplicateDeletionSkipReason>())
+            {
+                strings.Should().ContainKey(DuplicateDeletionSkips.ResourceKey(reason),
+                    "the Duplicates page explains every file it did not delete, in {0} too", language);
+            }
+        }
+    }
+
+    [Fact]
+    public void ForUnprocessedGroup_ListsOnlyTheSelectedNonKeepers()
+    {
+        var keeper = MakeMember(1, 10, WriteFile("group-keeper.txt", "x"), isKeeper: true, isSelected: true);
+        var selected = MakeMember(2, 10, WriteFile("group-selected.txt", "x"), isKeeper: false, isSelected: true);
+        var unselected = MakeMember(3, 10, WriteFile("group-unselected.txt", "x"), isKeeper: false, isSelected: false);
+
+        var skips = DuplicateDeletionSkips.ForUnprocessedGroup([keeper, selected, unselected], "keeper changed");
+
+        skips.Should().ContainSingle().Which.Should().Be(new DuplicateDeletionSkip(
+            selected.Id, selected.FullPath, DuplicateDeletionSkipReason.KeeperNotVerified, "keeper changed"));
+    }
+
+    [Fact]
+    public void SelectOnlyRecycleBinRefusals_SelectsNothingTheUserWasNotAskedAbout()
+    {
+        var keeper = MakeMember(1, 10, WriteFile("retry-keeper.txt", "x"), isKeeper: true, isSelected: false);
+        var refused = MakeMember(2, 10, WriteFile("retry-refused.txt", "x"), isKeeper: false, isSelected: true);
+        var locked = MakeMember(3, 10, WriteFile("retry-locked.txt", "x"), isKeeper: false, isSelected: true);
+        var recycled = MakeMember(4, 10, WriteFile("retry-recycled.txt", "x"), isKeeper: false, isSelected: true);
+        var unselected = MakeMember(5, 10, WriteFile("retry-unselected.txt", "x"), isKeeper: false, isSelected: false);
+
+        var members = DuplicateDeletionSkips.SelectOnlyRecycleBinRefusals(
+            [keeper, refused, locked, recycled, unselected],
+            [
+                new DuplicateDeletionSkip(refused.Id, refused.FullPath, DuplicateDeletionSkipReason.RecycleBinUnavailable),
+                new DuplicateDeletionSkip(locked.Id, locked.FullPath, DuplicateDeletionSkipReason.DeleteFailed),
+                // A refusal for a member the user had not selected must not select it.
+                new DuplicateDeletionSkip(unselected.Id, unselected.FullPath, DuplicateDeletionSkipReason.RecycleBinUnavailable),
+            ]);
+
+        members.Should().HaveCount(5, "the keeper stays in the plan so the retry can verify against it");
+        members.Where(static member => member.IsSelected).Select(static member => member.Id)
+            .Should().Equal(refused.Id);
+        members.Single(member => member.Id == keeper.Id).IsKeeper.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task PermanentRetryOfARefusal_DeletesOnlyTheRefusedFileAndRechecksIt()
+    {
+        var keeperPath = WriteFile("again-keeper.txt", "same");
+        var refusedPath = WriteFile("again-refused.txt", "same");
+        var otherPath = WriteFile("again-other.txt", "same");
+        var keeper = MakeMember(1, 10, keeperPath, isKeeper: true, isSelected: false);
+        var refused = MakeMember(2, 10, refusedPath, isKeeper: false, isSelected: true);
+        var other = MakeMember(3, 10, otherPath, isKeeper: false, isSelected: true);
+
+        var requests = new List<DeletionRequest>();
+        var deleter = new Mock<IFileDeleter>();
+        deleter.Setup(x => x.DeleteAsync(It.IsAny<DeletionRequest>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((DeletionRequest request, CancellationToken _) =>
+            {
+                requests.Add(request);
+                return request.Method == DeletionMethod.RecycleBin && request.Path == refusedPath
+                    ? new DeletionOutcome(request.Path, false, 0, "no bin", RecycleBinRefused: true)
+                    : new DeletionOutcome(request.Path, true, 4);
+            });
+        var service = CreateService(deleter.Object, Mock.Of<ICleanupLogRepository>(), CreatePermissiveRepository().Object);
+
+        var first = await service.DeleteSelectedWithResultAsync(MakeGroup(), [keeper, refused, other], DeletionMethod.RecycleBin);
+        var retry = await service.DeleteSelectedWithResultAsync(
+            MakeGroup(),
+            DuplicateDeletionSkips.SelectOnlyRecycleBinRefusals([keeper, refused, other], first.Skipped),
+            DeletionMethod.Permanent);
+
+        first.Skipped.Should().ContainSingle().Which.Reason.Should().Be(DuplicateDeletionSkipReason.RecycleBinUnavailable);
+        retry.DeletedFileCount.Should().Be(1);
+        retry.Skipped.Should().BeEmpty();
+        var permanent = requests.Where(static request => request.Method == DeletionMethod.Permanent).ToArray();
+        permanent.Should().ContainSingle();
+        permanent[0].Path.Should().Be(refusedPath);
+        permanent[0].ExpectedSnapshot.Should().NotBeNull("the retry re-validates the file like any deletion");
+    }
+
+    private static Mock<IDuplicateRepository> CreatePermissiveRepository()
+    {
+        var repo = new Mock<IDuplicateRepository>();
+        repo.Setup(x => x.MarkMembersDeletedAsync(It.IsAny<IReadOnlyList<long>>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+        repo.Setup(x => x.RecordDuplicateOperationIntentAsync(It.IsAny<DuplicateOperationJournalEntry>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((DuplicateOperationJournalEntry entry, CancellationToken _) => entry with { Id = 1 });
+        repo.Setup(x => x.UpdateDuplicateOperationOutcomeAsync(
+                It.IsAny<long>(),
+                It.IsAny<DuplicateOperationStatus>(),
+                It.IsAny<string?>(),
+                It.IsAny<long?>(),
+                It.IsAny<string?>(),
+                It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+        return repo;
     }
 
     public void Dispose()

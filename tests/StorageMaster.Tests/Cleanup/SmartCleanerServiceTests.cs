@@ -297,6 +297,61 @@ public sealed class SmartCleanerServiceTests
             .Should().BeEquivalentTo(new[] { otherFile.Path, nested.Path });
     }
 
+    [Fact]
+    public async Task CleanAsync_RecycleBinRefusal_IsFlaggedApartFromOtherFailures()
+    {
+        var recycled = SnapshotFor(LocalTempPath($"smclean_refusal_{Guid.NewGuid():N}_1.tmp"), 50, 5);
+        var refused = SnapshotFor(LocalTempPath($"smclean_refusal_{Guid.NewGuid():N}_2.tmp"), 51, 6);
+        var locked = SnapshotFor(LocalTempPath($"smclean_refusal_{Guid.NewGuid():N}_3.tmp"), 52, 7);
+        var enumerator = CreateValidationEnumerator(expected => new TrackingLease(expected));
+        var deleter = new Mock<IFileDeleter>();
+        deleter.Setup(service => service.DeleteAsync(
+                It.IsAny<DeletionRequest>(),
+                It.IsAny<CancellationToken>()))
+            .Returns<DeletionRequest, CancellationToken>((request, _) => Task.FromResult(
+                PathsEqual(request.Path, refused.Path)
+                    ? new DeletionOutcome(request.Path, false, 0, "no Recycle Bin", RecycleBinRefused: true)
+                    : PathsEqual(request.Path, locked.Path)
+                        ? new DeletionOutcome(request.Path, false, 0, "locked")
+                        : new DeletionOutcome(request.Path, true, 0)));
+        var service = CreateService(deleter.Object, enumerator.Object, CreateLog().Object);
+
+        var result = await service.CleanAsync([GroupFor(recycled, refused, locked)], DeletionMethod.RecycleBin);
+
+        result.Failures.Should().HaveCount(2);
+        result.Failures.Single(failure => failure.Path == refused.Path).RecycleBinRefused.Should().BeTrue();
+        result.Failures.Single(failure => failure.Path == locked.Path).RecycleBinRefused.Should().BeFalse();
+    }
+
+    [Fact]
+    public void NarrowToRecycleBinRefusals_KeepsOnlyRefusedPathsAndTheirSnapshots()
+    {
+        var recycled = SnapshotFor(LocalTempPath($"smclean_narrow_{Guid.NewGuid():N}_1.tmp"), 60, 5);
+        var refused = SnapshotFor(LocalTempPath($"smclean_narrow_{Guid.NewGuid():N}_2.tmp"), 61, 6);
+        var locked = SnapshotFor(LocalTempPath($"smclean_narrow_{Guid.NewGuid():N}_3.tmp"), 62, 7);
+        var untouchedGroup = GroupFor(SmartCleanSource.ThumbnailCache, SnapshotFor(LocalTempPath("thumbcache_x.db"), 63, 8));
+        var result = new SmartCleanResult(
+            BytesFreed: 0,
+            BytesProcessed: 5,
+            SuccessfulPathCount: 1,
+            Failures:
+            [
+                new SmartCleanFailure(refused.Path, "no Recycle Bin", RecycleBinRefused: true),
+                new SmartCleanFailure(locked.Path, "locked"),
+            ],
+            AuditWarnings: []);
+
+        var narrowed = SmartCleanerService.NarrowToRecycleBinRefusals(
+            [GroupFor(recycled, refused, locked), untouchedGroup],
+            result);
+
+        narrowed.Should().ContainSingle();
+        narrowed[0].Paths.Should().Equal(refused.Path);
+        narrowed[0].EstimatedBytes.Should().Be(6);
+        narrowed[0].ExpectedFileSnapshots[refused.Path].Should().Be(refused,
+            "the retry revalidates the file against its analysis-time snapshot");
+    }
+
     private static SmartCleanerService CreateService(
         IFileDeleter deleter,
         INoFollowFileEnumerator enumerator,

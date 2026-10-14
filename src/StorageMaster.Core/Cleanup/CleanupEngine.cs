@@ -143,6 +143,7 @@ public sealed class CleanupEngine : ICleanupEngine
 
         long totalFreed = 0;
         var failedPaths = new List<string>();
+        var recycleBinRefusedPaths = new List<string>();
         var quarantinedPaths = new List<QuarantineMove>();
         var processedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var successfulPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -188,6 +189,8 @@ public sealed class CleanupEngine : ICleanupEngine
                 else
                 {
                     failedPaths.Add(outcome.Path);
+                    if (outcome.RecycleBinRefused)
+                        recycleBinRefusedPaths.Add(outcome.Path);
                     firstError ??= outcome.Error;
                     _logger.LogWarning("Delete failed: {Path} — {Error}", outcome.Path, outcome.Error);
                 }
@@ -232,7 +235,54 @@ public sealed class CleanupEngine : ICleanupEngine
             FailedPaths = failedPaths,
             ErrorMessage = firstError,
             QuarantinedPaths = quarantinedPaths,
+            RecycleBinRefusedPaths = recycleBinRefusedPaths,
         }, wasCancelled);
+    }
+
+    /// <summary>
+    /// The suggestions of a finished Recycle Bin run, reduced to the targets the
+    /// Recycle Bin refused, for a permanent deletion the user has confirmed.
+    /// <para>
+    /// Only refusals are carried over: targets that were recycled, failed for another
+    /// reason, or were never reached stay out, so the retry cannot touch anything the
+    /// user was not shown. A suggestion that may not be deleted permanently (high
+    /// risk, or not supported) contributes nothing. The retry itself still goes
+    /// through every snapshot check of a normal run.
+    /// </para>
+    /// </summary>
+    public static IReadOnlyList<CleanupSuggestion> BuildPermanentRetryForRecycleBinRefusals(
+        IReadOnlyList<CleanupSuggestion> suggestions,
+        IReadOnlyList<CleanupResult> results)
+    {
+        var retry = new List<CleanupSuggestion>();
+        foreach (var result in results)
+        {
+            if (result.WasDryRun || result.RecycleBinRefusedPaths.Count == 0)
+                continue;
+
+            var suggestion = suggestions.FirstOrDefault(candidate => candidate.Id == result.SuggestionId);
+            if (suggestion is null)
+                continue;
+
+            var targets = new HashSet<string>(suggestion.TargetPaths, StringComparer.OrdinalIgnoreCase);
+            var refused = result.RecycleBinRefusedPaths
+                .Where(targets.Contains)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+            if (refused.Length == 0)
+                continue;
+
+            var narrowed = suggestion with
+            {
+                TargetPaths = refused,
+                EstimatedBytes = refused.Sum(path =>
+                    suggestion.ExpectedFileSnapshots.TryGetValue(path, out var snapshot) ? snapshot.SizeBytes : 0L),
+            };
+            if (ValidateDeletionPolicy(narrowed, DeletionMethod.Permanent) is null)
+                retry.Add(narrowed);
+        }
+
+        return retry;
     }
 
     /// <summary>

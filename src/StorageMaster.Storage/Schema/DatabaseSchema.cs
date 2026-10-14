@@ -7,7 +7,7 @@
 /// </summary>
 internal static class DatabaseSchema
 {
-    internal const int CurrentVersion = 15;
+    internal const int CurrentVersion = 16;
 
     /// <summary>SQL executed once at version 1 creation.</summary>
     internal static readonly string[] V1Statements =
@@ -568,5 +568,20 @@ internal static class DatabaseSchema
         "CREATE INDEX IF NOT EXISTS IX_DuplicateErrors_FileEntryId ON DuplicateErrors (FileEntryId);",
         "CREATE INDEX IF NOT EXISTS IX_DuplicateErrors_Run_File ON DuplicateErrors (RunId, FileEntryId);",
         "CREATE INDEX IF NOT EXISTS IX_DuplicateSignatures_FileEntryId ON DuplicateSignatures (FileEntryId);",
+    ];
+
+    /// <summary>
+    /// V16: mark file entries that are a further hard link to a file the scan had
+    /// already counted.
+    /// <para>
+    /// The scanner now counts each file's size once in folder and session totals,
+    /// whatever number of names it has. The per-category breakdown is summed in SQL,
+    /// so it needs to know which rows to leave out. Rows written before this version
+    /// default to 0 and keep counting every link, exactly as they were displayed.
+    /// </para>
+    /// </summary>
+    internal static readonly string[] V16Statements =
+    [
+        "ALTER TABLE FileEntries ADD COLUMN IsAdditionalHardLink INTEGER NOT NULL DEFAULT 0;",
     ];
 }

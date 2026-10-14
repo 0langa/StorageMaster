@@ -106,6 +106,13 @@ public sealed class SchemaV13MigrationTests : IAsyncDisposable
             INSERT INTO ScanSessions (Id, RootPath, StartedUtc, Status)
             VALUES (1, 'C:\', '2026-01-01T00:00:00Z', 'Completed');
 
+            -- Every real database has had FileEntries since v1; later levels alter it.
+            CREATE TABLE FileEntries (
+                Id INTEGER PRIMARY KEY AUTOINCREMENT,
+                SessionId INTEGER NOT NULL REFERENCES ScanSessions(Id) ON DELETE CASCADE,
+                SizeBytes INTEGER NOT NULL DEFAULT 0
+            );
+
             CREATE TABLE IF NOT EXISTS DuplicateRuns (
                 Id INTEGER PRIMARY KEY AUTOINCREMENT,
                 SessionId INTEGER NOT NULL REFERENCES ScanSessions(Id) ON DELETE CASCADE,

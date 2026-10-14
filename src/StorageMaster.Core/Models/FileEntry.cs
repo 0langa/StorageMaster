@@ -25,5 +25,12 @@ public sealed record FileEntry
     /// <summary>True when this entry was reachable only via a reparse point (symlink/junction).</summary>
     public bool IsReparsePoint { get; init; }
 
+    /// <summary>
+    /// True when the scan had already counted another hard link to the same file.
+    /// The entry keeps its real <see cref="SizeBytes"/>, but adds nothing to folder,
+    /// category or session totals: the data exists on disk once.
+    /// </summary>
+    public bool IsAdditionalHardLink { get; init; }
+
     public string ParentPath => Path.GetDirectoryName(FullPath) ?? string.Empty;
 }

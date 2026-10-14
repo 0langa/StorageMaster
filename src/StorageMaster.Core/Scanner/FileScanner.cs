@@ -457,6 +457,7 @@ public sealed class FileScanner : IFileScanner
                     }
 
                     var extension = Path.GetExtension(file.FileName);
+                    var isAdditionalHardLink = !state.HardLinks.IsFirstLink(identity);
                     var entry = new FileEntry
                     {
                         Id = 0, // assigned by DB
@@ -472,13 +473,15 @@ public sealed class FileScanner : IFileScanner
                         Category = FileTypeCategorizor.Categorize(extension),
                         Identity = identity,
                         IsReparsePoint = file.Attributes.HasFlag(FileAttributes.ReparsePoint),
+                        IsAdditionalHardLink = isAdditionalHardLink,
                     };
 
                     state.FileBuffer.Enqueue(entry);
-                    directBytes += file.Length;
+                    var countedBytes = HardLinkTracker.CountedBytes(entry);
+                    directBytes += countedBytes;
                     fileCount++;
 
-                    Interlocked.Add(ref state._totalBytes, file.Length);
+                    Interlocked.Add(ref state._totalBytes, countedBytes);
                     Interlocked.Increment(ref state._fileCount);
                     state.LastScannedPath = file.FullPath;
                 }
@@ -851,6 +854,9 @@ public sealed class FileScanner : IFileScanner
         public ConcurrentQueue<FolderEntry> FolderBuffer { get; } = new();
         public ConcurrentQueue<ScanError> ErrorBuffer { get; } = new();
 
+        /// <summary>Counts each file once in the byte totals, however many hard links reach it.</summary>
+        public HardLinkTracker HardLinks { get; } = new();
+
         // Serialise buffer drains so concurrent consumers never double-drain.
         public SemaphoreSlim FileFlushLock { get; } = new(1, 1);
         public SemaphoreSlim FolderFlushLock { get; } = new(1, 1);
@@ -865,7 +871,7 @@ public sealed class FileScanner : IFileScanner
         {
             long bytes = 0;
             foreach (var entry in entries)
-                bytes += entry.SizeBytes;
+                bytes += HardLinkTracker.CountedBytes(entry);
 
             Interlocked.Add(ref _persistedFileCount, entries.Count);
             Interlocked.Add(ref _persistedBytes, bytes);

@@ -299,6 +299,9 @@ public sealed class StorageDbContext : IAsyncDisposable, StorageMaster.Core.Inte
         if (current < 15)
             await ApplyMigrationAsync(conn, transaction, DatabaseSchema.V15Statements, 15, ct).ConfigureAwait(false);
 
+        if (current < 16)
+            await ApplyMigrationAsync(conn, transaction, DatabaseSchema.V16Statements, 16, ct).ConfigureAwait(false);
+
         await transaction.CommitAsync(ct).ConfigureAwait(false);
     }
 

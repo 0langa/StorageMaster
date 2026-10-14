@@ -434,6 +434,67 @@ public sealed class TurboScannerCriticalTests
         return process.ExitCode == 0 && Directory.Exists(junction);
     }
 
+    [Fact]
+    public async Task NativeScan_CountsAHardLinkedFileOnce()
+    {
+        var root = CreateTempDir(files: 0);
+        var child = Path.Combine(root, "child");
+        Directory.CreateDirectory(child);
+
+        // Two names for one file (same volume and file index), plus one other file.
+        var records = new[]
+        {
+            JsonRecord(root, size: 0, isDirectory: true),
+            JsonFileRecord(Path.Combine(root, "original.bin"), size: 100, volumeSerial: 0xA1B2_C3D4u, fileIndex: 7),
+            JsonRecord(child, size: 0, isDirectory: true),
+            JsonFileRecord(Path.Combine(child, "link.bin"), size: 100, volumeSerial: 0xA1B2_C3D4u, fileIndex: 7),
+            JsonFileRecord(Path.Combine(child, "other.bin"), size: 5, volumeSerial: 0xA1B2_C3D4u, fileIndex: 8),
+        };
+
+        var persistedFiles = new List<FileEntry>();
+        var persistedFolders = new Dictionary<string, FolderEntry>(StringComparer.OrdinalIgnoreCase);
+        IReadOnlyDictionary<string, long>? folderTotals = null;
+        var terminalSessions = new List<ScanSession>();
+        ConfigurePersistenceCapture(persistedFiles, persistedFolders, terminalSessions,
+            totals => folderTotals = totals);
+        var turbo = CreateInjectedTurboScanner(
+            _ => CreatePowerShellStartInfo(BuildRecordScript(records)));
+
+        try
+        {
+            var result = await turbo.ScanAsync(
+                new ScanOptions { RootPath = root, MaxParallelism = 1 },
+                new Progress<ScanProgress>());
+
+            result.Status.Should().Be(ScanStatus.Completed);
+            result.TotalFiles.Should().Be(3, "every name is still listed");
+            result.TotalSizeBytes.Should().Be(105, "the linked data exists on disk once");
+            persistedFiles.Single(file => file.FileName == "link.bin").Should().Match<FileEntry>(
+                file => file.IsAdditionalHardLink && file.SizeBytes == 100);
+            persistedFiles.Single(file => file.FileName == "original.bin").IsAdditionalHardLink.Should().BeFalse();
+            persistedFolders[root].DirectSizeBytes.Should().Be(100);
+            persistedFolders[child].DirectSizeBytes.Should().Be(5);
+            folderTotals![root].Should().Be(105);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    private static string JsonFileRecord(string path, long size, uint volumeSerial, ulong fileIndex) =>
+        JsonSerializer.Serialize(new
+        {
+            path,
+            size,
+            modified_unix = 1,
+            created_unix = 1,
+            volume_serial = volumeSerial,
+            file_index = fileIndex,
+            is_dir = false,
+            is_hidden = false,
+        });
+
     private TurboFileScanner CreateInjectedTurboScanner(
         Func<ScanOptions, ProcessStartInfo> processStartInfoFactory) =>
         new(

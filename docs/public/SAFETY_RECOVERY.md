@@ -5,7 +5,7 @@ StorageMaster is a storage-management tool. Recoverability and auditability take
 ## Deletion modes
 
 - Quarantine: preferred for duplicate cleanup. Files are moved into the app quarantine and can be restored.
-- Recycle Bin: preferred for general cleanup when Windows supports recycling the target path.
+- Recycle Bin: preferred for general cleanup when Windows supports recycling the target path. Where it does not (network shares, many removable drives, an item larger than the bin's maximum size, a drive whose bin is turned off), the item is left in place and reported as not deleted; Recycle Bin mode never falls back to permanent deletion.
 - Permanent delete: allowed only after explicit user intent and confirmation.
 
 ## Recovery journal

@@ -522,7 +522,7 @@ Rules use category-specific canonical roots and policy flags. `UninstalledProgra
 
 ### Batch deletion (`IFileOperation`)
 
-`FileDeleter.DeleteManyAsync()` submits an all-Recycle-Bin batch through one `IFileOperation` call, then verifies each source path disappeared so silent shell skips become per-path failures. Permanent directory deletion removes reparse points as links and refuses recursion when attributes cannot be classified safely.
+`FileDeleter.DeleteManyAsync()` submits an all-Recycle-Bin batch through one `IFileOperation` call, then verifies each source path disappeared so silent shell skips become per-path failures. Every recycled item carries a `RecycleOnlyProgressSink`: `FOF_NOCONFIRMATION` would otherwise let the shell destroy an item it cannot recycle (no Recycle Bin on the drive, item larger than the bin, bin turned off) and still report success, and the shell makes that decision for the whole batch. The sink aborts the operation when `PreDeleteItem` arrives without `TSF_DELETE_RECYCLE_IF_POSSIBLE`; items already recycled are reported as recycled and the rest are retried one by one, where a refusal is final and reported as not deleted. Permanent directory deletion removes reparse points as links and refuses recursion when attributes cannot be classified safely.
 
 ### Audit log
 

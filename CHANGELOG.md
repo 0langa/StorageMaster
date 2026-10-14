@@ -6,7 +6,20 @@ All notable changes to StorageMaster are documented here.
 
 ## [Unreleased]
 
-No unreleased changes.
+### Fixed
+
+- **Recycle Bin mode could delete files permanently.** Windows has no Recycle Bin
+  on network shares and many removable drives, and will not recycle an item
+  larger than the bin's maximum size or on a drive whose bin is turned off. The
+  shell asks before destroying such an item instead, and StorageMaster answered
+  that question "yes" without showing it — then reported the file as moved to
+  the Recycle Bin. Because the shell decides for a whole batch, one such item
+  among hundreds of ordinary files was enough to delete all of them permanently.
+  Recycle Bin mode now means recycle or nothing: an item Windows cannot recycle
+  is left in place and reported as not deleted, with the reason, and the rest of
+  the batch is still recycled.
+- A one-item Recycle Bin request is now checked the same way as a batch: an item
+  still at its original location afterwards is reported as not recycled.
 
 ---
 

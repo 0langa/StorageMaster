@@ -83,6 +83,42 @@ public sealed class ImagePHashStrategyTests : IDisposable
     }
 
     [Fact]
+    public async Task DamagedFiles_NeverThrow_AndAreClosedAfterwards()
+    {
+        var jpeg = await File.ReadAllBytesAsync(
+            await WriteAsync("source.jpg", BitmapEncoder.JpegEncoderId, Width, Height, Upright));
+        var damaged = new (string Name, byte[] Bytes, bool MustFail)[]
+        {
+            ("empty.jpg", [], true),
+            ("one-byte.jpg", [0xFF], true),
+            ("header-only.jpg", jpeg[..Math.Min(200, jpeg.Length)], true),
+            ("text.png", "not an image at all"u8.ToArray(), true),
+            ("noise.webp", Enumerable.Range(0, 4096).Select(static i => (byte)(i * 7919 % 251)).ToArray(), true),
+            // A cut-off JPEG may still decode, with the missing rows filled in; either
+            // outcome is fine as long as it is a per-file result and not an exception.
+            ("truncated.jpg", jpeg[..(jpeg.Length / 2)], false),
+        };
+
+        foreach (var (name, bytes, mustFail) in damaged)
+        {
+            var path = Path.Combine(_directory, name);
+            await File.WriteAllBytesAsync(path, bytes);
+
+            var signature = await _strategy.ComputeSignatureAsync(Candidate(path));
+
+            signature.Status.Should().BeOneOf(["Ready", "Error"], name);
+            if (mustFail)
+                signature.Status.Should().Be("Error", name);
+
+            // The decoder must not keep the file open: a later delete, move or
+            // re-hash of the same file would otherwise fail.
+            using (new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+            {
+            }
+        }
+    }
+
+    [Fact]
     public async Task Identify_ReadsDisplayedDimensionsWithoutDecodingPixels()
     {
         var tagged = await WriteAsync("identify.jpg", BitmapEncoder.JpegEncoderId, Height, Width, StoredSideways, orientation: 6);

@@ -10,8 +10,8 @@ namespace StorageMaster.Core.Scanner;
 /// Windows uses them heavily (WinSxS links most of System32), and counting every
 /// name made a system drive look far fuller than it is. The first name the scan
 /// reaches carries the size; every further name is still listed, with its size,
-/// but adds nothing to the totals. Files without a stable identity are always
-/// counted, as before.
+/// but adds nothing to the totals. Files without a stable identity, or with a
+/// placeholder file id, are always counted, as before.
 /// </para>
 /// <para>
 /// Keyed by volume and file index only — 8 bytes per file plus set overhead — so
@@ -26,11 +26,11 @@ public sealed class HardLinkTracker
 
     /// <summary>
     /// True the first time a file is seen, false for every further hard link to it.
-    /// A null identity is always the first.
+    /// A null identity, or a file index that is not a real id, is always the first.
     /// </summary>
     public bool IsFirstLink(FileIdentity? identity)
     {
-        if (identity is null)
+        if (identity is null || !IsUniqueFileIndex(identity.FileIndex))
             return true;
 
         lock (_gate)
@@ -44,6 +44,16 @@ public sealed class HardLinkTracker
             return seen.Add(identity.FileIndex);
         }
     }
+
+    /// <summary>
+    /// A file system that cannot give a file a unique 64-bit id reports 0 or all ones
+    /// instead: ReFS for files whose 128-bit id does not fit, and some network and
+    /// user-mode (FUSE-style) file systems for every file. Unrelated files share
+    /// those values, so they prove nothing about hard links, and treating them as one
+    /// file would leave all but the first out of the totals.
+    /// </summary>
+    private static bool IsUniqueFileIndex(ulong fileIndex) =>
+        fileIndex is not (0UL or ulong.MaxValue);
 
     /// <summary>The bytes <paramref name="entry"/> adds to folder and session totals.</summary>
     public static long CountedBytes(FileEntry entry) =>

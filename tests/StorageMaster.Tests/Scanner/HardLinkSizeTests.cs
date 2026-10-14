@@ -39,6 +39,24 @@ public sealed class HardLinkSizeTests : IDisposable
         tracker.IsFirstLink(null).Should().BeTrue("without an identity nothing can be proven to be shared");
     }
 
+    [Theory]
+    [InlineData(0UL)]
+    [InlineData(ulong.MaxValue)]
+    public void Tracker_NeverTreatsAPlaceholderFileIdAsAHardLink(ulong placeholder)
+    {
+        // ReFS reports all ones for a file whose 128-bit id does not fit in 64 bits,
+        // and some network and user-mode file systems report 0 for every file.
+        // Unrelated files share those values; folding them would drop all but the
+        // first file from the totals.
+        var tracker = new HardLinkTracker();
+
+        tracker.IsFirstLink(new FileIdentity("VOL1", placeholder)).Should().BeTrue();
+        tracker.IsFirstLink(new FileIdentity("VOL1", placeholder)).Should().BeTrue(
+            "a placeholder id is shared by unrelated files and proves nothing");
+        tracker.IsFirstLink(new FileIdentity("VOL1", 5)).Should().BeTrue();
+        tracker.IsFirstLink(new FileIdentity("VOL1", 5)).Should().BeFalse("real ids are still tracked");
+    }
+
     [Fact]
     public async Task ManagedScan_CountsAHardLinkedFileOnce()
     {

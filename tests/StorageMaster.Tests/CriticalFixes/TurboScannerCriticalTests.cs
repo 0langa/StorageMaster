@@ -482,6 +482,50 @@ public sealed class TurboScannerCriticalTests
         }
     }
 
+    [Fact]
+    public async Task NativeScan_CountsEveryFileWhoseIdIsAPlaceholder()
+    {
+        var root = CreateTempDir(files: 0);
+
+        // A file system without unique 64-bit ids (ReFS for large ids, some network
+        // and user-mode file systems) reports the same placeholder for unrelated files.
+        var records = new[]
+        {
+            JsonRecord(root, size: 0, isDirectory: true),
+            JsonFileRecord(Path.Combine(root, "a.bin"), size: 100, volumeSerial: 0xA1B2_C3D4u, fileIndex: 0),
+            JsonFileRecord(Path.Combine(root, "b.bin"), size: 20, volumeSerial: 0xA1B2_C3D4u, fileIndex: 0),
+            JsonFileRecord(Path.Combine(root, "c.bin"), size: 3, volumeSerial: 0xA1B2_C3D4u, fileIndex: ulong.MaxValue),
+            JsonFileRecord(Path.Combine(root, "d.bin"), size: 4, volumeSerial: 0xA1B2_C3D4u, fileIndex: ulong.MaxValue),
+        };
+
+        var persistedFiles = new List<FileEntry>();
+        var persistedFolders = new Dictionary<string, FolderEntry>(StringComparer.OrdinalIgnoreCase);
+        IReadOnlyDictionary<string, long>? folderTotals = null;
+        var terminalSessions = new List<ScanSession>();
+        ConfigurePersistenceCapture(persistedFiles, persistedFolders, terminalSessions,
+            totals => folderTotals = totals);
+        var turbo = CreateInjectedTurboScanner(
+            _ => CreatePowerShellStartInfo(BuildRecordScript(records)));
+
+        try
+        {
+            var result = await turbo.ScanAsync(
+                new ScanOptions { RootPath = root, MaxParallelism = 1 },
+                new Progress<ScanProgress>());
+
+            result.Status.Should().Be(ScanStatus.Completed);
+            result.TotalFiles.Should().Be(4);
+            result.TotalSizeBytes.Should().Be(127, "a placeholder id proves nothing about hard links");
+            persistedFiles.Should().OnlyContain(static file => !file.IsAdditionalHardLink);
+            persistedFolders[root].DirectSizeBytes.Should().Be(127);
+            folderTotals![root].Should().Be(127);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
     private static string JsonFileRecord(string path, long size, uint volumeSerial, ulong fileIndex) =>
         JsonSerializer.Serialize(new
         {

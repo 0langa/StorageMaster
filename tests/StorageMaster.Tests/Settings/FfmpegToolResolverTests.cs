@@ -6,6 +6,13 @@ using StorageMaster.Core.Models;
 
 namespace StorageMaster.Tests.Settings;
 
+/// <summary>
+/// One test here empties the process-wide PATH. Run in parallel with other classes,
+/// that made any test starting a tool by name, such as powershell.exe, fail at
+/// random with "file not found", so this collection runs on its own.
+/// </summary>
+[Collection(nameof(FfmpegToolResolverTests))]
+[CollectionDefinition(nameof(FfmpegToolResolverTests), DisableParallelization = true)]
 public sealed class FfmpegToolResolverTests : IDisposable
 {
     private readonly string _tempDir = Path.Combine(Path.GetTempPath(), $"sm_ffmpeg_{Guid.NewGuid():N}");

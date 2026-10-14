@@ -1,6 +1,6 @@
 # StorageMaster — Historical v2.1.4 Repository Status
 
-> Snapshot retained for release history. It is not the current implementation plan; see `ROADMAP.md` and `RELIABILITY_AUDIT_2026-08-18.md`.
+> Snapshot retained for release history. It is not the current implementation plan; see `RELIABILITY_AUDIT_2026-08-18.md` and `CHANGELOG.md`.
 
 > **Baseline:** version metadata 2.1.4
 > **Status at snapshot:** repository state recorded for v2.1.4 plus the hardening known then. It must not be read as a claim about the current working tree or current release gates.

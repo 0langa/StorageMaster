@@ -2,7 +2,7 @@
 
 This folder holds repo-adjacent material that is useful to keep around but should not clutter the active project root.
 
-- `project-notes/`: historical planning/design notes, including the retired `AIprojectcontext` pack.
+- `project-notes/`: historical planning/design notes.
 - `generated/`: old local build, publish, installer, and checksum output. Ignored by git.
 - `local/`: local AI/tool state and scratch context. Ignored by git.
 - `external/`: nested helper checkouts or external experiments. Ignored by git.

@@ -90,6 +90,36 @@ public sealed class DuplicateRepositoryTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task GetCandidatesAsync_ExcludesFilesWhoseContentIsNotStoredLocally()
+    {
+        // Every strategy reads file content, and reading an online-only OneDrive file
+        // downloads it: a duplicate scan of a synced folder would pull the whole cloud
+        // library onto the disk the user is trying to clean.
+        var session = await _scanRepository.CreateSessionAsync(@"C:\scope");
+        await _scanRepository.InsertFileEntriesAsync([
+            MakeEntry(session.Id, @"C:\scope\local.txt", 100, FileTypeCategory.Document, FileAttributes.Archive),
+            MakeEntry(session.Id, @"C:\scope\online-only.txt", 100, FileTypeCategory.Document,
+                FileAttributes.Archive | (FileAttributes)0x00400000),
+            MakeEntry(session.Id, @"C:\scope\offline.txt", 100, FileTypeCategory.Document,
+                FileAttributes.Archive | FileAttributes.Offline),
+            MakeEntry(session.Id, @"C:\scope\pinned.txt", 100, FileTypeCategory.Document,
+                FileAttributes.Archive | (FileAttributes)0x00080000),
+        ]);
+
+        var candidates = await _repo.GetCandidatesAsync(new DuplicateCandidateQuery
+        {
+            SessionId = session.Id,
+            MinimumSizeBytes = 0,
+            RequireSameSizeBucket = true,
+            Extensions = [".txt"],
+        });
+
+        candidates.Select(static c => c.File.FullPath).Should().BeEquivalentTo(
+            [@"C:\scope\local.txt", @"C:\scope\pinned.txt"],
+            "a pinned (always-available) cloud file is stored locally and stays a candidate");
+    }
+
+    [Fact]
     public async Task GetCandidatesAsync_PathScopesRespectBoundariesAndLiteralWildcards()
     {
         var session = await _scanRepository.CreateSessionAsync(@"C:\scope");

@@ -61,6 +61,30 @@ public sealed class LargeOldFilesRuleTests
         suggestions.Should().BeEmpty("system paths must never be suggested for deletion");
     }
 
+    [Theory]
+    [InlineData(0x00400000)] // FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS: OneDrive "online-only"
+    [InlineData(0x00001000)] // FILE_ATTRIBUTE_OFFLINE: data moved to offline storage
+    public async Task AnalyseAsync_SkipsFilesWhoseContentIsNotStoredLocally(int attribute)
+    {
+        // Deleting an online-only file frees no local space and deletes the cloud copy.
+        var placeholder = MakeFile(@"C:\Users\user\OneDrive\Videos\holiday.mp4",
+            sizeBytes: 4L * 1024 * 1024 * 1024,
+            modifiedDaysAgo: 400) with
+        {
+            Attributes = FileAttributes.Archive | (FileAttributes)attribute,
+        };
+
+        _repoMock
+            .Setup(r => r.GetLargestFilesAsync(1, 1000, It.IsAny<CancellationToken>()))
+            .ReturnsAsync([placeholder]);
+
+        var suggestions = new List<CleanupSuggestion>();
+        await foreach (var s in _rule.AnalyzeAsync(1, _settings))
+            suggestions.Add(s);
+
+        suggestions.Should().BeEmpty("a file whose data lives elsewhere is not reclaimable local space");
+    }
+
     [Fact]
     public async Task AnalyseAsync_SkipsSmallFiles()
     {

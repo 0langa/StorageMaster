@@ -25,6 +25,13 @@ All notable changes to StorageMaster are documented here.
   reached a different, unselected sibling (`report`, `Cache`) and deleted it,
   reporting success. Such names only exist when created through `\\?\` paths, by
   WSL or by tools from other systems; they are now left alone and reported.
+- Online-only cloud files (OneDrive Files On-Demand placeholders, and files in
+  offline storage) are no longer read by duplicate detection. Every method reads
+  file content, and reading such a file downloads it, so a duplicate scan of a
+  synced folder could pull the whole cloud library onto the disk being cleaned.
+  Files kept on the device are still compared.
+- "Large old files" no longer suggests online-only cloud files. They take no
+  local space, so deleting one reclaimed nothing and removed the cloud copy.
 
 ---
 

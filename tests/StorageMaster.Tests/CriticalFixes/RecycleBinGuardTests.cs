@@ -135,6 +135,39 @@ public sealed class RecycleBinGuardTests : IDisposable
     }
 
     [Fact]
+    public async Task DeleteManyAsync_GuardedBatchWithLockedFile_ReportsRecycledItemsAsRecycled()
+    {
+        // With the guard's progress sink attached, the shell skips a locked file,
+        // recycles the rest and then reports the batch as aborted (without a sink it
+        // reports success). Items it did recycle must still count as recycled — a
+        // per-file retry of them would fail its snapshot re-check and report them as
+        // "changed or replaced" — and only the locked file may fail.
+        // Recycles one tiny temp file.
+        var locked = CreateFile("locked-in-batch.txt");
+        var recyclable = CreateFile($"storagemaster-test-recycle-{Guid.NewGuid():N}.txt");
+        var snapshots = new FileSnapshotProvider();
+        var lockedSnapshot = await snapshots.TakeSnapshotAsync(locked);
+        var recyclableSnapshot = await snapshots.TakeSnapshotAsync(recyclable);
+
+        List<DeletionOutcome> outcomes;
+        using (new FileStream(locked, FileMode.Open, FileAccess.Read, FileShare.None))
+        {
+            outcomes = await CollectAsync(_deleter.DeleteManyAsync(
+            [
+                new DeletionRequest(locked, DeletionMethod.RecycleBin, DryRun: false, ExpectedSnapshot: lockedSnapshot),
+                new DeletionRequest(recyclable, DeletionMethod.RecycleBin, DryRun: false, ExpectedSnapshot: recyclableSnapshot),
+            ]));
+        }
+
+        outcomes.Should().HaveCount(2);
+        outcomes.Should().ContainSingle(o => o.Path == recyclable).Which.Success.Should().BeTrue(
+            "the file is in the Recycle Bin, so reporting it as changed or failed is wrong");
+        outcomes.Should().ContainSingle(o => o.Path == locked).Which.Success.Should().BeFalse();
+        File.Exists(recyclable).Should().BeFalse();
+        File.Exists(locked).Should().BeTrue();
+    }
+
+    [Fact]
     public async Task DeleteAsync_RecycleBinLockedFile_ReportsFailureInsteadOfSuccess()
     {
         var local = CreateFile("locked.txt");

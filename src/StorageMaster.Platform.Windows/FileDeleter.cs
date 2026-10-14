@@ -332,7 +332,9 @@ public sealed class FileDeleter : IFileDeleter
 
         // IFileOperation with FOF_NOERRORUI silently skips files it cannot recycle
         // (locked by another process, access denied, cross-volume Recycle Bin).
-        // It returns S_OK and GetAnyOperationsAborted()=false even when items were skipped.
+        // It returns S_OK even when items were skipped; with the progress sink attached
+        // GetAnyOperationsAborted() then reports true, so a skip also takes the
+        // retry-individually route below and the locked item fails on its own.
         // We verify each path is actually gone from its original location.
         // A file still present at its original path after PerformOperations means it failed.
         //

@@ -1,8 +1,6 @@
 using System.Diagnostics;
 using System.Numerics;
 using System.Text.Json;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.PixelFormats;
 using StorageMaster.Core.Interfaces;
 using StorageMaster.Core.Models;
 using StorageMaster.Core.Safety;
@@ -78,7 +76,10 @@ public sealed class VideoPHashStrategy : IDuplicateDetectionStrategy
 
     public DuplicateMethod Method => DuplicateMethod.VideoPHash;
     public string Algorithm => "VIDEO-PHASH-FRAMES";
-    public int AlgorithmVersion => 2; // v2: frames extracted pre-scaled (hash values shift)
+    // v3: frames come out of FFmpeg as raw 32×32 luminance instead of a PNG decoded
+    // by ImageSharp. Same DCT, slightly different grey conversion, so cached v2
+    // fingerprints are recomputed rather than compared against v3 ones.
+    public int AlgorithmVersion => 3;
     public bool SupportsAutoSelection => false;
     public double DefaultConfidence => 0.0d;   // computed per-pair
     public string DisplayName => "Video perceptual hash";
@@ -158,7 +159,7 @@ public sealed class VideoPHashStrategy : IDuplicateDetectionStrategy
                 for (var fi = 0; fi < frameSampleCount; fi++)
                 {
                     ct.ThrowIfCancellationRequested();
-                    var framePath = Path.Combine(tempDir, $"frame_{fi:D2}.png");
+                    var framePath = Path.Combine(tempDir, $"frame_{fi:D2}.gray");
                     await ExtractFrameAsync(tools.FfmpegPath, candidate.File.FullPath,
                         timestamps[fi], framePath, ct);
 
@@ -328,11 +329,13 @@ public sealed class VideoPHashStrategy : IDuplicateDetectionStrategy
         psi.ArgumentList.Add(videoPath);
         psi.ArgumentList.Add("-frames:v");
         psi.ArgumentList.Add("1");
-        // The hash only ever sees a 32×32 surface, so scale in ffmpeg rather than
-        // PNG-encoding a 4K frame to disk and immediately throwing it away. Same
-        // stretch-to-square semantics the ImageSharp resize applied afterwards.
+        // The hash only ever sees a 32×32 luminance surface, so FFmpeg scales the
+        // frame (stretch-to-square), converts it to grey and writes the 1024 raw
+        // bytes. No image file is encoded, and none has to be decoded again.
         psi.ArgumentList.Add("-vf");
-        psi.ArgumentList.Add("scale=32:32");
+        psi.ArgumentList.Add($"scale={ImagePHashStrategy.DctSize}:{ImagePHashStrategy.DctSize},format=gray");
+        psi.ArgumentList.Add("-f");
+        psi.ArgumentList.Add("rawvideo");
         psi.ArgumentList.Add(outPath);
         psi.ArgumentList.Add("-y");
 
@@ -350,12 +353,12 @@ public sealed class VideoPHashStrategy : IDuplicateDetectionStrategy
 
     // ── Frame hash (reuse ImagePHashStrategy DCT logic) ───────────────────────
 
-    private static ulong ComputeFrameHash(string framePath)
+    internal static ulong ComputeFrameHash(string framePath)
     {
-        using var img = Image.Load<L8>(framePath);
         // Shared with the image strategy — this file used to carry a verbatim copy
-        // of the DCT, which is exactly how the two hashes would drift apart.
-        return ImagePHashStrategy.ComputeHashFromImage(img);
+        // of the DCT, which is exactly how the two hashes would drift apart. The
+        // length check inside rejects a frame FFmpeg did not write in full.
+        return ImagePHashStrategy.ComputeHashFromLuminance(File.ReadAllBytes(framePath));
     }
 
     // ── Fingerprint comparison ────────────────────────────────────────────────

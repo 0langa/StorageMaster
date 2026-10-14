@@ -155,8 +155,10 @@ internal static class ServiceBootstrapper
         services.AddSingleton<IDuplicateDetectionStrategy>(sp =>
             new NormalizedTextStrategy(
                 sp.GetRequiredService<IFileSnapshotProvider>()));
+        services.AddSingleton<IImageHashDecoder, WicImageHashDecoder>();
         services.AddSingleton<IDuplicateDetectionStrategy>(sp =>
             new ImagePHashStrategy(
+                sp.GetRequiredService<IImageHashDecoder>(),
                 sp.GetRequiredService<ISettingsSnapshotProvider>(),
                 sp.GetRequiredService<IFileSnapshotProvider>()));
         services.AddSingleton<IDuplicateDetectionStrategy>(sp =>

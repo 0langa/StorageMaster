@@ -6,6 +6,15 @@ All notable changes to StorageMaster are documented here.
 
 ## [Unreleased]
 
+No unreleased changes.
+
+---
+
+## [2.7.0] — 2026-10-15 — Recycle Bin mode only recycles
+
+Recycle Bin mode could delete files permanently without asking. It now recycles or
+leaves the file in place, and asks before anything is deleted permanently.
+
 ### Added
 
 - **The Duplicates page says why a selected file was not deleted.** After a
@@ -72,6 +81,33 @@ All notable changes to StorageMaster are documented here.
   answered "path not found", and the folder was treated as already gone: a
   permanent delete of such a folder reported success with nothing deleted, and
   cleanup analysis skipped what was inside.
+
+### Upgrade notes
+
+- The database moves to schema v16 the first time 2.7.0 opens it. An older
+  StorageMaster cannot open it afterwards.
+- In Recycle Bin mode, items on network shares, many USB drives, drives whose
+  Recycle Bin is turned off, and items larger than the bin are now left in place
+  instead of being deleted permanently. Interactive deletions then ask whether to
+  delete them permanently; scheduled cleanup leaves them where they are.
+- The first duplicate analysis after the update recomputes image and video
+  fingerprints, so it takes longer once.
+- New scans count hard-linked files once, so comparing one with a scan made by an
+  older version shows folders such as WinSxS shrinking once.
+
+### Known limitations
+
+- Lists of single files (Large files and similar) still show every hard-linked
+  name with its full size. Only the totals count it once.
+- When one item of a batch cannot be recycled, Windows refuses the whole batch,
+  and the remaining items are recycled one at a time. Large batches are slower
+  in that case.
+- The permanent-deletion question lists up to 200 items and then says how many
+  more there are.
+- The Cleanup report gives the Recycle Bin refusal in English in every UI
+  language, like its other per-item errors.
+- Online-only cloud files are always left out of duplicate detection. There is
+  no option to include them.
 
 ---
 

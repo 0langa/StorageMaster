@@ -3,6 +3,7 @@ using Moq;
 using StorageMaster.Core.Deduplication;
 using StorageMaster.Core.Interfaces;
 using StorageMaster.Core.Models;
+using StorageMaster.Platform.Windows;
 
 namespace StorageMaster.Tests.Deduplication;
 
@@ -59,7 +60,7 @@ public sealed class DuplicateStrategyCancellationTests
     {
         using var cancellation = new CancellationTokenSource();
         cancellation.Cancel();
-        var strategy = new ImagePHashStrategy();
+        var strategy = new ImagePHashStrategy(new WicImageHashDecoder());
         var candidate = MakeCandidate(@"C:\data\sample.png", ".png");
 
         Func<Task> act = () => strategy.ComputeSignatureAsync(candidate, cancellation.Token);

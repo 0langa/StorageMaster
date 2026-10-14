@@ -494,6 +494,128 @@ public sealed class CleanupEngineTests
             "last progress report should signal 100% complete");
     }
 
+    // ── Recycle Bin refusals ──────────────────────────────────────────────────
+
+    [Fact]
+    public async Task ExecuteAsync_RecycleBinRefusals_AreReportedApartFromOtherFailures()
+    {
+        _deleter
+            .Setup(d => d.DeleteManyAsync(
+                It.IsAny<IReadOnlyList<DeletionRequest>>(),
+                It.IsAny<CancellationToken>()))
+            .Returns<IReadOnlyList<DeletionRequest>, CancellationToken>((requests, _) => MakeRefusalOutcomes(requests));
+        var suggestion = MakeSuggestion("rule.x", "Mixed",
+            [@"C:\Temp\ok.tmp", @"\\nas\share\refused.tmp", @"C:\Temp\locked.tmp"]);
+        var engine = BuildEngine([]);
+
+        var results = await engine.ExecuteAsync([suggestion], dryRun: false, DeletionMethod.RecycleBin);
+
+        results.Should().ContainSingle();
+        results[0].FailedPaths.Should().BeEquivalentTo([@"\\nas\share\refused.tmp", @"C:\Temp\locked.tmp"]);
+        results[0].RecycleBinRefusedPaths.Should().Equal(@"\\nas\share\refused.tmp");
+    }
+
+    [Fact]
+    public void BuildPermanentRetryForRecycleBinRefusals_CarriesOverOnlyTheRefusedTargets()
+    {
+        var suggestion = MakeSuggestion("rule.x", "Mixed",
+            [@"C:\Temp\ok.tmp", @"\\nas\share\refused.tmp", @"C:\Temp\locked.tmp"]);
+        var result = RecycleResult(suggestion, refused: [@"\\nas\share\refused.tmp"]);
+
+        var retry = CleanupEngine.BuildPermanentRetryForRecycleBinRefusals([suggestion], [result]);
+
+        retry.Should().ContainSingle();
+        retry[0].Id.Should().Be(suggestion.Id);
+        retry[0].TargetPaths.Should().Equal(@"\\nas\share\refused.tmp");
+    }
+
+    [Fact]
+    public void BuildPermanentRetryForRecycleBinRefusals_OffersNothingTheEngineWouldNotDeletePermanently()
+    {
+        var highRisk = MakeSuggestion("rule.high", "High risk", [@"\\nas\a.tmp"]) with { Risk = CleanupRisk.High };
+        var recycleOnly = MakeSuggestion("rule.recycle", "Recycle only", [@"\\nas\b.tmp"]) with
+        {
+            SupportsPermanentDelete = false,
+        };
+        var foreign = MakeSuggestion("rule.foreign", "Foreign", [@"\\nas\c.tmp"]);
+
+        var retry = CleanupEngine.BuildPermanentRetryForRecycleBinRefusals(
+            [highRisk, recycleOnly, foreign],
+            [
+                RecycleResult(highRisk, refused: [@"\\nas\a.tmp"]),
+                RecycleResult(recycleOnly, refused: [@"\\nas\b.tmp"]),
+                // A refused path that is not one of the suggestion's own targets is ignored.
+                RecycleResult(foreign, refused: [@"\\nas\elsewhere.tmp"]),
+                // And a dry run refuses nothing.
+                RecycleResult(foreign, refused: [@"\\nas\c.tmp"]) with { WasDryRun = true },
+            ]);
+
+        retry.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_PermanentRetryOfRefusals_SendsOnlyThoseTargetsWithTheirSnapshots()
+    {
+        var snapshot = new FileSnapshot(
+            @"\\nas\share\refused.tmp",
+            new FileIdentity("ABCD1234", 7),
+            2048,
+            new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc),
+            FileAttributes.Archive);
+        var suggestion = MakeSuggestion("rule.x", "Mixed", [@"C:\Temp\ok.tmp", snapshot.Path]) with
+        {
+            ExpectedFileSnapshots = new Dictionary<string, FileSnapshot>(StringComparer.OrdinalIgnoreCase)
+            {
+                [snapshot.Path] = snapshot,
+            },
+        };
+        var retry = CleanupEngine.BuildPermanentRetryForRecycleBinRefusals(
+            [suggestion],
+            [RecycleResult(suggestion, refused: [snapshot.Path])]);
+        SetupDeleterSuccess();
+        var engine = BuildEngine([]);
+
+        await engine.ExecuteAsync(retry, dryRun: false, DeletionMethod.Permanent);
+
+        retry.Single().EstimatedBytes.Should().Be(2048);
+        _deleter.Verify(d => d.DeleteManyAsync(
+            It.Is<IReadOnlyList<DeletionRequest>>(requests =>
+                requests.Count == 1 &&
+                requests[0].Path == snapshot.Path &&
+                requests[0].Method == DeletionMethod.Permanent &&
+                requests[0].ExpectedSnapshot == snapshot),
+            It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    private static CleanupResult RecycleResult(CleanupSuggestion suggestion, IReadOnlyList<string> refused) => new()
+    {
+        SuggestionId = suggestion.Id,
+        Status = CleanupResultStatus.PartialSuccess,
+        BytesFreed = 0,
+        ExecutedUtc = DateTime.UtcNow,
+        WasDryRun = false,
+        FailedPaths = refused,
+        RecycleBinRefusedPaths = refused,
+    };
+
+    private static async IAsyncEnumerable<DeletionOutcome> MakeRefusalOutcomes(
+        IReadOnlyList<DeletionRequest> requests)
+    {
+        foreach (var request in requests)
+        {
+            yield return request.Path switch
+            {
+                var path when path.StartsWith(@"\\", StringComparison.Ordinal) =>
+                    new DeletionOutcome(path, Success: false, BytesFreed: 0, Error: "No Recycle Bin", RecycleBinRefused: true),
+                var path when path.EndsWith("locked.tmp", StringComparison.Ordinal) =>
+                    new DeletionOutcome(path, Success: false, BytesFreed: 0, Error: "Locked"),
+                var path => new DeletionOutcome(path, Success: true, BytesFreed: 1024L),
+            };
+        }
+
+        await Task.CompletedTask;
+    }
+
     // ── Helpers ────────────────────────────────────────────────────────────────
 
     private CleanupEngine BuildEngine(IEnumerable<ICleanupRule> rules) =>

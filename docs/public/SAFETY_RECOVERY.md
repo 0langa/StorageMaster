@@ -5,7 +5,7 @@ StorageMaster is a storage-management tool. Recoverability and auditability take
 ## Deletion modes
 
 - Quarantine: preferred for duplicate cleanup. Files are moved into the app quarantine and can be restored.
-- Recycle Bin: preferred for general cleanup when Windows supports recycling the target path. Where it does not (network shares, many removable drives, an item larger than the bin's maximum size, a drive whose bin is turned off), the item is left in place and reported as not deleted; Recycle Bin mode never falls back to permanent deletion.
+- Recycle Bin: preferred for general cleanup when Windows supports recycling the target path. Where it does not (network shares, many removable drives, an item larger than the bin's maximum size, a drive whose bin is turned off), the item is left in place and reported as not deleted; Recycle Bin mode never falls back to permanent deletion on its own. Where the app is interactive (Duplicates, Cleanup, Smart Cleaner, Results), it then asks a second question, "Delete these N item(s) permanently?", lists the items and defaults to No. Only a yes deletes them permanently, through the same live checks as any other deletion; items the user was not shown are never included. Scheduled cleanup has no one to ask and keeps the refusal.
 - Permanent delete: allowed only after explicit user intent and confirmation.
 
 ## Recovery journal
@@ -41,7 +41,7 @@ Recycle Bin and quarantine operations move logical file data but do not normally
 
 - The current journal is inspectable through repository APIs and tests, but the WinUI recovery page still needs a first-class journal view.
 - A process or power failure in the narrow interval after a quarantine move but before its transactional/fallback journal write can still leave a moved file requiring manual quarantine-directory reconciliation.
-- Files changed after scan are skipped by duplicate cleanup rather than force-deleted.
+- Files changed after scan are skipped by duplicate cleanup rather than force-deleted. The Duplicates page lists every selected file it left in place with the reason (changed since the analysis, could not be re-read, no longer matches the kept file, Recycle Bin unavailable, refused by Windows, kept file not verifiable, no stable identity).
 - Permanent directory traversal is handle-bound and no-follow. Recycle Bin operations and individual file deletion still cross a final path-based Windows API boundary; snapshots and postchecks reduce risk but cannot mathematically eliminate a malicious last-instruction path swap.
 - The program-leftover rule is heuristic. It is disabled, unselected, high-risk, and Recycle-Bin-only by default, but a reviewed directory can still receive new content between analysis and execution.
 - Managed scanning resolves and checks reparse targets before enumeration, but Core-only metadata checks cannot close every adversarial junction swap. Turbo uses strong no-follow root-ancestor locks where ACL/sharing permits; protected ancestors and queued descendants retain a documented same-privilege swap window. Persisted identity and downstream deletion validation fail closed on changed files.

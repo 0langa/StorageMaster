@@ -1,10 +1,5 @@
 using System.Numerics;
 using System.Text.Json;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.Formats;
-using SixLabors.ImageSharp.Metadata.Profiles.Exif;
-using SixLabors.ImageSharp.PixelFormats;
-using SixLabors.ImageSharp.Processing;
 using StorageMaster.Core.Interfaces;
 using StorageMaster.Core.Models;
 
@@ -14,8 +9,9 @@ namespace StorageMaster.Core.Deduplication;
 /// Perceptual hash (pHash) strategy for image files.
 ///
 /// Algorithm: DCT-based 64-bit pHash
-///   1. Load image and correct EXIF orientation.
-///   2. Resize to 32×32 grayscale.
+///   1. Decode through <see cref="IImageHashDecoder"/> (the Windows Imaging
+///      Component on Windows), correcting EXIF orientation.
+///   2. Scale to 32×32 luminance.
 ///   3. Compute 2-D separable DCT.
 ///   4. Take top-left 8×8 coefficients (64 values); exclude DC component at [0,0].
 ///   5. Compute average of those 63 values.
@@ -31,17 +27,9 @@ public sealed class ImagePHashStrategy : IDuplicateDetectionStrategy
     public const int DefaultHammingThreshold = 10;    // out of 64 bits
     public const double AutoSelectConfidenceThreshold = 0.98d; // future opt-in
 
-    private const int DctSize = 32;
+    /// <summary>Side of the square luminance surface the DCT reads.</summary>
+    internal const int DctSize = 32;
     private const int HashBits = 8;   // top-left 8×8 block of DCT
-
-    /// <summary>
-    /// Decode-time size hint. Everything past this is thrown away by the 32×32
-    /// resize, and for JPEG the decoder serves it straight from the scaled IDCT
-    /// instead of materialising the full-resolution surface. 256 rather than 64
-    /// because the hint is aspect-preserving (ResizeMode.Max): a panorama at a
-    /// 64-px box would arrive with fewer than 32 usable rows.
-    /// </summary>
-    private const int DecodeTargetSize = 256;
 
     /// <summary>
     /// cos(π·k·(2t+1) / 2·DctSize) for k &lt; <see cref="HashBits"/>, t &lt; <see cref="DctSize"/>.
@@ -56,25 +44,30 @@ public sealed class ImagePHashStrategy : IDuplicateDetectionStrategy
         {
             ".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif",
             ".tif", ".tiff",
-            ".heic", ".heif",   // requires platform decoder; errors surface gracefully
+            ".heic", ".heif",   // requires the platform's HEIF codec; errors surface gracefully
         };
 
+    private readonly IImageHashDecoder _decoder;
     private readonly int _hammingThreshold;
     private readonly IFileSnapshotProvider? _snapshotProvider;
     private readonly ISettingsSnapshotProvider? _settingsSnapshotProvider;
 
     public ImagePHashStrategy(
+        IImageHashDecoder decoder,
         IFileSnapshotProvider? snapshotProvider = null,
         int hammingThreshold = DefaultHammingThreshold)
     {
+        _decoder = decoder;
         _snapshotProvider = snapshotProvider;
         _hammingThreshold = hammingThreshold;
     }
 
     public ImagePHashStrategy(
+        IImageHashDecoder decoder,
         ISettingsSnapshotProvider settingsSnapshotProvider,
         IFileSnapshotProvider? snapshotProvider = null)
     {
+        _decoder = decoder;
         _settingsSnapshotProvider = settingsSnapshotProvider;
         _snapshotProvider = snapshotProvider;
         _hammingThreshold = DefaultHammingThreshold;
@@ -82,7 +75,11 @@ public sealed class ImagePHashStrategy : IDuplicateDetectionStrategy
 
     public DuplicateMethod Method => DuplicateMethod.ImagePHash;
     public string Algorithm => "IMAGE-PHASH-DCT64";
-    public int AlgorithmVersion => 2; // v2: decode-scaled input (hash values shift)
+
+    // v3: decoded and scaled by the platform decoder instead of ImageSharp. The
+    // pipeline is the same, but resampling differs slightly, so cached v2 hashes
+    // are recomputed rather than compared against v3 ones.
+    public int AlgorithmVersion => 3;
     public bool SupportsAutoSelection => false;
     public double DefaultConfidence => 0.0d;   // computed per-pair
     public string DisplayName => "Image perceptual hash";
@@ -123,9 +120,7 @@ public sealed class ImagePHashStrategy : IDuplicateDetectionStrategy
             if (_snapshotProvider is not null && before is null)
                 return ErrorSig(candidate, "FileNotFound", "File no longer exists before image hashing.");
 
-            // Run synchronous ImageSharp I/O on thread-pool thread
-            var (hash64, width, height, orientation) = await Task.Run(
-                () => ComputePHash(candidate.File.FullPath), ct);
+            var (hash64, width, height, orientation) = await ComputePHashAsync(candidate.File.FullPath, ct);
             var after = _snapshotProvider is null
                 ? null
                 : await _snapshotProvider.TakeSnapshotAsync(candidate.File.FullPath, ct);
@@ -241,60 +236,49 @@ public sealed class ImagePHashStrategy : IDuplicateDetectionStrategy
 
     // ── DCT pHash ─────────────────────────────────────────────────────────────
 
-    private static (ulong Hash, int Width, int Height, ushort Orientation)
-        ComputePHash(string path)
+    private async Task<(ulong Hash, int Width, int Height, ushort Orientation)> ComputePHashAsync(
+        string path,
+        CancellationToken ct)
     {
-        // One handle for both the header read and the decode; ReadWrite|Delete
-        // sharing matches the other hashing strategies so a file open elsewhere
-        // does not turn into a spurious PHashError.
-        using var stream = new FileStream(
+        ct.ThrowIfCancellationRequested();
+
+        // ReadWrite|Delete sharing matches the other hashing strategies so a file
+        // open elsewhere does not turn into a spurious PHashError.
+        await using var stream = new FileStream(
             path,
             FileMode.Open, FileAccess.Read,
             FileShare.ReadWrite | FileShare.Delete,
             bufferSize: 64 * 1024,
-            FileOptions.SequentialScan);
+            FileOptions.Asynchronous | FileOptions.SequentialScan);
 
-        // Header first: the decode below is deliberately scaled down, so the true
-        // pixel dimensions have to come from the metadata rather than from the
-        // decoded surface.
-        var info = Image.Identify(stream);
-        stream.Position = 0;
-
-        ushort orientation = 1;
-        if (info.Metadata.ExifProfile?.TryGetValue(ExifTag.Orientation, out var orientTag) == true)
-            orientation = orientTag?.Value ?? 1;
-
-        using var img = Image.Load<L8>(
-            new DecoderOptions { TargetSize = new Size(DecodeTargetSize, DecodeTargetSize) },
-            stream);
-
-        // Correct EXIF orientation before hashing so that the same photo
-        // stored in different orientations gets the same hash.
-        img.Mutate(x => x.AutoOrient());
-
-        // Orientations 5-8 transpose the image, so the reported dimensions follow
-        // AutoOrient the way they did when this read them off the decoded image.
-        var transposed = orientation is >= 5 and <= 8;
-        var width = transposed ? info.Height : info.Width;
-        var height = transposed ? info.Width : info.Height;
-
-        return (ComputeHashFromImage(img), width, height, orientation);
+        // The decoder corrects EXIF orientation before scaling, so the same photo
+        // stored in different orientations gets the same hash, and reports the
+        // displayed (oriented) dimensions.
+        var surface = await _decoder.DecodeAsync(stream, DctSize, ct).ConfigureAwait(false);
+        return (
+            ComputeHashFromLuminance(surface.Luminance),
+            surface.Header.Width,
+            surface.Header.Height,
+            surface.Header.Orientation);
     }
 
     /// <summary>
-    /// pHash of an already-decoded, orientation-corrected grayscale surface.
-    /// Shared with <see cref="VideoPHashStrategy"/> so the frame hash and the
-    /// image hash cannot drift apart.
+    /// pHash of an orientation-corrected <see cref="DctSize"/>×<see cref="DctSize"/>
+    /// luminance surface, row-major. Shared with <see cref="VideoPHashStrategy"/> so
+    /// the frame hash and the image hash cannot drift apart.
     /// </summary>
-    internal static ulong ComputeHashFromImage(Image<L8> img)
+    internal static ulong ComputeHashFromLuminance(ReadOnlySpan<byte> luminance)
     {
-        img.Mutate(x => x.Resize(DctSize, DctSize));
+        if (luminance.Length != DctSize * DctSize)
+        {
+            throw new InvalidDataException(
+                $"Expected a {DctSize}x{DctSize} luminance surface ({DctSize * DctSize} bytes), got {luminance.Length} bytes.");
+        }
 
         // Build float grayscale matrix
         var pixels = new float[DctSize * DctSize];
-        for (var y = 0; y < DctSize; y++)
-            for (var x = 0; x < DctSize; x++)
-                pixels[y * DctSize + x] = img[x, y].PackedValue / 255f;
+        for (var i = 0; i < pixels.Length; i++)
+            pixels[i] = luminance[i] / 255f;
 
         // Top-left HashBits×HashBits block of the 2-D DCT
         var coeffs = ComputeTopLeftDct(pixels);

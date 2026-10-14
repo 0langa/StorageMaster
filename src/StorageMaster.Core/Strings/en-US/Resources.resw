@@ -2118,6 +2118,42 @@ One keeper per group stays untouched. Method: {2}.</value>
     <value>Recycle Bin</value>
     <comment>[safety] Name of the deletion route, used inside two longer sentences on the Duplicates page: as {2} of Safety_Duplicates_ConfirmDelete_Body and as {0} of Safety_Duplicates_ConfirmDelete_Action ('Delete via Recycle Bin'). Use the exact Windows term.</comment>
   </data>
+  <data name="Safety_Duplicates_NotDeleted_ChangedSinceAnalysis" xml:space="preserve">
+    <value>It changed, moved or disappeared after the duplicate analysis.</value>
+    <comment>[safety] Reason shown under a duplicate that was not deleted: the file was changed, moved, replaced or removed after the duplicate analysis, so it was left alone.</comment>
+  </data>
+  <data name="Safety_Duplicates_NotDeleted_CouldNotVerify" xml:space="preserve">
+    <value>It could not be read again to confirm it is still a duplicate.</value>
+    <comment>[safety] Reason shown under a duplicate that was not deleted: just before deleting, the app reads the file again to confirm it still matches the file being kept, and that read failed. A technical detail line in English may follow.</comment>
+  </data>
+  <data name="Safety_Duplicates_NotDeleted_DeleteFailed" xml:space="preserve">
+    <value>Windows did not allow it to be deleted. It may be open in another program.</value>
+    <comment>[safety] Reason shown under a duplicate that was not deleted because Windows refused the operation, most often because the file is open in another program or access was denied. A technical detail line in English may follow.</comment>
+  </data>
+  <data name="Safety_Duplicates_NotDeleted_KeeperNotVerified" xml:space="preserve">
+    <value>The file being kept could not be verified, so nothing in this group was deleted.</value>
+    <comment>[safety] Reason shown under a duplicate that was not deleted because the file being kept in its group could not be verified (missing, changed or unreadable), so nothing in that group was deleted. Glossary: Keeper = beizubehaltende Datei / archivo que se conserva.</comment>
+  </data>
+  <data name="Safety_Duplicates_NotDeleted_Message" xml:space="preserve">
+    <value>These files are still where they were. The reason is shown under each one.</value>
+    <comment>[safety] Text of the warning banner on the Duplicates page that lists selected files a deletion left in place. Reassures the user that these files are untouched and points to the per-file reason below. Never imply the files are gone.</comment>
+  </data>
+  <data name="Safety_Duplicates_NotDeleted_NoLongerDuplicate" xml:space="preserve">
+    <value>It no longer matches the file being kept.</value>
+    <comment>[safety] Reason shown under a duplicate that was not deleted: read again just before deleting, it no longer matches the file being kept (glossary: Keeper = beizubehaltende Datei / archivo que se conserva).</comment>
+  </data>
+  <data name="Safety_Duplicates_NotDeleted_NoStableIdentity" xml:space="preserve">
+    <value>The scan recorded no stable file identity for it. Scan again, then run the duplicate analysis again.</value>
+    <comment>[safety] Reason shown under a duplicate that was not deleted: the scan recorded no stable file identity for it, so the app cannot prove the file was not replaced since. The fix is to scan the drive again and rerun the duplicate analysis.</comment>
+  </data>
+  <data name="Safety_Duplicates_NotDeleted_RecycleBinUnavailable" xml:space="preserve">
+    <value>Windows can't move it to the Recycle Bin here, and Recycle Bin mode never deletes permanently.</value>
+    <comment>[safety] Reason shown under a duplicate that was not deleted in Recycle Bin mode: Windows could not put it in the Recycle Bin on that drive (network share, removable drive, too large, or bin turned off), and Recycle Bin mode never falls back to permanent deletion. Use the exact Windows term for the Recycle Bin.</comment>
+  </data>
+  <data name="Safety_Duplicates_NotDeleted_Title" xml:space="preserve">
+    <value>{0} selected file(s) not deleted</value>
+    <comment>[safety] Title of the warning banner on the Duplicates page after a deletion that left some selected files in place. {0} is an already-formatted count. Must say plainly that these files were NOT deleted; the list under the banner gives the reason for each file.</comment>
+  </data>
   <data name="Safety_Duplicates_Outcome_Permanent" xml:space="preserve">
     <value>Permanently deleted {0} across {1} file(s)</value>
     <comment>[safety] First half of the status line reported after duplicates were deleted permanently, with no way back. {0} is an already-formatted size, {1} an already-formatted file count. A sentence fragment continued by Duplicates_Status_DeleteDone and its variants - do not add a full stop. Must clearly say the deletion was permanent.</comment>
@@ -2129,6 +2165,10 @@ One keeper per group stays untouched. Method: {2}.</value>
   <data name="Safety_Duplicates_Outcome_RecycleBin" xml:space="preserve">
     <value>Moved {0} across {1} file(s) to the Recycle Bin</value>
     <comment>[safety] First half of the status line reported after duplicates were deleted to the Windows Recycle Bin. {0} is an already-formatted size, {1} an already-formatted file count. A sentence fragment continued by Duplicates_Status_DeleteDone and its variants - do not add a full stop. Use the exact Windows term for the Recycle Bin.</comment>
+  </data>
+  <data name="Safety_Duplicates_Outcome_RecycleBinThenPermanent" xml:space="preserve">
+    <value>Moved {0} across {1} file(s) to the Recycle Bin and permanently deleted {2} across {3} file(s)</value>
+    <comment>[safety] First half of the status line after a duplicate deletion in Recycle Bin mode where the user then agreed to delete the files Windows could not recycle permanently. {0} and {2} are already-formatted sizes, {1} and {3} already-formatted file counts. A sentence fragment continued by Duplicates_Status_DeleteDone and its variants - do not add a full stop. Must keep the recoverable part and the permanent part clearly apart.</comment>
   </data>
   <data name="Safety_Duplicates_QuarantineSource_Cleanup" xml:space="preserve">
     <value>· Cleanup quarantine</value>
@@ -2193,6 +2233,24 @@ One keeper per group stays untouched. Method: {2}.</value>
   <data name="Safety_RecycleBin_Notes" xml:space="preserve">
     <value>Permanent deletion only. Emptying the Recycle Bin cannot be undone.</value>
     <comment>[safety] Safety note shown in its own line beneath the empty-Recycle-Bin suggestion on the Cleanup page. It states that this suggestion cannot be run in Recycle Bin or quarantine mode — the files go for good. Must not be softened or shortened.</comment>
+  </data>
+  <data name="Safety_RecycleRefused_Body" xml:space="preserve">
+    <value>Delete these {0} item(s) permanently?
+
+Windows can't move them to the Recycle Bin here: the drive has no Recycle Bin, an item is larger than the Recycle Bin allows, or the Recycle Bin is turned off for this drive. They have not been deleted. Permanently deleted items can't be restored.</value>
+    <comment>[dialog] Body of the second confirmation after a Recycle Bin deletion. {0} is an already-formatted count of items Windows could not recycle; they are listed under this text. The first line is the question the user answers; the default answer is No. Keep the blank line, keep the statement that nothing has been deleted yet, and keep the warning that permanent deletion cannot be undone - never soften it. Use the glossary terms for the Recycle Bin and permanent deletion.</comment>
+  </data>
+  <data name="Safety_RecycleRefused_Keep" xml:space="preserve">
+    <value>No, keep them</value>
+    <comment>[button] The default, safe button of the 'Not moved to the Recycle Bin' dialog: answers No to the question and leaves every listed item where it is. Must read as a refusal.</comment>
+  </data>
+  <data name="Safety_RecycleRefused_More" xml:space="preserve">
+    <value>…and {0} more</value>
+    <comment>[label] Last line of the item list in the 'Not moved to the Recycle Bin' dialog when the list is too long to show in full. {0} is the already-formatted number of items not shown. Starts with a horizontal-ellipsis character in English.</comment>
+  </data>
+  <data name="Safety_RecycleRefused_Title" xml:space="preserve">
+    <value>Not moved to the Recycle Bin</value>
+    <comment>[dialog] Title of the second confirmation shown after a Recycle Bin deletion in which Windows could not move some items to the Recycle Bin. Those items were left untouched. Use the exact Windows term for the Recycle Bin. Its body is Safety_RecycleRefused_Body.</comment>
   </data>
   <data name="Safety_ReviewDuplicatesBeforeDeleting" xml:space="preserve">
     <value>Review duplicates before deleting anything large or old.</value>

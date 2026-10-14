@@ -47,9 +47,11 @@ public sealed class FileScannerTests
             .Setup(r => r.UpdateFolderTotalsAsync(It.IsAny<long>(), It.IsAny<IReadOnlyDictionary<string, long>>(), It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
 
+        // One identity per path, as on a real volume. A single shared identity would
+        // model every file as a hard link to the same one, which the scanner counts once.
         _identityProvider
             .Setup(provider => provider.GetIdentityAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new FileIdentity("TESTVOL", 123));
+            .ReturnsAsync((string path, CancellationToken _) => IdentityFor(path));
 
         _scanner = new FileScanner(
             _repoMock.Object,
@@ -99,7 +101,7 @@ public sealed class FileScannerTests
 
             inserted.Should().HaveCount(3);
             inserted.Should().OnlyContain(static entry =>
-                entry.Identity == new FileIdentity("TESTVOL", 123));
+                entry.Identity == IdentityFor(entry.FullPath));
             _identityProvider.Verify(provider => provider.GetIdentityAsync(
                 It.IsAny<string>(),
                 It.IsAny<CancellationToken>()), Times.Exactly(3));
@@ -741,6 +743,9 @@ public sealed class FileScannerTests
             return false;
         }
     }
+
+    private static FileIdentity IdentityFor(string path) =>
+        new("TESTVOL", (ulong)(uint)StringComparer.OrdinalIgnoreCase.GetHashCode(Path.GetFullPath(path)));
 
     private static string CreateTempDir(int files, int subdirs)
     {

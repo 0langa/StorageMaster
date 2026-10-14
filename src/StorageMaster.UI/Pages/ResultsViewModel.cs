@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -554,6 +555,23 @@ public sealed partial class ResultsViewModel : ObservableObject
             return;
 
         var outcome = await _resultDeletionService.DeleteAsync(file, DeletionMethod.RecycleBin);
+        if (!outcome.Success && outcome.RecycleBinRefused)
+        {
+            // Recycle Bin mode never deletes permanently on its own. The file is still
+            // in place; deleting it permanently instead is a separate decision, with
+            // "no" as the default.
+            var deletePermanently = await _dialogs.ConfirmItemsAsync(
+                Loc.Get("Safety_RecycleRefused_Title"),
+                Loc.Format("Safety_RecycleRefused_Body", 1.ToString("N0", CultureInfo.CurrentCulture)),
+                [file.FullPath],
+                Loc.Get("Safety_PermanentDelete"),
+                Loc.Get("Safety_RecycleRefused_Keep"));
+            if (!deletePermanently)
+                return;
+
+            outcome = await _resultDeletionService.DeleteAsync(file, DeletionMethod.Permanent);
+        }
+
         if (!outcome.Success)
         {
             // The reason comes from the deletion service and stays as it is — only the

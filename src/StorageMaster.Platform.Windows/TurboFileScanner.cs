@@ -138,6 +138,7 @@ public sealed class TurboFileScanner : IFileScanner
         // consumer touches this for every record, and three hashes plus three
         // probes per file is pure overhead on the pipeline's only reader.
         var parentMetrics = new Dictionary<string, ParentFolderMetrics>(StringComparer.OrdinalIgnoreCase);
+        var hardLinks = new HardLinkTracker();
         var folderMetricsPersisted = false;
 
         var processStarted = false;
@@ -154,7 +155,7 @@ public sealed class TurboFileScanner : IFileScanner
             await _repo.InsertFileEntriesAsync(batch, ct).ConfigureAwait(false);
             fileBuffer.Clear();
             persistedFileCount += batch.LongLength;
-            persistedBytes += batch.Sum(static entry => entry.SizeBytes);
+            persistedBytes += batch.Sum(HardLinkTracker.CountedBytes);
         }
 
         async Task FlushFolderBufferAsync(CancellationToken ct)
@@ -410,6 +411,7 @@ public sealed class TurboFileScanner : IFileScanner
                             var modUtc = ReadUtcTimestamp(rec.ModifiedUtcTicks, rec.ModifiedUnix);
                             var createUtc = ReadUtcTimestamp(rec.CreatedUtcTicks, rec.CreatedUnix);
                             var attributes = ReadAttributes(rec);
+                            var identity = ReadIdentity(rec);
 
                             var fe = new FileEntry
                             {
@@ -424,16 +426,18 @@ public sealed class TurboFileScanner : IFileScanner
                                 AccessedUtc = modUtc,
                                 Attributes = attributes,
                                 Category = FileTypeCategorizor.Categorize(ext),
-                                Identity = ReadIdentity(rec),
+                                Identity = identity,
                                 IsReparsePoint = (attributes & FileAttributes.ReparsePoint) != 0,
+                                IsAdditionalHardLink = !hardLinks.IsFirstLink(identity),
                             };
                             fileBuffer.Add(fe);
                             fileCount++;
-                            totalBytes += (long)rec.Size;
+                            var countedBytes = HardLinkTracker.CountedBytes(fe);
+                            totalBytes += countedBytes;
 
                             var parentDir = Path.GetDirectoryName(rec.Path);
                             if (parentDir is not null)
-                                AddFileToParent(parentMetrics, parentDir, (long)rec.Size);
+                                AddFileToParent(parentMetrics, parentDir, countedBytes);
 
                             if (fileBuffer.Count >= 500)
                                 await FlushFileBufferAsync(abort.Token).ConfigureAwait(false);

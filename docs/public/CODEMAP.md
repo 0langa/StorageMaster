@@ -1,10 +1,10 @@
 # StorageMaster — Codemap
 
-<!-- schema-version: 15 -->
+<!-- schema-version: 16 -->
 
 > **Version:** 2.2.1 | **Current-state review:** 2026-08-18
 > High-level source map for major files, types, methods, and database tables. Source remains authoritative for exhaustive membership.
-> **Current-state note:** current source uses schema v15, independent SQLite connection leases, exact UTC timestamp reads, persisted scan-time file identity, indexed folder parent/child lookups, scan-session ownership with startup recovery, managed/Turbo persistence hardening, dedicated duplicate deletion/recovery, fail-closed path/snapshot checks, and strengthened release gates. `DatabaseSchema.CurrentVersion` is authoritative for the schema number. See `RELIABILITY_AUDIT_2026-08-18.md` for evidence and limits as of that dated audit (which describes the schema at v12).
+> **Current-state note:** current source uses schema v16, independent SQLite connection leases, exact UTC timestamp reads, persisted scan-time file identity, indexed folder parent/child lookups, scan-session ownership with startup recovery, managed/Turbo persistence hardening, dedicated duplicate deletion/recovery, fail-closed path/snapshot checks, and strengthened release gates. `DatabaseSchema.CurrentVersion` is authoritative for the schema number. See `RELIABILITY_AUDIT_2026-08-18.md` for evidence and limits as of that dated audit (which describes the schema at v12).
 
 ---
 
@@ -56,7 +56,7 @@
 
 **Project file:** `src/StorageMaster.Core/StorageMaster.Core.csproj`
 **Target:** `net8.0`
-**Packages:** `CommunityToolkit.Mvvm 8.4.0`, `Microsoft.Extensions.DI.Abstractions 10.0.0`, `Microsoft.Extensions.Logging.Abstractions 10.0.0`, `SixLabors.ImageSharp 3.1.12`
+**Packages:** `CommunityToolkit.Mvvm 8.4.0`, `Microsoft.Extensions.DI.Abstractions 10.0.0`, `Microsoft.Extensions.Logging.Abstractions 10.0.0`. Image decoding for the perceptual hash goes through `IImageHashDecoder`, implemented in Platform.Windows on the Windows Imaging Component.
 
 ---
 
@@ -698,6 +698,7 @@ Internal static class. `CurrentVersion = 15`; each level is a `V<N>Statements` a
 | v13 | `FolderEntries.ParentNormalizedPath` + `(SessionId, ParentNormalizedPath, TotalSizeBytes DESC)` index |
 | v14 | `ScanSessions.OwnerProcessId` / `OwnerProcessStartedUtc` |
 | v15 | Indexes on the `FileEntries(Id)` cascade referrers, plus `DuplicateErrors(RunId, FileEntryId)` |
+| v16 | `FileEntries.IsAdditionalHardLink`: further names of a hard-linked file, left out of the category totals |
 
 Path casing is never computed in SQL: SQLite's `upper()` is ASCII-only while the application uses `ToUpperInvariant`. v13's backfill therefore splits the parent off the already-normalized column instead of re-normalizing.
 
@@ -1038,7 +1039,6 @@ The suite count changes as regression guards are added. Run the documented Relea
 | Core | `CommunityToolkit.Mvvm` | 8.4.0 | MVVM source generators |
 | Core | `Microsoft.Extensions.DependencyInjection.Abstractions` | 10.0.0 | DI interfaces |
 | Core | `Microsoft.Extensions.Logging.Abstractions` | 10.0.0 | `ILogger<T>` |
-| Core | `SixLabors.ImageSharp` | 3.1.12 | Image duplicate decoding and perceptual hashing |
 | Platform.Windows | `Microsoft.Extensions.Logging.Abstractions` | 10.0.0 | Logging |
 | Platform.Windows | `System.Management` | 9.0.5 | Windows drive-health queries |
 | Storage | `Microsoft.Data.Sqlite` | 9.0.4 | SQLite access |

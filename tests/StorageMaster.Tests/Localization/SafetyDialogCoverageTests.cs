@@ -41,8 +41,8 @@ public sealed class SafetyDialogCoverageTests
     }
 
     /// <summary>
-    /// The first argument of every <c>ConfirmAsync</c> call, which is the dialog's
-    /// title key.
+    /// The first argument of every <c>ConfirmAsync</c> and <c>ConfirmItemsAsync</c>
+    /// call, which is the dialog's title key.
     /// </summary>
     private static IReadOnlyCollection<string> ConfirmationTitleKeysInSource()
     {
@@ -58,7 +58,7 @@ public sealed class SafetyDialogCoverageTests
 
             foreach (Match match in Regex.Matches(
                          text,
-                         @"ConfirmAsync\(\s*Loc\.(?:Get|Format)\(""(Safety_[A-Za-z0-9_]+)""",
+                         @"Confirm(?:Items)?Async\(\s*Loc\.(?:Get|Format)\(""(Safety_[A-Za-z0-9_]+)""",
                          RegexOptions.Singleline))
             {
                 keys.Add(match.Groups[1].Value);

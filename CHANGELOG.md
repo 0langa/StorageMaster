@@ -6,6 +6,40 @@ All notable changes to StorageMaster are documented here.
 
 ## [Unreleased]
 
+### Added
+
+- **The Duplicates page says why a selected file was not deleted.** After a
+  deletion, a warning lists every selected file that is still in place, with the
+  reason: it changed after the analysis, it could not be read again, it no longer
+  matches the file being kept, Windows refused (for example because it is open
+  in another program), Windows cannot recycle it there, the file being kept could
+  not be verified, or the scan recorded no stable identity for it. Before, the
+  status line only showed a lower count and the file stayed listed. In English,
+  German and Spanish.
+- **Items the Recycle Bin refused get a second question.** Recycle Bin mode still
+  never deletes permanently on its own. Duplicates, Cleanup, Smart Cleaner and the
+  Results page now follow a refusal with "Delete these N item(s) permanently?",
+  listing the items, with No as the default. Only a yes deletes them, through the
+  same checks as any other deletion, and nothing that was not listed. Scheduled
+  cleanup has no one to ask and keeps the refusal.
+
+### Changed
+
+- **Hard links count once in sizes.** A file with several hard links is one file
+  on disk, but every name added its size to folder, category and scan totals.
+  Windows links most of WinSxS this way, so a system drive looked fuller than it
+  is. Every name is still listed with its own size; only the first one a scan
+  reaches adds to the totals. This applies to new scans: comparing one with an
+  older scan shows such folders shrinking once. Database schema v16.
+- **Image duplicates are decoded by Windows.** The perceptual image hash and the
+  duplicate preview now use the Windows Imaging Component, the decoders File
+  Explorer uses, which Windows Update keeps patched. That removes ImageSharp
+  3.1.12 and its five security advisories (the fix exists only in 4.x, which needs
+  a commercial license key). Formats Windows has a codec for, such as HEIC with the
+  HEIF extension, now work. Video frames come out of FFmpeg as raw grey pixels and
+  need no decoder. Image and video fingerprints are recomputed on the next
+  analysis.
+
 ### Fixed
 
 - **Recycle Bin mode could delete files permanently.** Windows has no Recycle Bin

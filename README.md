@@ -321,8 +321,8 @@ Schema migrations run on the first database access after an upgrade, each level 
 sqlite3 "$env:LOCALAPPDATA\StorageMaster\storagemaster.db" "SELECT MAX(Version) FROM SchemaVersion;"
 ```
 
-<!-- schema-version: 15 -->
-The expected value is `DatabaseSchema.CurrentVersion` for the build you are running — schema v15 at the time of writing. A lower number means migration has not run yet; it happens on first database access after an upgrade, not at install time.
+<!-- schema-version: 16 -->
+The expected value is `DatabaseSchema.CurrentVersion` for the build you are running — schema v16 at the time of writing. A lower number means migration has not run yet; it happens on first database access after an upgrade, not at install time.
 
 Uninstall keeps `%LOCALAPPDATA%\StorageMaster` by default, so the database and settings survive reinstall/upgrade cycles.
 

@@ -347,7 +347,7 @@ public sealed class SmartCleanerService : ISmartCleanerService
                     }
                     else
                     {
-                        AddFailure(path, outcome.Error ?? "Deletion failed.");
+                        AddFailure(path, outcome.Error ?? "Deletion failed.", outcome.RecycleBinRefused);
                         _logger.LogWarning(
                             "[SmartCleaner] Failed {Path}: {Error}",
                             path,
@@ -404,14 +404,14 @@ public sealed class SmartCleanerService : ISmartCleanerService
                     auditWarnings)
                 .ConfigureAwait(false);
 
-            void AddFailure(string path, string error)
+            void AddFailure(string path, string error, bool recycleBinRefused = false)
             {
                 if (!reportedFailurePaths.Add(path))
                     return;
 
                 failedPaths.Add(path);
                 firstError ??= error;
-                allFailures.Add(new SmartCleanFailure(path, error));
+                allFailures.Add(new SmartCleanFailure(path, error, recycleBinRefused));
             }
 
             void RejectPath(string path, string error)
@@ -652,6 +652,45 @@ public sealed class SmartCleanerService : ISmartCleanerService
         var name = Path.GetFileName(path);
         return name.StartsWith("thumbcache_", StringComparison.OrdinalIgnoreCase) &&
                name.EndsWith(".db", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// The groups of a finished Recycle Bin run, reduced to the paths the Recycle Bin
+    /// refused, for a permanent deletion the user has confirmed. Paths that were
+    /// recycled, rejected or failed for another reason stay out, so the retry cannot
+    /// reach anything the user was not shown; it still revalidates every path against
+    /// its analysis-time snapshot like a normal run.
+    /// </summary>
+    public static IReadOnlyList<SmartCleanGroup> NarrowToRecycleBinRefusals(
+        IReadOnlyList<SmartCleanGroup> groups,
+        SmartCleanResult result)
+    {
+        var refused = result.Failures
+            .Where(static failure => failure.RecycleBinRefused)
+            .Select(static failure => failure.Path)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (refused.Count == 0)
+            return [];
+
+        var narrowed = new List<SmartCleanGroup>();
+        foreach (var group in groups)
+        {
+            var paths = group.Paths
+                .Where(refused.Contains)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+            if (paths.Length == 0)
+                continue;
+
+            narrowed.Add(group with
+            {
+                Paths = paths,
+                EstimatedBytes = paths.Sum(path =>
+                    group.ExpectedFileSnapshots.TryGetValue(path, out var snapshot) ? snapshot.SizeBytes : 0L),
+            });
+        }
+
+        return narrowed;
     }
 
     private static bool PathsEqual(string left, string right) =>

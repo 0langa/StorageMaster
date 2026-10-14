@@ -136,11 +136,11 @@ public sealed class ScanRepository : IScanRepository
                 INSERT INTO FileEntries
                     (SessionId, FullPath, FileName, Extension, SizeBytes,
                      CreatedUtc, ModifiedUtc, AccessedUtc, Attributes, Category, IsReparsePoint,
-                     NormalizedFullPath, IdentityVolumeSerial, IdentityFileIndex)
+                     NormalizedFullPath, IdentityVolumeSerial, IdentityFileIndex, IsAdditionalHardLink)
                 VALUES
                     ($sid, $path, $name, $ext, $size,
                      $created, $modified, $accessed, $attrs, $cat, $reparse,
-                     $normalized, $identityVolume, $identityIndex)
+                     $normalized, $identityVolume, $identityIndex, $additionalLink)
                 ON CONFLICT(SessionId, NormalizedFullPath) DO UPDATE SET
                     FileName       = excluded.FileName,
                     Extension      = excluded.Extension,
@@ -152,7 +152,8 @@ public sealed class ScanRepository : IScanRepository
                     Category       = excluded.Category,
                     IsReparsePoint = excluded.IsReparsePoint,
                     IdentityVolumeSerial = excluded.IdentityVolumeSerial,
-                    IdentityFileIndex = excluded.IdentityFileIndex;
+                    IdentityFileIndex = excluded.IdentityFileIndex,
+                    IsAdditionalHardLink = excluded.IsAdditionalHardLink;
                 """;
 
             var pSid = cmd.Parameters.Add("$sid", SqliteType.Integer);
@@ -169,6 +170,7 @@ public sealed class ScanRepository : IScanRepository
             var pNormalized = cmd.Parameters.Add("$normalized", SqliteType.Text);
             var pIdentityVolume = cmd.Parameters.Add("$identityVolume", SqliteType.Text);
             var pIdentityIndex = cmd.Parameters.Add("$identityIndex", SqliteType.Text);
+            var pAdditionalLink = cmd.Parameters.Add("$additionalLink", SqliteType.Integer);
 
             foreach (var e in entries)
             {
@@ -188,6 +190,7 @@ public sealed class ScanRepository : IScanRepository
                 pIdentityIndex.Value = e.Identity is null
                     ? DBNull.Value
                     : e.Identity.FileIndex.ToString(CultureInfo.InvariantCulture);
+                pAdditionalLink.Value = e.IsAdditionalHardLink ? 1 : 0;
                 await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
             }
 
@@ -448,7 +451,10 @@ public sealed class ScanRepository : IScanRepository
         await using var conn = await _db.GetConnectionAsync(ct);
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
-            SELECT Category, COUNT(*) AS FileCount, SUM(SizeBytes) AS TotalBytes
+            SELECT Category,
+                   COUNT(*) AS FileCount,
+                   -- A file with several hard links occupies its size once.
+                   SUM(CASE WHEN IsAdditionalHardLink = 0 THEN SizeBytes ELSE 0 END) AS TotalBytes
             FROM FileEntries
             WHERE SessionId = $sid
             GROUP BY Category;

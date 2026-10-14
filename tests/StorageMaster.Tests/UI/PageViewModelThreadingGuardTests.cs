@@ -87,6 +87,61 @@ public sealed class PageViewModelThreadingGuardTests
     }
 
     /// <summary>
+    /// Recycle Bin mode never deletes permanently on its own. Where a page offers to
+    /// delete what Windows would not recycle, it asks first, lists the items, and only
+    /// a yes leads to the permanent retry.
+    /// </summary>
+    [Theory]
+    [InlineData("DuplicatesViewModel.cs", "private async Task DeleteSelectedAsync()", "BuildPermanentRetryPlan(")]
+    [InlineData("SmartCleanerViewModel.cs", "private async Task CleanAsync()", "DeletionMethod.Permanent")]
+    [InlineData("ResultsViewModel.cs", "private async Task DeleteFileAsync(FileEntry file)", "DeletionMethod.Permanent")]
+    [InlineData("CleanupPage.xaml.cs", "private async Task ShowReportLoopAsync(int navigationGeneration)", "")]
+    public void RecycleBinRefusalsAreDeletedPermanentlyOnlyAfterTheirOwnConfirmation(
+        string fileName,
+        string declaration,
+        string permanentRetry)
+    {
+        var body = MethodBody(fileName, declaration);
+        if (fileName == "CleanupPage.xaml.cs")
+        {
+            // The page delegates the question to a helper; check the helper too.
+            body.Should().Contain("ConfirmPermanentForRecycleBinRefusalsAsync(",
+                "the permanent retry of Recycle Bin refusals must sit behind its own question");
+            body.IndexOf("ConfirmPermanentForRecycleBinRefusalsAsync(", StringComparison.Ordinal)
+                .Should().BeLessThan(
+                    body.IndexOf("RunPermanentForRecycleBinRefusalsAsync(", StringComparison.Ordinal),
+                    "the question comes before the retry");
+            body = MethodBody(fileName, "private async Task<bool> ConfirmPermanentForRecycleBinRefusalsAsync(");
+        }
+
+        body.Should().Contain("ConfirmItemsAsync(",
+            "the refused items are listed in the question");
+        body.Should().Contain("\"Safety_RecycleRefused_Title\"");
+
+        if (fileName != "CleanupPage.xaml.cs")
+        {
+            var question = body.IndexOf("ConfirmItemsAsync(", StringComparison.Ordinal);
+            var retry = body.IndexOf(permanentRetry, question, StringComparison.Ordinal);
+            retry.Should().BeGreaterThan(question, "the permanent retry follows the question");
+            body[question..retry].Should().MatchRegex(@"if \(!?deletePermanently\)",
+                "only the user's yes may lead to the permanent retry");
+        }
+    }
+
+    [Fact]
+    public void TheListedConfirmationDefaultsToNo()
+    {
+        var path = Path.Combine(Directory.GetParent(PagesDirectory)!.FullName, "Infrastructure", "DialogService.cs");
+        var source = File.ReadAllText(path);
+        var start = source.IndexOf("public async Task<bool> ConfirmItemsAsync(", StringComparison.Ordinal);
+        start.Should().BeGreaterThanOrEqualTo(0);
+        var end = source.IndexOf("public async Task ShowErrorAsync(", start, StringComparison.Ordinal);
+
+        source[start..end].Should().Contain("DefaultButton = ContentDialogButton.Close",
+            "Enter must never answer yes to a permanent deletion");
+    }
+
+    /// <summary>
     /// Returns the block body of a method, located by the exact text of its declaration
     /// and delimited by brace matching. The view-model sources contain no brace-escaped
     /// interpolations or character literals in these methods, so counting is reliable.

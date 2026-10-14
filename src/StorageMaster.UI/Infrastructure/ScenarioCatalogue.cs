@@ -76,6 +76,16 @@ public static class ScenarioCatalogue
             BodyKey: "Safety_SendToRecycleBin_Body",
             PrimaryKey: "Safety_SendToRecycleBin",
             BodyArguments: ["rootfs.vhdx", "7,70 GB"]),
+
+        // The second question after a Recycle Bin run: what Windows would not recycle
+        // may be deleted permanently instead. The real dialog lists the items under
+        // the body; the harness shows the wording, which is what needs review.
+        new(
+            Id: "dialog-recyclebin-refused",
+            TitleKey: "Safety_RecycleRefused_Title",
+            BodyKey: "Safety_RecycleRefused_Body",
+            PrimaryKey: "Safety_PermanentDelete",
+            BodyArguments: ["37"]),
     ];
 
     /// <summary>

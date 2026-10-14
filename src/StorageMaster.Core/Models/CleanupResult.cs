@@ -21,4 +21,10 @@ public sealed record CleanupResult
     /// every moved file is preserved in the audit trail for manual recovery.
     /// </summary>
     public IReadOnlyList<QuarantineMove> QuarantinedPaths { get; init; } = [];
+
+    /// <summary>
+    /// Targets Recycle Bin mode left in place because Windows could only have deleted
+    /// them permanently. A subset of <see cref="FailedPaths"/>; each is untouched.
+    /// </summary>
+    public IReadOnlyList<string> RecycleBinRefusedPaths { get; init; } = [];
 }

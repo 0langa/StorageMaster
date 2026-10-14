@@ -251,6 +251,36 @@
             </Grid>
         </Border>
 
+        <!-- What the last deletion left in place, and why. A file that is still
+             listed after a delete must never be a mystery. -->
+        <InfoBar IsOpen="{x:Bind ViewModel.HasNotDeletedItems, Mode=OneWay}"
+                 IsClosable="False"
+                 Severity="Warning"
+                 Title="{x:Bind ViewModel.NotDeletedTitle, Mode=OneWay}"
+                 Message="{i18n:Loc Key=Safety_Duplicates_NotDeleted_Message}">
+            <InfoBar.Content>
+                <ListView ItemsSource="{x:Bind ViewModel.NotDeletedItems}"
+                          SelectionMode="None"
+                          MaxHeight="220"
+                          Margin="0,0,0,12">
+                    <ListView.ItemTemplate>
+                        <DataTemplate x:DataType="local:DuplicateNotDeletedItem">
+                            <StackPanel Spacing="2" Padding="0,4">
+                                <TextBlock Text="{x:Bind Path}"
+                                           Style="{StaticResource PathTextStyle}"
+                                           IsTextSelectionEnabled="True" />
+                                <TextBlock Text="{x:Bind Reason}" TextWrapping="WrapWholeWords" />
+                                <TextBlock Text="{x:Bind Detail}"
+                                           Style="{StaticResource HelperTextStyle}"
+                                           TextWrapping="WrapWholeWords"
+                                           Visibility="{x:Bind HasDetail, Converter={StaticResource BoolVis}}" />
+                            </StackPanel>
+                        </DataTemplate>
+                    </ListView.ItemTemplate>
+                </ListView>
+            </InfoBar.Content>
+        </InfoBar>
+
         <Grid ColumnSpacing="12">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />

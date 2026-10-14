@@ -1,7 +1,6 @@
 using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
-using SixLabors.ImageSharp;
 using StorageMaster.Core.Interfaces;
 using StorageMaster.Core.Models;
 using StorageMaster.Core.Safety;
@@ -9,7 +8,8 @@ using StorageMaster.Core.Safety;
 namespace StorageMaster.UI.Infrastructure;
 
 public sealed class DuplicatePreviewService(
-    ISettingsRepository settingsRepository) : IDuplicatePreviewService
+    ISettingsRepository settingsRepository,
+    IImageHashDecoder imageDecoder) : IDuplicatePreviewService
 {
     public async Task<DuplicatePreviewResult> BuildPreviewAsync(
         DuplicateMethod method,
@@ -41,7 +41,7 @@ public sealed class DuplicatePreviewService(
             }).ToList(),
         };
 
-    private static async Task<DuplicatePreviewResult> BuildImagePreviewAsync(
+    private async Task<DuplicatePreviewResult> BuildImagePreviewAsync(
         IReadOnlyList<DuplicateGroupMember> members,
         CancellationToken ct)
     {
@@ -52,9 +52,15 @@ public sealed class DuplicatePreviewService(
             var subtitle = $"{member.SizeBytes:N0} bytes";
             try
             {
-                var info = await Image.IdentifyAsync(member.FullPath, ct);
-                if (info is not null)
-                    subtitle = $"{info.Width}x{info.Height} • {member.SizeBytes:N0} bytes";
+                await using var stream = new FileStream(
+                    member.FullPath,
+                    FileMode.Open,
+                    FileAccess.Read,
+                    FileShare.ReadWrite | FileShare.Delete,
+                    bufferSize: 4096,
+                    FileOptions.Asynchronous);
+                var info = await imageDecoder.IdentifyAsync(stream, ct);
+                subtitle = $"{info.Width}x{info.Height} • {member.SizeBytes:N0} bytes";
             }
             catch
             {

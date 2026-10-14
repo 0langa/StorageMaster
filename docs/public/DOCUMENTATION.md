@@ -1,9 +1,9 @@
 # StorageMaster — Full Technical Documentation
 
-<!-- schema-version: 15 -->
+<!-- schema-version: 16 -->
 
 > **Version:** 2.2.1 | **Current-state review:** 2026-08-18 | **.NET 8 / WinUI 3 / Windows App SDK 1.6**
-> **Current storage/safety state:** schema v15 uses independent SQLite connection leases, normalized file/folder identity, exact UTC timestamp reads, duplicate recovery journals, nullable stable scan-time file identity, a materialized folder parent path, scan-session ownership with startup recovery, and indexed foreign-key cascade paths. Historical identity-less rows stay readable but require rescan before destructive scan-backed actions. `DatabaseSchema.CurrentVersion` is authoritative for the schema number.
+> **Current storage/safety state:** schema v16 uses independent SQLite connection leases, normalized file/folder identity, exact UTC timestamp reads, duplicate recovery journals, nullable stable scan-time file identity, a materialized folder parent path, scan-session ownership with startup recovery, and indexed foreign-key cascade paths. Historical identity-less rows stay readable but require rescan before destructive scan-backed actions. `DatabaseSchema.CurrentVersion` is authoritative for the schema number.
 
 ---
 

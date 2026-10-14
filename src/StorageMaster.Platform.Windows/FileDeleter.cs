@@ -149,7 +149,12 @@ public sealed class FileDeleter : IFileDeleter
                 if (notRecycled is not null)
                 {
                     _logger.LogWarning("Not moved to the Recycle Bin: {Path} — {Error}", request.Path, notRecycled);
-                    return new DeletionOutcome(requestedPath, false, 0, notRecycled);
+                    return new DeletionOutcome(
+                        requestedPath,
+                        false,
+                        0,
+                        notRecycled,
+                        RecycleBinRefused: string.Equals(notRecycled, RecycleBinUnavailableError, StringComparison.Ordinal));
                 }
             }
             else

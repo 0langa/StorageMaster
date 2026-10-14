@@ -1,9 +1,9 @@
 # StorageMaster — Architecture Overview
 
-<!-- schema-version: 15 -->
+<!-- schema-version: 16 -->
 
 > **Version:** 2.2.1 | **Current-state review:** 2026-08-18 | **Framework:** .NET 8 / WinUI 3 / Windows App SDK 1.6
-> **Current-state note:** StorageMaster uses schema v15, independent pooled SQLite connection leases, persisted scan-time file identity, a managed/Rust scanner boundary, dedicated duplicate recovery, and fail-closed deletion guards. `DatabaseSchema.CurrentVersion` is authoritative for the schema number; a test asserts this document agrees with it. See `RELIABILITY_AUDIT_2026-08-18.md` for verified hardening and remaining limits (that audit is a dated snapshot and describes the schema as of v12).
+> **Current-state note:** StorageMaster uses schema v16, independent pooled SQLite connection leases, persisted scan-time file identity, a managed/Rust scanner boundary, dedicated duplicate recovery, and fail-closed deletion guards. `DatabaseSchema.CurrentVersion` is authoritative for the schema number; a test asserts this document agrees with it. See `RELIABILITY_AUDIT_2026-08-18.md` for verified hardening and remaining limits (that audit is a dated snapshot and describes the schema as of v12).
 
 ---
 
@@ -137,7 +137,7 @@ Pure SQLite persistence:
 | `CleanupLogRepository` | Append-only audit log |
 | `SettingsRepository` | JSON-serialized `AppSettings` as a key-value row |
 
-Schema v8 adds `DuplicateOperationJournal`; v9 adds generic-quarantine restore support; v10 repairs the quarantine-member foreign key; v11 normalizes folder identity and collapses Windows case variants conservatively; v12 persists nullable volume/file identity for scan rows; v13 materializes `FolderEntries.ParentNormalizedPath` plus a `(SessionId, ParentNormalizedPath, TotalSizeBytes DESC)` index so parent/child lookups stop deriving the relationship inside the predicate; v14 adds `ScanSessions.OwnerProcessId` / `OwnerProcessStartedUtc` so a session left `Running` by a crash can be told apart from a live scan; v15 indexes the `FileEntries(Id)` cascade referrers (`DuplicateGroupMembers`, `DuplicateGroups`, `DuplicateErrors`, `DuplicateSignatures`) and adds `DuplicateErrors(RunId, FileEntryId)`.
+Schema v8 adds `DuplicateOperationJournal`; v9 adds generic-quarantine restore support; v10 repairs the quarantine-member foreign key; v11 normalizes folder identity and collapses Windows case variants conservatively; v12 persists nullable volume/file identity for scan rows; v13 materializes `FolderEntries.ParentNormalizedPath` plus a `(SessionId, ParentNormalizedPath, TotalSizeBytes DESC)` index so parent/child lookups stop deriving the relationship inside the predicate; v14 adds `ScanSessions.OwnerProcessId` / `OwnerProcessStartedUtc` so a session left `Running` by a crash can be told apart from a live scan; v15 indexes the `FileEntries(Id)` cascade referrers (`DuplicateGroupMembers`, `DuplicateGroups`, `DuplicateErrors`, `DuplicateSignatures`) and adds `DuplicateErrors(RunId, FileEntryId)`; v16 adds `FileEntries.IsAdditionalHardLink`, set on every name of a hard-linked file after the first the scan reached, so the category breakdown counts the shared data once (folder and session totals already skip it during the scan).
 
 Historical identity-less rows remain readable for analysis but cannot authorize scan-backed deletion until rescanned. Duplicate deletion writes intent before filesystem operations and records final state afterward, so interrupted or partial duplicate operations can be inspected after restart.
 
@@ -384,7 +384,7 @@ SmartCleanerService.CleanAsync(groups, method, progress)
 
 ## 8. Database architecture
 
-### Schema (v15 current)
+### Schema (v16 current)
 
 ```sql
 SchemaVersion     (Version INTEGER, AppliedUtc TEXT)
@@ -399,6 +399,7 @@ FileEntries       (Id PK, SessionId FK→CASCADE, FullPath, FileName, Extension,
                    Attributes, Category, IsReparsePoint,
                    NormalizedFullPath NULL,
                    IdentityVolumeSerial NULL, IdentityFileIndex NULL,
+                   IsAdditionalHardLink,
                    UNIQUE(SessionId, NormalizedFullPath))
 
 FolderEntries     (Id PK, SessionId FK→CASCADE, FullPath, NormalizedFullPath,
